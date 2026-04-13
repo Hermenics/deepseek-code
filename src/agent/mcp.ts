@@ -2,7 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { join } from 'path'
-import type { Tool } from './tools/types.js'
+import type { Tool } from '../tools/types.js'
 
 interface StdioServer {
   transport: 'stdio'
@@ -60,9 +60,10 @@ export async function loadMcpTools(): Promise<Tool[]> {
           parameters: mcpTool.inputSchema as object,
           async execute(args) {
             const result = await client.callTool({ name: mcpTool.name, arguments: args })
-            return result.content
-              .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-              .map((c) => c.text)
+            const content = result.content as { type: string; text?: string }[]
+            return content
+              .filter((c) => c.type === 'text' && c.text)
+              .map((c) => c.text!)
               .join('\n')
           },
         })

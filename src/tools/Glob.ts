@@ -15,7 +15,31 @@ export const Glob: Tool = {
   async execute(args) {
     const files = await fg(args.pattern as string, {
       cwd: (args.cwd as string) || '.',
-      ignore: ['**/node_modules/**', '**/.git/**'],
+      ignore: [
+        '**/node_modules/**',
+        '**/.git/**',
+        '**/dist/**',
+        '**/build/**',
+        '**/target/**',
+        '**/out/**',
+        '**/*.map',
+        '**/*.min.*',
+        '**/.cache/**',
+        '**/__pycache__/**',
+        '**/.ipynb_checkpoints/**',
+        '**/package-lock.json',
+        '**/yarn.lock',
+        '**/pnpm-lock.yaml',
+        '**/*.{mp4,mov,avi,flv}',
+        '**/*.{png,jpg,jpeg,gif,webp,ico,pdf}',
+        '**/*.svg',
+        '**/*.{zip,gz,tar,7z}',
+        '**/*.log',
+        '**/.vscode/**',
+        '**/.idea/**',
+        '**/.env*',
+        '**/.DS_Store',
+      ],
       dot: true,
     })
     return files.slice(0, 500).join('\n') || 'No matches'

@@ -2,9 +2,9 @@
 import React, { useState, useEffect } from 'react'
 import { render, Box, Text } from 'ink'
 import { App } from './ui/App.js'
-import { ApiKeySetup, loadSavedConfig, type ThemeName } from './ui/ApiKeySetup.js'
-import { DeepSeekMascot } from './ui/Mascot.js'
-import { loadAgentConfig, type LoadedAgent } from './agentConfig.js'
+import { ApiKeySetup, loadSavedConfig, type ThemeName } from './ui/setup/ApiKeySetup.js'
+import { DeepSeekMascot } from './ui/layout/Mascot.js'
+import { loadAgentConfig, type LoadedAgent } from './agent/config.js'
 
 // Parse argv:
 //   deepseek                          → {}

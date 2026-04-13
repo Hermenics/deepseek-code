@@ -1,6 +1,6 @@
 import React from 'react'
 import { Text } from 'ink'
-import type { ToolStatus } from './App.js'
+import type { ToolStatus } from '../App.js'
 
 export function ToolUseDisplay({ tool }: { tool: ToolStatus }) {
   if (tool.done) {

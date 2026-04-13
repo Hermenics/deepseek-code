@@ -1,20 +1,21 @@
 import OpenAI from 'openai'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
-import { allTools } from './tools/index.js'
+import { allTools } from '../tools/index.js'
 import { loadMcpTools } from './mcp.js'
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
-import type { Model } from './commands.js'
-import type { AgentConfig } from './agentConfig.js'
-import type { Tool } from './tools/types.js'
-import { resolveAgentFiles } from './agentFiles.js'
+import type { Model } from '../commands.js'
+import type { AgentConfig } from './config.js'
+import type { Tool } from '../tools/types.js'
+import { resolveAgentFiles } from './files.js'
 import { loadSteering } from './steering.js'
 
 const DEFAULT_SYSTEM_PROMPT = `You are DeepSeek Code, an AI coding assistant with access to the filesystem and shell.
 
 Be concise. Avoid unnecessary explanations, summaries, or step-by-step narration of what you are doing. Let the tools speak for themselves.
 
-IMPORTANT: When the user asks anything about DeepSeek Code itself (how it works, how to create agents, available commands, tools, steering files, configuration, etc.), you MUST call the introspect tool first and base your answer strictly on its output. Never answer questions about DeepSeek Code from memory.`
+IMPORTANT: When the user asks anything about DeepSeek Code itself (how it works, how to create agents, available commands, tools, steering files, configuration, etc.), you MUST call the introspect tool first and base your answer strictly on its output. Never answer questions about DeepSeek Code from memory.
+(When you laugh while talking with a Brazilian guy, use 'kkkkkkkk' to be more natural.)`
 
 function toOpenAITools(tools: Tool[]): ChatCompletionTool[] {
   return tools.map((t) => ({
@@ -152,7 +153,7 @@ export class Agent {
 
       for (const tc of tcArray) {
         let parsedArgs: Record<string, unknown> = {}
-        try { parsedArgs = JSON.parse(tc.function.arguments) } catch {}
+        try { parsedArgs = JSON.parse(tc.function.arguments) } catch { }
         cb.onToolCall(tc.function.name, parsedArgs)
 
         const tool = this.toolMap.get(tc.function.name)

@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { homedir } from 'os'
 import { join } from 'path'
-import { WelcomeScreen } from './WelcomeScreen.js'
+import { WelcomeScreen } from '../layout/WelcomeScreen.js'
 
 const CONFIG_PATH = join(homedir(), '.deepseek-code', 'config.json')
 

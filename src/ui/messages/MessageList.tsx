@@ -1,8 +1,8 @@
 import React from 'react'
 import { Box, Text } from 'ink'
-import type { Message } from './App.js'
+import type { Message } from '../App.js'
 import { DiffView } from './DiffView.js'
-import type { ThemeName } from './ApiKeySetup.js'
+import type { ThemeName } from '../setup/ApiKeySetup.js'
 
 export function MessageList({ messages, streamText, theme }: { messages: Message[]; streamText: string; theme: ThemeName }) {
   return (

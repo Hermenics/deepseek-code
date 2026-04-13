@@ -1,6 +1,6 @@
 import { join } from 'path'
 import { homedir } from 'os'
-import type { Model } from './commands.js'
+import type { Model } from '../commands.js'
 
 export interface AgentConfig {
   name: string

@@ -1,6 +1,6 @@
 import React from 'react'
 import { Box, Text } from 'ink'
-import type { ThemeName } from './ApiKeySetup.js'
+import type { ThemeName } from '../setup/ApiKeySetup.js'
 
 const DIFF_COLORS: Record<ThemeName, { added: string; removed: string; addedText: string; removedText: string }> = {
   'dark':             { added: 'rgb(34,92,43)',    removed: 'rgb(122,41,54)',   addedText: 'rgb(56,166,96)',  removedText: 'rgb(179,89,107)' },

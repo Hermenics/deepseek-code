@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Box, Text } from 'ink'
 import { execaCommand } from 'execa'
 import { homedir } from 'os'
-import type { Model } from '../commands.js'
+import type { Model } from '../../commands.js'
 
 async function getGitBranch(): Promise<string> {
   try {
