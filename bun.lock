@@ -15,6 +15,7 @@
         "zod": "^3.23.8"
       },
       "devDependencies": {
+        "@types/bun": "^1.3.12",
         "@types/react": "^18.3.3",
         "typescript": "^5.5.3"
       }
@@ -113,6 +114,16 @@
       "",
       {},
       "sha512-tlqY9xq5ukxTUZBmoOp+m61cqwQD5pHJtFY3Mn8CA8ps6yghLH/Hw8UPdqg4OLmFW3IFlcXnQNmo/dh8HzXYIQ=="
+    ],
+    "@types/bun": [
+      "@types/bun@1.3.12",
+      "",
+      {
+        "dependencies": {
+          "bun-types": "1.3.12"
+        }
+      },
+      "sha512-DBv81elK+/VSwXHDlnH3Qduw+KxkTIWi7TXkAeh24zpi5l0B2kUg9Ga3tb4nJaPcOFswflgi/yAvMVBPrxMB+A=="
     ],
     "@types/node": [
       "@types/node@18.19.130",
@@ -267,6 +278,16 @@
         }
       },
       "sha512-yQbXgO/OSZVD2IsiLlro+7Hf6Q18EJrKSEsdoMzKePKXct3gvD8oLcOQdIzGupr5Fj+EDe8gO/lxc1BzfMpxvA=="
+    ],
+    "bun-types": [
+      "bun-types@1.3.12",
+      "",
+      {
+        "dependencies": {
+          "@types/node": "*"
+        }
+      },
+      "sha512-HqOLj5PoFajAQciOMRiIZGNoKxDJSr6qigAttOX40vJuSp6DN/CxWp9s3C1Xwm4oH7ybueITwiaOcWXoYVoRkA=="
     ],
     "bytes": [
       "bytes@3.1.2",

@@ -109,11 +109,23 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, onTheme
     setIsLoading(true)
     setStreamText('')
 
+    // Buffer tokens and flush every 50ms to avoid excessive re-renders
+    let tokenBuffer = ''
+    const flushInterval = setInterval(() => {
+      if (tokenBuffer) {
+        const buf = tokenBuffer
+        tokenBuffer = ''
+        setStreamText((s) => s + buf)
+      }
+    }, 50)
+
     await agent.run(text, {
       onToken(token) {
-        setStreamText((s) => s + token)
+        tokenBuffer += token
       },
       onToolCall(name, args) {
+        clearInterval(flushInterval)
+        if (tokenBuffer) { setStreamText((s) => s + tokenBuffer); tokenBuffer = '' }
         setToolCallCount((c) => c + 1)
         setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
         // Flush any streamed text before the tool call so order is preserved
@@ -132,6 +144,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, onTheme
         setMessages((m) => [...m, { role: 'tool', content: `✓ ${name}${display ? ` → ${display}` : ''}` }])
       },
       onDone() {
+        clearInterval(flushInterval)
+        if (tokenBuffer) { setStreamText((s) => s + tokenBuffer); tokenBuffer = '' }
         setToolStatus(null)
         setStreamText((s) => {
           if (s) setMessages((m) => [...m, { role: 'assistant', content: s }])

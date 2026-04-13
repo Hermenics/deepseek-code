@@ -64,9 +64,9 @@ export function ThemeSelector({ currentTheme, onSelect, onCancel }: Props) {
           </Box>
         ))}
       </Box>
-      <Text dimColor marginTop={1}>{'─'.repeat(60)}</Text>
+      <Box marginTop={1}><Text dimColor>{'─'.repeat(60)}</Text></Box>
       <Text dimColor>ESC to cancel · ↑↓ to navigate</Text>
-      <Text dimColor marginTop={1}>{'─'.repeat(60)}</Text>
+      <Box marginTop={1}><Text dimColor>{'─'.repeat(60)}</Text></Box>
       <Box flexDirection="column" marginTop={1}>
         <Text dimColor>Preview</Text>
         <Box marginTop={1} flexDirection="column">
