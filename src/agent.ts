@@ -68,7 +68,8 @@ export class Agent {
   }
 
   async run(userMessage: string, cb: AgentCallbacks) {
-    this.messages.push({ role: 'user', content: userMessage })
+    const now = new Date().toLocaleString()
+    this.messages.push({ role: 'user', content: `[${now}]\n${userMessage}` })
     await this.loop(cb)
   }
 
