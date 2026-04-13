@@ -87,8 +87,38 @@ bun run start agent rust-expert "explain ownership" # agent + initial message
 API key and theme are saved to \`~/.deepseek-code/config.json\` after first setup.
 Can also be set via environment variable: \`DEEPSEEK_API_KEY=sk-... bun run start\`
 
+## MCP Servers
+DeepSeek Code supports MCP (Model Context Protocol) servers. Tools from MCP servers are merged with native tools and available to the agent automatically.
+
+### Configuration
+Create \`.deepseek/mcp.json\` in the project directory:
+
+\`\`\`json
+{
+  "servers": {
+    "filesystem": {
+      "transport": "stdio",
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
+    },
+    "my-api": {
+      "transport": "http",
+      "url": "http://localhost:3000/mcp"
+    }
+  }
+}
+\`\`\`
+
+### Transports
+- \`stdio\` — spawns a local process (command + args + optional env)
+- \`http\` — connects to a remote MCP server via Streamable HTTP
+
+### Tool naming
+MCP tools are prefixed with the server name: \`serverName__toolName\`
+
 ## Themes
 Available themes: \`dark\`, \`light\`, \`dark-daltonized\`, \`light-daltonized\`, \`dark-ansi\`, \`light-ansi\`
+
 `.trim()
 
 export const Introspect: Tool = {

@@ -9,29 +9,49 @@ export function MessageList({ messages, streamText, theme }: { messages: Message
     <Box flexDirection="column" marginBottom={1}>
       {messages.map((m, i) => {
         if (m.role === 'user') {
-          return <Text key={i} color="cyan">{`> ${m.content}`}</Text>
+          return (
+            <Box key={i} flexDirection="column" marginTop={1}>
+              <Text dimColor>{'─'.repeat(60)}</Text>
+              <Text>{m.content}</Text>
+            </Box>
+          )
         }
         if (m.role === 'tool') {
-          // Check if it's a diff result from write_file
           if (m.content.startsWith('✓ write_file →')) {
             try {
               const json = JSON.parse(m.content.slice('✓ write_file → '.length))
               if (json.__diff) {
-                return <DiffView key={i} path={json.path} added={json.added} removed={json.removed} lines={json.lines} theme={theme} />
+                return <DiffView key={i} path={json.path} added={json.added} removed={json.removed} firstChanged={json.firstChanged} lines={json.lines} theme={theme} />
               }
-            } catch { /* not JSON, render normally */ }
+            } catch { /* not JSON */ }
           }
           const isDone = m.content.startsWith('✓')
           const isRunning = m.content.startsWith('⚙')
           return (
-            <Text key={i} color={isDone ? 'green' : isRunning ? 'yellow' : undefined} dimColor={!isDone && !isRunning}>
-              {m.content}
-            </Text>
+            <Box key={i} gap={1}>
+              <Text color={isDone ? 'green' : isRunning ? 'yellow' : 'gray'}>{'●'}</Text>
+              <Text color={isDone ? 'green' : isRunning ? 'yellow' : undefined} dimColor={!isDone && !isRunning}>
+                {m.content}
+              </Text>
+            </Box>
           )
         }
-        return <Text key={i}>{m.content}</Text>
+        // assistant
+        return (
+          <Box key={i} gap={1} marginTop={1}>
+            <Box borderStyle="single" borderLeft borderRight={false} borderTop={false} borderBottom={false} borderColor="cyan" paddingLeft={1}>
+              <Text>{m.content}</Text>
+            </Box>
+          </Box>
+        )
       })}
-      {streamText ? <Text>{streamText}</Text> : null}
+      {streamText ? (
+        <Box gap={1} marginTop={1}>
+          <Box borderStyle="single" borderLeft borderRight={false} borderTop={false} borderBottom={false} borderColor="cyan" paddingLeft={1}>
+            <Text>{streamText}</Text>
+          </Box>
+        </Box>
+      ) : null}
     </Box>
   )
 }

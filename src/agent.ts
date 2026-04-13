@@ -1,10 +1,12 @@
 import OpenAI from 'openai'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
-import { allTools, toolMap } from './tools/index.js'
+import { allTools } from './tools/index.js'
+import { loadMcpTools } from './mcp.js'
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
 import type { Model } from './commands.js'
 import type { AgentConfig } from './agentConfig.js'
+import type { Tool } from './tools/types.js'
 import { resolveAgentFiles } from './agentFiles.js'
 import { loadSteering } from './steering.js'
 
@@ -14,10 +16,12 @@ Be concise. Avoid unnecessary explanations, summaries, or step-by-step narration
 
 IMPORTANT: When the user asks anything about DeepSeek Code itself (how it works, how to create agents, available commands, tools, steering files, configuration, etc.), you MUST call the introspect tool first and base your answer strictly on its output. Never answer questions about DeepSeek Code from memory.`
 
-const openaiTools: ChatCompletionTool[] = allTools.map((t) => ({
-  type: 'function' as const,
-  function: { name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown> },
-}))
+function toOpenAITools(tools: Tool[]): ChatCompletionTool[] {
+  return tools.map((t) => ({
+    type: 'function' as const,
+    function: { name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown> },
+  }))
+}
 
 export interface AgentCallbacks {
   onToken(text: string): void
@@ -30,6 +34,9 @@ export class Agent {
   private client: OpenAI
   private messages: ChatCompletionMessageParam[] = [{ role: 'system', content: DEFAULT_SYSTEM_PROMPT }]
   private systemPrompt = DEFAULT_SYSTEM_PROMPT
+  private tools: Tool[] = allTools
+  private toolMap: Map<string, Tool> = new Map(allTools.map((t) => [t.name, t]))
+  private openaiTools: ChatCompletionTool[] = toOpenAITools(allTools)
   public tokenCount = 0
   public model: Model = 'deepseek-chat'
   public activeAgent: string | null = null
@@ -39,17 +46,23 @@ export class Agent {
       apiKey: process.env.DEEPSEEK_API_KEY,
       baseURL: 'https://api.deepseek.com',
     })
-    // Load steering files and DEEPSEEK.md asynchronously and update system prompt
-    loadSteering().then(async (steering) => {
+    // Load steering files, DEEPSEEK.md and MCP tools asynchronously
+    Promise.all([
+      loadSteering(),
+      readFile(join(process.cwd(), 'DEEPSEEK.md'), 'utf-8').catch(() => ''),
+      loadMcpTools(),
+    ]).then(([steering, deepseekMd, mcpTools]) => {
       const parts: string[] = []
       if (steering) parts.push(steering)
-      try {
-        const md = await readFile(join(process.cwd(), 'DEEPSEEK.md'), 'utf-8')
-        parts.push(`--- DEEPSEEK.md ---\n${md.trim()}`)
-      } catch { /* file doesn't exist */ }
+      if (deepseekMd) parts.push(`--- DEEPSEEK.md ---\n${deepseekMd.trim()}`)
       if (parts.length) {
         this.systemPrompt = `${DEFAULT_SYSTEM_PROMPT}\n\n${parts.join('\n\n')}`
         this.clearHistory()
+      }
+      if (mcpTools.length) {
+        this.tools = [...allTools, ...mcpTools]
+        this.toolMap = new Map(this.tools.map((t) => [t.name, t]))
+        this.openaiTools = toOpenAITools(this.tools)
       }
     })
   }
@@ -90,7 +103,7 @@ export class Agent {
       const stream = await this.client.chat.completions.create({
         model: this.model,
         messages: this.messages,
-        tools: openaiTools,
+        tools: this.openaiTools,
         stream: true,
       })
 
@@ -142,7 +155,7 @@ export class Agent {
         try { parsedArgs = JSON.parse(tc.function.arguments) } catch {}
         cb.onToolCall(tc.function.name, parsedArgs)
 
-        const tool = toolMap.get(tc.function.name)
+        const tool = this.toolMap.get(tc.function.name)
         let result: string
         if (tool) {
           try { result = await tool.execute(parsedArgs) } catch (e: unknown) {

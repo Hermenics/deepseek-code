@@ -69,7 +69,7 @@ function Root() {
           <Text dimColor>Type your message and press Enter. /quit or Esc to exit.</Text>
         </Box>
       </Box>
-      <App initialAgent={initialAgent} initialMessage={initialMessage} theme={theme} />
+      <App initialAgent={initialAgent} initialMessage={initialMessage} theme={theme} onThemeChange={setTheme} />
     </Box>
   )
 }

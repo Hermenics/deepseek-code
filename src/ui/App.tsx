@@ -5,6 +5,7 @@ import { MessageList } from './MessageList.js'
 import { ToolUseDisplay } from './ToolUseDisplay.js'
 import { InputBox } from './InputBox.js'
 import { StatusBar } from './StatusBar.js'
+import { ThemeSelector } from './ThemeSelector.js'
 import { parseCommand, HELP_TEXT } from '../commands.js'
 import { loadAgentConfig, listAgents, type LoadedAgent } from '../agentConfig.js'
 import type { ThemeName } from './ApiKeySetup.js'
@@ -21,7 +22,7 @@ export interface ToolStatus {
   result?: string
 }
 
-export function App({ initialAgent, initialMessage, theme }: { initialAgent?: LoadedAgent | null; initialMessage?: string | null; theme: ThemeName }) {
+export function App({ initialAgent, initialMessage, theme: initialTheme, onThemeChange }: { initialAgent?: LoadedAgent | null; initialMessage?: string | null; theme: ThemeName; onThemeChange?: (t: ThemeName) => void }) {
   const { exit } = useApp()
   const [messages, setMessages] = useState<Message[]>([])
   const [streamText, setStreamText] = useState('')
@@ -31,6 +32,8 @@ export function App({ initialAgent, initialMessage, theme }: { initialAgent?: Lo
   const [activeAgent, setActiveAgent] = useState<string | null>(null)
   const [toolCallCount, setToolCallCount] = useState(0)
   const [agent] = useState(() => new Agent())
+  const [theme, setTheme] = useState<ThemeName>(initialTheme)
+  const [showThemeSelector, setShowThemeSelector] = useState(false)
 
   useEffect(() => {
     const init = async () => {
@@ -96,6 +99,9 @@ export function App({ initialAgent, initialMessage, theme }: { initialAgent?: Lo
         case 'unknown':
           setMessages((m) => [...m, { role: 'assistant', content: cmd.input }])
           return
+        case 'theme':
+          setShowThemeSelector(true)
+          return
       }
     }
 
@@ -122,8 +128,8 @@ export function App({ initialAgent, initialMessage, theme }: { initialAgent?: Lo
         const label = args?.path ?? args?.pattern ?? args?.command ?? ''
         const display = name === 'write_file'
           ? result  // needs full JSON for diff rendering
-          : label ? String(label) : result.slice(0, 100)
-        setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${display}` }])
+          : label ? String(label) : ''
+        setMessages((m) => [...m, { role: 'tool', content: `✓ ${name}${display ? ` → ${display}` : ''}` }])
       },
       onDone() {
         setToolStatus(null)
@@ -141,7 +147,10 @@ export function App({ initialAgent, initialMessage, theme }: { initialAgent?: Lo
     <Box flexDirection="column" width="100%">
       <MessageList messages={messages} streamText={streamText} theme={theme} />
       {toolStatus && <ToolUseDisplay tool={toolStatus} />}
-      <InputBox onSubmit={handleSubmit} isLoading={isLoading} toolCallCount={toolCallCount} />
+      {showThemeSelector
+        ? <ThemeSelector currentTheme={theme} onSelect={(t) => { setTheme(t); onThemeChange?.(t); setShowThemeSelector(false) }} onCancel={() => setShowThemeSelector(false)} />
+        : <InputBox onSubmit={handleSubmit} isLoading={isLoading} toolCallCount={toolCallCount} />
+      }
       <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} />
     </Box>
   )

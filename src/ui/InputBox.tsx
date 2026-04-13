@@ -81,6 +81,7 @@ function getMatches(value: string): string[] {
 
 export function InputBox({ onSubmit, isLoading, toolCallCount }: { onSubmit: (text: string) => void; isLoading: boolean; toolCallCount: number }) {
   const [value, setValue] = useState('')
+  const [pastedBlock, setPastedBlock] = useState<string | null>(null)
   const [selectedIdx, setSelectedIdx] = useState(0)
 
   const matches = getMatches(value)
@@ -101,21 +102,53 @@ export function InputBox({ onSubmit, isLoading, toolCallCount }: { onSubmit: (te
       }
       if (key.escape) { setValue(''); setSelectedIdx(0); return }
     } else {
-      if (key.return) { onSubmit(value); setValue(''); return }
-      if (key.escape) { setValue(''); return }
+      if (key.return) {
+        const full = pastedBlock ? `${pastedBlock}\n${value}` : value
+        onSubmit(full)
+        setValue('')
+        setPastedBlock(null)
+        return
+      }
+      if (key.escape) { setValue(''); setPastedBlock(null); return }
     }
 
-    if (key.backspace || key.delete) { setValue((v) => v.slice(0, -1)); setSelectedIdx(0); return }
-    if (input && !key.ctrl && !key.meta) { setValue((v) => v + input); setSelectedIdx(0) }
+    if (key.backspace || key.delete) {
+      if (value.length > 0) { setValue((v) => v.slice(0, -1)); setSelectedIdx(0) }
+      else if (pastedBlock) { setPastedBlock(null) }
+      return
+    }
+    if (input && !key.ctrl && !key.meta) {
+      // Detect paste: multiple lines added at once
+      if (input.includes('\n')) {
+        const lines = input.split('\n')
+        if (lines.length > 5) {
+          setPastedBlock((pastedBlock ?? '') + input)
+          setSelectedIdx(0)
+          return
+        }
+      }
+      setValue((v) => v + input)
+      setSelectedIdx(0)
+    }
   })
 
   return (
     <Box flexDirection="column">
-      {isLoading ? <LoadingSpinner toolCallCount={toolCallCount} /> : (
+      {isLoading ? (
+        <Box gap={1}>
+          <LoadingSpinner toolCallCount={toolCallCount} />
+          <Text dimColor> · type to queue a message</Text>
+        </Box>
+      ) : (
         <Box>
-          <Text color="green">{`> `}</Text>
-          <Text>{value}</Text>
-          <Text color="gray">█</Text>
+          {pastedBlock && (
+            <Box marginRight={1} paddingX={1} borderStyle="round" borderColor="gray">
+              <Text dimColor>{pastedBlock.split('\n').length} lines</Text>
+            </Box>
+          )}
+          {value
+            ? <><Text>{value}</Text><Text color="white">█</Text></>
+            : <><Text color="white">█</Text><Text dimColor>ask a question or describe a task ↵</Text></>}
         </Box>
       )}
       {showDropdown && (

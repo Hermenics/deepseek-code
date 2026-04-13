@@ -2,10 +2,9 @@ import { Tool } from './types.js'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 
-type DiffLine = { type: 'added' | 'removed' | 'context'; text: string }
+type DiffLine = { type: 'added' | 'removed' | 'context'; text: string; lineNo: number }
 
 function computeDiff(oldLines: string[], newLines: string[]): DiffLine[] {
-  // Simple LCS-based diff
   const m = oldLines.length, n = newLines.length
   const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
   for (let i = m - 1; i >= 0; i--)
@@ -16,11 +15,11 @@ function computeDiff(oldLines: string[], newLines: string[]): DiffLine[] {
   let i = 0, j = 0
   while (i < m || j < n) {
     if (i < m && j < n && oldLines[i] === newLines[j]) {
-      result.push({ type: 'context', text: ` ${oldLines[i]}` }); i++; j++
+      result.push({ type: 'context', text: ` ${oldLines[i]}`, lineNo: j + 1 }); i++; j++
     } else if (j < n && (i >= m || dp[i]![j + 1]! >= dp[i + 1]![j]!)) {
-      result.push({ type: 'added', text: `+${newLines[j]}` }); j++
+      result.push({ type: 'added', text: `+${newLines[j]}`, lineNo: j + 1 }); j++
     } else {
-      result.push({ type: 'removed', text: `-${oldLines[i]}` }); i++
+      result.push({ type: 'removed', text: `-${oldLines[i]}`, lineNo: i + 1 }); i++
     }
   }
   return result
@@ -50,13 +49,8 @@ export const WriteFile: Tool = {
     const diff = computeDiff(oldContent.split('\n'), content.split('\n'))
     const added = diff.filter((l) => l.type === 'added').length
     const removed = diff.filter((l) => l.type === 'removed').length
+    const firstChanged = diff.find((l) => l.type !== 'context')?.lineNo ?? 1
 
-    return JSON.stringify({
-      __diff: true,
-      path: filePath,
-      added,
-      removed,
-      lines: diff,
-    })
+    return JSON.stringify({ __diff: true, path: filePath, added, removed, firstChanged, lines: diff })
   },
 }

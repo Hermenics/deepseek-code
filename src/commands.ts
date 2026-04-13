@@ -7,6 +7,7 @@ export type CommandResult =
   | { type: 'help' }
   | { type: 'agent'; name: string }
   | { type: 'agents' }
+  | { type: 'theme' }
   | { type: 'unknown'; input: string }
 
 const MODELS: Model[] = ['deepseek-chat', 'deepseek-reasoner']
@@ -23,6 +24,7 @@ export function parseCommand(input: string): CommandResult | null {
     case 'clear': return { type: 'clear' }
     case 'help': return { type: 'help' }
     case 'agents': return { type: 'agents' }
+    case 'theme': return { type: 'theme' }
     case 'agent': {
       const name = args[0]
       if (name) return { type: 'agent', name }
@@ -44,6 +46,7 @@ export const COMMAND_SUGGESTIONS = [
   '/help',
   '/agent',
   '/agents',
+  '/theme',
   '/model deepseek-chat',
   '/model deepseek-reasoner',
 ]
@@ -52,5 +55,6 @@ export const HELP_TEXT = `Commands:
   /agent <name>                              load a custom agent
   /agents                                    list available agents
   /model <deepseek-chat|deepseek-reasoner>  switch model
+  /theme                                     change color theme
   /clear                                     clear chat history
   /quit  /q                                  exit`
