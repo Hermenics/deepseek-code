@@ -2,9 +2,17 @@
   "name": "deepseek-code",
   "version": "0.1.0",
   "type": "module",
-  "scripts": {
-    "start": "bun src/index.tsx"
+  "bin": {
+    "deepseek": "./dist/cli.mjs"
   },
+  "scripts": {
+    "start": "bun src/index.tsx",
+    "build": "bun build src/index.tsx --outfile dist/cli.mjs --target node --minify --external react-devtools-core",
+    "prepublishOnly": "bun run build"
+  },
+  "files": [
+    "dist"
+  ],
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "chalk": "^5.3.0",

@@ -77,10 +77,10 @@ If a \`DEEPSEEK.md\` file exists in the current working directory, its contents 
 
 ## CLI Usage
 \`\`\`bash
-bun run start                                    # interactive mode
-bun run start "explain closures"                 # with initial message
-bun run start agent rust-expert                  # with custom agent
-bun run start agent rust-expert "explain ownership" # agent + initial message
+deepseek                                    # interactive mode
+deepseek "explain closures"                 # with initial message
+deepseek agent rust-expert                  # with custom agent
+deepseek agent rust-expert "explain ownership" # agent + initial message
 \`\`\`
 
 ## Configuration

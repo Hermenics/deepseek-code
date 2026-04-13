@@ -37,6 +37,12 @@
 ### Installation
 
 ```bash
+npm install -g deepseek-code
+```
+
+Or run from source:
+
+```bash
 # Clone the repository
 git clone https://github.com/your-username/deepseek-code.git
 cd deepseek-code
@@ -56,16 +62,16 @@ On first run, DeepSeek Code will ask for your API key and preferred theme. Every
 
 ```bash
 # Interactive mode
-bun run start
+deepseek
 
 # With an initial message
-bun run start "explain what a closure is in JavaScript"
+deepseek "explain what a closure is in JavaScript"
 
 # With a custom agent
-bun run start agent rust-expert
+deepseek agent rust-expert
 
 # With a custom agent and initial message
-bun run start agent rust-expert "how does the borrow checker work?"
+deepseek agent rust-expert "how does the borrow checker work?"
 ```
 
 ---
