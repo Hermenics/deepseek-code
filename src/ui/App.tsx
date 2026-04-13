@@ -7,6 +7,7 @@ import { InputBox } from './InputBox.js'
 import { StatusBar } from './StatusBar.js'
 import { parseCommand, HELP_TEXT } from '../commands.js'
 import { loadAgentConfig, listAgents, type LoadedAgent } from '../agentConfig.js'
+import type { ThemeName } from './ApiKeySetup.js'
 
 export interface Message {
   role: 'user' | 'assistant' | 'tool'
@@ -20,7 +21,7 @@ export interface ToolStatus {
   result?: string
 }
 
-export function App({ initialAgent, initialMessage }: { initialAgent?: LoadedAgent | null; initialMessage?: string | null }) {
+export function App({ initialAgent, initialMessage, theme }: { initialAgent?: LoadedAgent | null; initialMessage?: string | null; theme: ThemeName }) {
   const { exit } = useApp()
   const [messages, setMessages] = useState<Message[]>([])
   const [streamText, setStreamText] = useState('')
@@ -28,6 +29,7 @@ export function App({ initialAgent, initialMessage }: { initialAgent?: LoadedAge
   const [toolStatus, setToolStatus] = useState<ToolStatus | null>(null)
   const [tokenCount, setTokenCount] = useState(0)
   const [activeAgent, setActiveAgent] = useState<string | null>(null)
+  const [toolCallCount, setToolCallCount] = useState(0)
   const [agent] = useState(() => new Agent())
 
   useEffect(() => {
@@ -106,10 +108,22 @@ export function App({ initialAgent, initialMessage }: { initialAgent?: LoadedAge
         setStreamText((s) => s + token)
       },
       onToolCall(name, args) {
+        setToolCallCount((c) => c + 1)
         setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
+        // Flush any streamed text before the tool call so order is preserved
+        setStreamText((s) => {
+          if (s) setMessages((m) => [...m, { role: 'assistant', content: s }])
+          return ''
+        })
       },
-      onToolResult(name, result) {
-        setToolStatus({ name, args: '', done: true, result: result.slice(0, 200) })
+      onToolResult(name, result, args) {
+        setToolStatus(null)
+        // Show meaningful label instead of result content
+        const label = args?.path ?? args?.pattern ?? args?.command ?? ''
+        const display = name === 'write_file'
+          ? result  // needs full JSON for diff rendering
+          : label ? String(label) : result.slice(0, 100)
+        setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${display}` }])
       },
       onDone() {
         setToolStatus(null)
@@ -125,9 +139,9 @@ export function App({ initialAgent, initialMessage }: { initialAgent?: LoadedAge
 
   return (
     <Box flexDirection="column" width="100%">
-      <MessageList messages={messages} streamText={streamText} />
+      <MessageList messages={messages} streamText={streamText} theme={theme} />
       {toolStatus && <ToolUseDisplay tool={toolStatus} />}
-      <InputBox onSubmit={handleSubmit} isLoading={isLoading} />
+      <InputBox onSubmit={handleSubmit} isLoading={isLoading} toolCallCount={toolCallCount} />
       <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} />
     </Box>
   )

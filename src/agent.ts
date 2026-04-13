@@ -1,4 +1,6 @@
 import OpenAI from 'openai'
+import { readFile } from 'fs/promises'
+import { join } from 'path'
 import { allTools, toolMap } from './tools/index.js'
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
 import type { Model } from './commands.js'
@@ -6,7 +8,11 @@ import type { AgentConfig } from './agentConfig.js'
 import { resolveAgentFiles } from './agentFiles.js'
 import { loadSteering } from './steering.js'
 
-const DEFAULT_SYSTEM_PROMPT = 'You are DeepSeek Code, an AI coding assistant with access to the filesystem and shell.'
+const DEFAULT_SYSTEM_PROMPT = `You are DeepSeek Code, an AI coding assistant with access to the filesystem and shell.
+
+Be concise. Avoid unnecessary explanations, summaries, or step-by-step narration of what you are doing. Let the tools speak for themselves.
+
+IMPORTANT: When the user asks anything about DeepSeek Code itself (how it works, how to create agents, available commands, tools, steering files, configuration, etc.), you MUST call the introspect tool first and base your answer strictly on its output. Never answer questions about DeepSeek Code from memory.`
 
 const openaiTools: ChatCompletionTool[] = allTools.map((t) => ({
   type: 'function' as const,
@@ -16,7 +22,7 @@ const openaiTools: ChatCompletionTool[] = allTools.map((t) => ({
 export interface AgentCallbacks {
   onToken(text: string): void
   onToolCall(name: string, args: object): void
-  onToolResult(name: string, result: string): void
+  onToolResult(name: string, result: string, args: Record<string, unknown>): void
   onDone(): void
 }
 
@@ -33,10 +39,16 @@ export class Agent {
       apiKey: process.env.DEEPSEEK_API_KEY,
       baseURL: 'https://api.deepseek.com',
     })
-    // Load steering files asynchronously and update system prompt
-    loadSteering().then((steering) => {
-      if (steering) {
-        this.systemPrompt = `${DEFAULT_SYSTEM_PROMPT}\n\n${steering}`
+    // Load steering files and DEEPSEEK.md asynchronously and update system prompt
+    loadSteering().then(async (steering) => {
+      const parts: string[] = []
+      if (steering) parts.push(steering)
+      try {
+        const md = await readFile(join(process.cwd(), 'DEEPSEEK.md'), 'utf-8')
+        parts.push(`--- DEEPSEEK.md ---\n${md.trim()}`)
+      } catch { /* file doesn't exist */ }
+      if (parts.length) {
+        this.systemPrompt = `${DEFAULT_SYSTEM_PROMPT}\n\n${parts.join('\n\n')}`
         this.clearHistory()
       }
     })
@@ -140,7 +152,7 @@ export class Agent {
           result = `Unknown tool: ${tc.function.name}`
         }
 
-        cb.onToolResult(tc.function.name, result)
+        cb.onToolResult(tc.function.name, result, parsedArgs)
         this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
       }
     }

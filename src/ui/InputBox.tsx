@@ -53,9 +53,13 @@ const LOADING_MSGS = [
   'Tentando dar console.log no vazio...'
 ]
 
-function LoadingSpinner() {
+function LoadingSpinner({ toolCallCount }: { toolCallCount: number }) {
   const [frame, setFrame] = useState(0)
-  const [msgIdx] = useState(() => Math.floor(Math.random() * LOADING_MSGS.length))
+  const [msgIdx, setMsgIdx] = useState(() => Math.floor(Math.random() * LOADING_MSGS.length))
+
+  useEffect(() => {
+    setMsgIdx(Math.floor(Math.random() * LOADING_MSGS.length))
+  }, [toolCallCount])
 
   useEffect(() => {
     const t = setInterval(() => setFrame((f) => (f + 1) % SPINNER.length), 80)
@@ -75,7 +79,7 @@ function getMatches(value: string): string[] {
   return COMMAND_SUGGESTIONS.filter((s) => s.startsWith(value) && s !== value)
 }
 
-export function InputBox({ onSubmit, isLoading }: { onSubmit: (text: string) => void; isLoading: boolean }) {
+export function InputBox({ onSubmit, isLoading, toolCallCount }: { onSubmit: (text: string) => void; isLoading: boolean; toolCallCount: number }) {
   const [value, setValue] = useState('')
   const [selectedIdx, setSelectedIdx] = useState(0)
 
@@ -107,7 +111,7 @@ export function InputBox({ onSubmit, isLoading }: { onSubmit: (text: string) => 
 
   return (
     <Box flexDirection="column">
-      {isLoading ? <LoadingSpinner /> : (
+      {isLoading ? <LoadingSpinner toolCallCount={toolCallCount} /> : (
         <Box>
           <Text color="green">{`> `}</Text>
           <Text>{value}</Text>
