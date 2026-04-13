@@ -5,3 +5,5 @@ node_modules/
 .claude
 .codex
 kiro.json
+DEEPSEEK.md
+.deepseek/

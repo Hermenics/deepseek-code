@@ -1,6 +1,0 @@
-{
-  "name": "test",
-  "model": "deepseek-chat",
-  "systemPrompt": "You are a test agent for DeepSeek Code.",
-  "files": []
-}
