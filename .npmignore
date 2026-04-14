@@ -10,3 +10,5 @@ bunfig.toml
 tsconfig.json
 TODO.md
 bun.lock
+CLAUDE.md
+.claude/
