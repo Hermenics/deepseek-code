@@ -2,11 +2,35 @@ import React, { useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { homedir } from 'os'
 import { join } from 'path'
+import { mkdir } from 'fs/promises'
+import { readJson, writeRaw } from '../../utils/fs.js'
 import { WelcomeScreen } from '../layout/WelcomeScreen.js'
 
 const CONFIG_PATH = join(homedir(), '.deepseek-code', 'config.json')
 
 export type ThemeName = 'dark' | 'light' | 'dark-daltonized' | 'light-daltonized' | 'dark-ansi' | 'light-ansi'
+
+export type ProviderName = 'deepseek' | 'bedrock' | 'vertex'
+
+export interface ProviderConfig {
+  provider: ProviderName
+  // deepseek
+  apiKey?: string
+  // bedrock
+  awsRegion?: string
+  awsAccessKeyId?: string
+  awsSecretAccessKey?: string
+  // vertex
+  gcpProject?: string
+  gcpLocation?: string
+  gcpCredentials?: string // path to service account JSON
+}
+
+export const PROVIDERS: { label: string; value: ProviderName; hint: string }[] = [
+  { value: 'deepseek', label: 'DeepSeek API',     hint: 'platform.deepseek.com/api_keys' },
+  { value: 'bedrock',  label: 'Amazon Bedrock',   hint: 'AWS credentials (access key + secret)' },
+  { value: 'vertex',   label: 'Google Vertex AI', hint: 'GCP project + service account JSON' },
+]
 
 const THEMES: { label: string; value: ThemeName }[] = [
   { label: 'Dark mode', value: 'dark' },
@@ -52,62 +76,134 @@ function DiffPreview({ theme }: { theme: ThemeName }) {
   )
 }
 
-async function saveConfig(data: Record<string, string>): Promise<void> {
+export async function saveConfig(data: Record<string, string>): Promise<void> {
   const dir = join(homedir(), '.deepseek-code')
-  await Bun.write(join(dir, '.gitkeep'), '')
-  const existing = await Bun.file(CONFIG_PATH).json().catch(() => ({}))
-  await Bun.write(CONFIG_PATH, JSON.stringify({ ...existing, ...data }, null, 2))
+  await mkdir(dir, { recursive: true })
+  const existing = await readJson<Record<string, string>>(CONFIG_PATH).catch(() => ({}))
+  await writeRaw(CONFIG_PATH, JSON.stringify({ ...existing, ...data }, null, 2))
 }
 
-export async function loadSavedConfig(): Promise<{ apiKey: string | null; theme: ThemeName }> {
+export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfig | null; theme: ThemeName }> {
   try {
-    const cfg = await Bun.file(CONFIG_PATH).json()
-    return { apiKey: cfg.DEEPSEEK_API_KEY ?? null, theme: cfg.THEME ?? 'dark' }
+    const cfg = await readJson<Record<string, string>>(CONFIG_PATH)
+    const provider = (cfg.PROVIDER ?? 'deepseek') as ProviderName
+    const providerConfig: ProviderConfig = { provider }
+    if (provider === 'deepseek' && cfg.DEEPSEEK_API_KEY) providerConfig.apiKey = cfg.DEEPSEEK_API_KEY
+    if (provider === 'bedrock') {
+      providerConfig.awsRegion = cfg.AWS_REGION
+      providerConfig.awsAccessKeyId = cfg.AWS_ACCESS_KEY_ID
+      providerConfig.awsSecretAccessKey = cfg.AWS_SECRET_ACCESS_KEY
+    }
+    if (provider === 'vertex') {
+      providerConfig.gcpProject = cfg.GCP_PROJECT
+      providerConfig.gcpLocation = cfg.GCP_LOCATION
+      providerConfig.gcpCredentials = cfg.GCP_CREDENTIALS
+    }
+    const isReady =
+      (provider === 'deepseek' && !!providerConfig.apiKey) ||
+      (provider === 'bedrock' && !!providerConfig.awsRegion) ||
+      (provider === 'vertex' && !!providerConfig.gcpProject)
+    return { providerConfig: isReady ? providerConfig : null, theme: (cfg.THEME ?? 'dark') as ThemeName }
   } catch {
-    return { apiKey: null, theme: 'dark' }
+    return { providerConfig: null, theme: 'dark' }
   }
 }
 
-type Step = 'theme' | 'apikey' | 'done'
+// Fields per provider, in order
+const PROVIDER_FIELDS: Record<ProviderName, { key: string; label: string; hint: string; secret?: boolean }[]> = {
+  deepseek: [
+    { key: 'DEEPSEEK_API_KEY', label: 'DeepSeek API Key', hint: 'platform.deepseek.com/api_keys', secret: true },
+  ],
+  bedrock: [
+    { key: 'AWS_REGION',            label: 'AWS Region',            hint: 'e.g. us-east-1' },
+    { key: 'AWS_ACCESS_KEY_ID',     label: 'AWS Access Key ID',     hint: 'IAM user with Bedrock access' },
+    { key: 'AWS_SECRET_ACCESS_KEY', label: 'AWS Secret Access Key', hint: '', secret: true },
+  ],
+  vertex: [
+    { key: 'GCP_PROJECT',     label: 'GCP Project ID', hint: 'your-project-id' },
+    { key: 'GCP_LOCATION',    label: 'GCP Location',   hint: 'e.g. us-central1' },
+    { key: 'GCP_CREDENTIALS', label: 'Service Account JSON path', hint: '/path/to/sa.json' },
+  ],
+}
+
+type Step = 'theme' | 'provider' | 'fields' | 'done'
 
 interface Props {
-  onDone(theme: ThemeName): void
+  onDone(theme: ThemeName, providerConfig: ProviderConfig): void
 }
 
 export function ApiKeySetup({ onDone }: Props) {
   const [step, setStep] = useState<Step>('theme')
   const [themeIdx, setThemeIdx] = useState(0)
-  const [apiKey, setApiKey] = useState('')
+  const [providerIdx, setProviderIdx] = useState(0)
+  const [fieldIdx, setFieldIdx] = useState(0)
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({})
+  const [currentInput, setCurrentInput] = useState('')
   const [error, setError] = useState('')
 
   const selectedTheme = THEMES[themeIdx]!.value
+  const selectedProvider = PROVIDERS[providerIdx]!.value
+  const fields = PROVIDER_FIELDS[selectedProvider]
+  const currentField = fields[fieldIdx]!
 
   useInput(async (char, key) => {
     if (step === 'theme') {
       if (key.upArrow) { setThemeIdx((i) => (i - 1 + THEMES.length) % THEMES.length); return }
       if (key.downArrow) { setThemeIdx((i) => (i + 1) % THEMES.length); return }
-      if (key.return) { setStep('apikey'); return }
+      if (key.return) { setStep('provider'); return }
       if (key.escape) process.exit(0)
       return
     }
 
-    if (step === 'apikey') {
+    if (step === 'provider') {
+      if (key.upArrow) { setProviderIdx((i) => (i - 1 + PROVIDERS.length) % PROVIDERS.length); return }
+      if (key.downArrow) { setProviderIdx((i) => (i + 1) % PROVIDERS.length); return }
+      if (key.return) { setFieldIdx(0); setCurrentInput(''); setStep('fields'); return }
+      if (key.escape) { setStep('theme'); return }
+      return
+    }
+
+    if (step === 'fields') {
       if (key.return) {
-        const trimmed = apiKey.trim()
-        if (!trimmed) { setError('API key cannot be empty.'); return }
-        try {
-          await saveConfig({ DEEPSEEK_API_KEY: trimmed, THEME: selectedTheme })
-          process.env.DEEPSEEK_API_KEY = trimmed
-          setStep('done')
-          setTimeout(() => onDone(selectedTheme), 500)
-        } catch (e) {
-          setError(`Failed to save: ${(e as Error).message}`)
+        const trimmed = currentInput.trim()
+        if (!trimmed) { setError(`${currentField.label} cannot be empty.`); return }
+        const updated = { ...fieldValues, [currentField.key]: trimmed }
+        setFieldValues(updated)
+        setError('')
+        if (fieldIdx < fields.length - 1) {
+          setFieldIdx((i) => i + 1)
+          setCurrentInput('')
+        } else {
+          // All fields collected — save and finish
+          try {
+            await saveConfig({ ...updated, PROVIDER: selectedProvider, THEME: selectedTheme })
+            // Set env vars for immediate use
+            for (const [k, v] of Object.entries(updated)) process.env[k] = v
+            setStep('done')
+            const providerConfig: ProviderConfig = {
+              provider: selectedProvider,
+              apiKey: updated['DEEPSEEK_API_KEY'],
+              awsRegion: updated['AWS_REGION'],
+              awsAccessKeyId: updated['AWS_ACCESS_KEY_ID'],
+              awsSecretAccessKey: updated['AWS_SECRET_ACCESS_KEY'],
+              gcpProject: updated['GCP_PROJECT'],
+              gcpLocation: updated['GCP_LOCATION'],
+              gcpCredentials: updated['GCP_CREDENTIALS'],
+            }
+            setTimeout(() => onDone(selectedTheme, providerConfig), 500)
+          } catch (e) {
+            setError(`Failed to save: ${(e as Error).message}`)
+          }
         }
         return
       }
-      if (key.backspace || key.delete) { setApiKey((s) => s.slice(0, -1)); setError(''); return }
-      if (key.escape) { setStep('theme'); setApiKey(''); setError(''); return }
-      if (!key.ctrl && !key.meta && char) { setApiKey((s) => s + char); setError('') }
+      if (key.backspace || key.delete) { setCurrentInput((s) => s.slice(0, -1)); setError(''); return }
+      if (key.escape) {
+        if (fieldIdx > 0) { setFieldIdx((i) => i - 1); setCurrentInput(fieldValues[fields[fieldIdx - 1]!.key] ?? ''); setError('') }
+        else { setStep('provider'); setCurrentInput(''); setError('') }
+        return
+      }
+      if (!key.ctrl && !key.meta && char) { setCurrentInput((s) => s + char); setError('') }
     }
   })
 
@@ -115,42 +211,58 @@ export function ApiKeySetup({ onDone }: Props) {
     return <Box marginTop={1}><Text color="green">✓ Saved! Starting DeepSeek Code…</Text></Box>
   }
 
-  const themeContent = step === 'theme' || step === 'apikey' ? (
-    step === 'theme' ? (
+  let content: React.ReactNode = null
+
+  if (step === 'theme') {
+    content = (
       <Box flexDirection="column" gap={1} marginTop={1}>
         <Text>Choose the text style that looks best with your terminal:</Text>
         <Box flexDirection="column">
           {THEMES.map((t, i) => (
             <Box key={t.value}>
-              <Text color={i === themeIdx ? 'cyan' : undefined}>
-                {i === themeIdx ? '❯ ' : '  '}{t.label}
-              </Text>
+              <Text color={i === themeIdx ? 'cyan' : undefined}>{i === themeIdx ? '❯ ' : '  '}{t.label}</Text>
             </Box>
           ))}
         </Box>
         <DiffPreview theme={selectedTheme} />
         <Text dimColor>↑↓ navigate · Enter select · Esc exit</Text>
       </Box>
-    ) : (
-      // apikey step
+    )
+  } else if (step === 'provider') {
+    content = (
       <Box flexDirection="column" gap={1} marginTop={1}>
-        <Text bold>Enter your DeepSeek API key</Text>
-        <Text dimColor>Get one at: https://platform.deepseek.com/api_keys</Text>
-        <Box marginTop={1}>
-          <Text color="cyan">{'> '}</Text>
-          <Text>{'•'.repeat(apiKey.length) || <Text dimColor>sk-...</Text>}</Text>
-          <Text color="cyan">█</Text>
+        <Text>Choose your AI provider:</Text>
+        <Box flexDirection="column">
+          {PROVIDERS.map((p, i) => (
+            <Box key={p.value} gap={2}>
+              <Text color={i === providerIdx ? 'cyan' : undefined}>{i === providerIdx ? '❯ ' : '  '}{p.label}</Text>
+              <Text dimColor>{p.hint}</Text>
+            </Box>
+          ))}
         </Box>
-        {error
-          ? <Text color="red">{error}</Text>
-          : <Text dimColor>Enter to confirm · Esc to go back</Text>}
+        <Text dimColor>↑↓ navigate · Enter select · Esc back</Text>
       </Box>
     )
-  ) : null
+  } else if (step === 'fields') {
+    const progress = `(${fieldIdx + 1}/${fields.length})`
+    content = (
+      <Box flexDirection="column" gap={1} marginTop={1}>
+        <Text bold>{PROVIDERS[providerIdx]!.label} setup {progress}</Text>
+        <Text bold>{currentField.label}</Text>
+        {currentField.hint ? <Text dimColor>{currentField.hint}</Text> : null}
+        <Box marginTop={1}>
+          <Text color="cyan">{'> '}</Text>
+          <Text>{currentField.secret ? '•'.repeat(currentInput.length) || <Text dimColor>…</Text> : currentInput || <Text dimColor>…</Text>}</Text>
+          <Text color="cyan">█</Text>
+        </Box>
+        {error ? <Text color="red">{error}</Text> : <Text dimColor>Enter to confirm · Esc back</Text>}
+      </Box>
+    )
+  }
 
   return (
     <Box flexDirection="column" paddingX={2} paddingY={1}>
-      <WelcomeScreen>{themeContent}</WelcomeScreen>
+      <WelcomeScreen>{content}</WelcomeScreen>
     </Box>
   )
 }

@@ -1,0 +1,12 @@
+src/
+tests/
+.deepseek/
+.kiro/
+.github/
+.env*
+kiro.json
+DEEPSEEK.md
+bunfig.toml
+tsconfig.json
+TODO.md
+bun.lock

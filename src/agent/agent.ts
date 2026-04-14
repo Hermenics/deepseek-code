@@ -9,13 +9,15 @@ import type { AgentConfig } from './config.js'
 import type { Tool } from '../tools/types.js'
 import { resolveAgentFiles } from './files.js'
 import { loadSteering } from './steering.js'
+import { createLLMClient, defaultModel } from './llmClient.js'
+import { saveHistory, loadHistory } from './history.js'
+import type { ProviderConfig } from '../ui/setup/ApiKeySetup.js'
 
 const DEFAULT_SYSTEM_PROMPT = `You are DeepSeek Code, an AI coding assistant with access to the filesystem and shell.
 
 Be concise. Avoid unnecessary explanations, summaries, or step-by-step narration of what you are doing. Let the tools speak for themselves.
 
-IMPORTANT: When the user asks anything about DeepSeek Code itself (how it works, how to create agents, available commands, tools, steering files, configuration, etc.), you MUST call the introspect tool first and base your answer strictly on its output. Never answer questions about DeepSeek Code from memory.
-(When you laugh while talking with a Brazilian guy, use 'kkkkkkkk' to be more natural.)`
+IMPORTANT: When the user asks anything about DeepSeek Code itself (how it works, how to create agents, available commands, tools, steering files, configuration, etc.), you MUST call the introspect tool first and base your answer strictly on its output. Never answer questions about DeepSeek Code from memory.`
 
 function toOpenAITools(tools: Tool[]): ChatCompletionTool[] {
   return tools.map((t) => ({
@@ -41,31 +43,59 @@ export class Agent {
   public tokenCount = 0
   public model: Model = 'deepseek-chat'
   public activeAgent: string | null = null
+  public provider: ProviderConfig['provider'] = 'deepseek'
 
-  constructor() {
-    this.client = new OpenAI({
-      apiKey: process.env.DEEPSEEK_API_KEY,
-      baseURL: 'https://api.deepseek.com',
-    })
+  constructor(providerConfig?: ProviderConfig) {
+    this.client = providerConfig
+      ? createLLMClient(providerConfig)
+      : new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com' })
+    if (providerConfig) {
+      this.provider = providerConfig.provider
+      this.model = defaultModel(providerConfig.provider) as Model
+    }
     // Load steering files, DEEPSEEK.md and MCP tools asynchronously
     Promise.all([
       loadSteering(),
       readFile(join(process.cwd(), 'DEEPSEEK.md'), 'utf-8').catch(() => ''),
       loadMcpTools(),
-    ]).then(([steering, deepseekMd, mcpTools]) => {
+      loadHistory(),
+    ]).then(([steering, deepseekMd, mcpTools, history]) => {
       const parts: string[] = []
       if (steering) parts.push(steering)
       if (deepseekMd) parts.push(`--- DEEPSEEK.md ---\n${deepseekMd.trim()}`)
       if (parts.length) {
         this.systemPrompt = `${DEFAULT_SYSTEM_PROMPT}\n\n${parts.join('\n\n')}`
-        this.clearHistory()
       }
+      // Restore history (non-system messages) on top of current system prompt
+      this.messages = [
+        { role: 'system', content: this.systemPrompt },
+        ...history.filter((m) => m.role !== 'system'),
+      ]
       if (mcpTools.length) {
         this.tools = [...allTools, ...mcpTools]
         this.toolMap = new Map(this.tools.map((t) => [t.name, t]))
         this.openaiTools = toOpenAITools(this.tools)
       }
     })
+  }
+
+  async compact(): Promise<string> {
+    const nonSystem = this.messages.filter((m) => m.role !== 'system')
+    if (nonSystem.length === 0) return 'Nothing to compact.'
+    const response = await this.client.chat.completions.create({
+      model: this.model,
+      messages: [
+        { role: 'system', content: 'Summarize the following conversation concisely, preserving all key decisions, code snippets, and context needed to continue the work.' },
+        { role: 'user', content: nonSystem.map((m) => `[${m.role}]: ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`).join('\n\n') },
+      ],
+    })
+    const summary = response.choices[0]?.message.content ?? '(no summary)'
+    this.messages = [
+      { role: 'system', content: this.systemPrompt },
+      { role: 'assistant', content: `[Compacted context]\n${summary}` },
+    ]
+    await saveHistory(this.messages)
+    return summary
   }
 
   setModel(m: Model) { this.model = m }
@@ -140,6 +170,7 @@ export class Agent {
 
       if (toolCalls.size === 0) {
         this.messages.push({ role: 'assistant', content: assistantText })
+        await saveHistory(this.messages)
         cb.onDone()
         return
       }

@@ -4,6 +4,7 @@ export type CommandResult =
   | { type: 'quit' }
   | { type: 'model'; model: Model }
   | { type: 'clear' }
+  | { type: 'compact' }
   | { type: 'help' }
   | { type: 'agent'; name: string }
   | { type: 'agents' }
@@ -22,6 +23,7 @@ export function parseCommand(input: string): CommandResult | null {
     case 'q':
     case 'quit': return { type: 'quit' }
     case 'clear': return { type: 'clear' }
+    case 'compact': return { type: 'compact' }
     case 'help': return { type: 'help' }
     case 'agents': return { type: 'agents' }
     case 'theme': return { type: 'theme' }
@@ -43,6 +45,7 @@ export const COMMAND_SUGGESTIONS = [
   '/quit',
   '/q',
   '/clear',
+  '/compact',
   '/help',
   '/agent',
   '/agents',
@@ -57,4 +60,5 @@ export const HELP_TEXT = `Commands:
   /model <deepseek-chat|deepseek-reasoner>  switch model
   /theme                                     change color theme
   /clear                                     clear chat history
+  /compact                                   summarize history to save context
   /quit  /q                                  exit`

@@ -3,6 +3,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { join } from 'path'
 import type { Tool } from '../tools/types.js'
+import { readJson } from '../utils/fs.js'
 
 interface StdioServer {
   transport: 'stdio'
@@ -25,7 +26,7 @@ interface McpConfig {
 async function loadConfig(): Promise<McpConfig | null> {
   const path = join(process.cwd(), '.deepseek', 'mcp.json')
   try {
-    return await Bun.file(path).json()
+    return await readJson<McpConfig>(path)
   } catch {
     return null
   }

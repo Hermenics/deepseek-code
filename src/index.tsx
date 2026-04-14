@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react'
 import { render, Box, Text } from 'ink'
 import { App } from './ui/App.js'
-import { ApiKeySetup, loadSavedConfig, type ThemeName } from './ui/setup/ApiKeySetup.js'
+import { ApiKeySetup, loadSavedConfig, type ThemeName, type ProviderConfig } from './ui/setup/ApiKeySetup.js'
 import { DeepSeekMascot } from './ui/layout/Mascot.js'
 import { loadAgentConfig, type LoadedAgent } from './agent/config.js'
 
@@ -23,26 +23,25 @@ function Root() {
   const [ready, setReady] = useState(false)
   const [checked, setChecked] = useState(false)
   const [theme, setTheme] = useState<ThemeName>('dark')
+  const [providerConfig, setProviderConfig] = useState<ProviderConfig | null>(null)
   const [initialAgent, setInitialAgent] = useState<LoadedAgent | null>(null)
   const [initialMessage, setInitialMessage] = useState<string | null>(null)
 
   useEffect(() => {
     const { agentName, initialMessage: msg } = parseArgv()
-    loadSavedConfig().then(async ({ apiKey, theme: savedTheme }) => {
+    loadSavedConfig().then(async ({ providerConfig: saved, theme: savedTheme }) => {
       setTheme(savedTheme)
-      if (process.env.DEEPSEEK_API_KEY) {
+      if (saved) {
+        setProviderConfig(saved)
+        // Set env vars so tools/subagents that use process.env still work
+        if (saved.provider === 'deepseek' && saved.apiKey) process.env.DEEPSEEK_API_KEY = saved.apiKey
         setReady(true)
-      } else if (apiKey) {
-        process.env.DEEPSEEK_API_KEY = apiKey
+      } else if (process.env.DEEPSEEK_API_KEY) {
+        setProviderConfig({ provider: 'deepseek', apiKey: process.env.DEEPSEEK_API_KEY })
         setReady(true)
       }
       if (agentName) {
-        try {
-          const loaded = await loadAgentConfig(agentName)
-          setInitialAgent(loaded)
-        } catch (e) {
-          console.error((e as Error).message)
-        }
+        try { setInitialAgent(await loadAgentConfig(agentName)) } catch (e) { console.error((e as Error).message) }
       }
       if (msg) setInitialMessage(msg)
       setChecked(true)
@@ -54,7 +53,7 @@ function Root() {
   if (!ready) {
     return (
       <Box flexDirection="column" paddingX={2} paddingY={1}>
-        <ApiKeySetup onDone={(t) => { setTheme(t); setReady(true) }} />
+        <ApiKeySetup onDone={(t, cfg) => { setTheme(t); setProviderConfig(cfg); setReady(true) }} />
       </Box>
     )
   }
@@ -69,7 +68,7 @@ function Root() {
           <Text dimColor>Type your message and press Enter. /quit or Esc to exit.</Text>
         </Box>
       </Box>
-      <App initialAgent={initialAgent} initialMessage={initialMessage} theme={theme} onThemeChange={setTheme} />
+      <App initialAgent={initialAgent} initialMessage={initialMessage} theme={theme} providerConfig={providerConfig} onThemeChange={setTheme} />
     </Box>
   )
 }

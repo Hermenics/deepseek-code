@@ -8,7 +8,7 @@ import { StatusBar } from './layout/StatusBar.js'
 import { ThemeSelector } from './setup/ThemeSelector.js'
 import { parseCommand, HELP_TEXT } from '../commands.js'
 import { loadAgentConfig, listAgents, type LoadedAgent } from '../agent/config.js'
-import type { ThemeName } from './setup/ApiKeySetup.js'
+import type { ThemeName, ProviderConfig } from './setup/ApiKeySetup.js'
 
 export interface Message {
   role: 'user' | 'assistant' | 'tool'
@@ -22,7 +22,7 @@ export interface ToolStatus {
   result?: string
 }
 
-export function App({ initialAgent, initialMessage, theme: initialTheme, onThemeChange }: { initialAgent?: LoadedAgent | null; initialMessage?: string | null; theme: ThemeName; onThemeChange?: (t: ThemeName) => void }) {
+export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange }: { initialAgent?: LoadedAgent | null; initialMessage?: string | null; theme: ThemeName; providerConfig?: ProviderConfig | null; onThemeChange?: (t: ThemeName) => void }) {
   const { exit } = useApp()
   const [messages, setMessages] = useState<Message[]>([])
   const [streamText, setStreamText] = useState('')
@@ -31,7 +31,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, onTheme
   const [tokenCount, setTokenCount] = useState(0)
   const [activeAgent, setActiveAgent] = useState<string | null>(null)
   const [toolCallCount, setToolCallCount] = useState(0)
-  const [agent] = useState(() => new Agent())
+  const [agent] = useState(() => new Agent(providerConfig ?? undefined))
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
   const [showThemeSelector, setShowThemeSelector] = useState(false)
 
@@ -67,6 +67,13 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, onTheme
           agent.clearHistory()
           setMessages([])
           return
+        case 'compact': {
+          setIsLoading(true)
+          const summary = await agent.compact()
+          setMessages([{ role: 'assistant', content: `**Context compacted.** Summary:\n\n${summary}` }])
+          setIsLoading(false)
+          return
+        }
         case 'help':
           setMessages((m) => [...m, { role: 'assistant', content: HELP_TEXT }])
           return
@@ -140,6 +147,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, onTheme
         const label = args?.path ?? args?.pattern ?? args?.command ?? ''
         const display = name === 'write_file'
           ? result  // needs full JSON for diff rendering
+          : name === 'subagent'
+          ? result  // show subagent result
           : label ? String(label) : ''
         setMessages((m) => [...m, { role: 'tool', content: `✓ ${name}${display ? ` → ${display}` : ''}` }])
       },
@@ -165,7 +174,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, onTheme
         ? <ThemeSelector currentTheme={theme} onSelect={(t) => { setTheme(t); onThemeChange?.(t); setShowThemeSelector(false) }} onCancel={() => setShowThemeSelector(false)} />
         : <InputBox onSubmit={handleSubmit} isLoading={isLoading} toolCallCount={toolCallCount} />
       }
-      <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} />
+      <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} />
     </Box>
   )
 }

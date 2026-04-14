@@ -1,6 +1,7 @@
 import { join } from 'path'
 import { homedir } from 'os'
 import type { Model } from '../commands.js'
+import { readJson, globFiles } from '../utils/fs.js'
 
 export interface AgentConfig {
   name: string
@@ -19,7 +20,7 @@ const GLOBAL_DIR = join(homedir(), '.deepseek', 'agents')
 
 async function tryLoad(path: string): Promise<AgentConfig | null> {
   try {
-    return await Bun.file(path).json()
+    return await readJson<AgentConfig>(path)
   } catch {
     return null
   }
@@ -43,16 +44,14 @@ export async function listAgents(): Promise<{ name: string; source: 'local' | 'g
   const seen = new Set<string>()
 
   for (const [dir, source] of [[LOCAL_DIR, 'local'], [GLOBAL_DIR, 'global']] as const) {
-    try {
-      const glob = new Bun.Glob('*.json')
-      for await (const file of glob.scan({ cwd: dir })) {
-        const name = file.replace(/\.json$/, '')
-        if (!seen.has(name)) {
-          seen.add(name)
-          results.push({ name, source })
-        }
+    const files = await globFiles(/\.json$/, dir)
+    for (const file of files) {
+      const name = file.replace(/\.json$/, '')
+      if (!seen.has(name)) {
+        seen.add(name)
+        results.push({ name, source })
       }
-    } catch { /* dir doesn't exist */ }
+    }
   }
 
   return results

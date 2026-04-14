@@ -39,6 +39,10 @@ export const Glob: Tool = {
         '**/.idea/**',
         '**/.env*',
         '**/.DS_Store',
+        '**/bun.lock',
+        '**/.next/**',
+        '**/.nuxt/**',
+        '**/.svelte-kit/**',
       ],
       dot: true,
     })

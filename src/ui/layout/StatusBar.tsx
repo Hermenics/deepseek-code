@@ -18,7 +18,7 @@ function shortPath(p: string): string {
   return p.startsWith(home) ? p.replace(home, '~') : p
 }
 
-export function StatusBar({ tokenCount, model, activeAgent }: { tokenCount: number; model: Model; activeAgent: string | null }) {
+export function StatusBar({ tokenCount, model, activeAgent, provider }: { tokenCount: number; model: Model; activeAgent: string | null; provider?: string }) {
   const [branch, setBranch] = useState('')
 
   useEffect(() => {
@@ -29,6 +29,8 @@ export function StatusBar({ tokenCount, model, activeAgent }: { tokenCount: numb
     activeAgent ? <Text key="agent" color="cyan">{activeAgent}</Text> : <Text key="ds" color="cyan">deepseek</Text>,
     <Text key="s1" dimColor> · </Text>,
     <Text key="model" dimColor>{model}</Text>,
+    provider && provider !== 'deepseek' ? <Text key="s-prov" dimColor> · </Text> : null,
+    provider && provider !== 'deepseek' ? <Text key="prov" color="yellow">{provider}</Text> : null,
     tokenCount > 0 ? <Text key="s2" dimColor> · </Text> : null,
     tokenCount > 0 ? <Text key="tokens" color="green">{tokenCount.toLocaleString()} tokens</Text> : null,
   ]

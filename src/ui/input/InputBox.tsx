@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { Box, Text } from 'ink'
 import { COMMAND_SUGGESTIONS } from '../../commands.js'
+import { useClock } from '../clock.js'
 
 const DESCRIPTIONS: Record<string, string> = {
   '/quit': 'Exit DeepSeek Code',
@@ -54,22 +55,18 @@ const LOADING_MSGS = [
 ]
 
 function LoadingSpinner({ toolCallCount }: { toolCallCount: number }) {
-  const [frame, setFrame] = useState(0)
+  const tick = useClock()
   const [msgIdx, setMsgIdx] = useState(() => Math.floor(Math.random() * LOADING_MSGS.length))
 
   useEffect(() => {
     setMsgIdx(Math.floor(Math.random() * LOADING_MSGS.length))
   }, [toolCallCount])
 
-  useEffect(() => {
-    const t = setInterval(() => setFrame((f) => (f + 1) % SPINNER.length), 80)
-    return () => clearInterval(t)
-  }, [])
-
   return (
     <Box gap={1}>
-      <Text color="cyan">{SPINNER[frame]}</Text>
+      <Text color="cyan">{SPINNER[tick % SPINNER.length]}</Text>
       <Text dimColor>{LOADING_MSGS[msgIdx]}</Text>
+      <Text dimColor> · type to queue a message</Text>
     </Box>
   )
 }
@@ -91,7 +88,7 @@ function parseKey(sequence: string): KeyInfo {
   const ctrl = sequence.charCodeAt(0) === 0x1b
   const meta = sequence.includes('\x1b')
   const shift = false // simplified
-  
+
   // Check for special keys
   if (sequence === '\x1b[A') return { name: 'up', sequence, ctrl, meta, shift }
   if (sequence === '\x1b[B') return { name: 'down', sequence, ctrl, meta, shift }
@@ -104,7 +101,7 @@ function parseKey(sequence: string): KeyInfo {
   if (sequence === '\r' || sequence === '\n') return { name: 'return', sequence, ctrl, meta, shift }
   if (sequence === '\x1b') return { name: 'escape', sequence, ctrl, meta, shift }
   if (sequence === '\t') return { name: 'tab', sequence, ctrl, meta, shift }
-  
+
   return { name: undefined, sequence, ctrl, meta, shift }
 }
 
@@ -121,40 +118,40 @@ export function InputBox({ onSubmit, isLoading, toolCallCount }: { onSubmit: (te
   // Handle key input in raw mode
   useEffect(() => {
     if (isLoading) return
-    
+
     const stdin = process.stdin
-    
+
     // Save original state
     const wasRaw = stdin.isRaw
     const wasPaused = stdin.isPaused()
-    
+
     // Enable raw mode
     stdin.setRawMode(true)
     stdin.resume()
     setIsRawModeEnabled(true)
-    
+
     const onData = (data: Buffer) => {
       const sequence = data.toString()
-      
+
       // Handle Ctrl+C
       if (sequence === '\x03') {
         process.exit(0)
       }
-      
+
       const key = parseKey(sequence)
-      
+
       if (showDropdown) {
-        if (key.name === 'up') { 
+        if (key.name === 'up') {
           setSelectedIdx((i) => (i - 1 + matches.length) % matches.length)
           return
         }
-        if (key.name === 'down') { 
+        if (key.name === 'down') {
           setSelectedIdx((i) => (i + 1) % matches.length)
           return
         }
         if (key.name === 'tab' || key.name === 'return') {
           const chosen = matches[selectedIdx]!
-          if (key.name === 'return' && value === chosen) { 
+          if (key.name === 'return' && value === chosen) {
             onSubmit(value)
             setValue('')
             setCursorPos(0)
@@ -166,7 +163,7 @@ export function InputBox({ onSubmit, isLoading, toolCallCount }: { onSubmit: (te
           setSelectedIdx(0)
           return
         }
-        if (key.name === 'escape') { 
+        if (key.name === 'escape') {
           setValue('')
           setCursorPos(0)
           setSelectedIdx(0)
@@ -181,7 +178,7 @@ export function InputBox({ onSubmit, isLoading, toolCallCount }: { onSubmit: (te
           setPastedBlock(null)
           return
         }
-        if (key.name === 'escape') { 
+        if (key.name === 'escape') {
           setValue('')
           setCursorPos(0)
           setPastedBlock(null)
@@ -218,7 +215,7 @@ export function InputBox({ onSubmit, isLoading, toolCallCount }: { onSubmit: (te
         }
         return
       }
-      
+
       if (key.name === 'delete') {
         if (cursorPos < value.length) {
           setValue((v) => v.slice(0, cursorPos) + v.slice(cursorPos + 1))
@@ -240,19 +237,19 @@ export function InputBox({ onSubmit, isLoading, toolCallCount }: { onSubmit: (te
             return
           }
         }
-        
+
         // Insert character at cursor position
         setValue((v) => v.slice(0, cursorPos) + sequence + v.slice(cursorPos))
         setCursorPos((pos) => pos + 1)
         setSelectedIdx(0)
       }
     }
-    
+
     stdin.on('data', onData)
-    
+
     return () => {
       stdin.removeListener('data', onData)
-      
+
       // Restore original state
       if (!wasRaw) {
         stdin.setRawMode(false)
@@ -279,7 +276,7 @@ export function InputBox({ onSubmit, isLoading, toolCallCount }: { onSubmit: (te
       return (
         <>
           <Text color="white">█</Text>
-          <Text dimColor>ask a question or describe a task ↵</Text>
+          {!pastedBlock && <Text dimColor>ask a question or describe a task ↵</Text>}
         </>
       )
     }
@@ -291,11 +288,11 @@ export function InputBox({ onSubmit, isLoading, toolCallCount }: { onSubmit: (te
       const after = value.slice(cursorPos + 1)
       // \x1b[7m = inverse on, \x1b[27m = inverse off
       return <Text>{`${before}\x1b[7m${at}\x1b[27m${after}`}</Text>
-    }    
+    }
     const beforeCursor = value.slice(0, cursorPos)
     const atCursor = value.slice(cursorPos, cursorPos + 1)
     const afterCursor = value.slice(cursorPos + 1)
-    
+
     return (
       <>
         <Text>{beforeCursor}</Text>

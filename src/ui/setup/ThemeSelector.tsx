@@ -3,6 +3,7 @@ import { Box, Text, useInput } from 'ink'
 import { homedir } from 'os'
 import { join } from 'path'
 import type { ThemeName } from './ApiKeySetup.js'
+import { readJson, writeRaw } from '../../utils/fs.js'
 
 const THEMES: { label: string; value: ThemeName }[] = [
   { label: 'Dark mode', value: 'dark' },
@@ -25,8 +26,8 @@ const DIFF_COLORS: Record<ThemeName, { added: string; removed: string; addedWord
 const CONFIG_PATH = join(homedir(), '.deepseek-code', 'config.json')
 
 async function saveTheme(theme: ThemeName): Promise<void> {
-  const existing = await Bun.file(CONFIG_PATH).json().catch(() => ({}))
-  await Bun.write(CONFIG_PATH, JSON.stringify({ ...existing, THEME: theme }, null, 2))
+  const existing = await readJson<Record<string, string>>(CONFIG_PATH).catch(() => ({}))
+  await writeRaw(CONFIG_PATH, JSON.stringify({ ...existing, THEME: theme }, null, 2))
 }
 
 interface Props {

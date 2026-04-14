@@ -1,18 +1,17 @@
 import { join } from 'path'
 import { readFile } from 'fs/promises'
+import { globFiles } from '../utils/fs.js'
 
 const STEERING_DIR = join(process.cwd(), '.deepseek', 'steering')
 
 export async function loadSteering(): Promise<string> {
-  const glob = new Bun.Glob('*.md')
+  const files = await globFiles(/\.md$/, STEERING_DIR)
   const parts: string[] = []
-
-  try {
-    for await (const file of glob.scan({ cwd: STEERING_DIR })) {
+  for (const file of files) {
+    try {
       const content = await readFile(join(STEERING_DIR, file), 'utf-8')
       parts.push(`--- ${file} ---\n${content.trim()}`)
-    }
-  } catch { /* dir doesn't exist */ }
-
+    } catch { /* skip */ }
+  }
   return parts.join('\n\n')
 }

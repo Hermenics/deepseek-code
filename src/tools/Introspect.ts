@@ -30,6 +30,21 @@ The agent has access to these tools:
 - \`shell\` — Execute shell commands
 - \`introspect\` — Get this documentation about DeepSeek Code
 - \`web_fetch\` — Fetch content from a URL
+- \`subagent\` — Spawn a subagent to handle a subtask independently
+
+## Subagents
+DeepSeek Code supports subagents — independent mini-agents that can be spawned to handle specific subtasks. The main agent delegates work to a subagent by calling the \`subagent\` tool with a task description.
+
+Subagents have:
+- Their own isolated context (no access to the parent's conversation history)
+- Access to all tools (filesystem, shell, grep, etc.) except \`subagent\` itself (no recursion)
+- A limit of 10 iterations per task
+
+Example use cases:
+- Analyzing a large codebase section
+- Refactoring a specific file
+- Running and interpreting tests
+- Researching something on the web
 
 ## Custom Agents
 Agents are JSON files that define a custom persona with their own system prompt, model and injected files.
