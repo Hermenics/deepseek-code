@@ -7,6 +7,7 @@ import type { ProviderConfig } from '../ui/setup/ApiKeySetup.js'
  * - deepseek  → api.deepseek.com (native)
  * - bedrock   → AWS Bedrock OpenAI-compatible endpoint
  * - vertex    → Google Vertex AI OpenAI-compatible endpoint
+ * - local     → any OpenAI-compatible local endpoint (Ollama, LM Studio, etc.)
  */
 export function createLLMClient(cfg: ProviderConfig): OpenAI {
   switch (cfg.provider) {
@@ -28,6 +29,11 @@ export function createLLMClient(cfg: ProviderConfig): OpenAI {
         baseURL: `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/endpoints/openapi`,
       })
     }
+    case 'local':
+      return new OpenAI({
+        apiKey: 'local',  // required by SDK but ignored by local servers
+        baseURL: cfg.localBaseUrl ?? 'http://localhost:11434/v1',
+      })
     default: // deepseek
       return new OpenAI({
         apiKey: cfg.apiKey ?? process.env.DEEPSEEK_API_KEY,
@@ -41,6 +47,7 @@ export function defaultModel(provider: ProviderConfig['provider']): string {
   switch (provider) {
     case 'bedrock': return 'anthropic.claude-3-5-sonnet-20241022-v2:0'
     case 'vertex':  return 'google/gemini-2.0-flash-001'
+    case 'local':   return 'deepseek-r1:8b'
     default:        return 'deepseek-chat'
   }
 }

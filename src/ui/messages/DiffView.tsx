@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useMemo } from 'react'
 import { Box, Text } from 'ink'
 import type { ThemeName } from '../setup/ApiKeySetup.js'
 
@@ -24,14 +24,17 @@ interface Props {
 
 const MAX_LINES = 50
 
-export function DiffView({ path, added, removed, firstChanged, lines, theme }: Props) {
+export const DiffView = React.memo(function DiffView({ path, added, removed, firstChanged, lines, theme }: Props) {
   const c = DIFF_COLORS[theme]
   const filename = path.split('/').pop() ?? path
 
-  const visible = lines.filter((l, i) => {
-    const hasNearbyChange = lines.slice(Math.max(0, i - 2), i + 3).some((l) => l.type !== 'context')
-    return hasNearbyChange
-  }).slice(0, MAX_LINES)
+  const visible = useMemo(() =>
+    lines.filter((l, i) => {
+      const hasNearbyChange = lines.slice(Math.max(0, i - 2), i + 3).some((l) => l.type !== 'context')
+      return hasNearbyChange
+    }).slice(0, MAX_LINES),
+    [lines]
+  )
 
   return (
     <Box flexDirection="column">
@@ -65,4 +68,4 @@ export function DiffView({ path, added, removed, firstChanged, lines, theme }: P
       </Box>
     </Box>
   )
-}
+})

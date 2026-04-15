@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { Box, Text } from 'ink'
-import { execaCommand } from 'execa'
+import { execa } from 'execa'
 import { homedir } from 'os'
 import type { Model } from '../../commands.js'
 
 async function getGitBranch(): Promise<string> {
   try {
-    const { stdout } = await execaCommand('git rev-parse --abbrev-ref HEAD', { shell: true })
+    const { stdout } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'])
     return stdout.trim()
   } catch {
     return ''
@@ -18,36 +18,51 @@ function shortPath(p: string): string {
   return p.startsWith(home) ? p.replace(home, '~') : p
 }
 
-export function StatusBar({ tokenCount, model, activeAgent, provider }: { tokenCount: number; model: Model; activeAgent: string | null; provider?: string }) {
+export const StatusBar = React.memo(function StatusBar({ tokenCount, model, activeAgent, provider }: {
+  tokenCount: number
+  model: Model
+  activeAgent: string | null
+  provider?: string
+}) {
   const [branch, setBranch] = useState('')
+  const [cols, setCols] = useState(process.stdout.columns ?? 80)
 
   useEffect(() => {
     getGitBranch().then(setBranch)
+    // Refresh branch every 10s in case user switches branches
+    const interval = setInterval(() => getGitBranch().then(setBranch), 10000)
+    return () => clearInterval(interval)
   }, [])
 
-  const left = [
-    activeAgent ? <Text key="agent" color="cyan">{activeAgent}</Text> : <Text key="ds" color="cyan">deepseek</Text>,
-    <Text key="s1" dimColor> · </Text>,
-    <Text key="model" dimColor>{model}</Text>,
-    provider && provider !== 'deepseek' ? <Text key="s-prov" dimColor> · </Text> : null,
-    provider && provider !== 'deepseek' ? <Text key="prov" color="yellow">{provider}</Text> : null,
-    tokenCount > 0 ? <Text key="s2" dimColor> · </Text> : null,
-    tokenCount > 0 ? <Text key="tokens" color="green">{tokenCount.toLocaleString()} tokens</Text> : null,
-  ]
+  useEffect(() => {
+    const onResize = () => setCols(process.stdout.columns ?? 80)
+    process.stdout.on('resize', onResize)
+    return () => { process.stdout.off('resize', onResize) }
+  }, [])
 
-  const right = [
-    <Text key="path" dimColor>{shortPath(process.cwd())}</Text>,
-    branch ? <Text key="s3" dimColor> · </Text> : null,
-    branch ? <Text key="branch" dimColor>({branch})</Text> : null,
-  ]
+  const providerLabel = provider && provider !== 'deepseek' ? provider : null
 
   return (
     <Box flexDirection="column">
-      <Text dimColor>{'─'.repeat(80)}</Text>
-      <Box justifyContent="space-between">
-        <Box>{left}</Box>
-        <Box>{right}</Box>
+      <Text dimColor>{'─'.repeat(cols)}</Text>
+      <Box paddingX={1} gap={0}>
+        <Text color="cyan" bold>◆ {activeAgent ?? 'deepseek'}</Text>
+        <Text dimColor>  ·  </Text>
+        <Text color="cyan">{model}</Text>
+        {providerLabel ? (
+          <>
+            <Text dimColor>  ·  </Text>
+            <Text color="yellow">{providerLabel}</Text>
+          </>
+        ) : null}
+        <Text dimColor>  ·  </Text>
+        <Text color={tokenCount > 0 ? 'green' : undefined} dimColor={tokenCount === 0}>
+          {tokenCount.toLocaleString()} tokens
+        </Text>
+        <Text dimColor>  ·  </Text>
+        <Text dimColor>{shortPath(process.cwd())}</Text>
+        {branch ? <Text dimColor>  ({branch})</Text> : null}
       </Box>
     </Box>
   )
-}
+})

@@ -17,9 +17,11 @@ export const ReadFile: Tool = {
     const filePath = args.path as string
     const content = await fs.readFile(filePath, 'utf-8')
     const lines = content.split('\n')
-    if (lines.length > 10000) return `File too large: ${lines.length} lines (max 10000)`
     const start = ((args.start_line as number) || 1) - 1
     const end = (args.end_line as number) || lines.length
-    return lines.slice(start, end).join('\n')
+    const slice = lines.slice(start, end)
+    // Warn if file is very large but still return the requested range
+    const prefix = lines.length > 10000 ? `[Warning: large file — ${lines.length} lines total. Showing lines ${start + 1}–${Math.min(end, lines.length)}]\n` : ''
+    return prefix + slice.join('\n')
   },
 }

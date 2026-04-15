@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Box, Text, useInput } from 'ink'
 import { homedir } from 'os'
 import { join } from 'path'
@@ -10,7 +10,7 @@ const CONFIG_PATH = join(homedir(), '.deepseek-code', 'config.json')
 
 export type ThemeName = 'dark' | 'light' | 'dark-daltonized' | 'light-daltonized' | 'dark-ansi' | 'light-ansi'
 
-export type ProviderName = 'deepseek' | 'bedrock' | 'vertex'
+export type ProviderName = 'deepseek' | 'bedrock' | 'vertex' | 'local'
 
 export interface ProviderConfig {
   provider: ProviderName
@@ -24,12 +24,16 @@ export interface ProviderConfig {
   gcpProject?: string
   gcpLocation?: string
   gcpCredentials?: string // path to service account JSON
+  // local (OpenAI-compatible)
+  localBaseUrl?: string
+  localModel?: string
 }
 
 export const PROVIDERS: { label: string; value: ProviderName; hint: string }[] = [
-  { value: 'deepseek', label: 'DeepSeek API',     hint: 'platform.deepseek.com/api_keys' },
-  { value: 'bedrock',  label: 'Amazon Bedrock',   hint: 'AWS credentials (access key + secret)' },
-  { value: 'vertex',   label: 'Google Vertex AI', hint: 'GCP project + service account JSON' },
+  { value: 'deepseek', label: 'DeepSeek API',          hint: 'platform.deepseek.com/api_keys' },
+  { value: 'bedrock',  label: 'Amazon Bedrock',         hint: 'AWS credentials (access key + secret)' },
+  { value: 'vertex',   label: 'Google Vertex AI',       hint: 'GCP project + service account JSON' },
+  { value: 'local',    label: 'Modelo local (Ollama / LM Studio)', hint: 'OpenAI-compatible endpoint' },
 ]
 
 const THEMES: { label: string; value: ThemeName }[] = [
@@ -99,10 +103,15 @@ export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfi
       providerConfig.gcpLocation = cfg.GCP_LOCATION
       providerConfig.gcpCredentials = cfg.GCP_CREDENTIALS
     }
+    if (provider === 'local') {
+      providerConfig.localBaseUrl = cfg.LOCAL_BASE_URL
+      providerConfig.localModel = cfg.LOCAL_MODEL
+    }
     const isReady =
       (provider === 'deepseek' && !!providerConfig.apiKey) ||
       (provider === 'bedrock' && !!providerConfig.awsRegion) ||
-      (provider === 'vertex' && !!providerConfig.gcpProject)
+      (provider === 'vertex' && !!providerConfig.gcpProject) ||
+      (provider === 'local' && !!providerConfig.localBaseUrl)
     return { providerConfig: isReady ? providerConfig : null, theme: (cfg.THEME ?? 'dark') as ThemeName }
   } catch {
     return { providerConfig: null, theme: 'dark' }
@@ -124,6 +133,10 @@ const PROVIDER_FIELDS: Record<ProviderName, { key: string; label: string; hint: 
     { key: 'GCP_LOCATION',    label: 'GCP Location',   hint: 'e.g. us-central1' },
     { key: 'GCP_CREDENTIALS', label: 'Service Account JSON path', hint: '/path/to/sa.json' },
   ],
+  local: [
+    { key: 'LOCAL_BASE_URL', label: 'Base URL', hint: 'e.g. http://localhost:11434/v1  (OpenAI-compatible)' },
+    { key: 'LOCAL_MODEL',    label: 'Model name', hint: 'e.g. deepseek-r1:8b  (deve ser um modelo DeepSeek)' },
+  ],
 }
 
 type Step = 'theme' | 'provider' | 'fields' | 'done'
@@ -140,13 +153,26 @@ export function ApiKeySetup({ onDone }: Props) {
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({})
   const [currentInput, setCurrentInput] = useState('')
   const [error, setError] = useState('')
+  // Stored when setup completes — useEffect calls onDone after render
+  const [donePayload, setDonePayload] = useState<{ theme: ThemeName; config: ProviderConfig } | null>(null)
 
   const selectedTheme = THEMES[themeIdx]!.value
   const selectedProvider = PROVIDERS[providerIdx]!.value
   const fields = PROVIDER_FIELDS[selectedProvider]
   const currentField = fields[fieldIdx]!
 
-  useInput(async (char, key) => {
+  // Call onDone after the 'done' step has rendered — avoids stdin event leaking into App
+  useEffect(() => {
+    if (donePayload) {
+      const t = setTimeout(() => onDone(donePayload.theme, donePayload.config), 50)
+      return () => clearTimeout(t)
+    }
+  }, [donePayload])
+
+  useInput((char, key) => {
+    // Ctrl+C always exits during setup
+    if (key.ctrl && char === 'c') process.exit(0)
+
     if (step === 'theme') {
       if (key.upArrow) { setThemeIdx((i) => (i - 1 + THEMES.length) % THEMES.length); return }
       if (key.downArrow) { setThemeIdx((i) => (i + 1) % THEMES.length); return }
@@ -175,25 +201,26 @@ export function ApiKeySetup({ onDone }: Props) {
           setCurrentInput('')
         } else {
           // All fields collected — save and finish
-          try {
-            await saveConfig({ ...updated, PROVIDER: selectedProvider, THEME: selectedTheme })
-            // Set env vars for immediate use
-            for (const [k, v] of Object.entries(updated)) process.env[k] = v
-            setStep('done')
-            const providerConfig: ProviderConfig = {
-              provider: selectedProvider,
-              apiKey: updated['DEEPSEEK_API_KEY'],
-              awsRegion: updated['AWS_REGION'],
-              awsAccessKeyId: updated['AWS_ACCESS_KEY_ID'],
-              awsSecretAccessKey: updated['AWS_SECRET_ACCESS_KEY'],
-              gcpProject: updated['GCP_PROJECT'],
-              gcpLocation: updated['GCP_LOCATION'],
-              gcpCredentials: updated['GCP_CREDENTIALS'],
-            }
-            setTimeout(() => onDone(selectedTheme, providerConfig), 500)
-          } catch (e) {
-            setError(`Failed to save: ${(e as Error).message}`)
-          }
+          saveConfig({ ...updated, PROVIDER: selectedProvider, THEME: selectedTheme })
+            .then(() => {
+              // Set env vars for immediate use
+              for (const [k, v] of Object.entries(updated)) process.env[k] = v
+              const providerConfig: ProviderConfig = {
+                provider: selectedProvider,
+                apiKey: updated['DEEPSEEK_API_KEY'],
+                awsRegion: updated['AWS_REGION'],
+                awsAccessKeyId: updated['AWS_ACCESS_KEY_ID'],
+                awsSecretAccessKey: updated['AWS_SECRET_ACCESS_KEY'],
+                gcpProject: updated['GCP_PROJECT'],
+                gcpLocation: updated['GCP_LOCATION'],
+                gcpCredentials: updated['GCP_CREDENTIALS'],
+                localBaseUrl: updated['LOCAL_BASE_URL'],
+                localModel: updated['LOCAL_MODEL'],
+              }
+              setStep('done')
+              setDonePayload({ theme: selectedTheme, config: providerConfig })
+            })
+            .catch((e: unknown) => setError(`Failed to save: ${(e as Error).message}`))
         }
         return
       }

@@ -5,15 +5,37 @@ import { DiffView } from './DiffView.js'
 import { MarkdownRenderer } from './MarkdownRenderer.js'
 import type { ThemeName } from '../setup/ApiKeySetup.js'
 
-export function MessageList({ messages, streamText, theme }: { messages: Message[]; streamText: string; theme: ThemeName }) {
+const RoleSeparator = React.memo(function RoleSeparator({ label, color }: { label: string; color: string }) {
+  const cols = process.stdout.columns ?? 80
+  const inner = ` ── ${label} `
+  const dashes = '─'.repeat(Math.max(0, cols - inner.length - 1))
+  return (
+    <Box marginTop={1}>
+      <Text dimColor> ── </Text>
+      <Text color={color as any} bold>{label}</Text>
+      <Text dimColor> {dashes}</Text>
+    </Box>
+  )
+})
+
+export function MessageList({ messages, streamText, theme, activeAgent }: {
+  messages: Message[]
+  streamText: string
+  theme: ThemeName
+  activeAgent?: string | null
+}) {
+  const agentLabel = activeAgent ?? 'deepseek'
+
   return (
     <Box flexDirection="column" marginBottom={1}>
       {messages.map((m, i) => {
         if (m.role === 'user') {
           return (
-            <Box key={i} flexDirection="column" marginTop={1}>
-              <Text dimColor>{'─'.repeat(60)}</Text>
-              <Text>{m.content}</Text>
+            <Box key={i} flexDirection="column">
+              <RoleSeparator label="você" color="white" />
+              <Box paddingLeft={1} marginTop={0}>
+                <Text>{m.content}</Text>
+              </Box>
             </Box>
           )
         }
@@ -31,15 +53,14 @@ export function MessageList({ messages, streamText, theme }: { messages: Message
             const isDone = m.content.startsWith('✓')
             const label = isDone ? m.content.slice('✓ subagent → '.length) : m.content.slice('⚙ subagent('.length, -1)
             return (
-              <Box key={i} flexDirection="column" marginTop={1}>
+              <Box key={i} flexDirection="column" marginTop={1} paddingLeft={3}>
                 <Box gap={1}>
-                  <Text color={isDone ? 'green' : 'yellow'}>{'◆'}</Text>
-                  <Text color={isDone ? 'green' : 'yellow'} bold>Subagent</Text>
-                  {isDone && <Text dimColor>completed</Text>}
-                  {!isDone && <Text dimColor>working...</Text>}
+                  <Text color={isDone ? 'cyan' : 'yellow'}>{'◆'}</Text>
+                  <Text color={isDone ? 'cyan' : 'yellow'} bold>subagent</Text>
+                  <Text dimColor>{isDone ? 'completed' : 'working...'}</Text>
                 </Box>
                 {label && (
-                  <Box marginLeft={2} borderStyle="single" borderLeft borderRight={false} borderTop={false} borderBottom={false} borderColor={isDone ? 'green' : 'yellow'} paddingLeft={1}>
+                  <Box marginLeft={2} borderStyle="single" borderLeft borderRight={false} borderTop={false} borderBottom={false} borderColor={isDone ? 'cyan' : 'yellow'} paddingLeft={1}>
                     <Text dimColor>{label.slice(0, 200)}{label.length > 200 ? '...' : ''}</Text>
                   </Box>
                 )}
@@ -49,9 +70,8 @@ export function MessageList({ messages, streamText, theme }: { messages: Message
           const isDone = m.content.startsWith('✓')
           const isRunning = m.content.startsWith('⚙')
           return (
-            <Box key={i} gap={1}>
-              <Text color={isDone ? 'green' : isRunning ? 'yellow' : 'gray'}>{'●'}</Text>
-              <Text color={isDone ? 'green' : isRunning ? 'yellow' : undefined} dimColor={!isDone && !isRunning}>
+            <Box key={i} paddingLeft={3}>
+              <Text color={isDone ? 'green' : isRunning ? 'yellow' : 'gray'}>
                 {m.content}
               </Text>
             </Box>
@@ -59,16 +79,18 @@ export function MessageList({ messages, streamText, theme }: { messages: Message
         }
         // assistant
         return (
-          <Box key={i} gap={1} marginTop={1}>
-            <Box borderStyle="single" borderLeft borderRight={false} borderTop={false} borderBottom={false} borderColor="cyan" paddingLeft={1}>
+          <Box key={i} flexDirection="column">
+            <RoleSeparator label={agentLabel} color="cyan" />
+            <Box paddingLeft={1} marginTop={1}>
               <MarkdownRenderer content={m.content} theme={theme} />
             </Box>
           </Box>
         )
       })}
       {streamText ? (
-        <Box gap={1} marginTop={1}>
-          <Box borderStyle="single" borderLeft borderRight={false} borderTop={false} borderBottom={false} borderColor="cyan" paddingLeft={1}>
+        <Box flexDirection="column">
+          <RoleSeparator label={agentLabel} color="cyan" />
+          <Box paddingLeft={1} marginTop={1}>
             <MarkdownRenderer content={streamText} theme={theme} />
           </Box>
         </Box>

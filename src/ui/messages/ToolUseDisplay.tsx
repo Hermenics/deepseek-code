@@ -1,10 +1,20 @@
 import React from 'react'
-import { Text } from 'ink'
+import { Box, Text } from 'ink'
 import type { ToolStatus } from '../App.js'
 
-export function ToolUseDisplay({ tool }: { tool: ToolStatus }) {
+export const ToolUseDisplay = React.memo(function ToolUseDisplay({ tool }: { tool: ToolStatus }) {
   if (tool.done) {
-    return <Text color="green">{`✓ ${tool.name} → ${tool.result || 'done'}`}</Text>
+    return (
+      <Box paddingLeft={3}>
+        <Text color="green">{`✓ ${tool.name}${tool.result ? ` → ${tool.result}` : ''}`}</Text>
+      </Box>
+    )
   }
-  return <Text color="yellow">{`⚙ Running: ${tool.name}(${tool.args})`}</Text>
-}
+  return (
+    <Box paddingLeft={3} gap={1}>
+      <Text color="yellow">⚙</Text>
+      <Text color="yellow">{tool.name}</Text>
+      {tool.args ? <Text dimColor>({tool.args})</Text> : null}
+    </Box>
+  )
+})

@@ -1,5 +1,5 @@
 {
-  "name": "deepseek-code-cli",
+  "name": "deepseek-code",
   "version": "0.1.0",
   "type": "module",
   "bin": {

@@ -9,6 +9,14 @@ export type CommandResult =
   | { type: 'agent'; name: string }
   | { type: 'agents' }
   | { type: 'theme' }
+  | { type: 'undo' }
+  | { type: 'retry' }
+  | { type: 'cost' }
+  | { type: 'files' }
+  | { type: 'refine' }
+  | { type: 'checkpoint'; action: 'save'; label?: string }
+  | { type: 'checkpoint'; action: 'list' }
+  | { type: 'checkpoint'; action: 'restore'; id: string }
   | { type: 'unknown'; input: string }
 
 const MODELS: Model[] = ['deepseek-chat', 'deepseek-reasoner']
@@ -27,6 +35,11 @@ export function parseCommand(input: string): CommandResult | null {
     case 'help': return { type: 'help' }
     case 'agents': return { type: 'agents' }
     case 'theme': return { type: 'theme' }
+    case 'undo': return { type: 'undo' }
+    case 'retry': return { type: 'retry' }
+    case 'cost': return { type: 'cost' }
+    case 'files': return { type: 'files' }
+    case 'refine': return { type: 'refine' }
     case 'agent': {
       const name = args[0]
       if (name) return { type: 'agent', name }
@@ -36,6 +49,17 @@ export function parseCommand(input: string): CommandResult | null {
       const m = args[0] as Model
       if (m && MODELS.includes(m)) return { type: 'model', model: m }
       return { type: 'unknown', input: `Usage: /model <${MODELS.join('|')}>` }
+    }
+    case 'checkpoint': {
+      const sub = args[0]
+      if (!sub || sub === 'save') return { type: 'checkpoint', action: 'save', label: args.slice(1).join(' ') || undefined }
+      if (sub === 'list') return { type: 'checkpoint', action: 'list' }
+      if (sub === 'restore') {
+        const id = args[1]
+        if (id) return { type: 'checkpoint', action: 'restore', id }
+        return { type: 'unknown', input: 'Usage: /checkpoint restore <id>' }
+      }
+      return { type: 'unknown', input: 'Usage: /checkpoint [save [label] | list | restore <id>]' }
     }
     default: return { type: 'unknown', input: `Unknown command: /${cmd}. Type /help for commands.` }
   }
@@ -50,6 +74,13 @@ export const COMMAND_SUGGESTIONS = [
   '/agent',
   '/agents',
   '/theme',
+  '/undo',
+  '/retry',
+  '/cost',
+  '/files',
+  '/refine',
+  '/checkpoint',
+  '/checkpoint list',
   '/model deepseek-chat',
   '/model deepseek-reasoner',
 ]
@@ -61,4 +92,12 @@ export const HELP_TEXT = `Commands:
   /theme                                     change color theme
   /clear                                     clear chat history
   /compact                                   summarize history to save context
+  /undo                                      restore last file modified by agent
+  /retry                                     re-run last message
+  /refine                                    toggle prompt refinement on/off
+  /cost                                      show estimated session cost
+  /files                                     list files modified this session
+  /checkpoint [save [label]]                 save current state
+  /checkpoint list                           list saved checkpoints
+  /checkpoint restore <id>                   restore a checkpoint
   /quit  /q                                  exit`

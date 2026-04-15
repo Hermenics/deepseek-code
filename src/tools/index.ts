@@ -8,7 +8,9 @@ import { Shell } from './Shell.js'
 import { Introspect } from './Introspect.js'
 import { WebFetch } from './WebFetch.js'
 import { SubAgent } from './SubAgent.js'
+import { PatchFile } from './PatchFile.js'
+import { UpdateKnowledge } from './UpdateKnowledge.js'
 
-export const allTools: Tool[] = [WriteFile, ReadFile, ReadFolder, Grep, Glob, Shell, Introspect, WebFetch, SubAgent]
+export const allTools: Tool[] = [WriteFile, PatchFile, ReadFile, ReadFolder, Grep, Glob, Shell, Introspect, WebFetch, SubAgent, UpdateKnowledge]
 
 export const toolMap = new Map<string, Tool>(allTools.map((t) => [t.name, t]))

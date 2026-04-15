@@ -8,6 +8,13 @@ export interface AgentConfig {
   model?: Model
   systemPrompt: string
   files?: string[]
+  /**
+   * Tools that require user permission before execution.
+   * - '*'           → all tools require permission (including dangerous ones)
+   * - string[]      → only the listed tool names require permission
+   * - omitted/null  → no tool permission prompts (default behavior)
+   */
+  allowedTools?: string[] | '*'
 }
 
 export interface LoadedAgent {

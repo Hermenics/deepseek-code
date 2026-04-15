@@ -1,10 +1,18 @@
 #!/usr/bin/env bun
+// Pipe mode: only when --pipe flag is explicitly passed
+// (Bun returns undefined for isTTY so we can't auto-detect pipes reliably)
+if (process.argv.includes('--pipe')) {
+  const { default: runPipe } = await import('./pipe.js')
+  await runPipe()
+  process.exit(0)
+}
+
 import React, { useState, useEffect } from 'react'
 import { render, Box, Text } from 'ink'
 import { App } from './ui/App.js'
 import { ApiKeySetup, loadSavedConfig, type ThemeName, type ProviderConfig } from './ui/setup/ApiKeySetup.js'
-import { DeepSeekMascot } from './ui/layout/Mascot.js'
 import { loadAgentConfig, type LoadedAgent } from './agent/config.js'
+import pkg from '../package.json' with { type: 'json' }
 
 // Parse argv:
 //   deepseek                          → {}
@@ -12,7 +20,7 @@ import { loadAgentConfig, type LoadedAgent } from './agent/config.js'
 //   deepseek agent <name>             → { agentName: "name" }
 //   deepseek agent <name> "msg"       → { agentName: "name", initialMessage: "msg" }
 function parseArgv(): { agentName: string | null; initialMessage: string | null } {
-  const args = process.argv.slice(2)
+  const args = process.argv.slice(2).filter((a) => a !== '--pipe')
   if (args[0] === 'agent') {
     return { agentName: args[1] ?? null, initialMessage: args[2] ?? null }
   }
@@ -33,7 +41,6 @@ function Root() {
       setTheme(savedTheme)
       if (saved) {
         setProviderConfig(saved)
-        // Set env vars so tools/subagents that use process.env still work
         if (saved.provider === 'deepseek' && saved.apiKey) process.env.DEEPSEEK_API_KEY = saved.apiKey
         setReady(true)
       } else if (process.env.DEEPSEEK_API_KEY) {
@@ -59,19 +66,15 @@ function Root() {
   }
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor="cyan">
-      <Box flexDirection="row" paddingX={1} gap={2} alignItems="center">
-        <DeepSeekMascot />
-        <Box flexDirection="column" justifyContent="center">
-          <Text bold color="cyan">DeepSeek Code <Text dimColor>v0.1.0</Text></Text>
-          <Text dimColor>deepseek-chat · {process.cwd()}</Text>
-          <Text dimColor>Type your message and press Enter. /quit or Esc to exit.</Text>
-        </Box>
+    <Box flexDirection="column">
+      <Box borderStyle="round" borderColor="cyan" paddingX={2}>
+        <Text bold color="cyan">◆ DeepSeek Code  </Text>
+        <Text dimColor>v{pkg.version}  ·  /help for commands  ·  Ctrl+C twice to exit</Text>
       </Box>
       <App initialAgent={initialAgent} initialMessage={initialMessage} theme={theme} providerConfig={providerConfig} onThemeChange={setTheme} />
     </Box>
   )
 }
 
-const { waitUntilExit } = render(<Root />)
+const { waitUntilExit } = render(<Root />, { exitOnCtrlC: false })
 waitUntilExit().then(() => process.exit(0))
