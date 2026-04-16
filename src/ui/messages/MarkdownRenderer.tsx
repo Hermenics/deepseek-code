@@ -12,6 +12,118 @@ export const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, 
   return <Box flexDirection="column">{elements}</Box>
 })
 
+// ── Syntax highlighting ────────────────────────────────────────────────────────
+
+type TokenType = 'keyword' | 'string' | 'comment' | 'number' | 'type' | 'fn' | 'plain'
+
+interface SyntaxToken { type: TokenType; text: string }
+
+const KEYWORDS = new Set([
+  'const','let','var','function','return','if','else','for','while','do','switch','case','break',
+  'continue','class','extends','new','this','super','import','export','default','from','async',
+  'await','try','catch','finally','throw','typeof','instanceof','in','of','void','delete','null',
+  'undefined','true','false','type','interface','enum','implements','abstract','readonly','static',
+  'public','private','protected','override','declare','namespace','module','require','def','pass',
+  'and','or','not','is','lambda','with','yield','raise','except','elif','print','fn','let','mut',
+  'use','mod','pub','struct','impl','trait','where','match','Some','None','Ok','Err',
+])
+
+const TYPES = new Set([
+  'string','number','boolean','object','any','never','unknown','void','Array','Promise','Record',
+  'Map','Set','Error','Date','RegExp','Symbol','BigInt','Function','Object','String','Number',
+  'Boolean','int','float','str','bool','list','dict','tuple','bytes',
+])
+
+function tokenizeLine(line: string): SyntaxToken[] {
+  const tokens: SyntaxToken[] = []
+  let i = 0
+
+  while (i < line.length) {
+    // Single-line comment
+    if (line[i] === '/' && line[i + 1] === '/') {
+      tokens.push({ type: 'comment', text: line.slice(i) })
+      break
+    }
+    if (line[i] === '#') {
+      tokens.push({ type: 'comment', text: line.slice(i) })
+      break
+    }
+
+    // String (single or double quote)
+    if (line[i] === '"' || line[i] === "'" || line[i] === '`') {
+      const q = line[i]!
+      let j = i + 1
+      while (j < line.length && line[j] !== q) {
+        if (line[j] === '\\') j++
+        j++
+      }
+      tokens.push({ type: 'string', text: line.slice(i, j + 1) })
+      i = j + 1
+      continue
+    }
+
+    // Number
+    if (/[0-9]/.test(line[i]!) && (i === 0 || /\W/.test(line[i - 1]!))) {
+      let j = i
+      while (j < line.length && /[0-9._xXa-fA-F]/.test(line[j]!)) j++
+      tokens.push({ type: 'number', text: line.slice(i, j) })
+      i = j
+      continue
+    }
+
+    // Word (keyword, type, function call, or plain)
+    if (/[a-zA-Z_$]/.test(line[i]!)) {
+      let j = i
+      while (j < line.length && /[a-zA-Z0-9_$]/.test(line[j]!)) j++
+      const word = line.slice(i, j)
+      const isCall = line[j] === '('
+      let type: TokenType = 'plain'
+      if (KEYWORDS.has(word)) type = 'keyword'
+      else if (TYPES.has(word)) type = 'type'
+      else if (isCall) type = 'fn'
+      tokens.push({ type, text: word })
+      i = j
+      continue
+    }
+
+    // Plain char
+    const last = tokens[tokens.length - 1]
+    if (last?.type === 'plain') {
+      last.text += line[i]
+    } else {
+      tokens.push({ type: 'plain', text: line[i]! })
+    }
+    i++
+  }
+
+  return tokens
+}
+
+const SYNTAX_LANGS = new Set([
+  'ts','tsx','js','jsx','typescript','javascript','python','py','rust','rs','go','java','c','cpp',
+  'c++','cs','csharp','swift','kotlin','ruby','rb','php','bash','sh','zsh',
+])
+
+function SyntaxLine({ line, theme }: { line: string; theme: ThemeName }) {
+  const tokens = tokenizeLine(line)
+  const isDark = theme.startsWith('dark')
+  return (
+    <Text>
+      {tokens.map((tok, i) => {
+        switch (tok.type) {
+          case 'keyword': return <Text key={i} color="magenta">{tok.text}</Text>
+          case 'string':  return <Text key={i} color="green">{tok.text}</Text>
+          case 'comment': return <Text key={i} color={isDark ? 'gray' : 'gray'} dimColor>{tok.text}</Text>
+          case 'number':  return <Text key={i} color="yellow">{tok.text}</Text>
+          case 'type':    return <Text key={i} color="cyan">{tok.text}</Text>
+          case 'fn':      return <Text key={i} color="blue">{tok.text}</Text>
+          default:        return <Text key={i}>{tok.text}</Text>
+        }
+      })}
+    </Text>
+  )
+}
+
 function parseMarkdown(content: string, theme: ThemeName): React.ReactNode[] {
   const lines = content.split('\n')
   const elements: React.ReactNode[] = []
@@ -78,11 +190,17 @@ function parseMarkdown(content: string, theme: ThemeName): React.ReactNode[] {
   const flushCodeBlock = () => {
     if (codeBlockContent.length > 0) {
       const code = codeBlockContent.join('\n')
+      const lang = codeBlockLanguage.toLowerCase()
+      const highlight = SYNTAX_LANGS.has(lang)
       elements.push(
         <Box key={getKey()} flexDirection="column" borderStyle="single" borderColor="gray" marginY={1} paddingX={1}>
-          {codeBlockLanguage && <Text dimColor>```{codeBlockLanguage}</Text>}
-          <Text color={theme === 'dark' ? 'white' : 'black'}>{code}</Text>
-          <Text dimColor>```</Text>
+          {codeBlockLanguage && <Text dimColor>{codeBlockLanguage}</Text>}
+          {highlight
+            ? codeBlockContent.map((line, li) => (
+                <SyntaxLine key={li} line={line} theme={theme} />
+              ))
+            : <Text color={theme.startsWith('dark') ? 'white' : 'black'}>{code}</Text>
+          }
         </Box>
       )
       codeBlockContent = []

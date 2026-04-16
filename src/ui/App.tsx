@@ -49,6 +49,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [isLoading, setIsLoading] = useState(false)
   const [toolStatus, setToolStatus] = useState<ToolStatus | null>(null)
   const [tokenCount, setTokenCount] = useState(0)
+  const [contextPct, setContextPct] = useState(0)
   const [activeAgent, setActiveAgent] = useState<string | null>(null)
   const [toolCallCount, setToolCallCount] = useState(0)
   const [agentPhase, setAgentPhase] = useState<AgentPhase>('idle')
@@ -281,6 +282,13 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         setIsLoading(false)
         setAgentPhase('idle')
         setTokenCount(agent.tokenCount)
+        const pct = agent.contextLimit > 0
+          ? Math.round((agent.contextUsage / agent.contextLimit) * 100)
+          : 0
+        setContextPct(pct)
+      },
+      onAutoCompact(summary) {
+        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Contexto compactado automaticamente (>85%).\n\n${summary}` }])
       },
     })
   }, [agent, isLoading, exit])
@@ -319,6 +327,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           toolCallCount={toolCallCount}
           onAbort={handleAbort}
           phase={agentPhase}
+          contextPct={contextPct}
         />
       )}
       <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} />

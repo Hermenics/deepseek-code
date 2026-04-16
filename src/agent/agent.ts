@@ -12,9 +12,9 @@ import type { Tool } from '../tools/types.js'
 import { resolveAgentFiles } from './files.js'
 import { loadSteering } from './steering.js'
 import { createLLMClient, defaultModel } from './llmClient.js'
-import { saveHistory, loadHistory } from './history.js'
+import { saveHistory } from './history.js'
 import { saveCheckpoint, listCheckpoints, loadCheckpoint } from './checkpoint.js'
-import { estimateCost, formatCost, type TokenUsage } from './cost.js'
+import { estimateCost, formatCost, getContextLimit, type TokenUsage } from './cost.js'
 import type { ProviderConfig } from '../ui/setup/ApiKeySetup.js'
 import { refinePrompt } from './promptRefiner.js'
 
@@ -22,6 +22,9 @@ import { refinePrompt } from './promptRefiner.js'
 const PARALLEL_SAFE = new Set(['subagent', 'shell', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect'])
 
 const DEFAULT_SYSTEM_PROMPT = `You are DeepSeek Code, an ultra-powerful AI coding agent with access to the filesystem and shell.
+
+## Language
+Always respond in the same language the user writes in. If the user writes in Portuguese, respond in Portuguese. Never mix languages.
 
 ## Core Behavior — Perception → Reasoning → Planning → Action
 
@@ -57,6 +60,7 @@ export interface AgentCallbacks {
   onToolResult(name: string, result: string, args: Record<string, unknown>): void
   onDone(): void
   onPhaseChange?(phase: 'refining' | 'executing'): void
+  onAutoCompact?(summary: string): void
 }
 
 interface UndoEntry {
@@ -83,6 +87,8 @@ export class Agent {
   public activeAgent: string | null = null
   public provider: ProviderConfig['provider'] = 'deepseek'
   public refineEnabled = true
+  public contextUsage = 0      // last known prompt token count
+  public contextLimit = 128_000
   private confirmHandler: ((message: string) => Promise<boolean>) | null = null
   private toolPermissionHandler: ToolPermissionHandler | null = null
   private sessionApprovedTools: Set<string> = new Set()
@@ -109,17 +115,17 @@ export class Agent {
       // Propagate provider to SubAgent so it uses the same backend
       setSubAgentProvider(providerConfig)
     }
+    this.contextLimit = getContextLimit(this.provider, this.model)
     // Initialize async — readyPromise is awaited in run() to prevent race conditions
     this.readyPromise = this.initialize()
   }
 
   private async initialize(): Promise<void> {
     try {
-      const [steering, deepseekMd, mcpTools, history] = await Promise.all([
+      const [steering, deepseekMd, mcpTools] = await Promise.all([
         loadSteering(),
         readFile(join(process.cwd(), 'DEEPSEEK.md'), 'utf-8').catch(() => ''),
         loadMcpTools(),
-        loadHistory(),
       ])
       const parts: string[] = []
       if (steering) parts.push(steering)
@@ -127,10 +133,7 @@ export class Agent {
       if (parts.length) {
         this.systemPrompt = `${DEFAULT_SYSTEM_PROMPT}\n\n${parts.join('\n\n')}`
       }
-      this.messages = [
-        { role: 'system', content: this.systemPrompt },
-        ...history.filter((m) => m.role !== 'system'),
-      ]
+      this.messages = [{ role: 'system', content: this.systemPrompt }]
       if (mcpTools.length) {
         this.tools = [...allTools, ...mcpTools]
         this.toolMap = new Map(this.tools.map((t) => [t.name, t]))
@@ -225,7 +228,10 @@ export class Agent {
     return summary
   }
 
-  setModel(m: Model) { this.model = m }
+  setModel(m: Model) {
+    this.model = m
+    this.contextLimit = getContextLimit(this.provider, m)
+  }
 
   clearHistory() {
     this.messages = [{ role: 'system', content: this.systemPrompt }]
@@ -260,6 +266,12 @@ export class Agent {
     // Wait for async initialization to complete before running
     await this.readyPromise
 
+    // Auto-compact when context is above 85% of the limit
+    if (this.contextUsage > 0 && this.contextUsage / this.contextLimit > 0.85) {
+      const summary = await this.compact()
+      cb.onAutoCompact?.(summary)
+    }
+
     const now = new Date().toLocaleString()
     this.lastUserMessage = userMessage
 
@@ -285,8 +297,8 @@ export class Agent {
         return await fn()
       } catch (e: unknown) {
         const err = e as { name?: string; status?: number }
-        // Never retry aborts
-        if (err.name === 'AbortError') throw e
+        // Never retry aborts — check the signal directly, not the error name
+        if (this.abortController?.signal.aborted) throw e
         // Retry on rate limit or server error
         if ((err.status === 429 || err.status === 503) && attempt < delays.length) {
           await new Promise((r) => setTimeout(r, delays[attempt]!))
@@ -317,7 +329,7 @@ export class Agent {
           )
         )
       } catch (e: unknown) {
-        if ((e as Error).name === 'AbortError' || (e as { status?: number }).status === 0) {
+        if (this.abortController?.signal.aborted) {
           cb.onDone()
           return
         }
@@ -329,16 +341,17 @@ export class Agent {
 
       try {
         for await (const chunk of stream) {
-          const delta = chunk.choices[0]?.delta
-          if (!delta) {
-            if (chunk.usage) {
-              this.tokenCount += chunk.usage.total_tokens
-              this.tokenUsage.promptTokens += chunk.usage.prompt_tokens
-              this.tokenUsage.completionTokens += chunk.usage.completion_tokens
-              this.tokenUsage.cachedTokens += (chunk.usage as { prompt_cache_hit_tokens?: number }).prompt_cache_hit_tokens ?? 0
-            }
-            continue
+          // Always capture usage when present — may arrive with empty choices OR alongside a delta
+          if (chunk.usage) {
+            this.tokenCount += chunk.usage.total_tokens
+            this.tokenUsage.promptTokens += chunk.usage.prompt_tokens
+            this.tokenUsage.completionTokens += chunk.usage.completion_tokens
+            this.tokenUsage.cachedTokens += (chunk.usage as { prompt_cache_hit_tokens?: number }).prompt_cache_hit_tokens ?? 0
+            this.contextUsage = chunk.usage.prompt_tokens
           }
+
+          const delta = chunk.choices[0]?.delta
+          if (!delta) continue
 
           if (delta.content) {
             assistantText += delta.content
@@ -359,7 +372,7 @@ export class Agent {
           }
         }
       } catch (e: unknown) {
-        if ((e as Error).name === 'AbortError') {
+        if (this.abortController?.signal.aborted) {
           if (assistantText) this.messages.push({ role: 'assistant', content: assistantText })
           await saveHistory(this.messages)
           cb.onDone()

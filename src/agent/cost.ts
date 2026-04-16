@@ -4,6 +4,18 @@ const PRICING: Record<string, { input: number; cachedInput: number; output: numb
   'deepseek-reasoner': { input: 0.55, cachedInput: 0.14, output: 2.19 },
 }
 
+// Context window limits per model/provider
+const MODEL_CONTEXT: Record<string, number> = {
+  'deepseek-chat':     128_000,
+  'deepseek-reasoner': 128_000,
+}
+
+export function getContextLimit(provider: string, model: string): number {
+  if (provider === 'vertex')  return 1_000_000  // Gemini 2.0 Flash
+  if (provider === 'bedrock') return 200_000     // Claude 3.5 Sonnet
+  return MODEL_CONTEXT[model] ?? 128_000
+}
+
 export interface TokenUsage {
   promptTokens: number
   completionTokens: number

@@ -75,6 +75,8 @@ const LOADING_MSGS = [
   'Rebaseando a realidade...',
   'Mergeando a consciência...',
   'Tentando dar console.log no vazio...',
+  'Confiando no que o mundo vê...',
+  'Filosofando com o Google....',
 ]
 
 function LoadingSpinner({ toolCallCount, phase }: { toolCallCount: number; phase: AgentPhase }) {
@@ -137,12 +139,14 @@ export function InputBox({
   toolCallCount,
   onAbort,
   phase = 'idle',
+  contextPct = 0,
 }: {
   onSubmit: (text: string) => void
   isLoading: boolean
   toolCallCount: number
   onAbort?: () => void
   phase?: AgentPhase
+  contextPct?: number  // 0–100
 }) {
   const [value, setValue] = useState('')
   const [cursorPos, setCursorPos] = useState(0)
@@ -346,7 +350,7 @@ export function InputBox({
       if (wasPaused) stdin.pause()
     }
   }, [isLoading, onAbort, value, cursorPos, pastedBlock, showDropdown, selectedIdx, matches, onSubmit,
-      inputHistory, historyIdx, savedDraft, ctrlCAt])
+    inputHistory, historyIdx, savedDraft, ctrlCAt])
 
   const cols = process.stdout.columns ?? 80
   const isLong = value.length >= cols - 7 // account for " > " prefix (3 chars) + cursor + margin
@@ -363,7 +367,7 @@ export function InputBox({
       return (
         <>
           <Text color="white">█</Text>
-          {!pastedBlock && <Text dimColor>ask a question or describe a task ↵</Text>}
+          {!pastedBlock && <Text dimColor>make deepseek work or just talk with him ↵</Text>}
         </>
       )
     }
@@ -398,7 +402,15 @@ export function InputBox({
         </Box>
       ) : (
         <Box>
-          <Text color="cyan"> {'>'} </Text>
+          {contextPct > 0 && (
+            <Text
+              color={contextPct >= 90 ? 'red' : contextPct >= 70 ? 'yellow' : undefined}
+              dimColor={contextPct < 50}
+            >
+              {contextPct}%{' '}
+            </Text>
+          )}
+          <Text color="cyan">{'>'} </Text>
           {pastedBlock && (
             <Box marginRight={1} paddingX={1} borderStyle="round" borderColor="gray">
               <Text dimColor>{pastedBlock.split('\n').length} lines</Text>

@@ -33,7 +33,7 @@ export const PROVIDERS: { label: string; value: ProviderName; hint: string }[] =
   { value: 'deepseek', label: 'DeepSeek API',          hint: 'platform.deepseek.com/api_keys' },
   { value: 'bedrock',  label: 'Amazon Bedrock',         hint: 'AWS credentials (access key + secret)' },
   { value: 'vertex',   label: 'Google Vertex AI',       hint: 'GCP project + service account JSON' },
-  { value: 'local',    label: 'Modelo local (Ollama / LM Studio)', hint: 'OpenAI-compatible endpoint' },
+  { value: 'local',    label: 'Modelo local (Ollama / LM Studio)', hint: 'Any OpenAI-compatible endpoint' },
 ]
 
 const THEMES: { label: string; value: ThemeName }[] = [
@@ -135,7 +135,7 @@ const PROVIDER_FIELDS: Record<ProviderName, { key: string; label: string; hint: 
   ],
   local: [
     { key: 'LOCAL_BASE_URL', label: 'Base URL', hint: 'e.g. http://localhost:11434/v1  (OpenAI-compatible)' },
-    { key: 'LOCAL_MODEL',    label: 'Model name', hint: 'e.g. deepseek-r1:8b  (deve ser um modelo DeepSeek)' },
+    { key: 'LOCAL_MODEL',    label: 'Model name', hint: 'e.g. deepseek-r1:8b, llama3, mistral, qwen2.5-coder' },
   ],
 }
 

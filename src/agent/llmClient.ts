@@ -29,11 +29,15 @@ export function createLLMClient(cfg: ProviderConfig): OpenAI {
         baseURL: `https://${location}-aiplatform.googleapis.com/v1/projects/${project}/locations/${location}/endpoints/openapi`,
       })
     }
-    case 'local':
+    case 'local': {
+      const rawUrl = cfg.localBaseUrl ?? 'http://localhost:11434/v1'
+      // Ensure the URL has a scheme — users often omit http://
+      const baseURL = /^https?:\/\//i.test(rawUrl) ? rawUrl : `http://${rawUrl}`
       return new OpenAI({
-        apiKey: 'local',  // required by SDK but ignored by local servers
-        baseURL: cfg.localBaseUrl ?? 'http://localhost:11434/v1',
+        apiKey: 'local',
+        baseURL,
       })
+    }
     default: // deepseek
       return new OpenAI({
         apiKey: cfg.apiKey ?? process.env.DEEPSEEK_API_KEY,
@@ -47,7 +51,7 @@ export function defaultModel(provider: ProviderConfig['provider']): string {
   switch (provider) {
     case 'bedrock': return 'anthropic.claude-3-5-sonnet-20241022-v2:0'
     case 'vertex':  return 'google/gemini-2.0-flash-001'
-    case 'local':   return 'deepseek-r1:8b'
+    case 'local':   return 'llama3'
     default:        return 'deepseek-chat'
   }
 }
