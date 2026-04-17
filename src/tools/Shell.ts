@@ -1,5 +1,6 @@
 import { Tool } from './types.js'
 import { execa } from 'execa'
+import { SHELL_OUTPUT_MAX_CHARS, SHELL_TIMEOUT_MS } from '../constants.js'
 
 const DESTRUCTIVE_PATTERNS = [
   /\brm\s+(-[a-z]*f[a-z]*|-[a-z]*r[a-z]*f[a-z]*|--force|--recursive)\b/i,
@@ -41,7 +42,7 @@ export const Shell: Tool = {
   },
   async execute(args) {
     const command = args.command as string
-    const timeout = ((args.timeout as number) || 30) * 1000
+    const timeout = ((args.timeout as number) || 0) * 1000 || SHELL_TIMEOUT_MS
 
     const warning = isDestructive(command)
     if (warning && globalConfirmHandler) {
@@ -52,10 +53,10 @@ export const Shell: Tool = {
     try {
       const { stdout, stderr } = await execa(command, { shell: true, timeout })
       const out = [stdout, stderr].filter(Boolean).join('\n')
-      return out.slice(0, 50000) || '(no output)'
+      return out.slice(0, SHELL_OUTPUT_MAX_CHARS) || '(no output)'
     } catch (e: unknown) {
       const err = e as { stdout?: string; stderr?: string; message?: string }
-      return `Error: ${err.stderr || err.message || 'Command failed'}\n${err.stdout || ''}`.slice(0, 50000)
+      return `Error: ${err.stderr || err.message || 'Command failed'}\n${err.stdout || ''}`.slice(0, SHELL_OUTPUT_MAX_CHARS)
     }
   },
 }

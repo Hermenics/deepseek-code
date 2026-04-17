@@ -87,7 +87,7 @@ export async function saveConfig(data: Record<string, string>): Promise<void> {
   await writeRaw(CONFIG_PATH, JSON.stringify({ ...existing, ...data }, null, 2))
 }
 
-export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfig | null; theme: ThemeName }> {
+export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfig | null; theme: ThemeName; language: string | null }> {
   try {
     const cfg = await readJson<Record<string, string>>(CONFIG_PATH)
     const provider = (cfg.PROVIDER ?? 'deepseek') as ProviderName
@@ -112,9 +112,13 @@ export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfi
       (provider === 'bedrock' && !!providerConfig.awsRegion) ||
       (provider === 'vertex' && !!providerConfig.gcpProject) ||
       (provider === 'local' && !!providerConfig.localBaseUrl)
-    return { providerConfig: isReady ? providerConfig : null, theme: (cfg.THEME ?? 'dark') as ThemeName }
+    return {
+      providerConfig: isReady ? providerConfig : null,
+      theme: (cfg.THEME ?? 'dark') as ThemeName,
+      language: cfg.LANGUAGE ?? null,
+    }
   } catch {
-    return { providerConfig: null, theme: 'dark' }
+    return { providerConfig: null, theme: 'dark', language: null }
   }
 }
 

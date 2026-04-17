@@ -14,9 +14,12 @@ export type CommandResult =
   | { type: 'cost' }
   | { type: 'files' }
   | { type: 'refine' }
+  | { type: 'tools' }
+  | { type: 'system' }
   | { type: 'checkpoint'; action: 'save'; label?: string }
   | { type: 'checkpoint'; action: 'list' }
   | { type: 'checkpoint'; action: 'restore'; id: string }
+  | { type: 'sessions' }
   | { type: 'unknown'; input: string }
 
 const MODELS: Model[] = ['deepseek-chat', 'deepseek-reasoner']
@@ -40,6 +43,8 @@ export function parseCommand(input: string): CommandResult | null {
     case 'cost': return { type: 'cost' }
     case 'files': return { type: 'files' }
     case 'refine': return { type: 'refine' }
+    case 'tools': return { type: 'tools' }
+    case 'system': return { type: 'system' }
     case 'agent': {
       const name = args[0]
       if (name) return { type: 'agent', name }
@@ -61,6 +66,7 @@ export function parseCommand(input: string): CommandResult | null {
       }
       return { type: 'unknown', input: 'Usage: /checkpoint [save [label] | list | restore <id>]' }
     }
+    case 'sessions': return { type: 'sessions' }
     default: return { type: 'unknown', input: `Unknown command: /${cmd}. Type /help for commands.` }
   }
 }
@@ -79,8 +85,11 @@ export const COMMAND_SUGGESTIONS = [
   '/cost',
   '/files',
   '/refine',
+  '/tools',
+  '/system',
   '/checkpoint',
   '/checkpoint list',
+  '/sessions',
   '/model deepseek-chat',
   '/model deepseek-reasoner',
 ]
@@ -95,8 +104,11 @@ export const HELP_TEXT = `Commands:
   /undo                                      restore last file modified by agent
   /retry                                     re-run last message
   /refine                                    toggle prompt refinement on/off
+  /tools                                     list all available tools (built-in + MCP)
+  /system                                    show active system prompt
   /cost                                      show estimated session cost
   /files                                     list files modified this session
+  /sessions                                  list recent sessions (use --resume <id> to restore)
   /checkpoint [save [label]]                 save current state
   /checkpoint list                           list saved checkpoints
   /checkpoint restore <id>                   restore a checkpoint

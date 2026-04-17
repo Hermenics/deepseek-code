@@ -32,11 +32,12 @@ async function loadConfig(): Promise<McpConfig | null> {
   }
 }
 
-export async function loadMcpTools(): Promise<Tool[]> {
+export async function loadMcpTools(): Promise<{ tools: Tool[]; errors: string[] }> {
   const config = await loadConfig()
-  if (!config?.servers) return []
+  if (!config?.servers) return { tools: [], errors: [] }
 
   const tools: Tool[] = []
+  const errors: string[] = []
 
   for (const [serverName, serverConfig] of Object.entries(config.servers)) {
     try {
@@ -70,9 +71,10 @@ export async function loadMcpTools(): Promise<Tool[]> {
         })
       }
     } catch (e) {
-      console.error(`[MCP] Failed to connect to server '${serverName}': ${(e as Error).message}`)
+      const msg = `MCP server '${serverName}': ${(e as Error).message}`
+      errors.push(msg)
     }
   }
 
-  return tools
+  return { tools, errors }
 }

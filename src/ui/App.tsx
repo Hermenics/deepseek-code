@@ -2,6 +2,7 @@ import React, { useState, useCallback, useEffect } from 'react'
 import { Box, Text, useInput, useApp } from 'ink'
 import { Agent, type ToolPermissionResult } from '../agent/agent.js'
 import { MessageList } from './messages/MessageList.js'
+import { TodoPanel } from './messages/TodoPanel.js'
 import { ToolUseDisplay } from './messages/ToolUseDisplay.js'
 import { InputBox } from './input/InputBox.js'
 import { StatusBar } from './layout/StatusBar.js'
@@ -10,6 +11,7 @@ import { parseCommand, HELP_TEXT } from '../commands.js'
 import { loadAgentConfig, listAgents, type LoadedAgent } from '../agent/config.js'
 import { appendInputHistory } from '../agent/inputHistory.js'
 import type { ThemeName, ProviderConfig } from './setup/ApiKeySetup.js'
+import { saveSession, type SessionData } from '../agent/session.js'
 
 export type AgentPhase = 'idle' | 'refining' | 'executing'
 
@@ -36,12 +38,15 @@ interface ToolPermissionState {
   resolve: (result: ToolPermissionResult) => void
 }
 
-export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange }: {
+export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, language, sessionId, initialSession }: {
   initialAgent?: LoadedAgent | null
   initialMessage?: string | null
   theme: ThemeName
   providerConfig?: ProviderConfig | null
   onThemeChange?: (t: ThemeName) => void
+  language?: string | null
+  sessionId?: string
+  initialSession?: SessionData | null
 }) {
   const { exit } = useApp()
   const [messages, setMessages] = useState<Message[]>([])
@@ -81,12 +86,33 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   useEffect(() => {
     const init = async () => {
+      // Wait for agent initialization then surface any MCP connection errors
+      await new Promise<void>((resolve) => {
+        const check = () => {
+          if (agent.mcpErrors !== undefined) resolve()
+          else setTimeout(check, 50)
+        }
+        check()
+      })
+      if (language) {
+        agent.setLanguage(language)
+      }
+      if (initialSession?.agentMessages?.length) {
+        agent.loadSessionMessages(initialSession.agentMessages)
+      }
+      if (initialSession?.uiMessages?.length) {
+        setMessages(initialSession.uiMessages)
+      }
+      if (agent.mcpErrors.length > 0) {
+        const errMsg = `⚠ MCP connection errors:\n${agent.mcpErrors.map((e) => `  • ${e}`).join('\n')}`
+        setMessages((m) => [...m, { role: 'assistant', content: errMsg }])
+      }
       if (initialAgent) {
         const { config, source } = initialAgent
         await agent.applyAgentConfig(config)
         setActiveAgent(config.name)
         const sourceMsg = source === 'local' ? 'local (overrides global)' : 'global'
-        setMessages([{ role: 'assistant', content: `Agent '${config.name}' loaded from ${sourceMsg}.` }])
+        setMessages((m) => [...m, { role: 'assistant', content: `Agent '${config.name}' loaded from ${sourceMsg}.` }])
       }
       if (initialMessage) {
         await handleSubmit(initialMessage)
@@ -202,6 +228,24 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setMessages((m) => [...m, { role: 'assistant', content: content }])
           return
         }
+        case 'tools': {
+          const names = agent.getToolNames()
+          const builtIn = names.filter((n) => !n.includes('__'))
+          const mcp = names.filter((n) => n.includes('__'))
+          const lines = [
+            `Built-in tools (${builtIn.length}):`,
+            ...builtIn.map((n) => `  ${n}`),
+            ...(mcp.length ? [`\nMCP tools (${mcp.length}):`, ...mcp.map((n) => `  ${n}`)] : []),
+          ]
+          setMessages((m) => [...m, { role: 'assistant', content: lines.join('\n') }])
+          return
+        }
+        case 'system': {
+          const prompt = agent.getSystemPrompt()
+          const preview = prompt.length > 2000 ? prompt.slice(0, 2000) + '\n\n...(truncated)' : prompt
+          setMessages((m) => [...m, { role: 'assistant', content: `**Active system prompt:**\n\n\`\`\`\n${preview}\n\`\`\`` }])
+          return
+        }
         case 'checkpoint': {
           if (cmd.action === 'save') {
             const id = await agent.saveCheckpoint(cmd.label)
@@ -223,6 +267,21 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         case 'theme':
           setShowThemeSelector(true)
           return
+        case 'sessions': {
+          const { listSessions } = await import('../agent/session.js')
+          const sessions = await listSessions()
+          if (!sessions.length) {
+            setMessages((m) => [...m, { role: 'assistant', content: 'No saved sessions.' }])
+          } else {
+            const lines = sessions.slice(0, 10).map((s) => {
+              const date = new Date(s.updatedAt).toLocaleString()
+              const msgs = s.uiMessages.filter((m) => m.role === 'user').length
+              return `  ${s.id}  ${date}  ${msgs} messages  ${s.cwd}`
+            })
+            setMessages((m) => [...m, { role: 'assistant', content: `Recent sessions:\n${lines.join('\n')}\n\nResume: deepseek --resume <id>` }])
+          }
+          return
+        }
         case 'unknown':
           setMessages((m) => [...m, { role: 'assistant', content: cmd.input }])
           return
@@ -286,9 +345,29 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           ? Math.round((agent.contextUsage / agent.contextLimit) * 100)
           : 0
         setContextPct(pct)
+        if (sessionId) {
+          setTimeout(() => {
+            setMessages((current) => {
+              saveSession({
+                id: sessionId,
+                createdAt: initialSession?.createdAt ?? new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                cwd: process.cwd(),
+                model: agent.model,
+                provider: agent.provider,
+                language: language ?? null,
+                activeAgent: agent.activeAgent,
+                agentMessages: agent.getMessages(),
+                uiMessages: current,
+                filesModified: agent.getFilesModified(),
+              })
+              return current
+            })
+          }, 100)
+        }
       },
       onAutoCompact(summary) {
-        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Contexto compactado automaticamente (>85%).\n\n${summary}` }])
+        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Context auto-compacted (>85%).\n\n${summary}` }])
       },
     })
   }, [agent, isLoading, exit])
@@ -309,6 +388,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     <Box flexDirection="column" width="100%">
       <MessageList messages={messages} streamText={streamText} theme={theme} activeAgent={activeAgent} />
       {toolStatus && <ToolUseDisplay tool={toolStatus} />}
+      <TodoPanel />
       {toolPermissionState ? (
         <ToolPermissionPrompt
           toolName={toolPermissionState.toolName}
@@ -353,9 +433,9 @@ function ConfirmPrompt({ message, onConfirm }: { message: string; onConfirm: (ye
 }
 
 const PERMISSION_OPTIONS = [
-  { key: '1', label: 'Permitir só esta vez', result: 'once' as ToolPermissionResult },
-  { key: '2', label: 'Permitir nesta sessão', result: 'session' as ToolPermissionResult },
-  { key: '3', label: 'Negar', result: 'deny' as ToolPermissionResult },
+  { key: '1', label: 'Allow once', result: 'once' as ToolPermissionResult },
+  { key: '2', label: 'Allow this session', result: 'session' as ToolPermissionResult },
+  { key: '3', label: 'Deny', result: 'deny' as ToolPermissionResult },
 ]
 
 function ToolPermissionPrompt({
@@ -387,7 +467,7 @@ function ToolPermissionPrompt({
     <Box flexDirection="column" marginY={1}>
       <Box borderStyle="round" borderColor="cyan" paddingX={2} paddingY={0} flexDirection="column">
         <Box gap={1}>
-          <Text color="cyan" bold>◆ Permissão de tool</Text>
+          <Text color="cyan" bold>◆ Tool permission</Text>
         </Box>
         <Box marginTop={1} gap={1}>
           <Text dimColor>tool:</Text>
@@ -411,7 +491,7 @@ function ToolPermissionPrompt({
         ))}
       </Box>
       <Box marginLeft={2}>
-        <Text dimColor>  ↑↓ navegar  ·  Enter confirmar  ·  Esc negar</Text>
+        <Text dimColor>  ↑↓ navigate  ·  Enter confirm  ·  Esc deny</Text>
       </Box>
     </Box>
   )

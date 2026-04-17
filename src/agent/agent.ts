@@ -1,6 +1,7 @@
 import OpenAI from 'openai'
 import { readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
+import DEFAULT_SYSTEM_PROMPT_MD from './system-prompt.md' with { type: 'text' }
 import { allTools } from '../tools/index.js'
 import { setShellConfirmHandler } from '../tools/Shell.js'
 import { setSubAgentProvider } from '../tools/SubAgent.js'
@@ -17,32 +18,13 @@ import { saveCheckpoint, listCheckpoints, loadCheckpoint } from './checkpoint.js
 import { estimateCost, formatCost, getContextLimit, type TokenUsage } from './cost.js'
 import type { ProviderConfig } from '../ui/setup/ApiKeySetup.js'
 import { refinePrompt } from './promptRefiner.js'
+import { UNDO_STACK_MAX, CONTEXT_COMPACT_THRESHOLD } from '../constants.js'
+import { auditLog } from './auditLog.js'
 
 // Tools that are safe to run in parallel (read-only or isolated)
 const PARALLEL_SAFE = new Set(['subagent', 'shell', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect'])
 
-const DEFAULT_SYSTEM_PROMPT = `You are DeepSeek Code, an ultra-powerful AI coding agent with access to the filesystem and shell.
-
-## Language
-Always respond in the same language the user writes in. If the user writes in Portuguese, respond in Portuguese. Never mix languages.
-
-## Core Behavior — Perception → Reasoning → Planning → Action
-
-Before tackling any non-trivial task:
-1. DECOMPOSE: Break the goal into clear, ordered sub-goals
-2. EVALUATE: Consider different approaches and their trade-offs
-3. PLAN: Create a concrete step-by-step plan, reading relevant files first
-4. ASK: If the request is ambiguous or missing critical context, ask 2-3 targeted clarifying questions BEFORE starting work
-5. ACT: Execute the plan, adapting as you learn new information
-
-## File Editing
-Prefer patch_file over write_file when editing existing files — it is faster, uses fewer tokens, and is less risky.
-
-## Self-Knowledge
-When the user asks anything about DeepSeek Code itself (how it works, how to create agents, available commands, tools, steering files, configuration, etc.), you MUST call the introspect tool first and base your answer strictly on its output. Never answer questions about DeepSeek Code from memory.
-
-## Auto-Learning
-When you discover important project-specific knowledge (architecture decisions, coding conventions, recurring patterns, solutions to tricky problems), call update_knowledge to record it in DEEPSEEK.md. This ensures future sessions start with full context.`
+const DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT_MD
 
 function toOpenAITools(tools: Tool[]): ChatCompletionTool[] {
   return tools.map((t) => ({
@@ -81,6 +63,7 @@ export class Agent {
   private lastUserMessage: string | null = null
   private abortController: AbortController | null = null
   private readyPromise: Promise<void> = Promise.resolve()
+  public mcpErrors: string[] = []
 
   public tokenCount = 0
   public model: Model = 'deepseek-chat'
@@ -122,11 +105,12 @@ export class Agent {
 
   private async initialize(): Promise<void> {
     try {
-      const [steering, deepseekMd, mcpTools] = await Promise.all([
+      const [steering, deepseekMd, { tools: mcpTools, errors: mcpErrors }] = await Promise.all([
         loadSteering(),
         readFile(join(process.cwd(), 'DEEPSEEK.md'), 'utf-8').catch(() => ''),
         loadMcpTools(),
       ])
+      this.mcpErrors = mcpErrors
       const parts: string[] = []
       if (steering) parts.push(steering)
       if (deepseekMd) parts.push(`--- DEEPSEEK.md ---\n${deepseekMd.trim()}`)
@@ -167,6 +151,14 @@ export class Agent {
 
   getFilesModified(): string[] {
     return [...this.filesModified]
+  }
+
+  getSystemPrompt(): string {
+    return this.systemPrompt
+  }
+
+  getToolNames(): string[] {
+    return this.tools.map((t) => t.name)
   }
 
   // ── Cost ───────────────────────────────────────────────────────────────────
@@ -233,10 +225,26 @@ export class Agent {
     this.contextLimit = getContextLimit(this.provider, m)
   }
 
+  setLanguage(language: string): void {
+    const langInstruction = `\n\n# PREFERRED LANGUAGE\nThe user's preferred language is: ${language}. Always respond in this language unless the user explicitly writes in a different language.`
+    if (!this.systemPrompt.includes('# PREFERRED LANGUAGE')) {
+      this.systemPrompt = this.systemPrompt + langInstruction
+      this.messages = [{ role: 'system', content: this.systemPrompt }, ...this.messages.slice(1)]
+    }
+  }
+
   clearHistory() {
     this.messages = [{ role: 'system', content: this.systemPrompt }]
     this.undoStack = []
     this.filesModified = new Set()
+  }
+
+  getMessages(): ChatCompletionMessageParam[] {
+    return this.messages
+  }
+
+  loadSessionMessages(messages: ChatCompletionMessageParam[]): void {
+    this.messages = messages
   }
 
   async applyAgentConfig(config: AgentConfig): Promise<void> {
@@ -266,9 +274,10 @@ export class Agent {
     // Wait for async initialization to complete before running
     await this.readyPromise
 
-    // Auto-compact when context is above 85% of the limit
-    if (this.contextUsage > 0 && this.contextUsage / this.contextLimit > 0.85) {
+    // Auto-compact when context is above threshold
+    if (this.contextUsage > 0 && this.contextUsage / this.contextLimit > CONTEXT_COMPACT_THRESHOLD) {
       const summary = await this.compact()
+      auditLog({ type: 'compact', reason: 'context_threshold' })
       cb.onAutoCompact?.(summary)
     }
 
@@ -413,6 +422,8 @@ export class Agent {
           } catch {
             this.undoStack.push({ path: filePath, content: '' })
           }
+          // Keep stack bounded
+          if (this.undoStack.length > UNDO_STACK_MAX) this.undoStack.shift()
         }
       }
 
@@ -424,7 +435,10 @@ export class Agent {
         const results = await Promise.all(
           parsedList.map(async ({ tc, parsedArgs }) => {
             cb.onToolCall(tc.function.name, parsedArgs)
+            auditLog({ type: 'tool_call', tool: tc.function.name, args: parsedArgs })
+            const t0 = Date.now()
             const result = await this.executeTool(tc.function.name, parsedArgs)
+            auditLog({ type: 'tool_result', tool: tc.function.name, result: result.slice(0, 200), durationMs: Date.now() - t0 })
             cb.onToolResult(tc.function.name, result, parsedArgs)
             return { tc, result }
           })
@@ -446,6 +460,7 @@ export class Agent {
             const decision = await this.toolPermissionHandler(tc.function.name, parsedArgs)
             if (decision === 'deny') {
               const denyMsg = `Tool '${tc.function.name}' was denied by the user. Suggest an alternative approach that does not require this tool, or ask the user what they would like to do instead.`
+              auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied: true } })
               cb.onToolResult(tc.function.name, denyMsg, parsedArgs)
               this.messages.push({ role: 'tool', tool_call_id: tc.id, content: denyMsg })
               continue
@@ -455,7 +470,10 @@ export class Agent {
             }
           }
 
+          auditLog({ type: 'tool_call', tool: tc.function.name, args: parsedArgs })
+          const t0 = Date.now()
           const result = await this.executeTool(tc.function.name, parsedArgs)
+          auditLog({ type: 'tool_result', tool: tc.function.name, result: result.slice(0, 200), durationMs: Date.now() - t0 })
           cb.onToolResult(tc.function.name, result, parsedArgs)
           this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
         }

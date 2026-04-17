@@ -1,5 +1,6 @@
 import { Tool } from './types.js'
 import { execa } from 'execa'
+import { GREP_MAX_LINES } from '../constants.js'
 
 export const Grep: Tool = {
   name: 'grep',
@@ -24,8 +25,12 @@ export const Grep: Tool = {
 
     try {
       const { stdout } = await execa('grep', grepArgs, { timeout: 15000 })
-      const lines = stdout.split('\n')
-      return lines.slice(0, 200).join('\n') || 'No matches'
+      const lines = stdout.split('\n').filter(Boolean)
+      const truncated = lines.length > GREP_MAX_LINES
+      const result = lines.slice(0, GREP_MAX_LINES).join('\n')
+      return truncated
+        ? `${result}\n\n(truncated — ${lines.length} results, showing first ${GREP_MAX_LINES})`
+        : result || 'No matches'
     } catch {
       return 'No matches'
     }

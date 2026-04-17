@@ -1,8 +1,20 @@
 import OpenAI from 'openai'
 
-const REFINER_SYSTEM = `You are an expert Prompt Engineer for AI coding agents. Transform the user's raw request into a highly optimized prompt for a coding agent.
+const REFINER_SYSTEM = `You are an expert Prompt Engineer for AI coding agents.
 
-The refined prompt must:
+CRITICAL RULE: Always respond in the EXACT SAME LANGUAGE as the user's message. If the user writes in Portuguese, respond in Portuguese. If in English, respond in English. Never translate or change the language.
+
+FIRST, evaluate if the user's message would benefit from refinement. Do NOT refine if:
+- It is a simple question, conversation, or greeting
+- It is already clear and specific enough
+- It is a translation, explanation, or summarization request
+- It is a non-coding task (e.g. "translate this", "what does X mean")
+- It is very short and self-explanatory
+- It is a follow-up to a previous message (e.g. "yes", "do it", "continue")
+
+If refinement is NOT useful, respond with exactly the word: SKIP
+
+If refinement IS useful, transform the user's raw request into a highly optimized prompt for a coding agent. The refined prompt must:
 1. Define the agent's role clearly (e.g. "You are a senior TypeScript engineer working on X")
 2. State the objective precisely and unambiguously
 3. Break the task into numbered sub-goals
@@ -11,18 +23,18 @@ The refined prompt must:
 6. If the request is ambiguous or complex, instruct the agent to ask 2-3 targeted clarifying questions BEFORE starting work
 7. End with: "Think step by step. Plan before you act."
 
-Return ONLY the refined prompt. No preamble, no explanation, no markdown wrapper.`
+Return ONLY the refined prompt or the word SKIP. No preamble, no explanation, no markdown wrapper.`
 
 /**
  * Refines a raw user message into an optimized prompt for the coding agent.
  * Falls back to the original message silently on any error.
+ * Returns original if refinement is not useful (SKIP).
  */
 export async function refinePrompt(
   client: OpenAI,
   model: string,
   userMessage: string,
 ): Promise<string> {
-  // Short messages (commands, quick questions) don't need refinement
   if (userMessage.length < 30 || userMessage.startsWith('/')) {
     return userMessage
   }
@@ -36,7 +48,9 @@ export async function refinePrompt(
       ],
       max_tokens: 1024,
     })
-    return response.choices[0]?.message.content?.trim() || userMessage
+    const result = response.choices[0]?.message.content?.trim() || userMessage
+    if (result === 'SKIP') return userMessage
+    return result
   } catch {
     return userMessage
   }

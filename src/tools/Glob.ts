@@ -1,5 +1,6 @@
 import { Tool } from './types.js'
 import fg from 'fast-glob'
+import { GLOB_MAX_FILES } from '../constants.js'
 
 export const Glob: Tool = {
   name: 'glob',
@@ -46,6 +47,11 @@ export const Glob: Tool = {
       ],
       dot: true,
     })
-    return files.slice(0, 500).join('\n') || 'No matches'
+    if (!files.length) return 'No matches'
+    const truncated = files.length > GLOB_MAX_FILES
+    const result = files.slice(0, GLOB_MAX_FILES).join('\n')
+    return truncated
+      ? `${result}\n\n(truncated — ${files.length} files, showing first ${GLOB_MAX_FILES})`
+      : result
   },
 }
