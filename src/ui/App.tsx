@@ -7,10 +7,13 @@ import { ToolUseDisplay } from './messages/ToolUseDisplay.js'
 import { InputBox } from './input/InputBox.js'
 import { StatusBar } from './layout/StatusBar.js'
 import { ThemeSelector } from './setup/ThemeSelector.js'
+import { ModelSelector } from './setup/ModelSelector.js'
+import { LanguageInput } from './setup/LanguageInput.js'
 import { parseCommand, HELP_TEXT } from '../commands.js'
 import { loadAgentConfig, listAgents, type LoadedAgent } from '../agent/config.js'
 import { appendInputHistory } from '../agent/inputHistory.js'
 import type { ThemeName, ProviderConfig } from './setup/ApiKeySetup.js'
+import { saveConfig } from './setup/ApiKeySetup.js'
 import { saveSession, type SessionData } from '../agent/session.js'
 
 export type AgentPhase = 'idle' | 'refining' | 'executing'
@@ -61,6 +64,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [agent] = useState(() => new Agent(providerConfig ?? undefined))
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
   const [showThemeSelector, setShowThemeSelector] = useState(false)
+  const [showModelSelector, setShowModelSelector] = useState(false)
+  const [showLanguageInput, setShowLanguageInput] = useState(false)
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   const [toolPermissionState, setToolPermissionState] = useState<ToolPermissionState | null>(null)
 
@@ -167,6 +172,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         case 'model':
           agent.setModel(cmd.model)
           setMessages((m) => [...m, { role: 'assistant', content: `Model switched to ${cmd.model}` }])
+          return
+        case 'models':
+          setShowModelSelector(true)
+          return
+        case 'language':
+          setShowLanguageInput(true)
           return
         case 'agents': {
           const agents = await listAgents()
@@ -379,6 +390,39 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           currentTheme={theme}
           onSelect={(t) => { setTheme(t); onThemeChange?.(t); setShowThemeSelector(false) }}
           onCancel={() => setShowThemeSelector(false)}
+        />
+      </Box>
+    )
+  }
+
+  if (showModelSelector) {
+    return (
+      <Box flexDirection="column" width="100%">
+        <ModelSelector
+          currentModel={agent.model}
+          onSelect={(m) => {
+            agent.setModel(m)
+            setMessages((prev) => [...prev, { role: 'assistant', content: `Model switched to ${m}` }])
+            setShowModelSelector(false)
+          }}
+          onCancel={() => setShowModelSelector(false)}
+        />
+      </Box>
+    )
+  }
+
+  if (showLanguageInput) {
+    return (
+      <Box flexDirection="column" width="100%">
+        <LanguageInput
+          currentLanguage={language ?? null}
+          onDone={(lang) => {
+            agent.setLanguage(lang)
+            saveConfig({ LANGUAGE: lang })
+            setMessages((prev) => [...prev, { role: 'assistant', content: `Language set to ${lang}` }])
+            setShowLanguageInput(false)
+          }}
+          onCancel={() => setShowLanguageInput(false)}
         />
       </Box>
     )

@@ -6,7 +6,7 @@ import { mkdir } from 'fs/promises'
 import { readJson, writeRaw } from '../../utils/fs.js'
 import { WelcomeScreen } from '../layout/WelcomeScreen.js'
 
-const CONFIG_PATH = join(homedir(), '.deepseek-code', 'config.json')
+const CONFIG_PATH = join(homedir(), '.deepseek', 'config.json')
 
 export type ThemeName = 'dark' | 'light' | 'dark-daltonized' | 'light-daltonized' | 'dark-ansi' | 'light-ansi'
 
@@ -81,7 +81,7 @@ function DiffPreview({ theme }: { theme: ThemeName }) {
 }
 
 export async function saveConfig(data: Record<string, string>): Promise<void> {
-  const dir = join(homedir(), '.deepseek-code')
+  const dir = join(homedir(), '.deepseek')
   await mkdir(dir, { recursive: true })
   const existing = await readJson<Record<string, string>>(CONFIG_PATH).catch(() => ({}))
   await writeRaw(CONFIG_PATH, JSON.stringify({ ...existing, ...data }, null, 2))

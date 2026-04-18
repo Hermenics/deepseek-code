@@ -23,7 +23,7 @@ const DIFF_COLORS: Record<ThemeName, { added: string; removed: string; addedWord
   'light-ansi':       { added: 'green',            removed: 'red',             addedWord: 'greenBright',    removedWord: 'redBright'       },
 }
 
-const CONFIG_PATH = join(homedir(), '.deepseek-code', 'config.json')
+const CONFIG_PATH = join(homedir(), '.deepseek', 'config.json')
 
 async function saveTheme(theme: ThemeName): Promise<void> {
   const existing = await readJson<Record<string, string>>(CONFIG_PATH).catch(() => ({}))

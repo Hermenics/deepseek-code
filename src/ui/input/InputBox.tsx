@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Box, Text } from 'ink'
 import { COMMAND_SUGGESTIONS } from '../../commands.js'
 import { useClock } from '../clock.js'
@@ -223,29 +223,42 @@ export function InputBox({
   const matches = getMatches(value)
   const showDropdown = matches.length > 0
 
+  // Keep a ref that always reflects the latest state/props so the stdin
+  // listener (registered once) never closes over stale values.
+  const stateRef = useRef({
+    isLoading, onAbort, onSubmit,
+    value, cursorPos, pastedBlock,
+    showDropdown, matches, selectedIdx,
+    inputHistory, historyIdx, savedDraft, ctrlCAt,
+  })
+  useEffect(() => {
+    stateRef.current = {
+      isLoading, onAbort, onSubmit,
+      value, cursorPos, pastedBlock,
+      showDropdown, matches, selectedIdx,
+      inputHistory, historyIdx, savedDraft, ctrlCAt,
+    }
+  })
+
+  // Register the stdin listener exactly once — reads live state via stateRef.
   useEffect(() => {
     const stdin = process.stdin
-
     if (typeof stdin.setRawMode !== 'function') return
-
-    const wasRaw = stdin.isRaw
-    const wasPaused = stdin.isPaused()
 
     stdin.setRawMode(true)
     stdin.resume()
 
     const onData = (data: Buffer) => {
       const sequence = data.toString()
+      const s = stateRef.current
 
       // Ctrl+C handling
       if (sequence === '\x03') {
-        if (isLoading) {
-          // Abort the current agent request
-          onAbort?.()
+        if (s.isLoading) {
+          s.onAbort?.()
         } else {
-          // Double-tap to exit
           const now = Date.now()
-          if (ctrlCAt !== null && now - ctrlCAt < 2000) {
+          if (s.ctrlCAt !== null && now - s.ctrlCAt < 2000) {
             process.exit(0)
           } else {
             setCtrlCAt(now)
@@ -255,28 +268,28 @@ export function InputBox({
       }
 
       // Any other key clears the "press again" hint
-      if (ctrlCAt !== null && sequence !== '\x03') {
+      if (s.ctrlCAt !== null && sequence !== '\x03') {
         setCtrlCAt(null)
       }
 
-      if (isLoading) return
+      if (s.isLoading) return
 
       const key = parseKey(sequence)
 
       // ── Command autocomplete dropdown ──────────────────────────────────────
-      if (showDropdown) {
+      if (s.showDropdown) {
         if (key.name === 'up') {
-          setSelectedIdx((i) => (i - 1 + matches.length) % matches.length)
+          setSelectedIdx((i) => (i - 1 + s.matches.length) % s.matches.length)
           return
         }
         if (key.name === 'down') {
-          setSelectedIdx((i) => (i + 1) % matches.length)
+          setSelectedIdx((i) => (i + 1) % s.matches.length)
           return
         }
         if (key.name === 'tab' || key.name === 'return') {
-          const chosen = matches[selectedIdx]!
-          if (key.name === 'return' && value === chosen) {
-            onSubmit(value)
+          const chosen = s.matches[s.selectedIdx]!
+          if (key.name === 'return' && s.value === chosen) {
+            s.onSubmit(s.value)
             setValue('')
             setCursorPos(0)
             setSelectedIdx(0)
@@ -297,28 +310,27 @@ export function InputBox({
       } else {
         // ── Input history navigation (↑↓ when no dropdown) ──────────────────
         if (key.name === 'up') {
-          if (inputHistory.length === 0) return
-          const newIdx = historyIdx === -1
-            ? inputHistory.length - 1
-            : Math.max(0, historyIdx - 1)
-          if (historyIdx === -1) setSavedDraft(value)
+          if (s.inputHistory.length === 0) return
+          const newIdx = s.historyIdx === -1
+            ? s.inputHistory.length - 1
+            : Math.max(0, s.historyIdx - 1)
+          if (s.historyIdx === -1) setSavedDraft(s.value)
           setHistoryIdx(newIdx)
-          const entry = inputHistory[newIdx] ?? ''
+          const entry = s.inputHistory[newIdx] ?? ''
           setValue(entry)
           setCursorPos(entry.length)
           return
         }
         if (key.name === 'down') {
-          if (historyIdx === -1) return
-          const newIdx = historyIdx + 1
-          if (newIdx >= inputHistory.length) {
-            // Back to draft
+          if (s.historyIdx === -1) return
+          const newIdx = s.historyIdx + 1
+          if (newIdx >= s.inputHistory.length) {
             setHistoryIdx(-1)
-            setValue(savedDraft)
-            setCursorPos(savedDraft.length)
+            setValue(s.savedDraft)
+            setCursorPos(s.savedDraft.length)
           } else {
             setHistoryIdx(newIdx)
-            const entry = inputHistory[newIdx] ?? ''
+            const entry = s.inputHistory[newIdx] ?? ''
             setValue(entry)
             setCursorPos(entry.length)
           }
@@ -326,8 +338,8 @@ export function InputBox({
         }
 
         if (key.name === 'return') {
-          const full = pastedBlock ? `${pastedBlock}\n${value}` : value
-          onSubmit(full)
+          const full = s.pastedBlock ? `${s.pastedBlock}\n${s.value}` : s.value
+          s.onSubmit(full)
           setValue('')
           setCursorPos(0)
           setPastedBlock(null)
@@ -347,25 +359,25 @@ export function InputBox({
 
       // ── Cursor movement ────────────────────────────────────────────────────
       if (key.name === 'left') { setCursorPos((pos) => Math.max(0, pos - 1)); return }
-      if (key.name === 'right') { setCursorPos((pos) => Math.min(value.length, pos + 1)); return }
+      if (key.name === 'right') { setCursorPos((pos) => Math.min(s.value.length, pos + 1)); return }
       if (key.name === 'home') { setCursorPos(0); return }
-      if (key.name === 'end') { setCursorPos(value.length); return }
+      if (key.name === 'end') { setCursorPos(s.value.length); return }
 
       // ── Deletion ───────────────────────────────────────────────────────────
       if (key.name === 'backspace') {
-        if (cursorPos > 0) {
-          setValue((v) => v.slice(0, cursorPos - 1) + v.slice(cursorPos))
+        if (s.cursorPos > 0) {
+          setValue((v) => v.slice(0, s.cursorPos - 1) + v.slice(s.cursorPos))
           setCursorPos((pos) => pos - 1)
           setSelectedIdx(0)
           setHistoryIdx(-1)
-        } else if (pastedBlock) {
+        } else if (s.pastedBlock) {
           setPastedBlock(null)
         }
         return
       }
       if (key.name === 'delete') {
-        if (cursorPos < value.length) {
-          setValue((v) => v.slice(0, cursorPos) + v.slice(cursorPos + 1))
+        if (s.cursorPos < s.value.length) {
+          setValue((v) => v.slice(0, s.cursorPos) + v.slice(s.cursorPos + 1))
           setSelectedIdx(0)
           setHistoryIdx(-1)
         }
@@ -374,10 +386,10 @@ export function InputBox({
 
       // ── Regular input ──────────────────────────────────────────────────────
       if (!key.name && !key.ctrl && !key.meta && sequence.length === 1 && sequence >= ' ') {
-        if (sequence === '\n' && value.includes('\n')) {
-          const lines = value.split('\n')
+        if (sequence === '\n' && s.value.includes('\n')) {
+          const lines = s.value.split('\n')
           if (lines.length > 5) {
-            setPastedBlock((pastedBlock ?? '') + value + '\n')
+            setPastedBlock((s.pastedBlock ?? '') + s.value + '\n')
             setValue('')
             setCursorPos(0)
             setSelectedIdx(0)
@@ -385,7 +397,7 @@ export function InputBox({
             return
           }
         }
-        setValue((v) => v.slice(0, cursorPos) + sequence + v.slice(cursorPos))
+        setValue((v) => v.slice(0, s.cursorPos) + sequence + v.slice(s.cursorPos))
         setCursorPos((pos) => pos + 1)
         setSelectedIdx(0)
         setHistoryIdx(-1)
@@ -395,11 +407,12 @@ export function InputBox({
     stdin.on('data', onData)
     return () => {
       stdin.removeListener('data', onData)
-      if (!wasRaw) stdin.setRawMode(false)
-      if (wasPaused) stdin.pause()
+      // Only restore raw mode if stdin is still writable (process not exiting)
+      if (!process.exitCode && typeof stdin.setRawMode === 'function') {
+        stdin.setRawMode(false)
+      }
     }
-  }, [isLoading, onAbort, value, cursorPos, pastedBlock, showDropdown, selectedIdx, matches, onSubmit,
-    inputHistory, historyIdx, savedDraft, ctrlCAt])
+  }, []) // ← mount/unmount only — no more stdin thrashing on every keystroke
 
   const cols = process.stdout.columns ?? 80
   const isLong = value.length >= cols - 7 // account for " > " prefix (3 chars) + cursor + margin

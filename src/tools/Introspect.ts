@@ -99,7 +99,7 @@ deepseek agent rust-expert "explain ownership" # agent + initial message
 \`\`\`
 
 ## Configuration
-API key and theme are saved to \`~/.deepseek-code/config.json\` after first setup.
+API key and theme are saved to \`~/.deepseek/config.json\` after first setup.
 Can also be set via environment variable: \`DEEPSEEK_API_KEY=sk-... bun run start\`
 
 ## MCP Servers

@@ -3,6 +3,8 @@ export type Model = 'deepseek-chat' | 'deepseek-reasoner'
 export type CommandResult =
   | { type: 'quit' }
   | { type: 'model'; model: Model }
+  | { type: 'models' }
+  | { type: 'language' }
   | { type: 'clear' }
   | { type: 'compact' }
   | { type: 'help' }
@@ -37,6 +39,8 @@ export function parseCommand(input: string): CommandResult | null {
     case 'compact': return { type: 'compact' }
     case 'help': return { type: 'help' }
     case 'agents': return { type: 'agents' }
+    case 'models': return { type: 'models' }
+    case 'language': return { type: 'language' }
     case 'theme': return { type: 'theme' }
     case 'undo': return { type: 'undo' }
     case 'retry': return { type: 'retry' }
@@ -80,6 +84,8 @@ export const COMMAND_SUGGESTIONS = [
   '/agent',
   '/agents',
   '/theme',
+  '/models',
+  '/language',
   '/undo',
   '/retry',
   '/cost',
@@ -90,26 +96,25 @@ export const COMMAND_SUGGESTIONS = [
   '/checkpoint',
   '/checkpoint list',
   '/sessions',
-  '/model deepseek-chat',
-  '/model deepseek-reasoner',
 ]
 
 export const HELP_TEXT = `Commands:
-  /agent <name>                              load a custom agent
-  /agents                                    list available agents
-  /model <deepseek-chat|deepseek-reasoner>  switch model
-  /theme                                     change color theme
-  /clear                                     clear chat history
-  /compact                                   summarize history to save context
-  /undo                                      restore last file modified by agent
-  /retry                                     re-run last message
-  /refine                                    toggle prompt refinement on/off
-  /tools                                     list all available tools (built-in + MCP)
-  /system                                    show active system prompt
-  /cost                                      show estimated session cost
-  /files                                     list files modified this session
-  /sessions                                  list recent sessions (use --resume <id> to restore)
-  /checkpoint [save [label]]                 save current state
-  /checkpoint list                           list saved checkpoints
-  /checkpoint restore <id>                   restore a checkpoint
-  /quit  /q                                  exit`
+  /agent <name>          load a custom agent
+  /agents                list available agents
+  /models                switch model (interactive)
+  /language              change preferred language
+  /theme                 change color theme
+  /clear                 clear chat history
+  /compact               summarize history to save context
+  /undo                  restore last file modified by agent
+  /retry                 re-run last message
+  /refine                toggle prompt refinement on/off
+  /tools                 list all available tools (built-in + MCP)
+  /system                show active system prompt
+  /cost                  show estimated session cost
+  /files                 list files modified this session
+  /sessions              list recent sessions (use --resume <id> to restore)
+  /checkpoint [save [label]]     save current state
+  /checkpoint list               list saved checkpoints
+  /checkpoint restore <id>       restore a checkpoint
+  /quit  /q              exit`
