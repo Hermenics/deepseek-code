@@ -7,25 +7,70 @@ import type { ThemeName } from '../setup/ApiKeySetup.js'
 import { DeepSeekMascot } from '../layout/Mascot.js'
 import pkg from '../../../package.json' with { type: 'json' }
 
-const RoleSeparator = React.memo(function RoleSeparator({ label, color }: { label: string; color: string }) {
-  const cols = process.stdout.columns ?? 80
-  const inner = ` ── ${label} `
-  const dashes = '─'.repeat(Math.max(0, cols - inner.length - 1))
-  return (
-    <Box marginTop={1}>
-      <Text dimColor> ── </Text>
-      <Text color={color as any} bold>{label}</Text>
-      <Text dimColor> {dashes}</Text>
-    </Box>
-  )
-})
+
+// Maps internal tool names → display names (Claude Code style)
+const TOOL_DISPLAY: Record<string, string> = {
+  read_file:        'Read',
+  write_file:       'Write',
+  patch_file:       'Edit',
+  read_folder:      'List',
+  shell:            'Bash',
+  grep:             'Grep',
+  glob:             'Glob',
+  web_fetch:        'WebFetch',
+  subagent:         'Agent',
+  git:              'Git',
+  introspect:       'Introspect',
+  update_knowledge: 'UpdateKnowledge',
+  todo:             'TodoWrite',
+}
+
+const TOOL_ICONS: Record<string, string> = {
+  read_file:        '○',
+  write_file:       '●',
+  patch_file:       '◐',
+  read_folder:      '▤',
+  shell:            '▶',
+  grep:             '⊕',
+  glob:             '◇',
+  web_fetch:        '◉',
+  subagent:         '◈',
+  git:              '⎇',
+  introspect:       '◆',
+  update_knowledge: '◑',
+  todo:             '▣',
+}
+
+const TOOL_COLORS: Record<string, string> = {
+  read_file:        'blue',
+  write_file:       'green',
+  patch_file:       'yellow',
+  read_folder:      'cyan',
+  shell:            'magenta',
+  grep:             'cyan',
+  glob:             'blue',
+  web_fetch:        'green',
+  subagent:         'yellow',
+  git:              'magenta',
+  introspect:       'cyan',
+  update_knowledge: 'green',
+  todo:             'yellow',
+}
+
+function formatToolLine(rawName: string, detail: string): { display: string; arg: string; icon: string; iconColor: string } {
+  const display = TOOL_DISPLAY[rawName] ?? rawName
+  const arg = detail.length > 60 ? detail.slice(0, 60) + '…' : detail
+  const icon = TOOL_ICONS[rawName] ?? '◦'
+  const iconColor = TOOL_COLORS[rawName] ?? 'yellow'
+  return { display, arg, icon, iconColor }
+}
 
 function MessageItem({ message: m, theme, agentLabel }: { message: Message; theme: ThemeName; agentLabel: string }) {
   if (m.role === 'user') {
     return (
-      <Box flexDirection="column">
-        <RoleSeparator label="you" color="white" />
-        <Box paddingLeft={1} marginTop={0}>
+      <Box flexDirection="column" marginTop={1}>
+        <Box gap={1}>
+          <Text color="cyan" bold>❯</Text>
           <Text>{m.content}</Text>
         </Box>
       </Box>
@@ -43,37 +88,39 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
     if (m.content.startsWith('✓ subagent →') || m.content.startsWith('⚙ subagent')) {
       const isDone = m.content.startsWith('✓')
       const label = isDone ? m.content.slice('✓ subagent → '.length) : m.content.slice('⚙ subagent('.length, -1)
+      const labelTrunc = label.length > 60 ? label.slice(0, 60) + '…' : label
       return (
-        <Box flexDirection="column" marginTop={1} paddingLeft={3}>
-          <Box gap={1}>
-            <Text color={isDone ? 'cyan' : 'yellow'}>{'◆'}</Text>
-            <Text color={isDone ? 'cyan' : 'yellow'} bold>subagent</Text>
-            <Text dimColor>{isDone ? 'completed' : 'working...'}</Text>
-          </Box>
-          {label && (
-            <Box marginLeft={2} borderStyle="single" borderLeft borderRight={false} borderTop={false} borderBottom={false} borderColor={isDone ? 'cyan' : 'yellow'} paddingLeft={1}>
-              <Text dimColor>{label.slice(0, 200)}{label.length > 200 ? '...' : ''}</Text>
-            </Box>
-          )}
+        <Box paddingLeft={2} gap={1}>
+          <Text color={isDone ? 'green' : 'yellow'}>⎿ </Text>
+          <Text color={isDone ? 'white' : 'yellow'} dimColor={isDone}>
+            {labelTrunc || 'Agent'}{!isDone ? ' trabalhando…' : ''}
+          </Text>
         </Box>
       )
     }
     const isDone = m.content.startsWith('✓')
-    const isRunning = m.content.startsWith('⚙')
+    const raw = m.content.slice(2) // strip "✓ " or "⚙ "
+    const sep = raw.indexOf(' → ')
+    const toolName = sep >= 0 ? raw.slice(0, sep) : raw
+    const detail = sep >= 0 ? raw.slice(sep + 3) : ''
+    const { display, arg, icon, iconColor } = formatToolLine(toolName, detail)
     return (
-      <Box paddingLeft={3}>
-        <Text color={isDone ? 'green' : isRunning ? 'yellow' : 'gray'}>
-          {m.content}
-        </Text>
+      <Box paddingLeft={2} gap={1}>
+        <Text color={isDone ? 'green' : 'yellow'}>⎿ </Text>
+        <Text color={isDone ? 'green' : iconColor}>{icon}</Text>
+        <Text color={isDone ? 'white' : 'yellow'} dimColor={isDone}>{display}</Text>
+        {arg ? <Text dimColor>{arg}</Text> : null}
       </Box>
     )
   }
   // assistant
   return (
-    <Box flexDirection="column">
-      <RoleSeparator label={agentLabel} color="cyan" />
-      <Box paddingLeft={1} marginTop={1}>
-        <MarkdownRenderer content={m.content} theme={theme} />
+    <Box flexDirection="column" marginTop={1}>
+      <Box gap={1} alignItems="flex-start">
+        <Text color="green" bold>●</Text>
+        <Box flexDirection="column" flexShrink={1}>
+          <MarkdownRenderer content={m.content} theme={theme} />
+        </Box>
       </Box>
     </Box>
   )
@@ -104,18 +151,22 @@ export function MessageList({ messages, streamText, theme, activeAgent, headerPr
         {(item) => {
           if (item.kind === 'header') {
             return (
-              <Box key="header" flexDirection="row" paddingX={1} paddingTop={1} paddingBottom={0}>
+              <Box key="header" borderStyle="round" borderColor="cyan" marginX={1} marginTop={1} paddingX={1} paddingY={0} flexDirection="row">
                 <Box marginRight={2}>
                   <DeepSeekMascot />
                 </Box>
                 <Box flexDirection="column" justifyContent="center">
-                  <Box>
-                    <Text bold color="cyan">◆ DeepSeek Code  </Text>
+                  <Box gap={1}>
+                    <Text bold color="cyan">◆ DeepSeek Code</Text>
                     <Text dimColor>v{pkg.version}  ·  {item.provider}</Text>
                   </Box>
                   <Text bold color="blueBright">Welcome to DeepSeek Code!</Text>
                   <Text dimColor>/help for commands  ·  Ctrl+C twice to exit</Text>
-                  <Text color="cyan" dimColor>{`[${item.agentName ?? 'deepseek'}] We're in `}<Text bold color="blueBright">{process.cwd()}</Text>{`, right?`}</Text>
+                  <Box gap={1}>
+                    <Text dimColor color="cyan">[{item.agentName ?? 'deepseek'}]</Text>
+                    <Text dimColor>cwd:</Text>
+                    <Text bold color="blueBright">{process.cwd()}</Text>
+                  </Box>
                 </Box>
               </Box>
             )
@@ -124,10 +175,12 @@ export function MessageList({ messages, streamText, theme, activeAgent, headerPr
         }}
       </Static>
       {streamText ? (
-        <Box flexDirection="column">
-          <RoleSeparator label={agentLabel} color="cyan" />
-          <Box paddingLeft={1} marginTop={1}>
-            <MarkdownRenderer content={streamText} theme={theme} />
+        <Box flexDirection="column" marginTop={1}>
+          <Box gap={1} alignItems="flex-start">
+            <Text color="green" bold>●</Text>
+            <Box flexDirection="column" flexShrink={1}>
+              <MarkdownRenderer content={streamText} theme={theme} />
+            </Box>
           </Box>
         </Box>
       ) : null}

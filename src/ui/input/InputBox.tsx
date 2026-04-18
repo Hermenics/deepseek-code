@@ -189,6 +189,7 @@ export function InputBox({
   onAbort,
   phase = 'idle',
   contextPct = 0,
+  agentLabel = 'deepseek',
 }: {
   onSubmit: (text: string) => void
   isLoading: boolean
@@ -196,6 +197,7 @@ export function InputBox({
   onAbort?: () => void
   phase?: AgentPhase
   contextPct?: number  // 0–100
+  agentLabel?: string
 }) {
   const [value, setValue] = useState('')
   const [cursorPos, setCursorPos] = useState(0)
@@ -449,32 +451,52 @@ export function InputBox({
   }
 
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column">
+      {/* Separador superior com nome do agente alinhado à direita */}
+      {(() => {
+        const cols = process.stdout.columns ?? 80
+        const label = ` ${agentLabel} ──`
+        const dashes = '─'.repeat(Math.max(0, cols - label.length))
+        return (
+          <Box>
+            <Text dimColor>{dashes}</Text>
+            <Text dimColor>{` ${agentLabel} `}</Text>
+            <Text dimColor>──</Text>
+          </Box>
+        )
+      })()}
+
+      {/* Área de input ou loading */}
       {isLoading ? (
         <LoadingSpinner toolCallCount={toolCallCount} phase={phase} />
       ) : ctrlCAt !== null ? (
         <Box paddingLeft={1}>
-          <Text color="yellow">Press Ctrl+C again to exit.</Text>
+          <Text color="yellow">Pressione Ctrl+C novamente para sair.</Text>
         </Box>
       ) : (
         <Box>
-          {contextPct > 0 && (
-            <Text
-              color={contextPct >= 90 ? 'red' : contextPct >= 70 ? 'yellow' : undefined}
-              dimColor={contextPct < 50}
-            >
-              {contextPct}%{' '}
-            </Text>
-          )}
-          <Text color="cyan">{'>'} </Text>
+          {contextPct > 0 && (() => {
+            const color = contextPct >= 90 ? 'red' : contextPct >= 70 ? 'yellow' : 'cyan'
+            return <Text color={color} dimColor={contextPct < 50}>{contextPct}% </Text>
+          })()}
+          <Text color="cyan" bold>❯</Text>
+          <Text> </Text>
           {pastedBlock && (
             <Box marginRight={1} paddingX={1} borderStyle="round" borderColor="gray">
-              <Text dimColor>{pastedBlock.split('\n').length} lines</Text>
+              <Text dimColor>{pastedBlock.split('\n').length} linhas</Text>
             </Box>
           )}
           {renderTextWithCursor()}
         </Box>
       )}
+
+      {/* Separador inferior */}
+      {(() => {
+        const cols = process.stdout.columns ?? 80
+        return <Text dimColor>{'─'.repeat(cols)}</Text>
+      })()}
+
+      {/* Dropdown de comandos */}
       {!isLoading && ctrlCAt === null && showDropdown && (() => {
         const MAX_VISIBLE = 6
         const total = matches.length
@@ -490,7 +512,6 @@ export function InputBox({
 
         return (
           <Box flexDirection="column">
-            <Text dimColor>{'─'.repeat(termCols)}</Text>
             {visible.map((cmd, vi) => {
               const i = start + vi
               const isSelected = i === selectedIdx

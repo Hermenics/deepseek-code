@@ -308,10 +308,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     setStreamText('')
 
     let tokenBuffer = ''
+    let streamTextAccum = ''
     const flushInterval = setInterval(() => {
       if (tokenBuffer) {
         const buf = tokenBuffer
         tokenBuffer = ''
+        streamTextAccum += buf
         setStreamText((s) => s + buf)
       }
     }, 150)
@@ -325,13 +327,13 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       },
       onToolCall(name, args) {
         clearInterval(flushInterval)
-        if (tokenBuffer) { setStreamText((s) => s + tokenBuffer); tokenBuffer = '' }
+        const pending = (streamTextAccum + tokenBuffer).trim()
+        tokenBuffer = ''
+        streamTextAccum = ''
+        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
+        setStreamText('')
         setToolCallCount((c) => c + 1)
         setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
-        setStreamText((s) => {
-          if (s) setMessages((m) => [...m, { role: 'assistant', content: s }])
-          return ''
-        })
       },
       onToolResult(name, result, args) {
         setToolStatus(null)
@@ -345,12 +347,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       },
       onDone() {
         clearInterval(flushInterval)
-        if (tokenBuffer) { setStreamText((s) => s + tokenBuffer); tokenBuffer = '' }
+        const pending = (streamTextAccum + tokenBuffer).trim()
+        tokenBuffer = ''
+        streamTextAccum = ''
         setToolStatus(null)
-        setStreamText((s) => {
-          if (s) setMessages((m) => [...m, { role: 'assistant', content: s }])
-          return ''
-        })
+        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
+        setStreamText('')
         setIsLoading(false)
         setAgentPhase('idle')
         setTokenCount(agent.tokenCount)
@@ -454,9 +456,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           onAbort={handleAbort}
           phase={agentPhase}
           contextPct={contextPct}
+          agentLabel={activeAgent ?? 'deepseek'}
         />
       )}
-      <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} />
+      <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} />
     </Box>
   )
 }

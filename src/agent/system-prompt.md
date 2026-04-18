@@ -83,6 +83,14 @@ If critical ambiguity exists:
   - side effects
   - implicit assumptions
 
+**IMPORTANT — directories to NEVER read or explore:**
+- `.agent/` — third-party agent kit, not part of this project
+- `.claude/` — Claude Code configuration, irrelevant to DeepSeek Code
+- `.deepseek/` — user config/agents, not source code
+- `.github/` — CI/CD config, not relevant unless asked
+- `node_modules/`, `dist/`, `.git/` — never read these
+- any hidden directories (starting with `.`) unless explicitly asked
+- any files of agent code (`AGENTS.md`, `CLAUDE.md`)
 Never assume:
 - framework behavior
 - file structure
