@@ -6,7 +6,7 @@
   <img src="https://img.shields.io/badge/version-0.1.0-cyan?style=for-the-badge" alt="version" />
   <img src="https://img.shields.io/badge/runtime-Bun-f9f1e1?style=for-the-badge&logo=bun&logoColor=black" alt="Bun" />
   <img src="https://img.shields.io/badge/model-DeepSeek-4A90D9?style=for-the-badge" alt="DeepSeek" />
-  <img src="https://img.shields.io/badge/license-MIT-blue?style=for-the-badge" alt="MIT License" />
+  <img src="https://img.shields.io/badge/license-Apache--2.0-green?style=for-the-badge" alt="Apache 2.0 License" />
 </p>
 
 **An AI-powered coding assistant for the terminal, built with Bun, Ink and the DeepSeek API.**
@@ -37,7 +37,7 @@
 ### Installation
 
 ```bash
-npm install -g deepseek-code
+npm install -g @aethelics/deepseek-code
 ```
 
 Or run from source:
@@ -261,7 +261,7 @@ bun run tsc --noEmit
 
 ## 📄 License
 
-MIT — see the [LICENSE](LICENSE) file for details.
+Apache 2.0 — see the [LICENSE](LICENSE) file for details.
 
 ---
 
