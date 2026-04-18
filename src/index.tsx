@@ -8,14 +8,12 @@ if (process.argv.includes('--pipe')) {
 }
 
 import React, { useState, useEffect } from 'react'
-import { render, Box, Text, Static } from 'ink'
+import { render, Box, Text } from 'ink'
 import { App } from './ui/App.js'
-import { DeepSeekMascot } from './ui/layout/Mascot.js'
 import { ApiKeySetup, loadSavedConfig, saveConfig, type ThemeName, type ProviderConfig } from './ui/setup/ApiKeySetup.js'
 import { LanguageSetup } from './ui/setup/LanguageSetup.js'
 import { loadAgentConfig, type LoadedAgent } from './agent/config.js'
 import { loadSession, newSessionId, type SessionData } from './agent/session.js'
-import pkg from '../package.json' with { type: 'json' }
 
 // Parse argv:
 //   deepseek                          → {}
@@ -102,27 +100,18 @@ function Root() {
 
   // Step 3: everything configured → App
   return (
-    <Box flexDirection="column">
-      <Static items={['header']}>
-        {() => (
-          <Box key="header" flexDirection="row" paddingX={1} paddingTop={1} paddingBottom={0}>
-            <Box marginRight={2}>
-              <DeepSeekMascot />
-            </Box>
-            <Box flexDirection="column" justifyContent="center">
-              <Box>
-                <Text bold color="cyan">◆ DeepSeek Code  </Text>
-                <Text dimColor>v{pkg.version}  ·  {providerConfig?.provider ?? 'deepseek'}</Text>
-              </Box>
-              <Text bold color="blueBright">Welcome to DeepSeek Code!</Text>
-              <Text dimColor>/help for commands  ·  Ctrl+C twice to exit</Text>
-              <Text color="cyan" dimColor>{`[${initialAgent?.config.name ?? 'deepseek'}] We're in `}<Text bold color="blueBright">{process.cwd()}</Text>{`, right?`}</Text>
-            </Box>
-          </Box>
-        )}
-      </Static>
-      <App initialAgent={initialAgent} initialMessage={initialMessage} theme={theme} providerConfig={providerConfig} onThemeChange={setTheme} language={language} sessionId={SESSION_ID} initialSession={initialSession} />
-    </Box>
+    <App
+      initialAgent={initialAgent}
+      initialMessage={initialMessage}
+      theme={theme}
+      providerConfig={providerConfig}
+      onThemeChange={setTheme}
+      language={language}
+      sessionId={SESSION_ID}
+      initialSession={initialSession}
+      headerProvider={providerConfig?.provider ?? 'deepseek'}
+      headerAgent={initialAgent?.config.name ?? null}
+    />
   )
 }
 

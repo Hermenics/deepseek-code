@@ -8,7 +8,7 @@ interface Props {
 }
 
 export function LanguageInput({ currentLanguage, onDone, onCancel }: Props) {
-  const [input, setInput] = useState(currentLanguage ?? '')
+  const [input, setInput] = useState('')
 
   useInput((char, key) => {
     if (key.escape)  { onCancel(); return }

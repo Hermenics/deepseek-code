@@ -288,17 +288,12 @@ export function InputBox({
         }
         if (key.name === 'tab' || key.name === 'return') {
           const chosen = s.matches[s.selectedIdx]!
-          if (key.name === 'return' && s.value === chosen) {
-            s.onSubmit(s.value)
-            setValue('')
-            setCursorPos(0)
-            setSelectedIdx(0)
-            setHistoryIdx(-1)
-            return
-          }
-          setValue(chosen)
-          setCursorPos(chosen.length)
+          // Both Tab and Enter always execute the selected command
+          s.onSubmit(chosen)
+          setValue('')
+          setCursorPos(0)
           setSelectedIdx(0)
+          setHistoryIdx(-1)
           return
         }
         if (key.name === 'escape') {
@@ -407,10 +402,9 @@ export function InputBox({
     stdin.on('data', onData)
     return () => {
       stdin.removeListener('data', onData)
-      // Only restore raw mode if stdin is still writable (process not exiting)
-      if (!process.exitCode && typeof stdin.setRawMode === 'function') {
-        stdin.setRawMode(false)
-      }
+      // Do NOT call setRawMode(false) here — Ink manages raw mode for the
+      // entire app lifecycle. Turning it off on unmount breaks useInput in
+      // components like ModelSelector and LanguageInput that replace InputBox.
     }
   }, []) // ← mount/unmount only — no more stdin thrashing on every keystroke
 
@@ -481,18 +475,39 @@ export function InputBox({
           {renderTextWithCursor()}
         </Box>
       )}
-      {!isLoading && ctrlCAt === null && showDropdown && (
-        <Box flexDirection="column" marginTop={1} marginLeft={4}>
-          {matches.map((cmd, i) => (
-            <Box key={cmd} gap={2}>
-              <Text bold color={i === selectedIdx ? 'cyan' : undefined}>{cmd}</Text>
-              <Text dimColor={i !== selectedIdx} color={i === selectedIdx ? 'cyan' : undefined}>
-                {DESCRIPTIONS[cmd] ?? ''}
-              </Text>
-            </Box>
-          ))}
-        </Box>
-      )}
+      {!isLoading && ctrlCAt === null && showDropdown && (() => {
+        const MAX_VISIBLE = 6
+        const total = matches.length
+        const termCols = process.stdout.columns ?? 80
+        const CMD_WIDTH = 22
+        const descMaxLen = Math.max(10, termCols - CMD_WIDTH - 2)
+
+        const half = Math.floor(MAX_VISIBLE / 2)
+        let start = Math.max(0, selectedIdx - half)
+        const end = Math.min(total, start + MAX_VISIBLE)
+        if (end - start < MAX_VISIBLE) start = Math.max(0, end - MAX_VISIBLE)
+        const visible = matches.slice(start, end)
+
+        return (
+          <Box flexDirection="column">
+            <Text dimColor>{'─'.repeat(termCols)}</Text>
+            {visible.map((cmd, vi) => {
+              const i = start + vi
+              const isSelected = i === selectedIdx
+              const desc = DESCRIPTIONS[cmd] ?? ''
+              const truncDesc = desc.length > descMaxLen ? desc.slice(0, descMaxLen - 1) + '…' : desc
+              return (
+                <Box key={cmd}>
+                  <Box width={CMD_WIDTH}>
+                    <Text bold={isSelected} color={isSelected ? 'cyan' : undefined}>{cmd}</Text>
+                  </Box>
+                  <Text dimColor={!isSelected} color={isSelected ? 'cyan' : undefined}>{truncDesc}</Text>
+                </Box>
+              )
+            })}
+          </Box>
+        )
+      })()}
     </Box>
   )
 }

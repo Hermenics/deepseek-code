@@ -226,11 +226,13 @@ export class Agent {
   }
 
   setLanguage(language: string): void {
-    const langInstruction = `\n\n# PREFERRED LANGUAGE\nThe user's preferred language is: ${language}. Always respond in this language unless the user explicitly writes in a different language.`
-    if (!this.systemPrompt.includes('# PREFERRED LANGUAGE')) {
+    const langInstruction = `\n\n# PREFERRED LANGUAGE\nAlways respond in ${language}. Do NOT switch languages based on what language the user writes in — always use ${language}.`
+    if (this.systemPrompt.includes('# PREFERRED LANGUAGE')) {
+      this.systemPrompt = this.systemPrompt.replace(/\n\n# PREFERRED LANGUAGE\n[\s\S]*$/, langInstruction)
+    } else {
       this.systemPrompt = this.systemPrompt + langInstruction
-      this.messages = [{ role: 'system', content: this.systemPrompt }, ...this.messages.slice(1)]
     }
+    this.messages = [{ role: 'system', content: this.systemPrompt }, ...this.messages.slice(1)]
   }
 
   clearHistory() {

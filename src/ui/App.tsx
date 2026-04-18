@@ -41,7 +41,7 @@ interface ToolPermissionState {
   resolve: (result: ToolPermissionResult) => void
 }
 
-export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, language, sessionId, initialSession }: {
+export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, language, sessionId, initialSession, headerProvider, headerAgent }: {
   initialAgent?: LoadedAgent | null
   initialMessage?: string | null
   theme: ThemeName
@@ -50,6 +50,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   language?: string | null
   sessionId?: string
   initialSession?: SessionData | null
+  headerProvider?: string
+  headerAgent?: string | null
 }) {
   const { exit } = useApp()
   const [messages, setMessages] = useState<Message[]>([])
@@ -430,7 +432,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   return (
     <Box flexDirection="column" width="100%">
-      <MessageList messages={messages} streamText={streamText} theme={theme} activeAgent={activeAgent} />
+      <MessageList messages={messages} streamText={streamText} theme={theme} activeAgent={activeAgent} headerProvider={headerProvider} headerAgent={headerAgent} />
       {toolStatus && <ToolUseDisplay tool={toolStatus} />}
       <TodoPanel />
       {toolPermissionState ? (

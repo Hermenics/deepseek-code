@@ -4,6 +4,8 @@ import type { Message } from '../App.js'
 import { DiffView } from './DiffView.js'
 import { MarkdownRenderer } from './MarkdownRenderer.js'
 import type { ThemeName } from '../setup/ApiKeySetup.js'
+import { DeepSeekMascot } from '../layout/Mascot.js'
+import pkg from '../../../package.json' with { type: 'json' }
 
 const RoleSeparator = React.memo(function RoleSeparator({ label, color }: { label: string; color: string }) {
   const cols = process.stdout.columns ?? 80
@@ -77,20 +79,49 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
   )
 }
 
-export function MessageList({ messages, streamText, theme, activeAgent }: {
+type StaticItem =
+  | { kind: 'header'; provider: string; agentName: string | null }
+  | { kind: 'message'; message: Message; index: number }
+
+export function MessageList({ messages, streamText, theme, activeAgent, headerProvider, headerAgent }: {
   messages: Message[]
   streamText: string
   theme: ThemeName
   activeAgent?: string | null
+  headerProvider?: string
+  headerAgent?: string | null
 }) {
   const agentLabel = activeAgent ?? 'deepseek'
 
+  const items: StaticItem[] = [
+    { kind: 'header', provider: headerProvider ?? 'deepseek', agentName: headerAgent ?? null },
+    ...messages.map((message, index) => ({ kind: 'message' as const, message, index })),
+  ]
+
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Static items={messages}>
-        {(m, i) => (
-          <MessageItem key={i} message={m} theme={theme} agentLabel={agentLabel} />
-        )}
+      <Static items={items}>
+        {(item) => {
+          if (item.kind === 'header') {
+            return (
+              <Box key="header" flexDirection="row" paddingX={1} paddingTop={1} paddingBottom={0}>
+                <Box marginRight={2}>
+                  <DeepSeekMascot />
+                </Box>
+                <Box flexDirection="column" justifyContent="center">
+                  <Box>
+                    <Text bold color="cyan">◆ DeepSeek Code  </Text>
+                    <Text dimColor>v{pkg.version}  ·  {item.provider}</Text>
+                  </Box>
+                  <Text bold color="blueBright">Welcome to DeepSeek Code!</Text>
+                  <Text dimColor>/help for commands  ·  Ctrl+C twice to exit</Text>
+                  <Text color="cyan" dimColor>{`[${item.agentName ?? 'deepseek'}] We're in `}<Text bold color="blueBright">{process.cwd()}</Text>{`, right?`}</Text>
+                </Box>
+              </Box>
+            )
+          }
+          return <MessageItem key={item.index} message={item.message} theme={theme} agentLabel={agentLabel} />
+        }}
       </Static>
       {streamText ? (
         <Box flexDirection="column">
