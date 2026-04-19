@@ -1,4 +1,4 @@
-#!/usr/bin/env bun
+#!/usr/bin/env node
 // Pipe mode: only when --pipe flag is explicitly passed
 // (Bun returns undefined for isTTY so we can't auto-detect pipes reliably)
 if (process.argv.includes('--pipe')) {
