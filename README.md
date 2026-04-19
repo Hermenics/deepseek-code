@@ -18,7 +18,7 @@
 
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/Aethelics/deepseek-code/main/demo.gif" alt="DeepSeek Code demo" width="80%" />
+  <img src="https://raw.githubusercontent.com/Aethelics/deepseek-code2/main/demo.gif" alt="DeepSeek Code demo" width="80%" />
 </div>
 
 ## Get started
