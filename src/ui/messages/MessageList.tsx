@@ -93,7 +93,7 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
         <Box paddingLeft={2} gap={1}>
           <Text color={isDone ? 'green' : 'yellow'}>⎿ </Text>
           <Text color={isDone ? 'white' : 'yellow'} dimColor={isDone}>
-            {labelTrunc || 'Agent'}{!isDone ? ' trabalhando…' : ''}
+            {labelTrunc || 'Agent'}{!isDone ? ' working…' : ''}
           </Text>
         </Box>
       )
@@ -113,7 +113,7 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
       </Box>
     )
   }
-  // terminal (execução de shell com !)
+  // terminal (shell execution with !)
   if (m.role === 'terminal') {
     return (
       <Box flexDirection="column" marginTop={1}>
@@ -170,7 +170,7 @@ export function MessageList({ messages, streamText, streamRole = 'assistant', th
             return (
               <Box key="header" flexDirection="column" marginX={1} marginTop={1}>
                 {isNarrow ? (
-                  // Versão compacta para terminais estreitos
+                  // Compact version for narrow terminals
                   <Box flexDirection="column">
                     <Box gap={1}>
                       <Text bold color="cyan">◆ DeepSeek Code</Text>
@@ -179,10 +179,10 @@ export function MessageList({ messages, streamText, streamRole = 'assistant', th
                     {item.agentName && (
                       <Text color="cyan" dimColor>[{item.agentName}]</Text>
                     )}
-                    <Text dimColor>/help  ·  Ctrl+C×2 sair</Text>
+                    <Text dimColor>/help  ·  Ctrl+C×2 to exit</Text>
                   </Box>
                 ) : (
-                  // Versão completa para terminais largos
+                  // Full version for wide terminals
                   <Box gap={2} alignItems="center">
                     <DeepSeekMascot />
                     <Box flexDirection="column">
@@ -200,7 +200,7 @@ export function MessageList({ messages, streamText, streamRole = 'assistant', th
                         <Text dimColor>cwd:</Text>
                         <Text color="blueBright">{process.cwd()}</Text>
                       </Box>
-                      <Text dimColor>/help para comandos  ·  Ctrl+C duas vezes para sair</Text>
+                      <Text dimColor>/help for commands  ·  Ctrl+C twice to exit</Text>
                     </Box>
                   </Box>
                 )}

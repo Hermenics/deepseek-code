@@ -8,7 +8,7 @@ export function WelcomeArt() {
   const isNarrow = cols < 94
 
   if (isNarrow) {
-    // Versão compacta para terminais estreitos
+    // Compact version for narrow terminals
     return (
       <Box flexDirection="column" marginBottom={1} marginTop={1}>
         <Box gap={2} alignItems="center">
@@ -29,7 +29,7 @@ export function WelcomeArt() {
     )
   }
 
-  // Versão completa para terminais largos
+  // Full version for wide terminals
   const wave1 = '  *          .        *             .       *          .*          .   '
   const wave2 = '       .          *         .              *               .              *'
   const wave3 = '  .       *              .        *               .       *               . '

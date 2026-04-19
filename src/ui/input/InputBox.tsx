@@ -492,19 +492,29 @@ export function InputBox({
         return
       }
 
+      // ── Paste detection: sequences longer than 1 char that aren't escape codes ──
+      if (sequence.length > 1 && !sequence.startsWith('\x1b')) {
+        const lines = sequence.split(/\r?\n/)
+        if (lines.length > 1) {
+          // Multi-line paste → move to pastedBlock
+          const combined = (s.pastedBlock ?? '') + sequence
+          const allLines = combined.split(/\r?\n/)
+          const last = allLines.pop() ?? ''
+          setPastedBlock(allLines.join('\n') + '\n')
+          setValue((v) => v.slice(0, s.cursorPos) + last + v.slice(s.cursorPos))
+          setCursorPos((pos) => pos + last.length)
+        } else {
+          // Single-line paste
+          setValue((v) => v.slice(0, s.cursorPos) + sequence + v.slice(s.cursorPos))
+          setCursorPos((pos) => pos + sequence.length)
+        }
+        setSelectedIdx(0)
+        setHistoryIdx(-1)
+        return
+      }
+
       // ── Regular input ──────────────────────────────────────────────────────
       if (!key.name && !key.ctrl && !key.meta && sequence.length === 1 && sequence >= ' ') {
-        if (sequence === '\n' && s.value.includes('\n')) {
-          const lines = s.value.split('\n')
-          if (lines.length > 5) {
-            setPastedBlock((s.pastedBlock ?? '') + s.value + '\n')
-            setValue('')
-            setCursorPos(0)
-            setSelectedIdx(0)
-            setHistoryIdx(-1)
-            return
-          }
-        }
         setValue((v) => v.slice(0, s.cursorPos) + sequence + v.slice(s.cursorPos))
         setCursorPos((pos) => pos + 1)
         setSelectedIdx(0)
@@ -536,7 +546,7 @@ export function InputBox({
       return (
         <>
           <Text color="white">█</Text>
-          {!pastedBlock && <Text dimColor>O que você quer que eu faça? ↵</Text>}
+          {!pastedBlock && <Text dimColor>What do you want me to do? ↵</Text>}
         </>
       )
     }
@@ -563,7 +573,7 @@ export function InputBox({
 
   return (
     <Box flexDirection="column">
-      {/* Separador superior com nome do agente alinhado à direita */}
+      {/* Top separator with agent name aligned right */}
       {(() => {
         const cols = process.stdout.columns ?? 80
         const label = ` ${agentLabel} `
@@ -572,12 +582,12 @@ export function InputBox({
         return <Text dimColor>{full}</Text>
       })()}
 
-      {/* Área de input ou loading */}
+      {/* Input area or loading */}
       {isLoading ? (
         <LoadingSpinner toolCallCount={toolCallCount} phase={phase} />
       ) : ctrlCAt !== null ? (
         <Box paddingLeft={1}>
-          <Text color="yellow">Pressione Ctrl+C novamente para sair.</Text>
+          <Text color="yellow">Press Ctrl+C again to exit.</Text>
         </Box>
       ) : (
         <Box>
@@ -589,11 +599,11 @@ export function InputBox({
           <Text> </Text>
           {pastedBlock && (
             <Box marginRight={1} paddingX={1} borderStyle="round" borderColor="gray">
-              <Text dimColor>{pastedBlock.split('\n').length} linhas</Text>
+              <Text dimColor>{pastedBlock.split('\n').length} lines</Text>
             </Box>
           )}
           {value.trimStart().startsWith('!') ? (
-            // Mostra o texto sem o ! inicial (já representado pelo prompt)
+            // Show text without leading ! (already represented by the prompt)
             (() => {
               const rest = value.trimStart().slice(1)
               const restCursor = Math.max(0, cursorPos - (value.length - value.trimStart().length) - 1)
@@ -612,7 +622,7 @@ export function InputBox({
         </Box>
       )}
 
-      {/* Separador inferior */}
+      {/* Bottom separator */}
       {(() => {
         const cols = process.stdout.columns ?? 80
         return <Text dimColor>{'─'.repeat(cols - 8)}</Text>

@@ -173,7 +173,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     setToolPermissionState(null)
   }, [toolPermissionState])
 
-  // ── runWithPrompt: executa um prompt interno sem expor o texto ao usuário ──
+  // ── runWithPrompt: runs an internal prompt without exposing the text to the user ──
   const runWithPrompt = useCallback(async (label: string, prompt: string) => {
     if (isLoading) return
     setMessages((m) => [...m, { role: 'user', content: label }])
@@ -416,7 +416,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
     await appendInputHistory(text)
 
-    // ── Execução de shell com ! ────────────────────────────────────────────
+    // ── Shell execution with ! ────────────────────────────────────────────
     if (text.trimStart().startsWith('!')) {
       const shellCmd = text.trimStart().slice(1).trim()
       if (!shellCmd) return
