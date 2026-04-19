@@ -298,13 +298,15 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           return
         }
         case 'plan': {
+          const label = `/plan ${cmd.task}`
           const prompt = PLAN_PROMPT(cmd.task)
-          await handleSubmit(prompt)
+          await runWithPrompt(label, prompt)
           return
         }
         case 'review': {
+          const label = cmd.target ? `/review ${cmd.target}` : '/review'
           const prompt = REVIEW_PROMPT(cmd.target)
-          await handleSubmit(prompt)
+          await runWithPrompt(label, prompt)
           return
         }
         case 'unknown':
@@ -429,21 +431,76 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     })
   }, [agent, isLoading, exit])
 
-  if (showThemeSelector) {
-    return (
-      <Box flexDirection="column" width="100%">
+  // ── runWithPrompt: executa um prompt interno sem expor o texto ao usuário ──
+  const runWithPrompt = useCallback(async (label: string, prompt: string) => {
+    if (isLoading) return
+    setMessages((m) => [...m, { role: 'user', content: label }])
+    setIsLoading(true)
+    setAgentPhase('refining')
+    setStreamText('')
+
+    let tokenBuffer = ''
+    let streamTextAccum = ''
+    const flushInterval = setInterval(() => {
+      if (tokenBuffer) {
+        const buf = tokenBuffer
+        tokenBuffer = ''
+        streamTextAccum += buf
+        setStreamText((s) => s + buf)
+      }
+    }, 50)
+
+    await agent.run(prompt, {
+      onPhaseChange(phase) { setAgentPhase(phase) },
+      onToken(token) { tokenBuffer += token },
+      onToolCall(name, args) {
+        clearInterval(flushInterval)
+        const pending = (streamTextAccum + tokenBuffer).trim()
+        tokenBuffer = ''
+        streamTextAccum = ''
+        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
+        setStreamText('')
+        setToolCallCount((c) => c + 1)
+        setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
+      },
+      onToolResult(name, result, args) {
+        setToolStatus(null)
+        const label2 = args?.path ?? args?.pattern ?? args?.command ?? ''
+        const display = name === 'write_file' ? result : name === 'subagent' ? result : label2 ? String(label2) : ''
+        setMessages((m) => [...m, { role: 'tool', content: `✓ ${name}${display ? ` → ${display}` : ''}` }])
+      },
+      onDone() {
+        clearInterval(flushInterval)
+        const pending = (streamTextAccum + tokenBuffer).trim()
+        tokenBuffer = ''
+        streamTextAccum = ''
+        setToolStatus(null)
+        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
+        setStreamText('')
+        setIsLoading(false)
+        setAgentPhase('idle')
+        setTokenCount(agent.tokenCount)
+        const pct = agent.contextLimit > 0 ? Math.round((agent.contextUsage / agent.contextLimit) * 100) : 0
+        setContextPct(pct)
+      },
+      onAutoCompact(summary) {
+        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Context auto-compacted (>85%).\n\n${summary}` }])
+      },
+    })
+  }, [agent, isLoading])
+
+  return (
+    <Box flexDirection="column" width="100%">
+      <MessageList messages={messages} streamText={streamText} streamRole={streamRole} theme={theme} activeAgent={activeAgent} headerProvider={headerProvider} headerAgent={headerAgent} />
+      {toolStatus && <ToolUseDisplay tool={toolStatus} />}
+      <TodoPanel />
+      {showThemeSelector ? (
         <ThemeSelector
           currentTheme={theme}
           onSelect={(t) => { setTheme(t); onThemeChange?.(t); setShowThemeSelector(false) }}
           onCancel={() => setShowThemeSelector(false)}
         />
-      </Box>
-    )
-  }
-
-  if (showModelSelector) {
-    return (
-      <Box flexDirection="column" width="100%">
+      ) : showModelSelector ? (
         <ModelSelector
           currentModel={agent.model}
           onSelect={(m) => {
@@ -453,13 +510,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           }}
           onCancel={() => setShowModelSelector(false)}
         />
-      </Box>
-    )
-  }
-
-  if (showLanguageInput) {
-    return (
-      <Box flexDirection="column" width="100%">
+      ) : showLanguageInput ? (
         <LanguageInput
           currentLanguage={language ?? null}
           onDone={(lang) => {
@@ -470,16 +521,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           }}
           onCancel={() => setShowLanguageInput(false)}
         />
-      </Box>
-    )
-  }
-
-  return (
-    <Box flexDirection="column" width="100%">
-      <MessageList messages={messages} streamText={streamText} streamRole={streamRole} theme={theme} activeAgent={activeAgent} headerProvider={headerProvider} headerAgent={headerAgent} />
-      {toolStatus && <ToolUseDisplay tool={toolStatus} />}
-      <TodoPanel />
-      {toolPermissionState ? (
+      ) : toolPermissionState ? (
         <ToolPermissionPrompt
           toolName={toolPermissionState.toolName}
           args={toolPermissionState.args}
