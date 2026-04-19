@@ -205,9 +205,6 @@ export function MessageList({ messages, streamText, streamRole = 'assistant', th
                     </Box>
                   </Box>
                 )}
-                <Box marginTop={1}>
-                  <Text dimColor>{sep}</Text>
-                </Box>
               </Box>
             )
           }

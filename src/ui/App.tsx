@@ -10,7 +10,7 @@ import { StatusBar } from './layout/StatusBar.js'
 import { ThemeSelector } from './setup/ThemeSelector.js'
 import { ModelSelector } from './setup/ModelSelector.js'
 import { LanguageInput } from './setup/LanguageInput.js'
-import { parseCommand, HELP_TEXT } from '../commands.js'
+import { parseCommand, HELP_TEXT, PLAN_PROMPT, REVIEW_PROMPT } from '../commands.js'
 import { loadAgentConfig, listAgents, type LoadedAgent } from '../agent/config.js'
 import { appendInputHistory } from '../agent/inputHistory.js'
 import type { ThemeName, ProviderConfig } from './setup/ApiKeySetup.js'
@@ -295,6 +295,16 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             })
             setMessages((m) => [...m, { role: 'assistant', content: `Recent sessions:\n${lines.join('\n')}\n\nResume: deepseek --resume <id>` }])
           }
+          return
+        }
+        case 'plan': {
+          const prompt = PLAN_PROMPT(cmd.task)
+          await handleSubmit(prompt)
+          return
+        }
+        case 'review': {
+          const prompt = REVIEW_PROMPT(cmd.target)
+          await handleSubmit(prompt)
           return
         }
         case 'unknown':
