@@ -113,6 +113,20 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
       </Box>
     )
   }
+  // terminal (execução de shell com !)
+  if (m.role === 'terminal') {
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <Box gap={1} alignItems="flex-start">
+          <Text color="magenta" bold>$</Text>
+          <Text color="magenta" dimColor>terminal</Text>
+        </Box>
+        <Box marginLeft={2}>
+          <Text wrap="wrap">{m.content}</Text>
+        </Box>
+      </Box>
+    )
+  }
   // assistant
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -130,9 +144,10 @@ type StaticItem =
   | { kind: 'header'; provider: string; agentName: string | null }
   | { kind: 'message'; message: Message; index: number }
 
-export function MessageList({ messages, streamText, theme, activeAgent, headerProvider, headerAgent }: {
+export function MessageList({ messages, streamText, streamRole = 'assistant', theme, activeAgent, headerProvider, headerAgent }: {
   messages: Message[]
   streamText: string
+  streamRole?: 'assistant' | 'terminal'
   theme: ThemeName
   activeAgent?: string | null
   headerProvider?: string
@@ -150,23 +165,48 @@ export function MessageList({ messages, streamText, theme, activeAgent, headerPr
       <Static items={items}>
         {(item) => {
           if (item.kind === 'header') {
+            const cols = process.stdout.columns ?? 80
+            const isNarrow = cols < 60
+            const sep = '─'.repeat(cols - 8)
             return (
-              <Box key="header" borderStyle="round" borderColor="cyan" marginX={1} marginTop={1} paddingX={1} paddingY={0} flexDirection="row">
-                <Box marginRight={2}>
-                  <DeepSeekMascot />
-                </Box>
-                <Box flexDirection="column" justifyContent="center">
-                  <Box gap={1}>
-                    <Text bold color="cyan">◆ DeepSeek Code</Text>
-                    <Text dimColor>v{pkg.version}  ·  {item.provider}</Text>
+              <Box key="header" flexDirection="column" marginX={1} marginTop={1}>
+                {isNarrow ? (
+                  // Versão compacta para terminais estreitos
+                  <Box flexDirection="column">
+                    <Box gap={1}>
+                      <Text bold color="cyan">◆ DeepSeek Code</Text>
+                      <Text dimColor>v{pkg.version}</Text>
+                    </Box>
+                    {item.agentName && (
+                      <Text color="cyan" dimColor>[{item.agentName}]</Text>
+                    )}
+                    <Text dimColor>/help  ·  Ctrl+C×2 sair</Text>
                   </Box>
-                  <Text bold color="blueBright">Welcome to DeepSeek Code!</Text>
-                  <Text dimColor>/help for commands  ·  Ctrl+C twice to exit</Text>
-                  <Box gap={1}>
-                    <Text dimColor color="cyan">[{item.agentName ?? 'deepseek'}]</Text>
-                    <Text dimColor>cwd:</Text>
-                    <Text bold color="blueBright">{process.cwd()}</Text>
+                ) : (
+                  // Versão completa para terminais largos
+                  <Box gap={2} alignItems="center">
+                    <DeepSeekMascot />
+                    <Box flexDirection="column">
+                      <Box gap={1} alignItems="center">
+                        <Text bold color="cyan">◆ DeepSeek Code</Text>
+                        <Text dimColor>v{pkg.version}</Text>
+                        <Text dimColor>·</Text>
+                        <Text dimColor>{item.provider}</Text>
+                        {item.agentName && <>
+                          <Text dimColor>·</Text>
+                          <Text color="cyan" dimColor>[{item.agentName}]</Text>
+                        </>}
+                      </Box>
+                      <Box gap={1}>
+                        <Text dimColor>cwd:</Text>
+                        <Text color="blueBright">{process.cwd()}</Text>
+                      </Box>
+                      <Text dimColor>/help para comandos  ·  Ctrl+C duas vezes para sair</Text>
+                    </Box>
                   </Box>
+                )}
+                <Box marginTop={1}>
+                  <Text dimColor>{sep}</Text>
                 </Box>
               </Box>
             )
@@ -176,12 +216,24 @@ export function MessageList({ messages, streamText, theme, activeAgent, headerPr
       </Static>
       {streamText ? (
         <Box flexDirection="column" marginTop={1}>
-          <Box gap={1} alignItems="flex-start">
-            <Text color="green" bold>●</Text>
-            <Box flexDirection="column" flexShrink={1}>
-              <MarkdownRenderer content={streamText} theme={theme} />
+          {streamRole === 'terminal' ? (
+            <>
+              <Box gap={1}>
+                <Text color="magenta" bold>$</Text>
+                <Text color="magenta" dimColor>terminal</Text>
+              </Box>
+              <Box marginLeft={2}>
+                <Text wrap="wrap">{streamText}</Text>
+              </Box>
+            </>
+          ) : (
+            <Box gap={1} alignItems="flex-start">
+              <Text color="green" bold>●</Text>
+              <Box flexDirection="column" flexShrink={1}>
+                <Text wrap="wrap">{streamText}</Text>
+              </Box>
             </Box>
-          </Box>
+          )}
         </Box>
       ) : null}
     </Box>

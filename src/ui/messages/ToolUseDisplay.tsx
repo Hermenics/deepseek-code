@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState, useEffect } from 'react'
 import { Box, Text } from 'ink'
 import type { ToolStatus } from '../App.js'
 
@@ -57,12 +57,20 @@ export const ToolUseDisplay = React.memo(function ToolUseDisplay({ tool }: { too
   const rawArg = tool.done ? (tool.result ?? '') : (tool.args ?? '')
   const arg = rawArg.length > 60 ? rawArg.slice(0, 60) + '…' : rawArg
 
+  const [elapsed, setElapsed] = useState(0)
+  useEffect(() => {
+    if (tool.done) return
+    const t = setInterval(() => setElapsed((s) => s + 1), 1000)
+    return () => clearInterval(t)
+  }, [tool.done])
+
   return (
     <Box paddingLeft={2} gap={1}>
       <Text color={tool.done ? 'green' : 'yellow'}>⎿</Text>
       <Text color={iconColor}>{icon}</Text>
       <Text color={tool.done ? 'white' : 'yellow'} bold={!tool.done}>{display}</Text>
       {arg ? <Text dimColor>{arg}</Text> : null}
+      {!tool.done && elapsed > 0 && <Text dimColor>{elapsed}s</Text>}
     </Box>
   )
 })

@@ -24,8 +24,8 @@ export function TodoPanel() {
   if (!todos.length) return null
 
   return (
-    <Box flexDirection="column" borderStyle="single" borderColor="cyan" paddingX={1} marginBottom={1}>
-      <Text color="cyan" bold>◆ TODO</Text>
+    <Box flexDirection="column" borderStyle="round" borderColor="cyan" paddingX={1} marginBottom={1}>
+      <Text color="cyan" bold>◆ TODO ({todos.length})</Text>
       {todos.map((t) => (
         <Box key={t.id} gap={1}>
           <Text color={STATUS_COLOR[t.status] as any}>{STATUS_ICON[t.status]}</Text>

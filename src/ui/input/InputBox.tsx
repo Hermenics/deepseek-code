@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Box, Text } from 'ink'
 import { COMMAND_SUGGESTIONS } from '../../commands.js'
 import { useClock } from '../clock.js'
@@ -25,107 +25,58 @@ const DESCRIPTIONS: Record<string, string> = {
 const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
 const REFINING_MSGS = [
-  // 'Engenheirizando seu prompt...',
-  'Prompt-engineering your prompt...',
-  // 'Destilando a essência do problema...',
-  'Distilling the essence of the problem...',
-  // 'Traduzindo humano para IA...',
-  'Translating human to AI...',
-  // 'Calibrando os neurônios artificiais...',
-  'Calibrating artificial neurons...',
-  // 'Aplicando prompt engineering de elite...',
-  'Applying elite prompt engineering...',
-  // 'Decompondo o problema em átomos...',
-  'Atomizing the problem...',
-  // 'Refinando a pergunta com bisturi...',
-  'Scalpel-sharpening your question...',
-  // 'Transformando caos em clareza...',
-  'Untangling chaos into clarity...',
-  // 'Pensando antes de pensar...',
-  'Pre-thinking the thinking...',
-  // 'Consultando o oráculo da engenharia...',
-  'Consulting the engineering oracle...',
-  // 'Destrinchando a intenção do usuário...',
-  'Reverse-engineering your intent...',
-  // 'Montando o prompt perfeito...',
-  'Assembling the perfect prompt...',
+  'Engenheirizando seu prompt...',
+  'Destilando a essência do problema...',
+  'Traduzindo humano para IA...',
+  'Calibrando os neurônios artificiais...',
+  'Aplicando prompt engineering de elite...',
+  'Decompondo o problema em átomos...',
+  'Refinando a pergunta com bisturi...',
+  'Transformando caos em clareza...',
+  'Pensando antes de pensar...',
+  'Consultando o oráculo da engenharia...',
+  'Destrinchando a intenção do usuário...',
+  'Montando o prompt perfeito...',
 ]
 
 const LOADING_MSGS = [
-  // 'Consultando os deuses do código...',
-  'Consulting the code gods...',
-  // 'Fingindo que entendi o problema...',
-  'Pretending to understand the problem...',
-  // 'Procurando no Stack Overflow...',
-  'Zigzagging through Stack Overflow...',
-  // 'Compilando desculpas...',
-  'Compiling excuses...',
-  // 'Treinando neurônios artificiais...',
-  'Training artificial neurons...',
-  // 'Lendo a documentação (mentira)...',
-  'Reading the docs (not really)...',
-  // 'Calculando a resposta errada...',
-  'Calculating the wrong answer...',
-  // 'Bebendo café virtual...',
-  'Sipping virtual coffee...',
-  // 'Debugando o universo...',
-  'Debugging the universe...',
-  // 'Perguntando pro ChatGPT (brincadeira)...',
-  'Definitely not asking ChatGPT...',
-  // 'Inventando uma solução elegante...',
-  'Inventing an elegant solution...',
-  // 'Rezando pra não dar segfault...',
-  'Praying for no segfault...',
-  // 'Ignorando os warnings...',
-  'Ignoring the warnings...',
-  // 'Fazendo git blame em você...',
-  'Running git blame on you...',
-  // 'Simulando inteligência...',
-  'Simulating intelligence...',
-  // 'Escovando bits com escova de dente...',
-  'Toothbrushing the bits...',
-  // 'Convencendo o ponteiro a não apontar pro vazio...',
-  'Convincing the pointer not to dereference null...',
-  // 'Esperando o lixeiro do Garbage Collector...',
-  'Waiting for the garbage collector...',
-  // 'Afinando o pente do JSON...',
-  'Fine-combing the JSON...',
-  // 'Colocando aspas no mundo (stringfy)...',
-  'Stringifying the world...',
-  // 'Ensinando o loop a dar nó...',
-  'Teaching the loop to loop...',
-  // 'Polindo os parênteses...',
-  'Polishing the parentheses...',
-  // 'Desconfiando do tipo any...',
-  'Side-eyeing the any type...',
-  // 'Mandando o callback para a terapia...',
-  'Sending the callback to therapy...',
-  // 'Testando o commit sem mensagem...',
-  'Committing without a message...',
-  // 'Deployando no céu (cloud)...',
-  'Deploying to the cloud (literally)...',
-  // 'Removendo o café da variável...',
-  'Removing coffee from the variable...',
-  // 'Compilando a paciência...',
-  'Compiling patience...',
-  // 'Serializando o caos...',
-  'Serializing the chaos...',
-  // 'Parseando o sentido da vida...',
-  'Parsing the meaning of life...',
-  // 'Fugindo do merge conflict...',
-  'Fleeing the merge conflict...',
-  // 'Commitando sem permissão...',
-  'Committing without permission...',
-  // 'Rebaseando a realidade...',
-  'Rebasing reality...',
-  // 'Mergeando a consciência...',
-  'Merging consciousness...',
-  // 'Tentando dar console.log no vazio...',
-  'console.logging the void...',
-  // 'Confiando no que o mundo vê...',
-  'Trusting what the world sees...',
-  // 'Filosofando com o Google....',
-  'Philosophizing with Google...',
+  'Consultando os deuses do código...',
+  'Fingindo que entendi o problema...',
+  'Procurando no Stack Overflow...',
+  'Compilando desculpas...',
+  'Treinando neurônios artificiais...',
+  'Lendo a documentação (mentira)...',
+  'Calculando a resposta errada...',
+  'Bebendo café virtual...',
+  'Debugando o universo...',
+  'Perguntando pro ChatGPT (brincadeira)...',
+  'Inventando uma solução elegante...',
+  'Rezando pra não dar segfault...',
+  'Ignorando os warnings...',
+  'Fazendo git blame em você...',
+  'Simulando inteligência...',
+  'Escovando bits com escova de dente...',
+  'Convencendo o ponteiro a não apontar pro vazio...',
+  'Esperando o lixeiro do Garbage Collector...',
+  'Afinando o pente do JSON...',
+  'Colocando aspas no mundo (stringify)...',
+  'Ensinando o loop a dar nó...',
+  'Polindo os parênteses...',
+  'Desconfiando do tipo any...',
+  'Mandando o callback para a terapia...',
+  'Testando o commit sem mensagem...',
+  'Deployando no céu (cloud)...',
+  'Removendo o café da variável...',
+  'Compilando a paciência...',
+  'Serializando o caos...',
+  'Parseando o sentido da vida...',
+  'Fugindo do merge conflict...',
+  'Commitando sem permissão...',
+  'Rebaseando a realidade...',
+  'Mergeando a consciência...',
+  'Tentando dar console.log no vazio...',
+  'Confiando no que o mundo vê...',
+  'Filosofando com o Google...',
 ]
 
 function LoadingSpinner({ toolCallCount, phase }: { toolCallCount: number; phase: AgentPhase }) {
@@ -144,7 +95,7 @@ function LoadingSpinner({ toolCallCount, phase }: { toolCallCount: number; phase
     <Box gap={1} paddingLeft={1}>
       <Text color={isRefining ? 'magenta' : 'cyan'}>{SPINNER[tick % SPINNER.length]}</Text>
       <Text dimColor>{msg}</Text>
-      <Text dimColor> ·  Ctrl+C to cancel</Text>
+      <Text dimColor> ·  Ctrl+C para cancelar</Text>
     </Box>
   )
 }
@@ -425,7 +376,7 @@ export function InputBox({
       return (
         <>
           <Text color="white">█</Text>
-          {!pastedBlock && <Text dimColor>What do you want me to do now? ↵</Text>}
+          {!pastedBlock && <Text dimColor>O que você quer que eu faça? ↵</Text>}
         </>
       )
     }
@@ -455,15 +406,10 @@ export function InputBox({
       {/* Separador superior com nome do agente alinhado à direita */}
       {(() => {
         const cols = process.stdout.columns ?? 80
-        const label = ` ${agentLabel} ──`
-        const dashes = '─'.repeat(Math.max(0, cols - label.length))
-        return (
-          <Box>
-            <Text dimColor>{dashes}</Text>
-            <Text dimColor>{` ${agentLabel} `}</Text>
-            <Text dimColor>──</Text>
-          </Box>
-        )
+        const label = ` ${agentLabel} `
+        const leftDashes = Math.max(0, cols - 8 - label.length - 4)
+        const full = '─'.repeat(leftDashes) + label + '────'
+        return <Text dimColor>{full}</Text>
       })()}
 
       {/* Área de input ou loading */}
@@ -479,21 +425,37 @@ export function InputBox({
             const color = contextPct >= 90 ? 'red' : contextPct >= 70 ? 'yellow' : 'cyan'
             return <Text color={color} dimColor={contextPct < 50}>{contextPct}% </Text>
           })()}
-          <Text color="cyan" bold>❯</Text>
+          <Text color={value.trimStart().startsWith('!') ? 'magenta' : 'cyan'} bold>{value.trimStart().startsWith('!') ? '!' : '❯'}</Text>
           <Text> </Text>
           {pastedBlock && (
             <Box marginRight={1} paddingX={1} borderStyle="round" borderColor="gray">
               <Text dimColor>{pastedBlock.split('\n').length} linhas</Text>
             </Box>
           )}
-          {renderTextWithCursor()}
+          {value.trimStart().startsWith('!') ? (
+            // Mostra o texto sem o ! inicial (já representado pelo prompt)
+            (() => {
+              const rest = value.trimStart().slice(1)
+              const restCursor = Math.max(0, cursorPos - (value.length - value.trimStart().length) - 1)
+              const beforeCursor = rest.slice(0, restCursor)
+              const atCursor = rest.slice(restCursor, restCursor + 1)
+              const afterCursor = rest.slice(restCursor + 1)
+              return (
+                <>
+                  <Text>{beforeCursor}</Text>
+                  <Text color="white" backgroundColor="white" inverse>{atCursor || ' '}</Text>
+                  <Text>{afterCursor}</Text>
+                </>
+              )
+            })()
+          ) : renderTextWithCursor()}
         </Box>
       )}
 
       {/* Separador inferior */}
       {(() => {
         const cols = process.stdout.columns ?? 80
-        return <Text dimColor>{'─'.repeat(cols)}</Text>
+        return <Text dimColor>{'─'.repeat(cols - 8)}</Text>
       })()}
 
       {/* Dropdown de comandos */}
@@ -519,6 +481,7 @@ export function InputBox({
               const truncDesc = desc.length > descMaxLen ? desc.slice(0, descMaxLen - 1) + '…' : desc
               return (
                 <Box key={cmd}>
+                  <Text dimColor>│ </Text>
                   <Box width={CMD_WIDTH}>
                     <Text bold={isSelected} color={isSelected ? 'cyan' : undefined}>{cmd}</Text>
                   </Box>

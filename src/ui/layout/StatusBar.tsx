@@ -32,11 +32,23 @@ export const StatusBar = React.memo(function StatusBar({ tokenCount, model, acti
   if (branch) parts.push(branch)
   if (contextPct > 0) parts.push(`ctx ${contextPct}%`)
 
-  if (parts.length === 0) return null
+  if (parts.length === 0 && !model) return null
 
   return (
-    <Box paddingX={2}>
-      <Text dimColor>{parts.join('  ·  ')}</Text>
+    <Box flexDirection="column">
+      <Box paddingX={2} gap={0}>
+        {tokenCount > 0 && <Text dimColor>{tokenCount.toLocaleString()} tokens  ·  </Text>}
+        {branch && <Text dimColor>{branch}  ·  </Text>}
+        <Text dimColor>{model}</Text>
+        {contextPct > 0 && (
+          <>
+            <Text dimColor>  ·  ctx </Text>
+            <Text color={contextPct >= 90 ? 'red' : contextPct >= 70 ? 'yellow' : 'cyan'} dimColor={contextPct < 50}>
+              {contextPct}%
+            </Text>
+          </>
+        )}
+      </Box>
     </Box>
   )
 })

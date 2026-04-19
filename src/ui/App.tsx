@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react'
 import { Box, Text, useInput, useApp } from 'ink'
+import { execa } from 'execa'
 import { Agent, type ToolPermissionResult } from '../agent/agent.js'
 import { MessageList } from './messages/MessageList.js'
 import { TodoPanel } from './messages/TodoPanel.js'
@@ -19,7 +20,7 @@ import { saveSession, type SessionData } from '../agent/session.js'
 export type AgentPhase = 'idle' | 'refining' | 'executing'
 
 export interface Message {
-  role: 'user' | 'assistant' | 'tool'
+  role: 'user' | 'assistant' | 'tool' | 'terminal'
   content: string
 }
 
@@ -56,6 +57,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const { exit } = useApp()
   const [messages, setMessages] = useState<Message[]>([])
   const [streamText, setStreamText] = useState('')
+  const [streamRole, setStreamRole] = useState<'assistant' | 'terminal'>('assistant')
   const [isLoading, setIsLoading] = useState(false)
   const [toolStatus, setToolStatus] = useState<ToolStatus | null>(null)
   const [tokenCount, setTokenCount] = useState(0)
@@ -302,6 +304,36 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     }
 
     await appendInputHistory(text)
+
+    // ── Execução de shell com ! ────────────────────────────────────────────
+    if (text.trimStart().startsWith('!')) {
+      const shellCmd = text.trimStart().slice(1).trim()
+      if (!shellCmd) return
+      setMessages((m) => [...m, { role: 'user', content: text }])
+      setIsLoading(true)
+      setStreamRole('terminal')
+      setStreamText('')
+      let output = ''
+      try {
+        const proc = execa('sh', ['-c', shellCmd], { reject: false })
+        const flush = (chunk: string) => {
+          output += chunk
+          setStreamText(output)
+        }
+        proc.stdout?.on('data', (d: Buffer) => flush(d.toString()))
+        proc.stderr?.on('data', (d: Buffer) => flush(d.toString()))
+        const result = await proc
+        const exitInfo = result.exitCode !== 0 ? `\n[saiu com código ${result.exitCode}]` : ''
+        setMessages((m) => [...m, { role: 'terminal', content: (output || '(sem saída)') + exitInfo }])
+      } catch (e) {
+        setMessages((m) => [...m, { role: 'terminal', content: `Erro: ${(e as Error).message}` }])
+      }
+      setStreamText('')
+      setStreamRole('assistant')
+      setIsLoading(false)
+      return
+    }
+
     setMessages((m) => [...m, { role: 'user', content: text }])
     setIsLoading(true)
     setAgentPhase('refining')
@@ -316,7 +348,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         streamTextAccum += buf
         setStreamText((s) => s + buf)
       }
-    }, 150)
+    }, 50)
 
     await agent.run(text, {
       onPhaseChange(phase) {
@@ -434,7 +466,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   return (
     <Box flexDirection="column" width="100%">
-      <MessageList messages={messages} streamText={streamText} theme={theme} activeAgent={activeAgent} headerProvider={headerProvider} headerAgent={headerAgent} />
+      <MessageList messages={messages} streamText={streamText} streamRole={streamRole} theme={theme} activeAgent={activeAgent} headerProvider={headerProvider} headerAgent={headerAgent} />
       {toolStatus && <ToolUseDisplay tool={toolStatus} />}
       <TodoPanel />
       {toolPermissionState ? (
@@ -467,7 +499,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 function ConfirmPrompt({ message, onConfirm }: { message: string; onConfirm: (yes: boolean) => void }) {
   useInput((input, key) => {
     if (key.ctrl && input === 'c') { onConfirm(false); return }
-    if (input === 'y' || input === 'Y') onConfirm(true)
+    if (input === 'y' || input === 'Y' || input === 's' || input === 'S') onConfirm(true)
     else if (input === 'n' || input === 'N' || key.escape) onConfirm(false)
   })
 
@@ -476,7 +508,7 @@ function ConfirmPrompt({ message, onConfirm }: { message: string; onConfirm: (ye
       <Box borderStyle="round" borderColor="yellow" paddingX={1}>
         <Text color="yellow">⚠ {message}</Text>
       </Box>
-      <Text dimColor>  [y] confirm  [n/Esc] cancel</Text>
+      <Text dimColor>  [s] confirmar  [n/Esc] cancelar</Text>
     </Box>
   )
 }
@@ -540,7 +572,7 @@ function ToolPermissionPrompt({
         ))}
       </Box>
       <Box marginLeft={2}>
-        <Text dimColor>  ↑↓ navigate  ·  Enter confirm  ·  Esc deny</Text>
+        <Text dimColor>  ↑↓ navegar  ·  Enter confirmar  ·  Esc negar</Text>
       </Box>
     </Box>
   )
