@@ -465,8 +465,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       },
       onToolResult(name, result, args) {
         setToolStatus(null)
-        const label2 = args?.path ?? args?.pattern ?? args?.command ?? ''
-        const display = name === 'write_file' ? result : name === 'subagent' ? result : label2 ? String(label2) : ''
+        const argLabel = args?.path ?? args?.pattern ?? args?.command ?? ''
+        const display = name === 'write_file' ? result : name === 'subagent' ? result : argLabel ? String(argLabel) : ''
         setMessages((m) => [...m, { role: 'tool', content: `✓ ${name}${display ? ` → ${display}` : ''}` }])
       },
       onDone() {
@@ -482,12 +482,32 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         setTokenCount(agent.tokenCount)
         const pct = agent.contextLimit > 0 ? Math.round((agent.contextUsage / agent.contextLimit) * 100) : 0
         setContextPct(pct)
+        if (sessionId) {
+          setTimeout(() => {
+            setMessages((current) => {
+              saveSession({
+                id: sessionId,
+                createdAt: initialSession?.createdAt ?? new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                cwd: process.cwd(),
+                model: agent.model,
+                provider: agent.provider,
+                language: language ?? null,
+                activeAgent: agent.activeAgent,
+                agentMessages: agent.getMessages(),
+                uiMessages: current,
+                filesModified: agent.getFilesModified(),
+              })
+              return current
+            })
+          }, 100)
+        }
       },
       onAutoCompact(summary) {
         setMessages((m) => [...m, { role: 'assistant', content: `⚡ Context auto-compacted (>85%).\n\n${summary}` }])
       },
     })
-  }, [agent, isLoading])
+  }, [agent, isLoading, sessionId, language, initialSession])
 
   return (
     <Box flexDirection="column" width="100%">
