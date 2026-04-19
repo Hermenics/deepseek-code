@@ -173,6 +173,84 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     setToolPermissionState(null)
   }, [toolPermissionState])
 
+  // ── runWithPrompt: executa um prompt interno sem expor o texto ao usuário ──
+  const runWithPrompt = useCallback(async (label: string, prompt: string) => {
+    if (isLoading) return
+    setMessages((m) => [...m, { role: 'user', content: label }])
+    setIsLoading(true)
+    setAgentPhase('refining')
+    setStreamText('')
+
+    let tokenBuffer = ''
+    let streamTextAccum = ''
+    const flushInterval = setInterval(() => {
+      if (tokenBuffer) {
+        const buf = tokenBuffer
+        tokenBuffer = ''
+        streamTextAccum += buf
+        setStreamText((s) => s + buf)
+      }
+    }, 50)
+
+    await agent.run(prompt, {
+      onPhaseChange(phase) { setAgentPhase(phase) },
+      onToken(token) { tokenBuffer += token },
+      onToolCall(name, args) {
+        clearInterval(flushInterval)
+        const pending = (streamTextAccum + tokenBuffer).trim()
+        tokenBuffer = ''
+        streamTextAccum = ''
+        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
+        setStreamText('')
+        setToolCallCount((c) => c + 1)
+        setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
+      },
+      onToolResult(name, result, args) {
+        setToolStatus(null)
+        const argLabel = args?.path ?? args?.pattern ?? args?.command ?? ''
+        const display = name === 'write_file' ? result : name === 'subagent' ? result : argLabel ? String(argLabel) : ''
+        setMessages((m) => [...m, { role: 'tool', content: `✓ ${name}${display ? ` → ${display}` : ''}` }])
+      },
+      onDone() {
+        clearInterval(flushInterval)
+        const pending = (streamTextAccum + tokenBuffer).trim()
+        tokenBuffer = ''
+        streamTextAccum = ''
+        setToolStatus(null)
+        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
+        setStreamText('')
+        setIsLoading(false)
+        setAgentPhase('idle')
+        setTokenCount(agent.tokenCount)
+        const pct = agent.contextLimit > 0 ? Math.round((agent.contextUsage / agent.contextLimit) * 100) : 0
+        setContextPct(pct)
+        if (sessionId) {
+          setTimeout(() => {
+            setMessages((current) => {
+              saveSession({
+                id: sessionId,
+                createdAt: initialSession?.createdAt ?? new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+                cwd: process.cwd(),
+                model: agent.model,
+                provider: agent.provider,
+                language: language ?? null,
+                activeAgent: agent.activeAgent,
+                agentMessages: agent.getMessages(),
+                uiMessages: current,
+                filesModified: agent.getFilesModified(),
+              })
+              return current
+            })
+          }, 100)
+        }
+      },
+      onAutoCompact(summary) {
+        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Context auto-compacted (>85%).\n\n${summary}` }])
+      },
+    })
+  }, [agent, isLoading, sessionId, language, initialSession])
+
   const handleSubmit = useCallback(async (text: string) => {
     if (!text.trim() || isLoading) return
 
@@ -454,84 +532,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       },
     })
   }, [agent, isLoading, exit, runWithPrompt])
-
-  // ── runWithPrompt: executa um prompt interno sem expor o texto ao usuário ──
-  const runWithPrompt = useCallback(async (label: string, prompt: string) => {
-    if (isLoading) return
-    setMessages((m) => [...m, { role: 'user', content: label }])
-    setIsLoading(true)
-    setAgentPhase('refining')
-    setStreamText('')
-
-    let tokenBuffer = ''
-    let streamTextAccum = ''
-    const flushInterval = setInterval(() => {
-      if (tokenBuffer) {
-        const buf = tokenBuffer
-        tokenBuffer = ''
-        streamTextAccum += buf
-        setStreamText((s) => s + buf)
-      }
-    }, 50)
-
-    await agent.run(prompt, {
-      onPhaseChange(phase) { setAgentPhase(phase) },
-      onToken(token) { tokenBuffer += token },
-      onToolCall(name, args) {
-        clearInterval(flushInterval)
-        const pending = (streamTextAccum + tokenBuffer).trim()
-        tokenBuffer = ''
-        streamTextAccum = ''
-        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
-        setStreamText('')
-        setToolCallCount((c) => c + 1)
-        setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
-      },
-      onToolResult(name, result, args) {
-        setToolStatus(null)
-        const argLabel = args?.path ?? args?.pattern ?? args?.command ?? ''
-        const display = name === 'write_file' ? result : name === 'subagent' ? result : argLabel ? String(argLabel) : ''
-        setMessages((m) => [...m, { role: 'tool', content: `✓ ${name}${display ? ` → ${display}` : ''}` }])
-      },
-      onDone() {
-        clearInterval(flushInterval)
-        const pending = (streamTextAccum + tokenBuffer).trim()
-        tokenBuffer = ''
-        streamTextAccum = ''
-        setToolStatus(null)
-        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
-        setStreamText('')
-        setIsLoading(false)
-        setAgentPhase('idle')
-        setTokenCount(agent.tokenCount)
-        const pct = agent.contextLimit > 0 ? Math.round((agent.contextUsage / agent.contextLimit) * 100) : 0
-        setContextPct(pct)
-        if (sessionId) {
-          setTimeout(() => {
-            setMessages((current) => {
-              saveSession({
-                id: sessionId,
-                createdAt: initialSession?.createdAt ?? new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                cwd: process.cwd(),
-                model: agent.model,
-                provider: agent.provider,
-                language: language ?? null,
-                activeAgent: agent.activeAgent,
-                agentMessages: agent.getMessages(),
-                uiMessages: current,
-                filesModified: agent.getFilesModified(),
-              })
-              return current
-            })
-          }, 100)
-        }
-      },
-      onAutoCompact(summary) {
-        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Context auto-compacted (>85%).\n\n${summary}` }])
-      },
-    })
-  }, [agent, isLoading, sessionId, language, initialSession])
 
   return (
     <Box flexDirection="column" width="100%">
