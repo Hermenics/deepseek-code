@@ -13,11 +13,11 @@
 <p><strong>An AI-powered coding assistant that lives in your terminal.</strong></p>
 
 <p>
-  <a href="#-quick-start">Quick Start</a> ·
-  <a href="#-commands">Commands</a> ·
-  <a href="#-tools">Tools</a> ·
-  <a href="#-custom-agents">Agents</a> ·
-  <a href="#-faq">FAQ</a>
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#commands">Commands</a> ·
+  <a href="#tools">Tools</a> ·
+  <a href="#custom-agents">Agents</a> ·
+  <a href="#faq">FAQ</a>
 </p>
 
 </div>
@@ -32,22 +32,21 @@
 </div>
 -->
 
-## ✨ Highlights
+## Highlights
 
-- 🐋 **Terminal UI** — Beautiful TUI built with Ink (React for CLI), themes and live streaming
-- 🤖 **Agent loop** — Streaming responses with parallel tool calls and full message history
-- 🛠️ **14 built-in tools** — File I/O, shell, grep, glob, git, web fetch, patch, sub-agents and more
-- 🧑‍💼 **Custom agents** — Create personas with their own model, system prompt and injected files
-- 📋 **Steering files** — Automatically inject project context into every session
-- 🔍 **Prompt refiner** — Automatically improves your prompts before sending
-- ✅ **Todo system** — Agent can create and track tasks across the session
-- 💾 **Checkpoints** — Save and restore conversation state
-- 🎨 **6 themes** — Dark, light, daltonized and ANSI variants
-- 😂 **Spinner with puns** — Because waiting should be fun
+- **Terminal UI** — Beautiful TUI built with Ink (React for CLI), themes and live streaming
+- **Agent loop** — Streaming responses with parallel tool calls and full message history
+- **14 built-in tools** — File I/O, shell, grep, glob, git, web fetch, patch, sub-agents and more
+- **Custom agents** — Create personas with their own model, system prompt and injected files
+- **Steering files** — Automatically inject project context into every session
+- **Prompt refiner** — Automatically improves your prompts before sending
+- **Todo system** — Agent can create and track tasks across the session
+- **Checkpoints** — Save and restore conversation state
+- **6 themes** — Dark, light, daltonized and ANSI variants
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -64,7 +63,7 @@ Then run `deepseek`. On first run, DeepSeek Code will ask for your API key, pref
 
 ---
 
-## ⚡ Usage
+## Usage
 
 ```bash
 # Interactive mode
@@ -82,7 +81,7 @@ deepseek agent rust-expert "how does the borrow checker work?"
 
 ---
 
-## 📖 Commands
+## Commands
 
 | Command | Description |
 |---------|-------------|
@@ -100,7 +99,7 @@ deepseek agent rust-expert "how does the borrow checker work?"
 
 ---
 
-## 🛠️ Tools
+## Tools
 
 DeepSeek Code gives the agent access to these tools during the conversation:
 
@@ -123,7 +122,7 @@ DeepSeek Code gives the agent access to these tools during the conversation:
 
 ---
 
-## 🧑‍💼 Custom Agents
+## Custom Agents
 
 Create agents with their own personality, model and injected context.
 
@@ -159,7 +158,7 @@ deepseek agent rust-expert
 
 ---
 
-## 📋 Steering Files
+## Steering Files
 
 Automatically inject project context into every session — no agent configuration needed.
 
@@ -178,7 +177,7 @@ The content is injected into the system prompt on startup. Supports multiple `.m
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -206,7 +205,7 @@ The content is injected into the system prompt on startup. Supports multiple `.m
 
 ---
 
-## 📂 Project Structure
+## Project Structure
 
 ```
 deepseek-code/
@@ -256,9 +255,7 @@ deepseek-code/
 
 ---
 
-## 🎨 Themes
-
-Choose your theme on first run or via the setup screen.
+## Themes
 
 | Theme | Description |
 |-------|-------------|
@@ -271,7 +268,7 @@ Choose your theme on first run or via the setup screen.
 
 ---
 
-## 🎯 Models
+## Models
 
 | Model | ID | Best for |
 |-------|----|----------|
@@ -282,7 +279,7 @@ Switch at any time with `/model deepseek-reasoner` inside the TUI.
 
 ---
 
-## 🔐 Configuration
+## Configuration
 
 Config is saved to `~/.deepseek-code/config.json` after the initial setup:
 
@@ -302,7 +299,7 @@ DEEPSEEK_API_KEY=sk-... deepseek
 
 ---
 
-## 🔧 Practical Examples
+## Examples
 
 <details>
 <summary><strong>Ask about your codebase</strong></summary>
@@ -348,7 +345,7 @@ deepseek "add a new tool that reads environment variables"
 
 ---
 
-## ❗ Troubleshooting
+## Troubleshooting
 
 | Error | Solution |
 |-------|----------|
@@ -359,7 +356,7 @@ deepseek "add a new tool that reads environment variables"
 
 ---
 
-## ❓ FAQ
+## FAQ
 
 ### Can I use it without an internet connection?
 
@@ -383,7 +380,7 @@ Save a JSON file to `~/.deepseek/agents/<name>.json`. It'll be available in any 
 
 ---
 
-## 🧪 Development
+## Development
 
 ```bash
 # Run in dev mode
@@ -398,7 +395,7 @@ bun run build
 
 ---
 
-## 📄 License
+## License
 
 Apache 2.0 — see the [LICENSE](LICENSE) file for details.
 
