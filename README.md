@@ -5,11 +5,9 @@
 <br/>
 
 <p>
-  <img src="https://img.shields.io/badge/version-0.1.0-cyan?style=for-the-badge&labelColor=0d1117" alt="version" />
-  <img src="https://img.shields.io/badge/runtime-Bun-f9f1e1?style=for-the-badge&logo=bun&logoColor=black&labelColor=0d1117" alt="Bun" />
+  <a href="https://www.npmjs.com/package/@aethelics/deepseek-code"><img src="https://img.shields.io/npm/v/@aethelics/deepseek-code?style=for-the-badge&labelColor=0d1117&color=cyan" alt="npm version" /></a>
   <img src="https://img.shields.io/badge/model-DeepSeek-4A90D9?style=for-the-badge&labelColor=0d1117" alt="DeepSeek" />
   <img src="https://img.shields.io/badge/license-Apache--2.0-22c55e?style=for-the-badge&labelColor=0d1117" alt="Apache 2.0" />
-  <img src="https://img.shields.io/badge/Visibility-Private-111827?style=for-the-badge&logo=github&logoColor=white" alt="Private repository" />
 </p>
 
 <p><strong>An AI-powered coding assistant that lives in your terminal.</strong></p>
@@ -25,6 +23,14 @@
 </div>
 
 ---
+
+<!-- Demo video — place your recorded demo here -->
+<!-- To embed: upload the video to this repo and replace the src below -->
+<!--
+<div align="center">
+  <video src="demo.mp4" autoplay loop muted playsinline width="80%"></video>
+</div>
+-->
 
 ## ✨ Highlights
 
@@ -45,17 +51,16 @@
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) ≥ 1.0
+- [Node.js](https://nodejs.org) ≥ 18 or [Bun](https://bun.sh) ≥ 1.0
 - A [DeepSeek API key](https://platform.deepseek.com/api_keys)
 
 ### Installation
 
-**Global (recommended)**
 ```bash
 npm install -g @aethelics/deepseek-code
 ```
 
-On first run, DeepSeek Code will ask for your API key, preferred language and theme. Everything is saved to `~/.deepseek-code/config.json`.
+Then run `deepseek`. On first run, DeepSeek Code will ask for your API key, preferred language and theme. Everything is saved to `~/.deepseek-code/config.json`.
 
 ---
 
@@ -387,8 +392,8 @@ bun run start
 # Type check
 bun run tsc --noEmit
 
-# Run a specific file
-bun src/index.tsx
+# Build
+bun run build
 ```
 
 ---
@@ -401,5 +406,5 @@ Apache 2.0 — see the [LICENSE](LICENSE) file for details.
 
 <div align="center">
   <p>Made with ❤️ by <a href="https://github.com/Marcelo-Henry">Marcelo</a> and DeepSeek</p>
-  <sub><code>bun run start</code> and go build something.</sub>
+  <sub><code>npm i -g @aethelics/deepseek-code</code> and go build something.</sub>
 </div>
