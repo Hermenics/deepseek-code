@@ -16,13 +16,6 @@
 
 ---
 
-<!-- Demo video -->
-<!-- Upload your demo video to this repo and uncomment the block below -->
-<!--
-<div align="center">
-  <video src="demo.mp4" autoplay loop muted playsinline width="80%"></video>
-</div>
--->
 
 <div align="center">
   <img src="demo.gif" alt="DeepSeek Code demo" width="80%" />
