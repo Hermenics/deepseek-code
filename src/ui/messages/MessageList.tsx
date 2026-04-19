@@ -167,7 +167,6 @@ export function MessageList({ messages, streamText, streamRole = 'assistant', th
           if (item.kind === 'header') {
             const cols = process.stdout.columns ?? 80
             const isNarrow = cols < 60
-            const sep = '─'.repeat(cols - 8)
             return (
               <Box key="header" flexDirection="column" marginX={1} marginTop={1}>
                 {isNarrow ? (

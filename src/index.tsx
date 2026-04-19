@@ -14,6 +14,36 @@ import { ApiKeySetup, loadSavedConfig, saveConfig, type ThemeName, type Provider
 import { LanguageSetup } from './ui/setup/LanguageSetup.js'
 import { loadAgentConfig, type LoadedAgent } from './agent/config.js'
 import { loadSession, newSessionId, type SessionData } from './agent/session.js'
+import pkg from '../package.json' with { type: 'json' }
+
+// ── deepseek update ───────────────────────────────────────────────────────────
+const { update } = parseArgv()
+if (update) {
+  const name = pkg.name
+  const current = pkg.version
+  process.stdout.write(`Checking for updates to ${name}...\n`)
+  try {
+    const res = await fetch(`https://registry.npmjs.org/${name}/latest`)
+    if (!res.ok) throw new Error(`Registry returned ${res.status}`)
+    const data = await res.json() as { version: string }
+    const latest = data.version
+    if (latest === current) {
+      process.stdout.write(`Already up to date (${current}).\n`)
+    } else {
+      process.stdout.write(`Updating ${current} → ${latest}...\n`)
+      const { execa } = await import('execa')
+      const pm = process.env.npm_execpath?.includes('bun') ? 'bun' : 'npm'
+      const { stdout, stderr } = await execa(pm, ['install', '-g', `${name}@${latest}`], { reject: false })
+      if (stdout) process.stdout.write(stdout + '\n')
+      if (stderr) process.stderr.write(stderr + '\n')
+      process.stdout.write(`Updated to ${latest}. Restart deepseek to use the new version.\n`)
+    }
+  } catch (e) {
+    process.stderr.write(`Update failed: ${(e as Error).message}\n`)
+    process.exit(1)
+  }
+  process.exit(0)
+}
 
 // Parse argv:
 //   deepseek                          → {}
@@ -21,16 +51,20 @@ import { loadSession, newSessionId, type SessionData } from './agent/session.js'
 //   deepseek agent <name>             → { agentName: "name" }
 //   deepseek agent <name> "msg"       → { agentName: "name", initialMessage: "msg" }
 //   deepseek --resume <id>            → { resumeId: "id" }
-function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null } {
+//   deepseek update                   → check and install latest version
+function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; update: boolean } {
   const args = process.argv.slice(2).filter((a) => a !== '--pipe')
+  if (args[0] === 'update') {
+    return { agentName: null, initialMessage: null, resumeId: null, update: true }
+  }
   const resumeIdx = args.indexOf('--resume')
   if (resumeIdx !== -1) {
-    return { agentName: null, initialMessage: null, resumeId: args[resumeIdx + 1] ?? null }
+    return { agentName: null, initialMessage: null, resumeId: args[resumeIdx + 1] ?? null, update: false }
   }
   if (args[0] === 'agent') {
-    return { agentName: args[1] ?? null, initialMessage: args[2] ?? null, resumeId: null }
+    return { agentName: args[1] ?? null, initialMessage: args[2] ?? null, resumeId: null, update: false }
   }
-  return { agentName: null, initialMessage: args[0] ?? null, resumeId: null }
+  return { agentName: null, initialMessage: args[0] ?? null, resumeId: null, update: false }
 }
 
 const SESSION_ID = newSessionId()

@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react'
+import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { Box, Text, useInput, useApp } from 'ink'
 import { execa } from 'execa'
 import { Agent, type ToolPermissionResult } from '../agent/agent.js'
@@ -94,6 +94,21 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [agent])
 
   useEffect(() => {
+    // Set terminal title
+    process.stdout.write('\x1b]0;deepseek\x07')
+    return () => { process.stdout.write('\x1b]0;\x07') }
+  }, [])
+
+  useEffect(() => {
+    // Update terminal title based on loading state
+    if (isLoading) {
+      process.stdout.write('\x1b]0;deepseek — working...\x07')
+    } else {
+      process.stdout.write('\x1b]0;deepseek\x07')
+    }
+  }, [isLoading])
+
+  useEffect(() => {
     const init = async () => {
       // Wait for agent initialization then surface any MCP connection errors
       await new Promise<void>((resolve) => {
@@ -136,8 +151,14 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     // Exit is handled by double Ctrl-C in InputBox
   })
 
+  const shellProcRef = useRef<ReturnType<typeof execa> | null>(null)
+
   const handleAbort = useCallback(() => {
     agent.abort()
+    if (shellProcRef.current) {
+      shellProcRef.current.kill()
+      shellProcRef.current = null
+    }
   }, [agent])
 
   const handleConfirm = useCallback((yes: boolean) => {
@@ -328,6 +349,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       let output = ''
       try {
         const proc = execa('sh', ['-c', shellCmd], { reject: false })
+        shellProcRef.current = proc
         const flush = (chunk: string) => {
           output += chunk
           setStreamText(output)
@@ -335,10 +357,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         proc.stdout?.on('data', (d: Buffer) => flush(d.toString()))
         proc.stderr?.on('data', (d: Buffer) => flush(d.toString()))
         const result = await proc
-        const exitInfo = result.exitCode !== 0 ? `\n[saiu com código ${result.exitCode}]` : ''
-        setMessages((m) => [...m, { role: 'terminal', content: (output || '(sem saída)') + exitInfo }])
+        shellProcRef.current = null
+        const exitInfo = result.exitCode !== 0 ? `\n[exited with code ${result.exitCode}]` : ''
+        setMessages((m) => [...m, { role: 'terminal', content: (output || '(no output)') + exitInfo }])
       } catch (e) {
-        setMessages((m) => [...m, { role: 'terminal', content: `Erro: ${(e as Error).message}` }])
+        shellProcRef.current = null
+        setMessages((m) => [...m, { role: 'terminal', content: `Error: ${(e as Error).message}` }])
       }
       setStreamText('')
       setStreamRole('assistant')
@@ -429,7 +453,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         setMessages((m) => [...m, { role: 'assistant', content: `⚡ Context auto-compacted (>85%).\n\n${summary}` }])
       },
     })
-  }, [agent, isLoading, exit])
+  }, [agent, isLoading, exit, runWithPrompt])
 
   // ── runWithPrompt: executa um prompt interno sem expor o texto ao usuário ──
   const runWithPrompt = useCallback(async (label: string, prompt: string) => {
