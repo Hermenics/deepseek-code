@@ -24,6 +24,10 @@
 </div>
 -->
 
+<div align="center">
+  <img src="demo.gif" alt="DeepSeek Code demo" width="80%" />
+</div>
+
 ## Get started
 
 1. Install DeepSeek Code:
@@ -44,7 +48,7 @@ It supports two models: **DeepSeek-V3** (`deepseek-chat`) for fast general use a
 
 ## Reporting bugs
 
-File a [GitHub issue](https://github.com/Marcelo-Henry/deepseek-code/issues) or use the `/help` command inside the TUI.
+File a [GitHub issue](https://github.com/Aethelics/deepseek-code2/issues) or use the `/help` command inside the TUI.
 
 ---
 
