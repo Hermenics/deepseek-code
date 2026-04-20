@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://img.shields.io/badge/%F0%9F%90%8B-DeepSeek%20Code-4A90D9?style=for-the-badge&labelColor=0d1117" alt="DeepSeek Code" height="60"/>
+<img src="https://raw.githubusercontent.com/Aethelics/deepseek-code2/main/deepseek-code.png" alt="DeepSeek Code" height="150"/>
 
 <br/>
 
