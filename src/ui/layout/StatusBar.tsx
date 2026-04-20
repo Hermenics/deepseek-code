@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Box, Text } from 'ink'
+import chalk from 'chalk'
+import figures from 'figures'
 import { execa } from 'execa'
 import type { Model } from '../../commands.js'
 
@@ -37,12 +39,12 @@ export const StatusBar = React.memo(function StatusBar({ tokenCount, model, acti
   return (
     <Box flexDirection="column">
       <Box paddingX={2} gap={0}>
-        {tokenCount > 0 && <Text dimColor>{tokenCount.toLocaleString()} tokens  ·  </Text>}
-        {branch && <Text dimColor>{branch}  ·  </Text>}
-        <Text dimColor>{model}</Text>
+        {tokenCount > 0 && <Text dimColor>{figures.bullet} {tokenCount.toLocaleString()} tokens  </Text>}
+        {branch && <Text dimColor>{figures.circlePipe} {branch}  </Text>}
+        <Text dimColor>{figures.lozenge} {model}</Text>
         {contextPct > 0 && (
           <>
-            <Text dimColor>  ·  ctx </Text>
+            <Text dimColor>  {figures.lineVertical} ctx </Text>
             <Text color={contextPct >= 90 ? 'red' : contextPct >= 70 ? 'yellow' : 'cyan'} dimColor={contextPct < 50}>
               {contextPct}%
             </Text>

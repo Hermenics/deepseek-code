@@ -1,5 +1,13 @@
 import React, { useMemo } from 'react'
 import { Text, Box } from 'ink'
+import chalk from 'chalk'
+import figures from 'figures'
+import { marked, type Token, type Tokens } from 'marked'
+import hljs from 'highlight.js'
+import supportsHyperlinks from 'supports-hyperlinks'
+import stripAnsi from 'strip-ansi'
+import wrapAnsi from 'wrap-ansi'
+import cliBoxes from 'cli-boxes'
 import type { ThemeName } from '../setup/ApiKeySetup.js'
 
 interface MarkdownRendererProps {
@@ -8,378 +16,411 @@ interface MarkdownRendererProps {
 }
 
 export const MarkdownRenderer = React.memo(function MarkdownRenderer({ content, theme }: MarkdownRendererProps) {
-  const elements = useMemo(() => parseMarkdown(content, theme), [content, theme])
+  const elements = useMemo(() => renderTokens(marked.lexer(content), theme), [content, theme])
   return <Box flexDirection="column">{elements}</Box>
 })
 
-// ── Syntax highlighting ────────────────────────────────────────────────────────
+// ── Hyperlink support detection (cached once) ─────────────────────────────────
 
-type TokenType = 'keyword' | 'string' | 'comment' | 'number' | 'type' | 'fn' | 'plain'
+const hyperlinksSupported = supportsHyperlinks.stdout
 
-interface SyntaxToken { type: TokenType; text: string }
+/**
+ * OSC 8 hyperlink escape: \e]8;;URL\e\\LABEL\e]8;;\e\\
+ * Falls back to "LABEL (URL)" when terminal doesn't support it.
+ */
+function makeLink(url: string, label: string): string {
+  if (hyperlinksSupported) {
+    return `\u001B]8;;${url}\u001B\\${label}\u001B]8;;\u001B\\`
+  }
+  return label === url ? url : `${label} (${url})`
+}
 
-const KEYWORDS = new Set([
-  'const','let','var','function','return','if','else','for','while','do','switch','case','break',
-  'continue','class','extends','new','this','super','import','export','default','from','async',
-  'await','try','catch','finally','throw','typeof','instanceof','in','of','void','delete','null',
-  'undefined','true','false','type','interface','enum','implements','abstract','readonly','static',
-  'public','private','protected','override','declare','namespace','module','require','def','pass',
-  'and','or','not','is','lambda','with','yield','raise','except','elif','print','fn','let','mut',
-  'use','mod','pub','struct','impl','trait','where','match','Some','None','Ok','Err',
-])
+// ── highlight.js → chalk ANSI conversion ──────────────────────────────────────
 
-const TYPES = new Set([
-  'string','number','boolean','object','any','never','unknown','void','Array','Promise','Record',
-  'Map','Set','Error','Date','RegExp','Symbol','BigInt','Function','Object','String','Number',
-  'Boolean','int','float','str','bool','list','dict','tuple','bytes',
-])
+/** Maps hljs CSS class → chalk color function */
+const HLS_CLASS_COLORS: Record<string, (s: string) => string> = {
+  'hljs-keyword':    (s) => chalk.magenta(s),
+  'hljs-built_in':   (s) => chalk.cyan(s),
+  'hljs-type':       (s) => chalk.cyan.bold(s),
+  'hljs-literal':    (s) => chalk.yellow(s),
+  'hljs-number':     (s) => chalk.yellow(s),
+  'hljs-string':     (s) => chalk.green(s),
+  'hljs-comment':    (s) => chalk.gray(s),
+  'hljs-doctag':     (s) => chalk.gray.bold(s),
+  'hljs-meta':       (s) => chalk.gray(s),
+  'hljs-attr':       (s) => chalk.blue(s),
+  'hljs-params':     (s) => chalk.white(s),
+  'hljs-variable':   (s) => chalk.red(s),
+  'hljs-regexp':     (s) => chalk.red(s),
+  'hljs-symbol':     (s) => chalk.yellow(s),
+  'hljs-selector-tag':   (s) => chalk.magenta(s),
+  'hljs-selector-class': (s) => chalk.blue(s),
+  'hljs-selector-id':    (s) => chalk.cyan(s),
+  'hljs-property':       (s) => chalk.blue(s),
+  'hljs-addition':       (s) => chalk.green(s),
+  'hljs-deletion':       (s) => chalk.red(s),
+}
 
-function tokenizeLine(line: string): SyntaxToken[] {
-  const tokens: SyntaxToken[] = []
+/** Matches class names like "hljs-title function_" → uses "hljs-title" prefix */
+function getColorFn(className: string): ((s: string) => string) | null {
+  if (HLS_CLASS_COLORS[className]) return HLS_CLASS_COLORS[className]!
+  // Handle compound classes: "hljs-title function_" → try "hljs-title"
+  const base = className.split(' ')[0]!
+  if (HLS_CLASS_COLORS[base]) return HLS_CLASS_COLORS[base]!
+  // Common hljs-title patterns (class names, function names)
+  if (className.includes('function_')) return (s) => chalk.blue(s)
+  if (className.includes('class_')) return (s) => chalk.cyan.bold(s)
+  if (className.startsWith('hljs-title')) return (s) => chalk.blue(s)
+  return null
+}
+
+/** Converts highlight.js HTML output to a chalk-colored ANSI string */
+function hljsHtmlToAnsi(html: string): string {
+  // Process span tags from hljs output, converting to chalk colors
+  let result = ''
   let i = 0
 
-  while (i < line.length) {
-    // Single-line comment
-    if (line[i] === '/' && line[i + 1] === '/') {
-      tokens.push({ type: 'comment', text: line.slice(i) })
-      break
-    }
-    if (line[i] === '#') {
-      tokens.push({ type: 'comment', text: line.slice(i) })
-      break
-    }
+  while (i < html.length) {
+    // Opening span tag
+    if (html.startsWith('<span class="', i)) {
+      const classStart = i + 13 // length of '<span class="'
+      const classEnd = html.indexOf('"', classStart)
+      if (classEnd === -1) { result += html[i]; i++; continue }
+      const className = html.slice(classStart, classEnd)
+      const tagEnd = html.indexOf('>', classEnd)
+      if (tagEnd === -1) { result += html[i]; i++; continue }
 
-    // String (single or double quote)
-    if (line[i] === '"' || line[i] === "'" || line[i] === '`') {
-      const q = line[i]!
-      let j = i + 1
-      while (j < line.length && line[j] !== q) {
-        if (line[j] === '\\') j++
-        j++
+      // Find matching </span> — handle nested spans
+      let depth = 1
+      let j = tagEnd + 1
+      while (j < html.length && depth > 0) {
+        if (html.startsWith('<span', j)) depth++
+        else if (html.startsWith('</span>', j)) depth--
+        if (depth > 0) j++
+        else break
       }
-      tokens.push({ type: 'string', text: line.slice(i, j + 1) })
-      i = j + 1
+
+      const innerHtml = html.slice(tagEnd + 1, j)
+      // Recursively process inner content (handles nested spans)
+      const innerAnsi = hljsHtmlToAnsi(innerHtml)
+      const colorFn = getColorFn(className)
+      result += colorFn ? colorFn(innerAnsi) : innerAnsi
+      i = j + 7 // skip past </span>
       continue
     }
 
-    // Number
-    if (/[0-9]/.test(line[i]!) && (i === 0 || /\W/.test(line[i - 1]!))) {
-      let j = i
-      while (j < line.length && /[0-9._xXa-fA-F]/.test(line[j]!)) j++
-      tokens.push({ type: 'number', text: line.slice(i, j) })
-      i = j
-      continue
+    // HTML entity decoding
+    if (html.startsWith('&amp;', i)) { result += '&'; i += 5; continue }
+    if (html.startsWith('&lt;', i)) { result += '<'; i += 4; continue }
+    if (html.startsWith('&gt;', i)) { result += '>'; i += 4; continue }
+    if (html.startsWith('&quot;', i)) { result += '"'; i += 6; continue }
+    if (html.startsWith('&#x27;', i) || html.startsWith('&#39;', i)) {
+      result += "'"; i += html.startsWith('&#x27;', i) ? 6 : 5; continue
     }
 
-    // Word (keyword, type, function call, or plain)
-    if (/[a-zA-Z_$]/.test(line[i]!)) {
-      let j = i
-      while (j < line.length && /[a-zA-Z0-9_$]/.test(line[j]!)) j++
-      const word = line.slice(i, j)
-      const isCall = line[j] === '('
-      let type: TokenType = 'plain'
-      if (KEYWORDS.has(word)) type = 'keyword'
-      else if (TYPES.has(word)) type = 'type'
-      else if (isCall) type = 'fn'
-      tokens.push({ type, text: word })
-      i = j
-      continue
-    }
-
-    // Plain char
-    const last = tokens[tokens.length - 1]
-    if (last?.type === 'plain') {
-      last.text += line[i]
-    } else {
-      tokens.push({ type: 'plain', text: line[i]! })
-    }
+    result += html[i]
     i++
   }
 
-  return tokens
+  return result
 }
 
-const SYNTAX_LANGS = new Set([
-  'ts','tsx','js','jsx','typescript','javascript','python','py','rust','rs','go','java','c','cpp',
-  'c++','cs','csharp','swift','kotlin','ruby','rb','php','bash','sh','zsh',
-])
+// ── Languages that highlight.js can handle ────────────────────────────────────
 
-function SyntaxLine({ line, theme }: { line: string; theme: ThemeName }) {
-  const tokens = tokenizeLine(line)
+const HLJS_LANG_ALIASES: Record<string, string> = {
+  ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
+  py: 'python', rb: 'ruby', rs: 'rust', sh: 'bash', zsh: 'bash',
+  yml: 'yaml', 'c++': 'cpp', cs: 'csharp', kt: 'kotlin',
+  md: 'markdown', tf: 'hcl', dockerfile: 'dockerfile',
+}
+
+function resolveLanguage(lang: string): string | null {
+  const lower = lang.toLowerCase()
+  const resolved = HLJS_LANG_ALIASES[lower] ?? lower
+  return hljs.getLanguage(resolved) ? resolved : null
+}
+
+// ── Syntax-highlighted code block ─────────────────────────────────────────────
+
+function highlightCode(code: string, lang: string): string {
+  const resolved = resolveLanguage(lang)
+  if (!resolved) return code
+  try {
+    const result = hljs.highlight(code, { language: resolved })
+    return hljsHtmlToAnsi(result.value)
+  } catch {
+    // Fallback to plain text if highlighting fails
+    return code
+  }
+}
+
+// ── Token rendering ───────────────────────────────────────────────────────────
+
+let _keyCounter = 0
+const getKey = () => `md-${_keyCounter++}`
+
+function renderTokens(tokens: Token[], theme: ThemeName): React.ReactNode[] {
+  // Reset key counter per render pass
+  _keyCounter = 0
+  return tokens.map((token) => renderToken(token, theme))
+}
+
+function renderToken(token: Token, theme: ThemeName): React.ReactNode {
   const isDark = theme.startsWith('dark')
-  return (
-    <Text>
-      {tokens.map((tok, i) => {
-        switch (tok.type) {
-          case 'keyword': return <Text key={i} color="magenta">{tok.text}</Text>
-          case 'string':  return <Text key={i} color="green">{tok.text}</Text>
-          case 'comment': return <Text key={i} color={isDark ? 'gray' : 'gray'} dimColor>{tok.text}</Text>
-          case 'number':  return <Text key={i} color="yellow">{tok.text}</Text>
-          case 'type':    return <Text key={i} color="cyan">{tok.text}</Text>
-          case 'fn':      return <Text key={i} color="blue">{tok.text}</Text>
-          default:        return <Text key={i}>{tok.text}</Text>
-        }
-      })}
-    </Text>
-  )
-}
 
-function parseMarkdown(content: string, theme: ThemeName): React.ReactNode[] {
-  const lines = content.split('\n')
-  const elements: React.ReactNode[] = []
-  let inCodeBlock = false
-  let codeBlockLanguage = ''
-  let codeBlockContent: string[] = []
-  let inList = false
-  let listType: 'ordered' | 'unordered' | null = null
-  let listItems: React.ReactNode[] = []
-  let inTable = false
-  let tableRows: string[][] = []
-  let elementKey = 0
+  switch (token.type) {
+    case 'heading': {
+      const t = token as Tokens.Heading
+      if (t.depth === 1) {
+        return (
+          <Box key={getKey()} marginTop={1}>
+            <Text bold color="cyan">{figures.pointer} {renderInlineTokens(t.tokens, theme)}</Text>
+          </Box>
+        )
+      }
+      if (t.depth === 2) {
+        return (
+          <Box key={getKey()} marginTop={1}>
+            <Text bold color="blue">{figures.pointerSmall} {renderInlineTokens(t.tokens, theme)}</Text>
+          </Box>
+        )
+      }
+      return <Text key={getKey()} bold color="magenta">{renderInlineTokens(t.tokens, theme)}</Text>
+    }
 
-  const getKey = () => `key-${elementKey++}`
+    case 'paragraph': {
+      const t = token as Tokens.Paragraph
+      const raw = renderInlineTokensToString(t.tokens, theme)
+      const cols = process.stdout.columns ?? 80
+      // Wrap long paragraphs to terminal width minus some margin
+      if (stripAnsi(raw).length > cols - 4) {
+        const wrapped = wrapAnsi(raw, cols - 4, { hard: true })
+        return (
+          <Box key={getKey()} flexDirection="column">
+            {wrapped.split('\n').map((line, li) => <Text key={li}>{line}</Text>)}
+          </Box>
+        )
+      }
+      return <Text key={getKey()}>{renderInlineTokens(t.tokens, theme)}</Text>
+    }
 
-  const flushList = () => {
-    if (listItems.length > 0) {
-      elements.push(
-        <Box key={getKey()} flexDirection="column" marginLeft={1} marginY={0}>
-          {listItems}
+    case 'code': {
+      const t = token as Tokens.Code
+      const lang = t.lang ?? ''
+      const highlighted = lang ? highlightCode(t.text, lang) : t.text
+      const langLabel = lang ? chalk.bgGray.white.bold(` ${lang} `) : ''
+      const box = cliBoxes.round
+      const borderColor = isDark ? chalk.gray : chalk.hex('#888')
+      const cols = process.stdout.columns ?? 80
+      const innerWidth = Math.max(cols - 6, 30)
+
+      // Build code lines with wrapping for long lines
+      const codeLines = (lang && resolveLanguage(lang))
+        ? wrapAnsi(highlighted, innerWidth, { hard: true }).split('\n')
+        : wrapAnsi(t.text, innerWidth, { hard: true }).split('\n')
+
+      // Find max visible width for the box
+      const maxLineWidth = Math.max(...codeLines.map((l) => stripAnsi(l).length), langLabel ? stripAnsi(langLabel).length : 0)
+      const boxWidth = Math.min(maxLineWidth + 2, innerWidth + 2) // +2 for padding
+
+      const topBorder = borderColor(box.topLeft + box.top.repeat(boxWidth) + box.topRight)
+      const bottomBorder = borderColor(box.bottomLeft + box.bottom.repeat(boxWidth) + box.bottomRight)
+
+      const padLine = (line: string) => {
+        const visible = stripAnsi(line).length
+        const right = Math.max(0, boxWidth - visible - 1)
+        return borderColor(box.left) + ' ' + line + ' '.repeat(right) + borderColor(box.right)
+      }
+
+      const renderedLines: string[] = []
+      if (langLabel) renderedLines.push(padLine(langLabel))
+      for (const line of codeLines) renderedLines.push(padLine(line))
+
+      const boxStr = [topBorder, ...renderedLines, bottomBorder].join('\n')
+      return (
+        <Box key={getKey()} flexDirection="column" marginY={1}>
+          {boxStr.split('\n').map((line, li) => <Text key={li}>{line}</Text>)}
         </Box>
       )
-      listItems = []
     }
-    inList = false
-    listType = null
-  }
 
-  const parseTableRow = (line: string) =>
-    line.split('|').slice(1, -1).map((c) => c.trim())
-
-  const isSeparator = (line: string) => /^\|[\s|:-]+\|$/.test(line.trim())
-
-  const flushTable = () => {
-    if (tableRows.length < 2) { inTable = false; tableRows = []; return }
-    const [header, , ...body] = tableRows
-    const cols = header!.length
-    const widths = Array.from({ length: cols }, (_, ci) =>
-      Math.max(header![ci]?.length ?? 0, ...body.map((r) => r[ci]?.length ?? 0))
-    )
-    const pad = (s: string, w: number) => s + ' '.repeat(Math.max(0, w - s.length))
-    const k = getKey()
-    elements.push(
-      <Box key={k} flexDirection="column" marginY={1}>
-        <Box>
-          {header!.map((cell, ci) => (
-            <Text key={ci} bold color="cyan"> {pad(cell, widths[ci]!)}  </Text>
-          ))}
+    case 'blockquote': {
+      const t = token as Tokens.Blockquote
+      return (
+        <Box key={getKey()} borderLeft borderColor="cyan" paddingLeft={1} marginY={1}>
+          <Text italic color="gray">{figures.lineVertical} {renderInlineTokens(t.tokens as Token[], theme)}</Text>
         </Box>
-        <Text dimColor>{'─'.repeat(widths.reduce((a, w) => a + w + 3, 0))}</Text>
-        {body.map((row, ri) => (
-          <Box key={ri}>
-            {Array.from({ length: cols }, (_, ci) => (
-              <Text key={ci}> {pad(row[ci] ?? '', widths[ci]!)}  </Text>
+      )
+    }
+
+    case 'list': {
+      const t = token as Tokens.List
+      return (
+        <Box key={getKey()} flexDirection="column" marginLeft={1} marginY={0}>
+          {t.items.map((item, idx) => {
+            const bullet = t.ordered
+              ? <Text color="yellow">{Number(t.start ?? 1) + idx}.</Text>
+              : <Text color="cyan">{figures.bullet}</Text>
+            return (
+              <Box key={getKey()} flexDirection="row" marginBottom={0}>
+                {bullet}
+                <Box marginLeft={1} flexDirection="column">
+                  {item.tokens.map((sub) => renderToken(sub, theme))}
+                </Box>
+              </Box>
+            )
+          })}
+        </Box>
+      )
+    }
+
+    case 'table': {
+      const t = token as Tokens.Table
+      const cols = t.header.length
+      const headerTexts = t.header.map((h) => renderInlineTokensToString(h.tokens, theme))
+      const bodyTexts = t.rows.map((row) => row.map((cell) => renderInlineTokensToString(cell.tokens, theme)))
+      // Use strip-ansi for accurate column width calculation
+      const widths = Array.from({ length: cols }, (_, ci) =>
+        Math.max(
+          stripAnsi(headerTexts[ci] ?? '').length,
+          ...bodyTexts.map((r) => stripAnsi(r[ci] ?? '').length)
+        )
+      )
+      const pad = (s: string, w: number) => {
+        const visible = stripAnsi(s).length
+        return s + ' '.repeat(Math.max(0, w - visible))
+      }
+      // Use cli-boxes single style for table separator
+      const box = cliBoxes.single
+      const separator = widths.map((w) => box.top.repeat(w + 2)).join(box.top)
+      return (
+        <Box key={getKey()} flexDirection="column" marginY={1}>
+          <Box>
+            {headerTexts.map((cell, ci) => (
+              <Text key={ci} bold color="cyan"> {pad(cell, widths[ci]!)}  </Text>
             ))}
           </Box>
-        ))}
-      </Box>
-    )
-    inTable = false
-    tableRows = []
-  }
-
-  const flushCodeBlock = () => {
-    if (codeBlockContent.length > 0) {
-      const code = codeBlockContent.join('\n')
-      const lang = codeBlockLanguage.toLowerCase()
-      const highlight = SYNTAX_LANGS.has(lang)
-      elements.push(
-        <Box key={getKey()} flexDirection="column" borderStyle="single" borderColor="gray" marginY={1} paddingX={1}>
-          {codeBlockLanguage && <Text dimColor>{codeBlockLanguage}</Text>}
-          {highlight
-            ? codeBlockContent.map((line, li) => (
-                <SyntaxLine key={li} line={line} theme={theme} />
-              ))
-            : <Text color={theme.startsWith('dark') ? 'white' : 'black'}>{code}</Text>
-          }
+          <Text dimColor>{separator}</Text>
+          {bodyTexts.map((row, ri) => (
+            <Box key={ri}>
+              {Array.from({ length: cols }, (_, ci) => (
+                <Text key={ci}> {pad(row[ci] ?? '', widths[ci]!)}  </Text>
+              ))}
+            </Box>
+          ))}
         </Box>
       )
-      codeBlockContent = []
-    }
-    inCodeBlock = false
-    codeBlockLanguage = ''
-  }
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!
-
-    if (line.startsWith('```')) {
-      if (inCodeBlock) { flushCodeBlock() }
-      else { flushList(); inCodeBlock = true; codeBlockLanguage = line.slice(3).trim() }
-      continue
-    }
-    if (inCodeBlock) { codeBlockContent.push(line); continue }
-
-    if (line.startsWith('# ')) {
-      flushList(); flushTable()
-      elements.push(<Text key={getKey()} bold color="cyan">{renderInline(line.slice(2), theme, getKey())}</Text>)
-      continue
-    }
-    if (line.startsWith('## ')) {
-      flushList()
-      elements.push(<Text key={getKey()} bold color="blue">{renderInline(line.slice(3), theme, getKey())}</Text>)
-      continue
-    }
-    if (line.startsWith('### ')) {
-      flushList()
-      elements.push(<Text key={getKey()} bold color="magenta">{renderInline(line.slice(4), theme, getKey())}</Text>)
-      continue
     }
 
-    if (/^---+\s*$/.test(line) || /^___+\s*$/.test(line) || /^\*\*\*+\s*$/.test(line)) {
-      flushList()
-      elements.push(<Box key={getKey()} marginY={1}><Text dimColor>{'─'.repeat(60)}</Text></Box>)
-      continue
+    case 'hr': {
+      const hrWidth = Math.min((process.stdout.columns ?? 80) - 4, 76)
+      return <Box key={getKey()} marginY={1}><Text dimColor>{cliBoxes.single.top.repeat(hrWidth)}</Text></Box>
     }
 
-    if (line.startsWith('> ')) {
-      flushList()
-      elements.push(
-        <Box key={getKey()} borderLeft borderColor="gray" paddingLeft={1} marginY={1}>
-          <Text italic color="gray">{renderInline(line.slice(2), theme, getKey())}</Text>
-        </Box>
-      )
-      continue
+    case 'space':
+      return null
+
+    case 'html': {
+      // Render raw HTML as plain text in terminal
+      const t = token as Tokens.HTML
+      return t.text.trim() ? <Text key={getKey()} dimColor>{t.text.trim()}</Text> : null
     }
 
-    if (line.trim().startsWith('|')) {
-      flushList()
-      if (isSeparator(line)) tableRows.push([])
-      else tableRows.push(parseTableRow(line))
-      inTable = true
-      continue
-    }
-    if (inTable) flushTable()
-
-    const orderedMatch = line.match(/^(\d+)\.\s+(.*)/)
-    const unorderedMatch = line.match(/^[-*]\s+(.*)/)
-    if (orderedMatch || unorderedMatch) {
-      const [, number, content] = orderedMatch || []
-      const [, unorderedContent] = unorderedMatch || []
-      const itemContent = content || unorderedContent || ''
-      if (!inList || (orderedMatch && listType !== 'ordered') || (unorderedMatch && listType !== 'unordered')) {
-        flushList(); inList = true; listType = orderedMatch ? 'ordered' : 'unordered'
+    default: {
+      // Fallback: render raw text for any unhandled token type
+      if ('text' in token && typeof token.text === 'string') {
+        return <Text key={getKey()}>{token.text}</Text>
       }
-      listItems.push(
-        <Box key={getKey()} flexDirection="row" marginBottom={0}>
-          <Text>{listType === 'ordered' ? `${number}.` : '•'}</Text>
-          <Box marginLeft={1}><Text>{renderInline(itemContent, theme, getKey())}</Text></Box>
-        </Box>
-      )
-      continue
+      return null
     }
-
-    if (inList && line.trim() !== '') flushList()
-    if (line.trim() === '') continue
-
-    flushList()
-    elements.push(<Text key={getKey()}>{renderInline(line, theme, getKey())}</Text>)
   }
-
-  flushList(); flushTable(); flushCodeBlock()
-  return elements
 }
 
-function renderInline(text: string, theme: ThemeName, baseKey: string): React.ReactNode {
-  const codeMatches = [...text.matchAll(/`([^`]+)`/g)]
-  if (codeMatches.length > 0) {
-    const parts: React.ReactNode[] = []
-    let lastIndex = 0
-    for (let i = 0; i < codeMatches.length; i++) {
-      const match = codeMatches[i]!
-      const before = text.slice(lastIndex, match.index!)
-      if (before) parts.push(processLinks(before, theme, `${baseKey}-b${i}`))
-      parts.push(
-        <Text key={`${baseKey}-c${i}`} backgroundColor={theme === 'dark' ? '#333' : '#eee'} color={theme === 'dark' ? 'white' : 'black'}>
-          {match[1]}
-        </Text>
-      )
-      lastIndex = match.index! + match[0].length
-    }
-    const after = text.slice(lastIndex)
-    if (after) parts.push(processLinks(after, theme, `${baseKey}-a`))
-    return <>{parts}</>
-  }
-  return processLinks(text, theme, baseKey)
-}
+// ── Inline token rendering (bold, italic, code, links) ───────────────────────
 
-function processLinks(text: string, theme: ThemeName, baseKey: string): React.ReactNode {
-  const linkRe = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)|(https?:\/\/\S+)/g
-  const matches = [...text.matchAll(linkRe)]
-  if (!matches.length) return processBoldItalic(text, theme, baseKey)
-  const parts: React.ReactNode[] = []
-  let last = 0
-  for (let i = 0; i < matches.length; i++) {
-    const m = matches[i]!
-    if (m.index! > last) parts.push(processBoldItalic(text.slice(last, m.index), theme, `${baseKey}-t${i}`))
-    const label = m[1] ?? m[3]!
-    const url = m[2] ?? m[3]!
-    parts.push(<Text key={`${baseKey}-l${i}`} color="cyan" underline>{label !== url ? `${label} (${url})` : url}</Text>)
-    last = m.index! + m[0].length
-  }
-  if (last < text.length) parts.push(processBoldItalic(text.slice(last), theme, `${baseKey}-tail`))
+function renderInlineTokens(tokens: Token[], theme: ThemeName): React.ReactNode {
+  if (!tokens || tokens.length === 0) return null
+  const parts = tokens.map((t) => renderInlineToken(t, theme))
   return <>{parts}</>
 }
 
-function processBoldItalic(text: string, theme: ThemeName, baseKey: string): React.ReactNode {
-  const matches = [...text.matchAll(/\*\*\*(.+?)\*\*\*/g)]
-  if (matches.length > 0) {
-    const parts: React.ReactNode[] = []
-    let last = 0
-    for (let i = 0; i < matches.length; i++) {
-      const m = matches[i]!
-      if (m.index! > last) parts.push(processBold(text.slice(last, m.index), theme, `${baseKey}-b${i}`))
-      parts.push(<Text key={`${baseKey}-bi${i}`} bold italic>{m[1]}</Text>)
-      last = m.index! + m[0].length
+function renderInlineToken(token: Token, theme: ThemeName): React.ReactNode {
+  const isDark = theme.startsWith('dark')
+
+  switch (token.type) {
+    case 'text': {
+      const t = token as Tokens.Text
+      // Text tokens can have nested tokens (e.g. inside list items)
+      if ('tokens' in t && t.tokens && t.tokens.length > 0) {
+        return <React.Fragment key={getKey()}>{renderInlineTokens(t.tokens, theme)}</React.Fragment>
+      }
+      return <Text key={getKey()}>{t.text}</Text>
     }
-    const after = text.slice(last)
-    if (after) parts.push(processBold(after, theme, `${baseKey}-a`))
-    return <>{parts}</>
+
+    case 'strong': {
+      const t = token as Tokens.Strong
+      return <Text key={getKey()} bold>{renderInlineTokens(t.tokens, theme)}</Text>
+    }
+
+    case 'em': {
+      const t = token as Tokens.Em
+      return <Text key={getKey()} italic>{renderInlineTokens(t.tokens, theme)}</Text>
+    }
+
+    case 'codespan': {
+      const t = token as Tokens.Codespan
+      return (
+        <Text key={getKey()} backgroundColor={isDark ? '#333' : '#eee'} color={isDark ? 'white' : 'black'}>
+          {t.text}
+        </Text>
+      )
+    }
+
+    case 'link': {
+      const t = token as Tokens.Link
+      const label = t.tokens ? renderInlineTokensToString(t.tokens, theme) : t.text
+      const linked = makeLink(t.href, label)
+      return <Text key={getKey()} color="cyan" underline>{linked}</Text>
+    }
+
+    case 'image': {
+      const t = token as Tokens.Image
+      return <Text key={getKey()} color="cyan" dimColor>[img: {t.text || t.href}]</Text>
+    }
+
+    case 'br':
+      return <Text key={getKey()}>{'\n'}</Text>
+
+    case 'del': {
+      const t = token as Tokens.Del
+      return <Text key={getKey()} strikethrough>{renderInlineTokens(t.tokens, theme)}</Text>
+    }
+
+    case 'escape': {
+      const t = token as Tokens.Escape
+      return <Text key={getKey()}>{t.text}</Text>
+    }
+
+    default: {
+      if ('text' in token && typeof token.text === 'string') {
+        return <Text key={getKey()}>{token.text}</Text>
+      }
+      if ('raw' in token && typeof token.raw === 'string') {
+        return <Text key={getKey()}>{token.raw}</Text>
+      }
+      return null
+    }
   }
-  return processBold(text, theme, baseKey)
 }
 
-function processBold(text: string, theme: ThemeName, baseKey: string): React.ReactNode {
-  const matches = [...text.matchAll(/\*\*(.+?)\*\*/g)]
-  if (matches.length > 0) {
-    const parts: React.ReactNode[] = []
-    let last = 0
-    for (let i = 0; i < matches.length; i++) {
-      const m = matches[i]!
-      if (m.index! > last) parts.push(processItalic(text.slice(last, m.index), theme, `${baseKey}-b${i}`))
-      parts.push(<Text key={`${baseKey}-bo${i}`} bold>{m[1]}</Text>)
-      last = m.index! + m[0].length
+/** Flattens inline tokens to a plain string (for table width calculation) */
+function renderInlineTokensToString(tokens: Token[], _theme: ThemeName): string {
+  if (!tokens) return ''
+  return tokens.map((t) => {
+    if ('tokens' in t && Array.isArray(t.tokens)) {
+      return renderInlineTokensToString(t.tokens, _theme)
     }
-    const after = text.slice(last)
-    if (after) parts.push(processItalic(after, theme, `${baseKey}-a`))
-    return <>{parts}</>
-  }
-  return processItalic(text, theme, baseKey)
-}
-
-function processItalic(text: string, _theme: ThemeName, baseKey: string): React.ReactNode {
-  const matches = [...text.matchAll(/(?<![*_])[*_]([^*_]+)[*_](?![*_])/g)]
-  if (matches.length > 0) {
-    const parts: React.ReactNode[] = []
-    let last = 0
-    for (let i = 0; i < matches.length; i++) {
-      const m = matches[i]!
-      if (m.index! > last) parts.push(<Text key={`${baseKey}-p${i}`}>{text.slice(last, m.index)}</Text>)
-      parts.push(<Text key={`${baseKey}-it${i}`} italic>{m[1]}</Text>)
-      last = m.index! + m[0].length
-    }
-    const after = text.slice(last)
-    if (after) parts.push(<Text key={`${baseKey}-pa`}>{after}</Text>)
-    return <>{parts}</>
-  }
-  return <Text key={baseKey}>{text}</Text>
+    if ('text' in t && typeof t.text === 'string') return t.text
+    return ''
+  }).join('')
 }

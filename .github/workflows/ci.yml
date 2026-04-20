@@ -21,7 +21,7 @@ jobs:
         run: bun install
 
       - name: Type check
-        run: bun run tsc --noEmit
+        run: bunx tsc --noEmit
 
       - name: Run tests
         run: bun test

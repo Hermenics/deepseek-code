@@ -91,16 +91,18 @@ export const SubAgent: Tool = {
 
       for (const tc of msg.tool_calls) {
         let parsedArgs: Record<string, unknown> = {}
-        try { parsedArgs = JSON.parse(tc.function.arguments) } catch {}
+        const fn = 'function' in tc ? tc.function : undefined
+        if (!fn) continue
+        try { parsedArgs = JSON.parse(fn.arguments) } catch {}
 
-        const tool = toolMap.get(tc.function.name)
+        const tool = toolMap.get(fn.name)
         let result: string
         if (tool) {
           try { result = await tool.execute(parsedArgs) } catch (e: unknown) {
             result = `Error: ${(e as Error).message}`
           }
         } else {
-          result = `Unknown tool: ${tc.function.name}`
+          result = `Unknown tool: ${fn.name}`
         }
 
         messages.push({ role: 'tool', tool_call_id: tc.id, content: result })

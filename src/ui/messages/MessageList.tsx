@@ -1,5 +1,8 @@
 import React from 'react'
 import { Box, Text, Static } from 'ink'
+import figures from 'figures'
+import stripAnsi from 'strip-ansi'
+import wrapAnsi from 'wrap-ansi'
 import type { Message } from '../App.js'
 import { DiffView } from './DiffView.js'
 import { MarkdownRenderer } from './MarkdownRenderer.js'
@@ -7,6 +10,22 @@ import type { ThemeName } from '../setup/ApiKeySetup.js'
 import { DeepSeekMascot } from '../layout/Mascot.js'
 import pkg from '../../../package.json' with { type: 'json' }
 
+
+/**
+ * Sanitizes incomplete streaming text for safe markdown rendering.
+ * Closes unclosed code fences and collapses excessive blank lines
+ * that the marked lexer would otherwise turn into empty space.
+ */
+function sanitizeStreamMarkdown(text: string): string {
+  // Collapse 3+ consecutive newlines into 2 (prevents huge gaps)
+  let sanitized = text.replace(/\n{3,}/g, '\n\n')
+  // Close unclosed code fences so marked doesn't produce broken output
+  const fenceCount = (sanitized.match(/^```/gm) || []).length
+  if (fenceCount % 2 !== 0) {
+    sanitized += '\n```'
+  }
+  return sanitized
+}
 
 // Maps internal tool names → display names (Claude Code style)
 const TOOL_DISPLAY: Record<string, string> = {
@@ -26,19 +45,19 @@ const TOOL_DISPLAY: Record<string, string> = {
 }
 
 const TOOL_ICONS: Record<string, string> = {
-  read_file:        '○',
-  write_file:       '●',
-  patch_file:       '◐',
-  read_folder:      '▤',
-  shell:            '▶',
-  grep:             '⊕',
-  glob:             '◇',
-  web_fetch:        '◉',
-  subagent:         '◈',
-  git:              '⎇',
-  introspect:       '◆',
-  update_knowledge: '◑',
-  todo:             '▣',
+  read_file:        figures.circle,
+  write_file:       figures.circleFilled,
+  patch_file:       figures.radioOn,
+  read_folder:      figures.squareSmallFilled,
+  shell:            figures.play,
+  grep:             figures.circleCross,
+  glob:             figures.lozengeOutline,
+  web_fetch:        figures.circleCircle,
+  subagent:         figures.lozenge,
+  git:              figures.circlePipe,
+  introspect:       figures.lozenge,
+  update_knowledge: figures.radioOn,
+  todo:             figures.checkboxOn,
 }
 
 const TOOL_COLORS: Record<string, string> = {
@@ -57,9 +76,35 @@ const TOOL_COLORS: Record<string, string> = {
   todo:             'yellow',
 }
 
+// Splits text by \n into individual <Text> elements inside a column <Box>,
+// preventing Ink from rendering newlines outside the parent component bounds.
+// Uses wrap-ansi to prevent text overflow on narrow terminals.
+export function renderLines(text: string): React.ReactNode {
+  const cols = Math.max((process.stdout.columns ?? 80) - 6, 30)
+  const rawLines = text.split(/\r?\n/)
+  // Only apply wrap-ansi to lines that actually exceed terminal width
+  const lines: string[] = []
+  for (const line of rawLines) {
+    if (stripAnsi(line).length > cols) {
+      lines.push(...wrapAnsi(line, cols, { hard: true }).split('\n'))
+    } else {
+      lines.push(line)
+    }
+  }
+  return (
+    <Box flexDirection="column">
+      {lines.map((line, i) => (
+        <Text key={i}>{line}</Text>
+      ))}
+    </Box>
+  )
+}
+
 function formatToolLine(rawName: string, detail: string): { display: string; arg: string; icon: string; iconColor: string } {
   const display = TOOL_DISPLAY[rawName] ?? rawName
-  const arg = detail.length > 60 ? detail.slice(0, 60) + '…' : detail
+  // Use strip-ansi for accurate visible length when truncating
+  const plainDetail = stripAnsi(detail)
+  const arg = plainDetail.length > 60 ? detail.slice(0, 60) + '…' : detail
   const icon = TOOL_ICONS[rawName] ?? '◦'
   const iconColor = TOOL_COLORS[rawName] ?? 'yellow'
   return { display, arg, icon, iconColor }
@@ -70,8 +115,8 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
     return (
       <Box flexDirection="column" marginTop={1}>
         <Box gap={1}>
-          <Text color="cyan" bold>❯</Text>
-          <Text>{m.content}</Text>
+          <Text color="cyan" bold>{figures.pointer}</Text>
+          {renderLines(m.content)}
         </Box>
       </Box>
     )
@@ -122,7 +167,7 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
           <Text color="magenta" dimColor>terminal</Text>
         </Box>
         <Box marginLeft={2}>
-          <Text wrap="wrap">{m.content}</Text>
+          {renderLines(m.content)}
         </Box>
       </Box>
     )
@@ -131,7 +176,7 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
   return (
     <Box flexDirection="column" marginTop={1}>
       <Box gap={1} alignItems="flex-start">
-        <Text color="green" bold>●</Text>
+        <Text color="green" bold>{figures.circleFilled}</Text>
         <Box flexDirection="column" flexShrink={1}>
           <MarkdownRenderer content={m.content} theme={theme} />
         </Box>
@@ -173,13 +218,13 @@ export function MessageList({ messages, streamText, streamRole = 'assistant', th
                   // Compact version for narrow terminals
                   <Box flexDirection="column">
                     <Box gap={1}>
-                      <Text bold color="cyan">◆ DeepSeek Code</Text>
+                      <Text bold color="cyan">{figures.lozenge} DeepSeek Code</Text>
                       <Text dimColor>v{pkg.version}</Text>
                     </Box>
                     {item.agentName && (
                       <Text color="cyan" dimColor>[{item.agentName}]</Text>
                     )}
-                    <Text dimColor>/help  ·  Ctrl+C×2 to exit</Text>
+                    <Text dimColor>/help  {figures.bullet}  Ctrl+C{figures.cross}2 to exit</Text>
                   </Box>
                 ) : (
                   // Full version for wide terminals
@@ -187,7 +232,7 @@ export function MessageList({ messages, streamText, streamRole = 'assistant', th
                     <DeepSeekMascot />
                     <Box flexDirection="column">
                       <Box gap={1} alignItems="center">
-                        <Text bold color="cyan">◆ DeepSeek Code</Text>
+                        <Text bold color="cyan">{figures.lozenge} DeepSeek Code</Text>
                         <Text dimColor>v{pkg.version}</Text>
                         <Text dimColor>·</Text>
                         <Text dimColor>{item.provider}</Text>
@@ -219,14 +264,14 @@ export function MessageList({ messages, streamText, streamRole = 'assistant', th
                 <Text color="magenta" dimColor>terminal</Text>
               </Box>
               <Box marginLeft={2}>
-                <Text wrap="wrap">{streamText}</Text>
+                {renderLines(streamText)}
               </Box>
             </>
           ) : (
             <Box gap={1} alignItems="flex-start">
-              <Text color="green" bold>●</Text>
+              <Text color="green" bold>{figures.circleFilled}</Text>
               <Box flexDirection="column" flexShrink={1}>
-                <Text wrap="wrap">{streamText}</Text>
+                <MarkdownRenderer content={sanitizeStreamMarkdown(streamText)} theme={theme} />
               </Box>
             </Box>
           )}

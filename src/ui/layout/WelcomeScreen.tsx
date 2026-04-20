@@ -1,5 +1,8 @@
 import React, { useEffect, useState } from 'react'
 import { Box, Text } from 'ink'
+import chalk from 'chalk'
+import figures from 'figures'
+import cliBoxes from 'cli-boxes'
 import pkg from '../../../package.json' with { type: 'json' }
 import { DeepSeekMascot } from './Mascot.js'
 
@@ -15,7 +18,7 @@ export function WelcomeArt() {
           <DeepSeekMascot />
           <Box flexDirection="column">
             <Box gap={1}>
-              <Text bold color="cyan">◆ DeepSeek Code</Text>
+              <Text bold color="cyan">{figures.lozenge} DeepSeek Code</Text>
               <Text dimColor>v{pkg.version}</Text>
             </Box>
             <Text color="blueBright" bold>Deep reasoning.</Text>
@@ -23,7 +26,7 @@ export function WelcomeArt() {
           </Box>
         </Box>
         <Box marginTop={1}>
-          <Text dimColor>{'─'.repeat(cols - 8)}</Text>
+          <Text dimColor>{cliBoxes.round.top.repeat(cols - 8)}</Text>
         </Box>
       </Box>
     )

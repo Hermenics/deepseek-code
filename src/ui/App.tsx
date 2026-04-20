@@ -1,6 +1,8 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react'
 import { Box, Text, useInput, useApp } from 'ink'
 import { execa } from 'execa'
+import stripAnsi from 'strip-ansi'
+import wrapAnsi from 'wrap-ansi'
 import { Agent, type ToolPermissionResult } from '../agent/agent.js'
 import { MessageList } from './messages/MessageList.js'
 import { TodoPanel } from './messages/TodoPanel.js'
@@ -200,8 +202,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         const pending = (streamTextAccum + tokenBuffer).trim()
         tokenBuffer = ''
         streamTextAccum = ''
-        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
+        // Clear stream BEFORE committing to Static — prevents 1-frame duplication
         setStreamText('')
+        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
         setToolCallCount((c) => c + 1)
         setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
       },
@@ -217,8 +220,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         tokenBuffer = ''
         streamTextAccum = ''
         setToolStatus(null)
-        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
+        // Clear stream BEFORE committing to Static — prevents 1-frame duplication
         setStreamText('')
+        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
         setIsLoading(false)
         setAgentPhase('idle')
         setTokenCount(agent.tokenCount)
@@ -476,8 +480,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         const pending = (streamTextAccum + tokenBuffer).trim()
         tokenBuffer = ''
         streamTextAccum = ''
-        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
+        // Clear stream BEFORE committing to Static — prevents 1-frame duplication
         setStreamText('')
+        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
         setToolCallCount((c) => c + 1)
         setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
       },
@@ -497,8 +502,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         tokenBuffer = ''
         streamTextAccum = ''
         setToolStatus(null)
-        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
+        // Clear stream BEFORE committing to Static — prevents 1-frame duplication
         setStreamText('')
+        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
         setIsLoading(false)
         setAgentPhase('idle')
         setTokenCount(agent.tokenCount)
@@ -638,7 +644,9 @@ function ToolPermissionPrompt({
   })
 
   const argsPreview = JSON.stringify(args, null, 0)
-  const preview = argsPreview.length > 120 ? argsPreview.slice(0, 120) + '…' : argsPreview
+  const cols = Math.max((process.stdout.columns ?? 80) - 10, 30)
+  const plainPreview = stripAnsi(argsPreview)
+  const preview = plainPreview.length > cols ? argsPreview.slice(0, cols) + '…' : argsPreview
 
   return (
     <Box flexDirection="column" marginY={1}>

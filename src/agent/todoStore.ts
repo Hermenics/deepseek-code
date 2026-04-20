@@ -19,7 +19,7 @@ export function subscribe(fn: () => void): () => void {
 function notify() { listeners.forEach((fn) => fn()) }
 
 export function addTodo(title: string): TodoItem {
-  const item: TodoItem = { id: String(Date.now()), title, status: 'pending' }
+  const item: TodoItem = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, title, status: 'pending' }
   todos = [...todos, item]
   notify()
   return item

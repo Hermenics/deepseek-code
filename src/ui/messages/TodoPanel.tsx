@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react'
 import { Box, Text } from 'ink'
+import figures from 'figures'
 import { getTodos, subscribe, type TodoItem, type TodoStatus } from '../../agent/todoStore.js'
 
 const STATUS_ICON: Record<TodoStatus, string> = {
-  pending: '○',
-  in_progress: '◐',
-  done: '●',
+  pending: figures.circle,
+  in_progress: figures.radioOn,
+  done: figures.circleFilled,
 }
 
 const STATUS_COLOR: Record<TodoStatus, string> = {

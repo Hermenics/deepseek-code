@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { Box, Text } from 'ink'
+import figures from 'figures'
 import type { ToolStatus } from '../App.js'
 
 const TOOL_DISPLAY: Record<string, string> = {
@@ -19,19 +20,19 @@ const TOOL_DISPLAY: Record<string, string> = {
 }
 
 const TOOL_ICONS: Record<string, string> = {
-  read_file:        '○',
-  write_file:       '●',
-  patch_file:       '◐',
-  read_folder:      '▤',
-  shell:            '▶',
-  grep:             '⊕',
-  glob:             '◇',
-  web_fetch:        '◉',
-  subagent:         '◈',
-  git:              '⎇',
-  introspect:       '◆',
-  update_knowledge: '◑',
-  todo:             '▣',
+  read_file:        figures.circle,
+  write_file:       figures.circleFilled,
+  patch_file:       figures.radioOn,
+  read_folder:      figures.squareSmallFilled,
+  shell:            figures.play,
+  grep:             figures.circleCross,
+  glob:             figures.lozengeOutline,
+  web_fetch:        figures.circleCircle,
+  subagent:         figures.lozenge,
+  git:              figures.circlePipe,
+  introspect:       figures.lozenge,
+  update_knowledge: figures.radioOn,
+  todo:             figures.checkboxOn,
 }
 
 const TOOL_COLORS: Record<string, string> = {
