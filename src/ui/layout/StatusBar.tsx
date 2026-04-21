@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react'
 import { Box, Text } from 'ink'
-import chalk from 'chalk'
 import figures from 'figures'
 import { execa } from 'execa'
 import type { Model } from '../../commands.js'
+import { MODE_COLORS, MODE_LABELS, type InteractionMode } from '../interactionMode.js'
 
 async function getGitBranch(): Promise<string> {
   try {
@@ -14,12 +14,13 @@ async function getGitBranch(): Promise<string> {
   }
 }
 
-export const StatusBar = React.memo(function StatusBar({ tokenCount, model, activeAgent, provider, contextPct = 0 }: {
+export const StatusBar = React.memo(function StatusBar({ tokenCount, model, activeAgent, provider, contextPct = 0, interactionMode = 'chat' }: {
   tokenCount: number
   model: Model
   activeAgent: string | null
   provider?: string
   contextPct?: number
+  interactionMode?: InteractionMode
 }) {
   const [branch, setBranch] = useState('')
 
@@ -50,6 +51,8 @@ export const StatusBar = React.memo(function StatusBar({ tokenCount, model, acti
             </Text>
           </>
         )}
+        <Text dimColor>  {figures.lineVertical} </Text>
+        <Text color={MODE_COLORS[interactionMode]}>{MODE_LABELS[interactionMode]}</Text>
       </Box>
     </Box>
   )

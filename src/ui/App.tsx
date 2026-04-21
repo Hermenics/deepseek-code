@@ -18,6 +18,7 @@ import { appendInputHistory } from '../agent/inputHistory.js'
 import type { ThemeName, ProviderConfig } from './setup/ApiKeySetup.js'
 import { saveConfig } from './setup/ApiKeySetup.js'
 import { saveSession, type SessionData } from '../agent/session.js'
+import { DEFAULT_MODE, nextMode, isAutoAccept, type InteractionMode } from './interactionMode.js'
 
 export type AgentPhase = 'idle' | 'refining' | 'executing'
 
@@ -67,6 +68,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [activeAgent, setActiveAgent] = useState<string | null>(null)
   const [toolCallCount, setToolCallCount] = useState(0)
   const [agentPhase, setAgentPhase] = useState<AgentPhase>('idle')
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>(DEFAULT_MODE)
   const [agent] = useState(() => new Agent(providerConfig ?? undefined))
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
   const [showThemeSelector, setShowThemeSelector] = useState(false)
@@ -75,15 +77,24 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   const [toolPermissionState, setToolPermissionState] = useState<ToolPermissionState | null>(null)
 
+  // Sync interaction mode to agent so the loop enforces tool restrictions
+  useEffect(() => {
+    agent.interactionMode = interactionMode
+  }, [agent, interactionMode])
+
   // Wire up the agent's confirm handler for destructive shell commands
   useEffect(() => {
     agent.setConfirmHandler((message) => {
+      // Auto-accept mode bypasses confirmation prompts
+      if (isAutoAccept(interactionMode)) {
+        return Promise.resolve(true)
+      }
       return new Promise<boolean>((resolve) => {
         setConfirmState({ message, resolve })
       })
     })
     return () => agent.setConfirmHandler(null)
-  }, [agent])
+  }, [agent, interactionMode])
 
   // Wire up the tool permission handler
   useEffect(() => {
@@ -162,6 +173,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       shellProcRef.current = null
     }
   }, [agent])
+
+  const handleModeChange = useCallback(() => {
+    setInteractionMode((current) => nextMode(current))
+  }, [])
 
   const handleConfirm = useCallback((yes: boolean) => {
     if (!confirmState) return
@@ -326,11 +341,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             return m.slice(0, m.length - 1 - idx)
           })
           await handleSubmit(last)
-          return
-        }
-        case 'refine': {
-          agent.refineEnabled = !agent.refineEnabled
-          setMessages((m) => [...m, { role: 'assistant', content: `Prompt refinement ${agent.refineEnabled ? 'enabled ✓' : 'disabled ✗'}` }])
           return
         }
         case 'cost': {
@@ -591,9 +601,11 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           phase={agentPhase}
           contextPct={contextPct}
           agentLabel={activeAgent ?? 'deepseek'}
+          interactionMode={interactionMode}
+          onModeChange={handleModeChange}
         />
       )}
-      <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} />
+      <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} />
     </Box>
   )
 }

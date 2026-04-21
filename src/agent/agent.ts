@@ -17,9 +17,9 @@ import { saveHistory } from './history.js'
 import { saveCheckpoint, listCheckpoints, loadCheckpoint } from './checkpoint.js'
 import { estimateCost, formatCost, getContextLimit, type TokenUsage } from './cost.js'
 import type { ProviderConfig } from '../ui/setup/ApiKeySetup.js'
-import { refinePrompt } from './promptRefiner.js'
 import { UNDO_STACK_MAX, CONTEXT_COMPACT_THRESHOLD } from '../constants.js'
 import { auditLog } from './auditLog.js'
+import { canUseTool, type InteractionMode } from '../ui/interactionMode.js'
 
 // Tools that are safe to run in parallel (read-only or isolated)
 const PARALLEL_SAFE = new Set(['subagent', 'shell', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect'])
@@ -69,13 +69,13 @@ export class Agent {
   public model: Model = 'deepseek-chat'
   public activeAgent: string | null = null
   public provider: ProviderConfig['provider'] = 'deepseek'
-  public refineEnabled = true
   public contextUsage = 0      // last known prompt token count
   public contextLimit = 128_000
   private confirmHandler: ((message: string) => Promise<boolean>) | null = null
   private toolPermissionHandler: ToolPermissionHandler | null = null
   private sessionApprovedTools: Set<string> = new Set()
   private allowedTools: string[] | '*' | null = null
+  public interactionMode: InteractionMode = 'chat'
 
   setConfirmHandler(handler: ((message: string) => Promise<boolean>) | null) {
     this.confirmHandler = handler
@@ -286,16 +286,8 @@ export class Agent {
     const now = new Date().toLocaleString()
     this.lastUserMessage = userMessage
 
-    // Phase 1: optionally refine the prompt
-    cb.onPhaseChange?.('refining')
-    const refineModel = this.provider === 'deepseek' ? 'deepseek-chat' : this.model
-    const refined = this.refineEnabled
-      ? await refinePrompt(this.client, refineModel, userMessage).catch(() => userMessage)
-      : userMessage
-
-    // Phase 2: execute with the (possibly refined) prompt
     cb.onPhaseChange?.('executing')
-    this.messages.push({ role: 'user', content: `[${now}]\n${refined}` })
+    this.messages.push({ role: 'user', content: `[${now}]\n${userMessage}` })
     await this.loop(cb)
   }
 
@@ -436,6 +428,15 @@ export class Agent {
         // Run all tool calls concurrently
         const results = await Promise.all(
           parsedList.map(async ({ tc, parsedArgs }) => {
+            // ── Interaction mode restriction ──────────────────────────────
+            if (!canUseTool(this.interactionMode, tc.function.name)) {
+              const blockMsg = `Ferramenta '${tc.function.name}' não está disponível no modo ${this.interactionMode}. Troque para o modo Agent para usar esta ferramenta.`
+              auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __blocked_by_mode: this.interactionMode } })
+              cb.onToolCall(tc.function.name, parsedArgs)
+              cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
+              return { tc, result: blockMsg }
+            }
+
             cb.onToolCall(tc.function.name, parsedArgs)
             auditLog({ type: 'tool_call', tool: tc.function.name, args: parsedArgs })
             const t0 = Date.now()
@@ -452,6 +453,15 @@ export class Agent {
         // Sequential execution (file writes, or mixed batch)
         for (const { tc, parsedArgs } of parsedList) {
           cb.onToolCall(tc.function.name, parsedArgs)
+
+          // ── Interaction mode restriction ──────────────────────────────
+          if (!canUseTool(this.interactionMode, tc.function.name)) {
+            const blockMsg = `Ferramenta '${tc.function.name}' não está disponível no modo ${this.interactionMode}. Troque para o modo Agent para usar esta ferramenta.`
+            auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __blocked_by_mode: this.interactionMode } })
+            cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
+            this.messages.push({ role: 'tool', tool_call_id: tc.id, content: blockMsg })
+            continue
+          }
 
           // ── Tool permission check ────────────────────────────────────────
           const needsPermission = this.allowedTools !== null && (

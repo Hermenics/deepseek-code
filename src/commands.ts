@@ -15,7 +15,6 @@ export type CommandResult =
   | { type: 'retry' }
   | { type: 'cost' }
   | { type: 'files' }
-  | { type: 'refine' }
   | { type: 'tools' }
   | { type: 'system' }
   | { type: 'checkpoint'; action: 'save'; label?: string }
@@ -48,7 +47,6 @@ export function parseCommand(input: string): CommandResult | null {
     case 'retry': return { type: 'retry' }
     case 'cost': return { type: 'cost' }
     case 'files': return { type: 'files' }
-    case 'refine': return { type: 'refine' }
     case 'tools': return { type: 'tools' }
     case 'system': return { type: 'system' }
     case 'agent': {
@@ -101,7 +99,6 @@ export const COMMAND_SUGGESTIONS = [
   '/retry',
   '/cost',
   '/files',
-  '/refine',
   '/tools',
   '/system',
   '/checkpoint',
@@ -121,7 +118,6 @@ export const HELP_TEXT = `Commands:
   /compact               summarize history to save context
   /undo                  restore last file modified by agent
   /retry                 re-run last message
-  /refine                toggle prompt refinement on/off
   /tools                 list all available tools
   /system                show active system prompt
   /cost                  show estimated session cost

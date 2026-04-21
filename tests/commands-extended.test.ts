@@ -23,10 +23,6 @@ describe('parseCommand — extended coverage', () => {
       expect(parseCommand('/files')).toEqual({ type: 'files' })
     })
 
-    it('should parse /refine', () => {
-      expect(parseCommand('/refine')).toEqual({ type: 'refine' })
-    })
-
     it('should parse /tools', () => {
       expect(parseCommand('/tools')).toEqual({ type: 'tools' })
     })

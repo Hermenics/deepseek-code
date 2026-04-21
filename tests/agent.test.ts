@@ -26,7 +26,6 @@ describe('Agent class', () => {
       expect(agent.model).toBe('deepseek-chat')
       expect(agent.activeAgent).toBeNull()
       expect(agent.provider).toBe('deepseek')
-      expect(agent.refineEnabled).toBe(true)
     })
 
     it('should accept provider config', () => {
