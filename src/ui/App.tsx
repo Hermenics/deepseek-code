@@ -18,6 +18,7 @@ import { appendInputHistory } from '../agent/inputHistory.js'
 import type { ThemeName, ProviderConfig } from './setup/ApiKeySetup.js'
 import { saveConfig } from './setup/ApiKeySetup.js'
 import { saveSession, type SessionData } from '../agent/session.js'
+import { DEFAULT_MODE, nextMode, isAutoAccept, type InteractionMode } from './interactionMode.js'
 
 export type AgentPhase = 'idle' | 'refining' | 'executing'
 
@@ -67,6 +68,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [activeAgent, setActiveAgent] = useState<string | null>(null)
   const [toolCallCount, setToolCallCount] = useState(0)
   const [agentPhase, setAgentPhase] = useState<AgentPhase>('idle')
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>(DEFAULT_MODE)
   const [agent] = useState(() => new Agent(providerConfig ?? undefined))
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
   const [showThemeSelector, setShowThemeSelector] = useState(false)
@@ -75,15 +77,24 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   const [toolPermissionState, setToolPermissionState] = useState<ToolPermissionState | null>(null)
 
+  // Sync interaction mode to agent so the loop enforces tool restrictions
+  useEffect(() => {
+    agent.interactionMode = interactionMode
+  }, [agent, interactionMode])
+
   // Wire up the agent's confirm handler for destructive shell commands
   useEffect(() => {
     agent.setConfirmHandler((message) => {
+      // Auto-accept mode bypasses confirmation prompts
+      if (isAutoAccept(interactionMode)) {
+        return Promise.resolve(true)
+      }
       return new Promise<boolean>((resolve) => {
         setConfirmState({ message, resolve })
       })
     })
     return () => agent.setConfirmHandler(null)
-  }, [agent])
+  }, [agent, interactionMode])
 
   // Wire up the tool permission handler
   useEffect(() => {
@@ -163,6 +174,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     }
   }, [agent])
 
+  const handleModeChange = useCallback(() => {
+    setInteractionMode((current) => nextMode(current))
+  }, [])
+
   const handleConfirm = useCallback((yes: boolean) => {
     if (!confirmState) return
     confirmState.resolve(yes)
@@ -199,20 +214,23 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       onToken(token) { tokenBuffer += token },
       onToolCall(name, args) {
         clearInterval(flushInterval)
-        const pending = (streamTextAccum + tokenBuffer).trim()
         tokenBuffer = ''
         streamTextAccum = ''
-        // Clear stream BEFORE committing to Static — prevents 1-frame duplication
         setStreamText('')
-        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
         setToolCallCount((c) => c + 1)
         setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
       },
       onToolResult(name, result, args) {
         setToolStatus(null)
-        const argLabel = args?.path ?? args?.pattern ?? args?.command ?? ''
-        const display = name === 'write_file' ? result : name === 'subagent' ? result : argLabel ? String(argLabel) : ''
-        setMessages((m) => [...m, { role: 'tool', content: `✓ ${name}${display ? ` → ${display}` : ''}` }])
+        if (name === 'write_file') {
+          setMessages((m) => [...m, { role: 'tool', content: `✓ write_file → ${result}` }])
+        } else if (name === 'subagent') {
+          setMessages((m) => [...m, { role: 'tool', content: `✓ subagent → ${result}` }])
+        } else {
+          const argLabel = args?.path ?? args?.pattern ?? args?.command ?? ''
+          const payload = JSON.stringify({ arg: argLabel ? String(argLabel) : '', output: result ?? '' })
+          setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${payload}` }])
+        }
       },
       onDone() {
         clearInterval(flushInterval)
@@ -240,7 +258,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
                 provider: agent.provider,
                 language: language ?? null,
                 activeAgent: agent.activeAgent,
-                agentMessages: agent.getMessages(),
+                agentMessages: agent.getRawMessages(),
                 uiMessages: current,
                 filesModified: agent.getFilesModified(),
               })
@@ -250,7 +268,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         }
       },
       onAutoCompact(summary) {
-        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Context auto-compacted (>85%).\n\n${summary}` }])
+        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Contexto compactado automaticamente.\n\n${summary}` }])
       },
     })
   }, [agent, isLoading, sessionId, language, initialSession])
@@ -326,11 +344,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             return m.slice(0, m.length - 1 - idx)
           })
           await handleSubmit(last)
-          return
-        }
-        case 'refine': {
-          agent.refineEnabled = !agent.refineEnabled
-          setMessages((m) => [...m, { role: 'assistant', content: `Prompt refinement ${agent.refineEnabled ? 'enabled ✓' : 'disabled ✗'}` }])
           return
         }
         case 'cost': {
@@ -477,24 +490,23 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       },
       onToolCall(name, args) {
         clearInterval(flushInterval)
-        const pending = (streamTextAccum + tokenBuffer).trim()
         tokenBuffer = ''
         streamTextAccum = ''
-        // Clear stream BEFORE committing to Static — prevents 1-frame duplication
         setStreamText('')
-        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
         setToolCallCount((c) => c + 1)
         setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
       },
       onToolResult(name, result, args) {
         setToolStatus(null)
-        const label = args?.path ?? args?.pattern ?? args?.command ?? ''
-        const display = name === 'write_file'
-          ? result
-          : name === 'subagent'
-          ? result
-          : label ? String(label) : ''
-        setMessages((m) => [...m, { role: 'tool', content: `✓ ${name}${display ? ` → ${display}` : ''}` }])
+        if (name === 'write_file') {
+          setMessages((m) => [...m, { role: 'tool', content: `✓ write_file → ${result}` }])
+        } else if (name === 'subagent') {
+          setMessages((m) => [...m, { role: 'tool', content: `✓ subagent → ${result}` }])
+        } else {
+          const argLabel = args?.path ?? args?.pattern ?? args?.command ?? ''
+          const payload = JSON.stringify({ arg: argLabel ? String(argLabel) : '', output: result ?? '' })
+          setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${payload}` }])
+        }
       },
       onDone() {
         clearInterval(flushInterval)
@@ -524,7 +536,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
                 provider: agent.provider,
                 language: language ?? null,
                 activeAgent: agent.activeAgent,
-                agentMessages: agent.getMessages(),
+                agentMessages: agent.getRawMessages(),
                 uiMessages: current,
                 filesModified: agent.getFilesModified(),
               })
@@ -534,7 +546,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         }
       },
       onAutoCompact(summary) {
-        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Context auto-compacted (>85%).\n\n${summary}` }])
+        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Contexto compactado automaticamente.\n\n${summary}` }])
       },
     })
   }, [agent, isLoading, exit, runWithPrompt])
@@ -591,9 +603,11 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           phase={agentPhase}
           contextPct={contextPct}
           agentLabel={activeAgent ?? 'deepseek'}
+          interactionMode={interactionMode}
+          onModeChange={handleModeChange}
         />
       )}
-      <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} />
+      <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} />
     </Box>
   )
 }

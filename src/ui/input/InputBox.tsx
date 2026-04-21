@@ -4,6 +4,7 @@ import { COMMAND_SUGGESTIONS } from '../../commands.js'
 import { useClock } from '../clock.js'
 import { loadInputHistory } from '../../agent/inputHistory.js'
 import type { AgentPhase } from '../App.js'
+import { MODE_LABELS, MODE_COLORS, type InteractionMode } from '../interactionMode.js'
 
 const DESCRIPTIONS: Record<string, string> = {
   '/quit': 'Exit DeepSeek Code',
@@ -20,7 +21,6 @@ const DESCRIPTIONS: Record<string, string> = {
   '/theme': 'Change color theme',
   '/undo': 'Restore last file modified by agent',
   '/retry': 'Re-run last message',
-  '/refine': 'Toggle prompt refinement on/off',
   '/cost': 'Show estimated session cost',
   '/files': 'List files modified this session',
   '/tools': 'List all available tools (built-in + MCP)',
@@ -260,7 +260,7 @@ function LoadingSpinner({ toolCallCount, phase }: { toolCallCount: number; phase
   )
 }
 
-function getMatches(value: string): string[] {
+export function getMatches(value: string): string[] {
   if (!value.startsWith('/')) return []
   return COMMAND_SUGGESTIONS.filter((s) => s.startsWith(value) && s !== value)
 }
@@ -273,7 +273,7 @@ interface KeyInfo {
   shift: boolean
 }
 
-function parseKey(sequence: string): KeyInfo {
+export function parseKey(sequence: string): KeyInfo {
   const ctrl = sequence.charCodeAt(0) === 0x1b
   const meta = sequence.includes('\x1b')
   const shift = false
@@ -301,6 +301,8 @@ export function InputBox({
   phase = 'idle',
   contextPct = 0,
   agentLabel = 'deepseek',
+  interactionMode = 'chat',
+  onModeChange,
 }: {
   onSubmit: (text: string) => void
   isLoading: boolean
@@ -309,6 +311,8 @@ export function InputBox({
   phase?: AgentPhase
   contextPct?: number  // 0–100
   agentLabel?: string
+  interactionMode?: InteractionMode
+  onModeChange?: () => void
 }) {
   const [value, setValue] = useState('')
   const [cursorPos, setCursorPos] = useState(0)
@@ -339,14 +343,14 @@ export function InputBox({
   // Keep a ref that always reflects the latest state/props so the stdin
   // listener (registered once) never closes over stale values.
   const stateRef = useRef({
-    isLoading, onAbort, onSubmit,
+    isLoading, onAbort, onSubmit, onModeChange,
     value, cursorPos, pastedBlock,
     showDropdown, matches, selectedIdx,
     inputHistory, historyIdx, savedDraft, ctrlCAt,
   })
   useEffect(() => {
     stateRef.current = {
-      isLoading, onAbort, onSubmit,
+      isLoading, onAbort, onSubmit, onModeChange,
       value, cursorPos, pastedBlock,
       showDropdown, matches, selectedIdx,
       inputHistory, historyIdx, savedDraft, ctrlCAt,
@@ -383,6 +387,12 @@ export function InputBox({
       // Any other key clears the "press again" hint
       if (s.ctrlCAt !== null && sequence !== '\x03') {
         setCtrlCAt(null)
+      }
+
+      // Shift+Tab: alterna o modo de interação
+      if (sequence === '\x1b[Z') {
+        s.onModeChange?.()
+        return
       }
 
       if (s.isLoading) return
@@ -573,13 +583,21 @@ export function InputBox({
 
   return (
     <Box flexDirection="column">
-      {/* Top separator with agent name aligned right */}
+      {/* Top separator with agent name and mode aligned right */}
       {(() => {
         const cols = process.stdout.columns ?? 80
+        const modeLabel = `[${MODE_LABELS[interactionMode]}]`
         const label = ` ${agentLabel} `
-        const leftDashes = Math.max(0, cols - 8 - label.length - 4)
-        const full = '─'.repeat(leftDashes) + label + '────'
-        return <Text dimColor>{full}</Text>
+        const suffix = modeLabel + label + '────'
+        const leftDashes = Math.max(0, cols - 8 - suffix.length)
+        const dashes = '─'.repeat(leftDashes)
+        return (
+          <Box>
+            <Text dimColor>{dashes}</Text>
+            <Text color={MODE_COLORS[interactionMode]}>{modeLabel}</Text>
+            <Text dimColor>{label}{'────'}</Text>
+          </Box>
+        )
       })()}
 
       {/* Input area or loading */}

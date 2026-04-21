@@ -45,8 +45,6 @@ export default async function runPipe() {
   }
 
   const agent = new Agent(providerConfig ?? { provider: 'deepseek' })
-  // Disable prompt refinement in pipe mode — be direct and fast
-  agent.refineEnabled = false
 
   let output = ''
 

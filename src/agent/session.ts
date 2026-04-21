@@ -2,7 +2,7 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { mkdir, readdir, unlink } from 'fs/promises'
 import { readJson, writeRaw } from '../utils/fs.js'
-import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import type { MessageOrBoundary } from './compactBoundary.js'
 import type { Message } from '../ui/App.js'
 
 const SESSIONS_DIR = join(homedir(), '.deepseek', 'sessions')
@@ -17,7 +17,7 @@ export interface SessionData {
   provider: string
   language: string | null
   activeAgent: string | null
-  agentMessages: ChatCompletionMessageParam[]
+  agentMessages: MessageOrBoundary[]
   uiMessages: Message[]
   filesModified: string[]
 }

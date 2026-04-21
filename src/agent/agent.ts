@@ -15,11 +15,12 @@ import { loadSteering } from './steering.js'
 import { createLLMClient, defaultModel } from './llmClient.js'
 import { saveHistory } from './history.js'
 import { saveCheckpoint, listCheckpoints, loadCheckpoint } from './checkpoint.js'
+import { createBoundaryMarker, getMessagesAfterBoundary, isBoundaryMarker, type MessageOrBoundary } from './compactBoundary.js'
 import { estimateCost, formatCost, getContextLimit, type TokenUsage } from './cost.js'
 import type { ProviderConfig } from '../ui/setup/ApiKeySetup.js'
-import { refinePrompt } from './promptRefiner.js'
 import { UNDO_STACK_MAX, CONTEXT_COMPACT_THRESHOLD } from '../constants.js'
 import { auditLog } from './auditLog.js'
+import { canUseTool, type InteractionMode } from '../ui/interactionMode.js'
 
 // Tools that are safe to run in parallel (read-only or isolated)
 const PARALLEL_SAFE = new Set(['subagent', 'shell', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect'])
@@ -52,7 +53,7 @@ interface UndoEntry {
 
 export class Agent {
   private client: OpenAI
-  private messages: ChatCompletionMessageParam[] = [{ role: 'system', content: DEFAULT_SYSTEM_PROMPT }]
+  private messages: MessageOrBoundary[] = [{ role: 'system', content: DEFAULT_SYSTEM_PROMPT }]
   private systemPrompt = DEFAULT_SYSTEM_PROMPT
   private tools: Tool[] = allTools
   private toolMap: Map<string, Tool> = new Map(allTools.map((t) => [t.name, t]))
@@ -69,13 +70,13 @@ export class Agent {
   public model: Model = 'deepseek-chat'
   public activeAgent: string | null = null
   public provider: ProviderConfig['provider'] = 'deepseek'
-  public refineEnabled = true
   public contextUsage = 0      // last known prompt token count
   public contextLimit = 128_000
   private confirmHandler: ((message: string) => Promise<boolean>) | null = null
   private toolPermissionHandler: ToolPermissionHandler | null = null
   private sessionApprovedTools: Set<string> = new Set()
   private allowedTools: string[] | '*' | null = null
+  public interactionMode: InteractionMode = 'chat'
 
   setConfirmHandler(handler: ((message: string) => Promise<boolean>) | null) {
     this.confirmHandler = handler
@@ -202,7 +203,8 @@ export class Agent {
   // ── Compact ────────────────────────────────────────────────────────────────
 
   async compact(): Promise<string> {
-    const nonSystem = this.messages.filter((m) => m.role !== 'system')
+    const activeMessages = getMessagesAfterBoundary(this.messages)
+    const nonSystem = activeMessages.filter((m) => m.role !== 'system')
     if (nonSystem.length === 0) return 'Nothing to compact.'
     const response = await this.client.chat.completions.create({
       model: this.model,
@@ -212,10 +214,13 @@ export class Agent {
       ],
     })
     const summary = response.choices[0]?.message.content ?? '(no summary)'
-    this.messages = [
-      { role: 'system', content: this.systemPrompt },
+
+    // Append boundary + summary — histórico completo preservado
+    this.messages.push(
+      createBoundaryMarker(),
       { role: 'assistant', content: `[Compacted context]\n${summary}` },
-    ]
+    )
+
     await saveHistory(this.messages)
     return summary
   }
@@ -242,10 +247,18 @@ export class Agent {
   }
 
   getMessages(): ChatCompletionMessageParam[] {
+    // Backward compatible — external consumers get clean messages without boundary markers
+    return this.messages.filter(
+      (m): m is ChatCompletionMessageParam => !isBoundaryMarker(m)
+    )
+  }
+
+  /** Full history including compact boundary markers — used by session persistence */
+  getRawMessages(): MessageOrBoundary[] {
     return this.messages
   }
 
-  loadSessionMessages(messages: ChatCompletionMessageParam[]): void {
+  loadSessionMessages(messages: MessageOrBoundary[]): void {
     this.messages = messages
   }
 
@@ -278,24 +291,21 @@ export class Agent {
 
     // Auto-compact when context is above threshold
     if (this.contextUsage > 0 && this.contextUsage / this.contextLimit > CONTEXT_COMPACT_THRESHOLD) {
-      const summary = await this.compact()
-      auditLog({ type: 'compact', reason: 'context_threshold' })
-      cb.onAutoCompact?.(summary)
+      try {
+        const summary = await this.compact()
+        auditLog({ type: 'compact', reason: 'context_threshold' })
+        cb.onAutoCompact?.(summary)
+      } catch (e) {
+        auditLog({ type: 'compact_error', reason: String(e) })
+        // Segue sem compactar — melhor que travar a sessão
+      }
     }
 
     const now = new Date().toLocaleString()
     this.lastUserMessage = userMessage
 
-    // Phase 1: optionally refine the prompt
-    cb.onPhaseChange?.('refining')
-    const refineModel = this.provider === 'deepseek' ? 'deepseek-chat' : this.model
-    const refined = this.refineEnabled
-      ? await refinePrompt(this.client, refineModel, userMessage).catch(() => userMessage)
-      : userMessage
-
-    // Phase 2: execute with the (possibly refined) prompt
     cb.onPhaseChange?.('executing')
-    this.messages.push({ role: 'user', content: `[${now}]\n${refined}` })
+    this.messages.push({ role: 'user', content: `[${now}]\n${userMessage}` })
     await this.loop(cb)
   }
 
@@ -331,7 +341,7 @@ export class Agent {
           this.client.chat.completions.create(
             {
               model: this.model,
-              messages: this.messages,
+              messages: getMessagesAfterBoundary(this.messages),
               tools: this.openaiTools,
               stream: true,
               stream_options: { include_usage: true },
@@ -436,6 +446,34 @@ export class Agent {
         // Run all tool calls concurrently
         const results = await Promise.all(
           parsedList.map(async ({ tc, parsedArgs }) => {
+            // ── Interaction mode restriction ──────────────────────────────
+            if (!canUseTool(this.interactionMode, tc.function.name)) {
+              const blockMsg = `Ferramenta '${tc.function.name}' não está disponível no modo ${this.interactionMode}. Troque para o modo Agent para usar esta ferramenta.`
+              auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __blocked_by_mode: this.interactionMode } })
+              cb.onToolCall(tc.function.name, parsedArgs)
+              cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
+              return { tc, result: blockMsg }
+            }
+
+            // ── Tool permission check ────────────────────────────────────────
+            const needsPermission = this.allowedTools !== null && (
+              this.allowedTools === '*' ||
+              this.allowedTools.includes(tc.function.name)
+            )
+            if (needsPermission && !this.sessionApprovedTools.has(tc.function.name) && this.toolPermissionHandler) {
+              const decision = await this.toolPermissionHandler(tc.function.name, parsedArgs)
+              if (decision === 'deny') {
+                const denyMsg = `Tool '${tc.function.name}' was denied by the user. Suggest an alternative approach that does not require this tool, or ask the user what they would like to do instead.`
+                auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied: true } })
+                cb.onToolCall(tc.function.name, parsedArgs)
+                cb.onToolResult(tc.function.name, denyMsg, parsedArgs)
+                return { tc, result: denyMsg }
+              }
+              if (decision === 'session') {
+                this.sessionApprovedTools.add(tc.function.name)
+              }
+            }
+
             cb.onToolCall(tc.function.name, parsedArgs)
             auditLog({ type: 'tool_call', tool: tc.function.name, args: parsedArgs })
             const t0 = Date.now()
@@ -451,7 +489,15 @@ export class Agent {
       } else {
         // Sequential execution (file writes, or mixed batch)
         for (const { tc, parsedArgs } of parsedList) {
-          cb.onToolCall(tc.function.name, parsedArgs)
+          // ── Interaction mode restriction ──────────────────────────────
+          if (!canUseTool(this.interactionMode, tc.function.name)) {
+            const blockMsg = `Ferramenta '${tc.function.name}' não está disponível no modo ${this.interactionMode}. Troque para o modo Agent para usar esta ferramenta.`
+            auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __blocked_by_mode: this.interactionMode } })
+            cb.onToolCall(tc.function.name, parsedArgs)
+            cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
+            this.messages.push({ role: 'tool', tool_call_id: tc.id, content: blockMsg })
+            continue
+          }
 
           // ── Tool permission check ────────────────────────────────────────
           const needsPermission = this.allowedTools !== null && (
@@ -463,6 +509,7 @@ export class Agent {
             if (decision === 'deny') {
               const denyMsg = `Tool '${tc.function.name}' was denied by the user. Suggest an alternative approach that does not require this tool, or ask the user what they would like to do instead.`
               auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied: true } })
+              cb.onToolCall(tc.function.name, parsedArgs)
               cb.onToolResult(tc.function.name, denyMsg, parsedArgs)
               this.messages.push({ role: 'tool', tool_call_id: tc.id, content: denyMsg })
               continue
@@ -472,6 +519,7 @@ export class Agent {
             }
           }
 
+          cb.onToolCall(tc.function.name, parsedArgs)
           auditLog({ type: 'tool_call', tool: tc.function.name, args: parsedArgs })
           const t0 = Date.now()
           const result = await this.executeTool(tc.function.name, parsedArgs)

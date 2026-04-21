@@ -10,6 +10,7 @@ export type AuditEvent =
   | { type: 'tool_call'; tool: string; args: Record<string, unknown> }
   | { type: 'tool_result'; tool: string; result: string; durationMs: number }
   | { type: 'compact'; reason: string }
+  | { type: 'compact_error'; reason: string }
   | { type: 'checkpoint'; id: string; label?: string }
   | { type: 'session_end'; totalTokens: number }
 
