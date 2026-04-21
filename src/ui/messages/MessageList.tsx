@@ -44,37 +44,6 @@ const TOOL_DISPLAY: Record<string, string> = {
   todo:             'TodoWrite',
 }
 
-const TOOL_ICONS: Record<string, string> = {
-  read_file:        figures.circle,
-  write_file:       figures.circleFilled,
-  patch_file:       figures.radioOn,
-  read_folder:      figures.squareSmallFilled,
-  shell:            figures.play,
-  grep:             figures.circleCross,
-  glob:             figures.lozengeOutline,
-  web_fetch:        figures.circleCircle,
-  subagent:         figures.lozenge,
-  git:              figures.circlePipe,
-  introspect:       figures.lozenge,
-  update_knowledge: figures.radioOn,
-  todo:             figures.checkboxOn,
-}
-
-const TOOL_COLORS: Record<string, string> = {
-  read_file:        'blue',
-  write_file:       'green',
-  patch_file:       'yellow',
-  read_folder:      'cyan',
-  shell:            'magenta',
-  grep:             'cyan',
-  glob:             'blue',
-  web_fetch:        'green',
-  subagent:         'yellow',
-  git:              'magenta',
-  introspect:       'cyan',
-  update_knowledge: 'green',
-  todo:             'yellow',
-}
 
 // Splits text by \n into individual <Text> elements inside a column <Box>,
 // preventing Ink from rendering newlines outside the parent component bounds.
@@ -100,14 +69,25 @@ export function renderLines(text: string): React.ReactNode {
   )
 }
 
-function formatToolLine(rawName: string, detail: string): { display: string; arg: string; icon: string; iconColor: string } {
+function formatToolLine(rawName: string, detail: string): { display: string; arg: string; output: string } {
   const display = TOOL_DISPLAY[rawName] ?? rawName
-  // Use strip-ansi for accurate visible length when truncating
-  const plainDetail = stripAnsi(detail)
-  const arg = plainDetail.length > 60 ? detail.slice(0, 60) + '…' : detail
-  const icon = TOOL_ICONS[rawName] ?? '◦'
-  const iconColor = TOOL_COLORS[rawName] ?? 'yellow'
-  return { display, arg, icon, iconColor }
+  let arg = ''
+  let output = ''
+  try {
+    const parsed = JSON.parse(detail)
+    if (parsed && typeof parsed === 'object' && 'arg' in parsed) {
+      const plainArg = stripAnsi(String(parsed.arg ?? ''))
+      arg = plainArg.length > 60 ? parsed.arg.slice(0, 60) + '…' : String(parsed.arg ?? '')
+      output = String(parsed.output ?? '')
+    } else {
+      const plain = stripAnsi(detail)
+      arg = plain.length > 60 ? detail.slice(0, 60) + '…' : detail
+    }
+  } catch {
+    const plain = stripAnsi(detail)
+    arg = plain.length > 60 ? detail.slice(0, 60) + '…' : detail
+  }
+  return { display, arg, output }
 }
 
 function MessageItem({ message: m, theme, agentLabel }: { message: Message; theme: ThemeName; agentLabel: string }) {
@@ -143,18 +123,33 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
         </Box>
       )
     }
-    const isDone = m.content.startsWith('✓')
     const raw = m.content.slice(2) // strip "✓ " or "⚙ "
     const sep = raw.indexOf(' → ')
     const toolName = sep >= 0 ? raw.slice(0, sep) : raw
     const detail = sep >= 0 ? raw.slice(sep + 3) : ''
-    const { display, arg, icon, iconColor } = formatToolLine(toolName, detail)
+    const { display, arg, output } = formatToolLine(toolName, detail)
+    const outputLines = output ? output.split(/\r?\n/).filter(Boolean) : []
+    const MAX_OUTPUT_LINES = 5
+    const trimmed = outputLines.slice(0, MAX_OUTPUT_LINES)
+    const hasMore = outputLines.length > MAX_OUTPUT_LINES
     return (
-      <Box paddingLeft={2} gap={1}>
-        <Text color={isDone ? 'green' : 'yellow'}>⎿ </Text>
-        <Text color={isDone ? 'green' : iconColor}>{icon}</Text>
-        <Text color={isDone ? 'white' : 'yellow'} dimColor={isDone}>{display}</Text>
-        {arg ? <Text dimColor>{arg}</Text> : null}
+      <Box flexDirection="column" paddingLeft={2}>
+        <Box gap={1}>
+          <Text color="green" bold>{figures.circleFilled}</Text>
+          <Text bold>{display}</Text>
+          {arg ? <Text dimColor>({arg})</Text> : null}
+        </Box>
+        {trimmed.map((line, i) => (
+          <Box key={i} paddingLeft={2}>
+            <Text color="cyan" dimColor>⎿ </Text>
+            <Text dimColor>{line}</Text>
+          </Box>
+        ))}
+        {hasMore && (
+          <Box paddingLeft={2}>
+            <Text dimColor>⎿ … {outputLines.length - MAX_OUTPUT_LINES} more lines</Text>
+          </Box>
+        )}
       </Box>
     )
   }

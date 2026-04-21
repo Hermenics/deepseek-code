@@ -455,6 +455,25 @@ export class Agent {
               return { tc, result: blockMsg }
             }
 
+            // ── Tool permission check ────────────────────────────────────────
+            const needsPermission = this.allowedTools !== null && (
+              this.allowedTools === '*' ||
+              this.allowedTools.includes(tc.function.name)
+            )
+            if (needsPermission && !this.sessionApprovedTools.has(tc.function.name) && this.toolPermissionHandler) {
+              const decision = await this.toolPermissionHandler(tc.function.name, parsedArgs)
+              if (decision === 'deny') {
+                const denyMsg = `Tool '${tc.function.name}' was denied by the user. Suggest an alternative approach that does not require this tool, or ask the user what they would like to do instead.`
+                auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied: true } })
+                cb.onToolCall(tc.function.name, parsedArgs)
+                cb.onToolResult(tc.function.name, denyMsg, parsedArgs)
+                return { tc, result: denyMsg }
+              }
+              if (decision === 'session') {
+                this.sessionApprovedTools.add(tc.function.name)
+              }
+            }
+
             cb.onToolCall(tc.function.name, parsedArgs)
             auditLog({ type: 'tool_call', tool: tc.function.name, args: parsedArgs })
             const t0 = Date.now()
@@ -470,12 +489,11 @@ export class Agent {
       } else {
         // Sequential execution (file writes, or mixed batch)
         for (const { tc, parsedArgs } of parsedList) {
-          cb.onToolCall(tc.function.name, parsedArgs)
-
           // ── Interaction mode restriction ──────────────────────────────
           if (!canUseTool(this.interactionMode, tc.function.name)) {
             const blockMsg = `Ferramenta '${tc.function.name}' não está disponível no modo ${this.interactionMode}. Troque para o modo Agent para usar esta ferramenta.`
             auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __blocked_by_mode: this.interactionMode } })
+            cb.onToolCall(tc.function.name, parsedArgs)
             cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
             this.messages.push({ role: 'tool', tool_call_id: tc.id, content: blockMsg })
             continue
@@ -491,6 +509,7 @@ export class Agent {
             if (decision === 'deny') {
               const denyMsg = `Tool '${tc.function.name}' was denied by the user. Suggest an alternative approach that does not require this tool, or ask the user what they would like to do instead.`
               auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied: true } })
+              cb.onToolCall(tc.function.name, parsedArgs)
               cb.onToolResult(tc.function.name, denyMsg, parsedArgs)
               this.messages.push({ role: 'tool', tool_call_id: tc.id, content: denyMsg })
               continue
@@ -500,6 +519,7 @@ export class Agent {
             }
           }
 
+          cb.onToolCall(tc.function.name, parsedArgs)
           auditLog({ type: 'tool_call', tool: tc.function.name, args: parsedArgs })
           const t0 = Date.now()
           const result = await this.executeTool(tc.function.name, parsedArgs)

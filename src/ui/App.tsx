@@ -214,20 +214,23 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       onToken(token) { tokenBuffer += token },
       onToolCall(name, args) {
         clearInterval(flushInterval)
-        const pending = (streamTextAccum + tokenBuffer).trim()
         tokenBuffer = ''
         streamTextAccum = ''
-        // Clear stream BEFORE committing to Static — prevents 1-frame duplication
         setStreamText('')
-        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
         setToolCallCount((c) => c + 1)
         setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
       },
       onToolResult(name, result, args) {
         setToolStatus(null)
-        const argLabel = args?.path ?? args?.pattern ?? args?.command ?? ''
-        const display = name === 'write_file' ? result : name === 'subagent' ? result : argLabel ? String(argLabel) : ''
-        setMessages((m) => [...m, { role: 'tool', content: `✓ ${name}${display ? ` → ${display}` : ''}` }])
+        if (name === 'write_file') {
+          setMessages((m) => [...m, { role: 'tool', content: `✓ write_file → ${result}` }])
+        } else if (name === 'subagent') {
+          setMessages((m) => [...m, { role: 'tool', content: `✓ subagent → ${result}` }])
+        } else {
+          const argLabel = args?.path ?? args?.pattern ?? args?.command ?? ''
+          const payload = JSON.stringify({ arg: argLabel ? String(argLabel) : '', output: result ?? '' })
+          setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${payload}` }])
+        }
       },
       onDone() {
         clearInterval(flushInterval)
@@ -487,24 +490,23 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       },
       onToolCall(name, args) {
         clearInterval(flushInterval)
-        const pending = (streamTextAccum + tokenBuffer).trim()
         tokenBuffer = ''
         streamTextAccum = ''
-        // Clear stream BEFORE committing to Static — prevents 1-frame duplication
         setStreamText('')
-        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
         setToolCallCount((c) => c + 1)
         setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
       },
       onToolResult(name, result, args) {
         setToolStatus(null)
-        const label = args?.path ?? args?.pattern ?? args?.command ?? ''
-        const display = name === 'write_file'
-          ? result
-          : name === 'subagent'
-          ? result
-          : label ? String(label) : ''
-        setMessages((m) => [...m, { role: 'tool', content: `✓ ${name}${display ? ` → ${display}` : ''}` }])
+        if (name === 'write_file') {
+          setMessages((m) => [...m, { role: 'tool', content: `✓ write_file → ${result}` }])
+        } else if (name === 'subagent') {
+          setMessages((m) => [...m, { role: 'tool', content: `✓ subagent → ${result}` }])
+        } else {
+          const argLabel = args?.path ?? args?.pattern ?? args?.command ?? ''
+          const payload = JSON.stringify({ arg: argLabel ? String(argLabel) : '', output: result ?? '' })
+          setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${payload}` }])
+        }
       },
       onDone() {
         clearInterval(flushInterval)
