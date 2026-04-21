@@ -16,12 +16,18 @@ export function isAutoAccept(mode: InteractionMode): boolean {
   return mode === 'auto-accept'
 }
 
-// Permissões por modo — apenas as combinações explicitamente permitidas
+// Ferramentas read-only permitidas em todos os modos
+const READ_ONLY_TOOLS = new Set([
+  'read_file', 'read_folder', 'glob', 'grep', 'git',
+  'web_fetch', 'introspect', 'todo', 'subagent',
+])
+
+// Permissões por modo
 const TOOL_PERMISSIONS: Record<InteractionMode, Set<string>> = {
-  chat: new Set(['read_file', 'web_fetch', 'shell']),
-  plan: new Set(['read_file', 'web_fetch']),
-  agent: new Set(['read_file', 'write_file', 'shell', 'web_fetch']),
-  'auto-accept': new Set(['read_file', 'write_file', 'shell', 'web_fetch']),
+  chat:          new Set([...READ_ONLY_TOOLS, 'shell']),
+  plan:          new Set([...READ_ONLY_TOOLS]),
+  agent:         new Set([...READ_ONLY_TOOLS, 'shell', 'write_file', 'patch_file', 'update_knowledge']),
+  'auto-accept': new Set([...READ_ONLY_TOOLS, 'shell', 'write_file', 'patch_file', 'update_knowledge']),
 }
 
 export function canUseTool(mode: InteractionMode, tool: string): boolean {
