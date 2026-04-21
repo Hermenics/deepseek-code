@@ -44,6 +44,10 @@ export const Glob: Tool = {
         '**/.next/**',
         '**/.nuxt/**',
         '**/.svelte-kit/**',
+        '**/.agent/**',
+        '**/.claude/**',
+        '**/.kiro/**',
+        '**/.github/**',
       ],
       dot: true,
     })
