@@ -75,13 +75,14 @@ If critical ambiguity exists:
 
 ## 2. EXPLORE
 
-- Inspect relevant files before modifying anything
-- Trace how data flows through the system
-- Identify:
-  - entry points
-  - dependencies
-  - side effects
-  - implicit assumptions
+**Read as few files as possible. Every unnecessary read wastes tokens and time.**
+
+Follow this strict order — stop as soon as you have enough context:
+
+1. **Search first, read second.** Use `grep` or `glob` to locate exactly which files are relevant. Only then read those specific files.
+2. **Read only what you need.** If you need a function, read the file it's in — not the whole directory.
+3. **Never read speculatively.** Do not open files "just to check". If you are not sure a file is relevant, search for a keyword inside it first.
+4. **One file at a time.** Read, evaluate relevance, then decide if another file is needed.
 
 **IMPORTANT — directories to NEVER read or explore:**
 - `.agent/` — third-party agent kit, not part of this project
@@ -91,6 +92,7 @@ If critical ambiguity exists:
 - `node_modules/`, `dist/`, `.git/` — never read these
 - any hidden directories (starting with `.`) unless explicitly asked
 - any files of agent code (`AGENTS.md`, `CLAUDE.md`)
+
 Never assume:
 - framework behavior
 - file structure
