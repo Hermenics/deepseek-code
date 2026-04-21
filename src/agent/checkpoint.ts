@@ -2,7 +2,7 @@ import { join } from 'path'
 import { homedir } from 'os'
 import { mkdir, readdir, unlink } from 'fs/promises'
 import { readJson, writeJson } from '../utils/fs.js'
-import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import type { MessageOrBoundary } from './compactBoundary.js'
 
 const DIR = join(homedir(), '.deepseek', 'checkpoints')
 const MAX = 20
@@ -11,12 +11,12 @@ export interface Checkpoint {
   id: string
   timestamp: string
   label: string
-  messages: ChatCompletionMessageParam[]
+  messages: MessageOrBoundary[]
   filesModified: string[]
 }
 
 export async function saveCheckpoint(
-  messages: ChatCompletionMessageParam[],
+  messages: MessageOrBoundary[],
   filesModified: string[],
   label?: string,
 ): Promise<string> {

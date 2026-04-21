@@ -69,7 +69,7 @@ describe('Constants', () => {
     expect(GREP_MAX_LINES).toBe(200)
     expect(GLOB_MAX_FILES).toBe(500)
     expect(UNDO_STACK_MAX).toBe(10)
-    expect(CONTEXT_COMPACT_THRESHOLD).toBe(0.85)
+    expect(CONTEXT_COMPACT_THRESHOLD).toBe(0.60)
     expect(DIFF_MAX_LINES).toBe(50)
     expect(CHECKPOINT_MAX).toBe(20)
     expect(SUBAGENT_MAX_ITERATIONS).toBe(15)

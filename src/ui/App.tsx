@@ -255,7 +255,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
                 provider: agent.provider,
                 language: language ?? null,
                 activeAgent: agent.activeAgent,
-                agentMessages: agent.getMessages(),
+                agentMessages: agent.getRawMessages(),
                 uiMessages: current,
                 filesModified: agent.getFilesModified(),
               })
@@ -265,7 +265,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         }
       },
       onAutoCompact(summary) {
-        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Context auto-compacted (>85%).\n\n${summary}` }])
+        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Contexto compactado automaticamente.\n\n${summary}` }])
       },
     })
   }, [agent, isLoading, sessionId, language, initialSession])
@@ -534,7 +534,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
                 provider: agent.provider,
                 language: language ?? null,
                 activeAgent: agent.activeAgent,
-                agentMessages: agent.getMessages(),
+                agentMessages: agent.getRawMessages(),
                 uiMessages: current,
                 filesModified: agent.getFilesModified(),
               })
@@ -544,7 +544,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         }
       },
       onAutoCompact(summary) {
-        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Context auto-compacted (>85%).\n\n${summary}` }])
+        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Contexto compactado automaticamente.\n\n${summary}` }])
       },
     })
   }, [agent, isLoading, exit, runWithPrompt])

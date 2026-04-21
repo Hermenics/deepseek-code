@@ -16,7 +16,7 @@ export const GLOB_MAX_FILES = 500
 export const UNDO_STACK_MAX = 10
 
 /** Context usage % at which auto-compact triggers */
-export const CONTEXT_COMPACT_THRESHOLD = 0.85
+export const CONTEXT_COMPACT_THRESHOLD = 0.60
 
 /** Max diff lines shown in DiffView */
 export const DIFF_MAX_LINES = 50

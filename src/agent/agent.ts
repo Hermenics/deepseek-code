@@ -15,6 +15,7 @@ import { loadSteering } from './steering.js'
 import { createLLMClient, defaultModel } from './llmClient.js'
 import { saveHistory } from './history.js'
 import { saveCheckpoint, listCheckpoints, loadCheckpoint } from './checkpoint.js'
+import { createBoundaryMarker, getMessagesAfterBoundary, isBoundaryMarker, type MessageOrBoundary } from './compactBoundary.js'
 import { estimateCost, formatCost, getContextLimit, type TokenUsage } from './cost.js'
 import type { ProviderConfig } from '../ui/setup/ApiKeySetup.js'
 import { UNDO_STACK_MAX, CONTEXT_COMPACT_THRESHOLD } from '../constants.js'
@@ -52,7 +53,7 @@ interface UndoEntry {
 
 export class Agent {
   private client: OpenAI
-  private messages: ChatCompletionMessageParam[] = [{ role: 'system', content: DEFAULT_SYSTEM_PROMPT }]
+  private messages: MessageOrBoundary[] = [{ role: 'system', content: DEFAULT_SYSTEM_PROMPT }]
   private systemPrompt = DEFAULT_SYSTEM_PROMPT
   private tools: Tool[] = allTools
   private toolMap: Map<string, Tool> = new Map(allTools.map((t) => [t.name, t]))
@@ -202,7 +203,8 @@ export class Agent {
   // ── Compact ────────────────────────────────────────────────────────────────
 
   async compact(): Promise<string> {
-    const nonSystem = this.messages.filter((m) => m.role !== 'system')
+    const activeMessages = getMessagesAfterBoundary(this.messages)
+    const nonSystem = activeMessages.filter((m) => m.role !== 'system')
     if (nonSystem.length === 0) return 'Nothing to compact.'
     const response = await this.client.chat.completions.create({
       model: this.model,
@@ -212,10 +214,13 @@ export class Agent {
       ],
     })
     const summary = response.choices[0]?.message.content ?? '(no summary)'
-    this.messages = [
-      { role: 'system', content: this.systemPrompt },
+
+    // Append boundary + summary — histórico completo preservado
+    this.messages.push(
+      createBoundaryMarker(),
       { role: 'assistant', content: `[Compacted context]\n${summary}` },
-    ]
+    )
+
     await saveHistory(this.messages)
     return summary
   }
@@ -242,10 +247,18 @@ export class Agent {
   }
 
   getMessages(): ChatCompletionMessageParam[] {
+    // Backward compatible — external consumers get clean messages without boundary markers
+    return this.messages.filter(
+      (m): m is ChatCompletionMessageParam => !isBoundaryMarker(m)
+    )
+  }
+
+  /** Full history including compact boundary markers — used by session persistence */
+  getRawMessages(): MessageOrBoundary[] {
     return this.messages
   }
 
-  loadSessionMessages(messages: ChatCompletionMessageParam[]): void {
+  loadSessionMessages(messages: MessageOrBoundary[]): void {
     this.messages = messages
   }
 
@@ -278,9 +291,14 @@ export class Agent {
 
     // Auto-compact when context is above threshold
     if (this.contextUsage > 0 && this.contextUsage / this.contextLimit > CONTEXT_COMPACT_THRESHOLD) {
-      const summary = await this.compact()
-      auditLog({ type: 'compact', reason: 'context_threshold' })
-      cb.onAutoCompact?.(summary)
+      try {
+        const summary = await this.compact()
+        auditLog({ type: 'compact', reason: 'context_threshold' })
+        cb.onAutoCompact?.(summary)
+      } catch (e) {
+        auditLog({ type: 'compact_error', reason: String(e) })
+        // Segue sem compactar — melhor que travar a sessão
+      }
     }
 
     const now = new Date().toLocaleString()
@@ -323,7 +341,7 @@ export class Agent {
           this.client.chat.completions.create(
             {
               model: this.model,
-              messages: this.messages,
+              messages: getMessagesAfterBoundary(this.messages),
               tools: this.openaiTools,
               stream: true,
               stream_options: { include_usage: true },
