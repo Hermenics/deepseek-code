@@ -23,6 +23,7 @@ export type CommandResult =
   | { type: 'sessions' }
   | { type: 'plan'; task: string }
   | { type: 'review'; target: string }
+  | { type: 'permissions' }
   | { type: 'unknown'; input: string }
 
 const MODELS: Model[] = ['deepseek-chat', 'deepseek-reasoner']
@@ -80,6 +81,7 @@ export function parseCommand(input: string): CommandResult | null {
       const target = args.join(' ')
       return { type: 'review', target }
     }
+    case 'permissions': return { type: 'permissions' }
     default: return { type: 'unknown', input: `Unknown command: /${cmd}. Use /help to see available commands.` }
   }
 }
@@ -106,6 +108,7 @@ export const COMMAND_SUGGESTIONS = [
   '/sessions',
   '/plan',
   '/review',
+  '/permissions',
 ]
 
 export const HELP_TEXT = `Commands:
@@ -128,6 +131,7 @@ export const HELP_TEXT = `Commands:
   /checkpoint restore <id>       restore a checkpoint
   /plan <task>           plan implementation of a task
   /review [file]         review project code or a specific file
+  /permissions           show current tool permission settings
   /quit  /q              exit`
 
 export const PLAN_PROMPT = (task: string) => `You are a senior software architect. Analyze the current codebase and create a detailed implementation plan for the following task:

@@ -2,14 +2,7 @@ import { Tool } from './types.js'
 import * as fs from 'fs/promises'
 import * as path from 'path'
 import { SHELL_OUTPUT_MAX_CHARS } from '../constants.js'
-
-function assertSafePath(filePath: string): void {
-  const resolved = path.resolve(filePath)
-  const cwd = process.cwd()
-  if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
-    throw new Error(`Path '${filePath}' is outside the working directory`)
-  }
-}
+import { assertSafePath } from './pathSafety.js'
 
 type DiffLine = { type: 'added' | 'removed' | 'context'; text: string; lineNo: number }
 
@@ -49,7 +42,7 @@ export const WriteFile: Tool = {
     const filePath = args.path as string
     const content = args.content as string
 
-    assertSafePath(filePath)
+    await assertSafePath(filePath)
 
     let oldContent = ''
     try { oldContent = await fs.readFile(filePath, 'utf-8') } catch { /* new file */ }

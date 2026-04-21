@@ -1,8 +1,9 @@
 import { Tool } from './types.js'
 import * as fs from 'fs/promises'
 import * as path from 'path'
+import { assertSafeDir, BLOCKED_DIRS } from './pathSafety.js'
 
-const EXCLUDE = new Set(['node_modules', '.git', 'dist', 'build', '.cache'])
+const EXCLUDE = new Set([...BLOCKED_DIRS, '.cache'])
 
 async function listDir(dir: string, recursive: boolean, prefix = ''): Promise<string[]> {
   const entries = await fs.readdir(dir, { withFileTypes: true })
@@ -30,7 +31,9 @@ export const ReadFolder: Tool = {
     required: ['path'],
   },
   async execute(args) {
-    const items = await listDir(args.path as string, !!args.recursive)
+    const dirPath = args.path as string
+    await assertSafeDir(dirPath)
+    const items = await listDir(dirPath, !!args.recursive)
     return items.join('\n') || '(empty directory)'
   },
 }

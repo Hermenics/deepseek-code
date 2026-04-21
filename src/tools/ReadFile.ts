@@ -1,32 +1,9 @@
 import { Tool } from './types.js'
 import * as fs from 'fs/promises'
 import * as path from 'path'
+import { assertSafePath } from './pathSafety.js'
 
 const DEFAULT_MAX_LINES = 200
-
-const BLOCKED_DIRS = [
-  '.agent',
-  '.claude',
-  '.kiro',
-  '.github',
-  'node_modules',
-  'dist',
-  'build',
-  '.git',
-]
-
-function assertSafePath(filePath: string): void {
-  const resolved = path.resolve(filePath)
-  const cwd = process.cwd()
-  if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
-    throw new Error(`Path '${filePath}' is outside the working directory`)
-  }
-  const relative = path.relative(cwd, resolved)
-  const topDir = relative.split(path.sep)[0]
-  if (topDir && BLOCKED_DIRS.includes(topDir)) {
-    throw new Error(`Directory '${topDir}/' is off-limits. Focus on the project source code.`)
-  }
-}
 
 export const ReadFile: Tool = {
   name: 'read_file',
@@ -45,7 +22,7 @@ export const ReadFile: Tool = {
   },
   async execute(args) {
     const filePath = args.path as string
-    assertSafePath(filePath)
+    await assertSafePath(filePath)
     const content = await fs.readFile(filePath, 'utf-8')
     const lines = content.split('\n')
     const total = lines.length

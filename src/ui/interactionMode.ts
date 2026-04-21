@@ -31,7 +31,15 @@ const TOOL_PERMISSIONS: Record<InteractionMode, Set<string>> = {
 }
 
 export function canUseTool(mode: InteractionMode, tool: string): boolean {
+  // MCP tools (contain '__') follow the same rules as shell — allowed in modes that permit shell
+  if (tool.includes('__')) {
+    return TOOL_PERMISSIONS[mode].has('shell')
+  }
   return TOOL_PERMISSIONS[mode].has(tool)
+}
+
+export function getToolsForMode(mode: InteractionMode): string[] {
+  return [...TOOL_PERMISSIONS[mode]]
 }
 
 export const MODE_LABELS: Record<InteractionMode, string> = {

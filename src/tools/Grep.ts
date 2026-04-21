@@ -1,6 +1,7 @@
 import { Tool } from './types.js'
 import { execa } from 'execa'
 import { GREP_MAX_LINES } from '../constants.js'
+import { assertSafeDir } from './pathSafety.js'
 
 export const Grep: Tool = {
   name: 'grep',
@@ -18,6 +19,8 @@ export const Grep: Tool = {
     const dir = (args.path as string) || '.'
     const pattern = args.pattern as string
     const include = args.include as string | undefined
+
+    await assertSafeDir(dir)
 
     const grepArgs = ['-rn']
     if (include) grepArgs.push(`--include=${include}`)

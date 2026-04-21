@@ -20,7 +20,11 @@ import { estimateCost, formatCost, getContextLimit, type TokenUsage } from './co
 import type { ProviderConfig } from '../ui/setup/ApiKeySetup.js'
 import { UNDO_STACK_MAX, CONTEXT_COMPACT_THRESHOLD } from '../constants.js'
 import { auditLog } from './auditLog.js'
-import { canUseTool, type InteractionMode } from '../ui/interactionMode.js'
+import { canUseTool, getToolsForMode, type InteractionMode } from '../ui/interactionMode.js'
+
+class DenyAbortError extends Error {
+  constructor() { super('deny-abort') }
+}
 
 // Tools that are safe to run in parallel (read-only or isolated)
 const PARALLEL_SAFE = new Set(['subagent', 'shell', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect'])
@@ -44,6 +48,7 @@ export interface AgentCallbacks {
   onDone(): void
   onPhaseChange?(phase: 'refining' | 'executing'): void
   onAutoCompact?(summary: string): void
+  onDenyAbort?(): void
 }
 
 interface UndoEntry {
@@ -162,6 +167,15 @@ export class Agent {
     return this.tools.map((t) => t.name)
   }
 
+  getPermissionsInfo(): { mode: InteractionMode; allowedTools: string[] | '*' | null; sessionApproved: string[]; modeTools: string[] } {
+    return {
+      mode: this.interactionMode,
+      allowedTools: this.allowedTools,
+      sessionApproved: [...this.sessionApprovedTools],
+      modeTools: getToolsForMode(this.interactionMode),
+    }
+  }
+
   // ── Cost ───────────────────────────────────────────────────────────────────
 
   getCostSummary(): string {
@@ -206,20 +220,27 @@ export class Agent {
     const activeMessages = getMessagesAfterBoundary(this.messages)
     const nonSystem = activeMessages.filter((m) => m.role !== 'system')
     if (nonSystem.length === 0) return 'Nothing to compact.'
-    const response = await this.client.chat.completions.create({
-      model: this.model,
-      messages: [
-        { role: 'system', content: 'Summarize the following conversation concisely, preserving all key decisions, code snippets, and context needed to continue the work.' },
-        { role: 'user', content: nonSystem.map((m) => `[${m.role}]: ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`).join('\n\n') },
-      ],
-    })
+    const response = await this.withRetry(() =>
+      this.client.chat.completions.create(
+        {
+          model: this.model,
+          messages: [
+            { role: 'system', content: 'Summarize the following conversation concisely, preserving all key decisions, code snippets, and context needed to continue the work.' },
+            { role: 'user', content: nonSystem.map((m) => `[${m.role}]: ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`).join('\n\n') },
+          ],
+        },
+        { signal: AbortSignal.timeout(30_000) },
+      )
+    )
     const summary = response.choices[0]?.message.content ?? '(no summary)'
 
-    // Append boundary + summary — histórico completo preservado
-    this.messages.push(
+    // Reset messages to system + boundary + summary — prunes old history to prevent unbounded growth
+    const systemMsg = this.messages[0]!
+    this.messages = [
+      systemMsg,
       createBoundaryMarker(),
       { role: 'assistant', content: `[Compacted context]\n${summary}` },
-    )
+    ]
 
     await saveHistory(this.messages)
     return summary
@@ -297,7 +318,7 @@ export class Agent {
         cb.onAutoCompact?.(summary)
       } catch (e) {
         auditLog({ type: 'compact_error', reason: String(e) })
-        // Segue sem compactar — melhor que travar a sessão
+        cb.onAutoCompact?.(`⚠ Auto-compact failed: ${(e as Error).message}. Use /compact manually.`)
       }
     }
 
@@ -332,6 +353,20 @@ export class Agent {
   }
 
   private async loop(cb: AgentCallbacks) {
+    try {
+      await this.runLoop(cb)
+    } catch (e) {
+      if (e instanceof DenyAbortError) {
+        await saveHistory(this.messages)
+        cb.onDenyAbort?.()
+        cb.onDone()
+        return
+      }
+      throw e
+    }
+  }
+
+  private async runLoop(cb: AgentCallbacks) {
     while (true) {
       this.abortController = new AbortController()
 
@@ -443,92 +478,67 @@ export class Agent {
       const canParallelize = parsedList.every(({ tc }) => PARALLEL_SAFE.has(tc.function.name))
 
       if (canParallelize && parsedList.length > 1) {
-        // Run all tool calls concurrently
-        const results = await Promise.all(
-          parsedList.map(async ({ tc, parsedArgs }) => {
-            // ── Interaction mode restriction ──────────────────────────────
-            if (!canUseTool(this.interactionMode, tc.function.name)) {
-              const blockMsg = `Ferramenta '${tc.function.name}' não está disponível no modo ${this.interactionMode}. Troque para o modo Agent para usar esta ferramenta.`
-              auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __blocked_by_mode: this.interactionMode } })
-              cb.onToolCall(tc.function.name, parsedArgs)
-              cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
-              return { tc, result: blockMsg }
-            }
-
-            // ── Tool permission check ────────────────────────────────────────
-            const needsPermission = this.allowedTools !== null && (
-              this.allowedTools === '*' ||
-              this.allowedTools.includes(tc.function.name)
-            )
-            if (needsPermission && !this.sessionApprovedTools.has(tc.function.name) && this.toolPermissionHandler) {
-              const decision = await this.toolPermissionHandler(tc.function.name, parsedArgs)
-              if (decision === 'deny') {
-                const denyMsg = `Tool '${tc.function.name}' was denied by the user. Suggest an alternative approach that does not require this tool, or ask the user what they would like to do instead.`
-                auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied: true } })
-                cb.onToolCall(tc.function.name, parsedArgs)
-                cb.onToolResult(tc.function.name, denyMsg, parsedArgs)
-                return { tc, result: denyMsg }
-              }
-              if (decision === 'session') {
-                this.sessionApprovedTools.add(tc.function.name)
-              }
-            }
-
-            cb.onToolCall(tc.function.name, parsedArgs)
-            auditLog({ type: 'tool_call', tool: tc.function.name, args: parsedArgs })
-            const t0 = Date.now()
-            const result = await this.executeTool(tc.function.name, parsedArgs)
-            auditLog({ type: 'tool_result', tool: tc.function.name, result: result.slice(0, 200), durationMs: Date.now() - t0 })
-            cb.onToolResult(tc.function.name, result, parsedArgs)
-            return { tc, result }
-          })
+        // Run all tool calls concurrently — use allSettled so a deny doesn't
+        // silently abandon already-running tools without recording their results
+        const settled = await Promise.allSettled(
+          parsedList.map(({ tc, parsedArgs }) => this.checkAndExecuteTool(tc, parsedArgs, cb))
         )
-        for (const { tc, result } of results) {
-          this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
+        for (const s of settled) {
+          if (s.status === 'fulfilled') {
+            this.messages.push({ role: 'tool', tool_call_id: s.value.tc.id, content: s.value.result })
+          }
         }
+        // Propagate DenyAbortError after collecting fulfilled results
+        const denied = settled.find((s) => s.status === 'rejected' && s.reason instanceof DenyAbortError)
+        if (denied) throw new DenyAbortError()
       } else {
         // Sequential execution (file writes, or mixed batch)
         for (const { tc, parsedArgs } of parsedList) {
-          // ── Interaction mode restriction ──────────────────────────────
-          if (!canUseTool(this.interactionMode, tc.function.name)) {
-            const blockMsg = `Ferramenta '${tc.function.name}' não está disponível no modo ${this.interactionMode}. Troque para o modo Agent para usar esta ferramenta.`
-            auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __blocked_by_mode: this.interactionMode } })
-            cb.onToolCall(tc.function.name, parsedArgs)
-            cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
-            this.messages.push({ role: 'tool', tool_call_id: tc.id, content: blockMsg })
-            continue
-          }
-
-          // ── Tool permission check ────────────────────────────────────────
-          const needsPermission = this.allowedTools !== null && (
-            this.allowedTools === '*' ||
-            this.allowedTools.includes(tc.function.name)
-          )
-          if (needsPermission && !this.sessionApprovedTools.has(tc.function.name) && this.toolPermissionHandler) {
-            const decision = await this.toolPermissionHandler(tc.function.name, parsedArgs)
-            if (decision === 'deny') {
-              const denyMsg = `Tool '${tc.function.name}' was denied by the user. Suggest an alternative approach that does not require this tool, or ask the user what they would like to do instead.`
-              auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied: true } })
-              cb.onToolCall(tc.function.name, parsedArgs)
-              cb.onToolResult(tc.function.name, denyMsg, parsedArgs)
-              this.messages.push({ role: 'tool', tool_call_id: tc.id, content: denyMsg })
-              continue
-            }
-            if (decision === 'session') {
-              this.sessionApprovedTools.add(tc.function.name)
-            }
-          }
-
-          cb.onToolCall(tc.function.name, parsedArgs)
-          auditLog({ type: 'tool_call', tool: tc.function.name, args: parsedArgs })
-          const t0 = Date.now()
-          const result = await this.executeTool(tc.function.name, parsedArgs)
-          auditLog({ type: 'tool_result', tool: tc.function.name, result: result.slice(0, 200), durationMs: Date.now() - t0 })
-          cb.onToolResult(tc.function.name, result, parsedArgs)
+          const { result } = await this.checkAndExecuteTool(tc, parsedArgs, cb)
           this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
         }
       }
     }
+  }
+
+  /** Unified tool execution: mode check → permission check → audit → execute */
+  private async checkAndExecuteTool(
+    tc: { id: string; type: 'function'; function: { name: string; arguments: string } },
+    parsedArgs: Record<string, unknown>,
+    cb: AgentCallbacks,
+  ): Promise<{ tc: typeof tc; result: string }> {
+    // ── Interaction mode restriction ──────────────────────────────────────────
+    if (!canUseTool(this.interactionMode, tc.function.name)) {
+      const blockMsg = `Tool '${tc.function.name}' is not available in ${this.interactionMode} mode. Switch to Agent mode to use this tool.`
+      auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __blocked_by_mode: this.interactionMode } })
+      cb.onToolCall(tc.function.name, parsedArgs)
+      cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
+      return { tc, result: blockMsg }
+    }
+
+    // ── Tool permission check ─────────────────────────────────────────────────
+    const needsPermission = this.allowedTools !== null && (
+      this.allowedTools === '*' ||
+      this.allowedTools.includes(tc.function.name)
+    )
+    if (needsPermission && !this.sessionApprovedTools.has(tc.function.name) && this.toolPermissionHandler) {
+      const decision = await this.toolPermissionHandler(tc.function.name, parsedArgs)
+      if (decision === 'deny') {
+        auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied: true } })
+        throw new DenyAbortError()
+      }
+      if (decision === 'session') {
+        this.sessionApprovedTools.add(tc.function.name)
+      }
+    }
+
+    cb.onToolCall(tc.function.name, parsedArgs)
+    auditLog({ type: 'tool_call', tool: tc.function.name, args: parsedArgs })
+    const t0 = Date.now()
+    const result = await this.executeTool(tc.function.name, parsedArgs)
+    auditLog({ type: 'tool_result', tool: tc.function.name, result: result.slice(0, 200), durationMs: Date.now() - t0 })
+    cb.onToolResult(tc.function.name, result, parsedArgs)
+    return { tc, result }
   }
 
   private async executeTool(name: string, args: Record<string, unknown>): Promise<string> {

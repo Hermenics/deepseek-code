@@ -190,14 +190,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     setToolPermissionState(null)
   }, [toolPermissionState])
 
-  // ── runWithPrompt: runs an internal prompt without exposing the text to the user ──
-  const runWithPrompt = useCallback(async (label: string, prompt: string) => {
-    if (isLoading) return
-    setMessages((m) => [...m, { role: 'user', content: label }])
-    setIsLoading(true)
-    setAgentPhase('refining')
-    setStreamText('')
-
+  // ── runAgent: shared helper that drives agent.run with streaming callbacks ──
+  const runAgent = useCallback(async (prompt: string) => {
     let tokenBuffer = ''
     let streamTextAccum = ''
     const flushInterval = setInterval(() => {
@@ -214,9 +208,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       onToken(token) { tokenBuffer += token },
       onToolCall(name, args) {
         clearInterval(flushInterval)
+        // Commit any pending stream text before switching to tool display
+        const pending = (streamTextAccum + tokenBuffer).trim()
         tokenBuffer = ''
         streamTextAccum = ''
         setStreamText('')
+        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
         setToolCallCount((c) => c + 1)
         setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
       },
@@ -267,11 +264,24 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           }, 100)
         }
       },
+      onDenyAbort() {
+        setMessages((m) => [...m, { role: 'assistant', content: '⛔ Execution aborted by user.' }])
+      },
       onAutoCompact(summary) {
-        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Contexto compactado automaticamente.\n\n${summary}` }])
+        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Context compacted automatically.\n\n${summary}` }])
       },
     })
-  }, [agent, isLoading, sessionId, language, initialSession])
+  }, [agent, sessionId, language, initialSession])
+
+  // ── runWithPrompt: runs an internal prompt without exposing the text to the user ──
+  const runWithPrompt = useCallback(async (label: string, prompt: string) => {
+    if (isLoading) return
+    setMessages((m) => [...m, { role: 'user', content: label }])
+    setIsLoading(true)
+    setAgentPhase('refining')
+    setStreamText('')
+    await runAgent(prompt)
+  }, [isLoading, runAgent])
 
   const handleSubmit = useCallback(async (text: string) => {
     if (!text.trim() || isLoading) return
@@ -425,6 +435,26 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           await runWithPrompt(label, prompt)
           return
         }
+        case 'permissions': {
+          const info = agent.getPermissionsInfo()
+          const lines: string[] = []
+          lines.push(`**Current mode:** ${info.mode}`)
+          lines.push(`**Tools allowed in mode:** ${info.modeTools.sort().join(', ')}`)
+          if (info.allowedTools === null) {
+            lines.push(`**Agent permissions:** no agent loaded (no additional restrictions)`)
+          } else if (info.allowedTools === '*') {
+            lines.push(`**Agent permissions:** all tools require confirmation`)
+          } else {
+            lines.push(`**Agent permissions:** ${info.allowedTools.join(', ')}`)
+          }
+          if (info.sessionApproved.length > 0) {
+            lines.push(`**Approved this session:** ${info.sessionApproved.join(', ')}`)
+          } else {
+            lines.push(`**Approved this session:** none`)
+          }
+          setMessages((m) => [...m, { role: 'assistant', content: lines.join('\n') }])
+          return
+        }
         case 'unknown':
           setMessages((m) => [...m, { role: 'assistant', content: cmd.input }])
           return
@@ -469,87 +499,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     setIsLoading(true)
     setAgentPhase('refining')
     setStreamText('')
-
-    let tokenBuffer = ''
-    let streamTextAccum = ''
-    const flushInterval = setInterval(() => {
-      if (tokenBuffer) {
-        const buf = tokenBuffer
-        tokenBuffer = ''
-        streamTextAccum += buf
-        setStreamText((s) => s + buf)
-      }
-    }, 50)
-
-    await agent.run(text, {
-      onPhaseChange(phase) {
-        setAgentPhase(phase)
-      },
-      onToken(token) {
-        tokenBuffer += token
-      },
-      onToolCall(name, args) {
-        clearInterval(flushInterval)
-        tokenBuffer = ''
-        streamTextAccum = ''
-        setStreamText('')
-        setToolCallCount((c) => c + 1)
-        setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
-      },
-      onToolResult(name, result, args) {
-        setToolStatus(null)
-        if (name === 'write_file') {
-          setMessages((m) => [...m, { role: 'tool', content: `✓ write_file → ${result}` }])
-        } else if (name === 'subagent') {
-          setMessages((m) => [...m, { role: 'tool', content: `✓ subagent → ${result}` }])
-        } else {
-          const argLabel = args?.path ?? args?.pattern ?? args?.command ?? ''
-          const payload = JSON.stringify({ arg: argLabel ? String(argLabel) : '', output: result ?? '' })
-          setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${payload}` }])
-        }
-      },
-      onDone() {
-        clearInterval(flushInterval)
-        const pending = (streamTextAccum + tokenBuffer).trim()
-        tokenBuffer = ''
-        streamTextAccum = ''
-        setToolStatus(null)
-        // Clear stream BEFORE committing to Static — prevents 1-frame duplication
-        setStreamText('')
-        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
-        setIsLoading(false)
-        setAgentPhase('idle')
-        setTokenCount(agent.tokenCount)
-        const pct = agent.contextLimit > 0
-          ? Math.round((agent.contextUsage / agent.contextLimit) * 100)
-          : 0
-        setContextPct(pct)
-        if (sessionId) {
-          setTimeout(() => {
-            setMessages((current) => {
-              saveSession({
-                id: sessionId,
-                createdAt: initialSession?.createdAt ?? new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                cwd: process.cwd(),
-                model: agent.model,
-                provider: agent.provider,
-                language: language ?? null,
-                activeAgent: agent.activeAgent,
-                agentMessages: agent.getRawMessages(),
-                uiMessages: current,
-                filesModified: agent.getFilesModified(),
-              })
-              return current
-            })
-          }, 100)
-        }
-      },
-      onAutoCompact(summary) {
-        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Contexto compactado automaticamente.\n\n${summary}` }])
-      },
-    })
-  }, [agent, isLoading, exit, runWithPrompt])
+    await runAgent(text)
+  }, [agent, isLoading, exit, runWithPrompt, runAgent])
 
   return (
     <Box flexDirection="column" width="100%">
@@ -615,7 +566,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 function ConfirmPrompt({ message, onConfirm }: { message: string; onConfirm: (yes: boolean) => void }) {
   useInput((input, key) => {
     if (key.ctrl && input === 'c') { onConfirm(false); return }
-    if (input === 'y' || input === 'Y' || input === 's' || input === 'S') onConfirm(true)
+    if (input === 'y' || input === 'Y') onConfirm(true)
     else if (input === 'n' || input === 'N' || key.escape) onConfirm(false)
   })
 
@@ -624,15 +575,15 @@ function ConfirmPrompt({ message, onConfirm }: { message: string; onConfirm: (ye
       <Box borderStyle="round" borderColor="yellow" paddingX={1}>
         <Text color="yellow">⚠ {message}</Text>
       </Box>
-      <Text dimColor>  [s] confirmar  [n/Esc] cancelar</Text>
+      <Text dimColor>  [y] confirm  [n/Esc] cancel</Text>
     </Box>
   )
 }
 
 const PERMISSION_OPTIONS = [
-  { key: '1', label: 'Allow once', result: 'once' as ToolPermissionResult },
-  { key: '2', label: 'Allow this session', result: 'session' as ToolPermissionResult },
-  { key: '3', label: 'Deny', result: 'deny' as ToolPermissionResult },
+  { key: '1', label: 'Allow this time', result: 'once' as ToolPermissionResult },
+  { key: '2', label: 'Allow for all session', result: 'session' as ToolPermissionResult },
+  { key: '3', label: 'Deny (say what DeepSeek should do instead)', result: 'deny' as ToolPermissionResult },
 ]
 
 function ToolPermissionPrompt({
@@ -690,7 +641,7 @@ function ToolPermissionPrompt({
         ))}
       </Box>
       <Box marginLeft={2}>
-        <Text dimColor>  ↑↓ navegar  ·  Enter confirmar  ·  Esc negar</Text>
+        <Text dimColor>  ↑↓ navigate  ·  Enter confirm  ·  Esc deny  ·  [3] aborts agent</Text>
       </Box>
     </Box>
   )

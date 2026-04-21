@@ -9,7 +9,7 @@ import { MarkdownRenderer } from './MarkdownRenderer.js'
 import type { ThemeName } from '../setup/ApiKeySetup.js'
 import { DeepSeekMascot } from '../layout/Mascot.js'
 import pkg from '../../../package.json' with { type: 'json' }
-
+import { TOOL_DISPLAY } from './toolDisplay.js'
 
 /**
  * Sanitizes incomplete streaming text for safe markdown rendering.
@@ -26,24 +26,6 @@ function sanitizeStreamMarkdown(text: string): string {
   }
   return sanitized
 }
-
-// Maps internal tool names → display names (Claude Code style)
-const TOOL_DISPLAY: Record<string, string> = {
-  read_file:        'Read',
-  write_file:       'Write',
-  patch_file:       'Edit',
-  read_folder:      'List',
-  shell:            'Bash',
-  grep:             'Grep',
-  glob:             'Glob',
-  web_fetch:        'WebFetch',
-  subagent:         'Agent',
-  git:              'Git',
-  introspect:       'Introspect',
-  update_knowledge: 'UpdateKnowledge',
-  todo:             'TodoWrite',
-}
-
 
 // Splits text by \n into individual <Text> elements inside a column <Box>,
 // preventing Ink from rendering newlines outside the parent component bounds.

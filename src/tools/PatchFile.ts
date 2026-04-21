@@ -1,14 +1,7 @@
 import { Tool } from './types.js'
 import * as fs from 'fs/promises'
 import * as path from 'path'
-
-function assertSafePath(filePath: string): void {
-  const resolved = path.resolve(filePath)
-  const cwd = process.cwd()
-  if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
-    throw new Error(`Path '${filePath}' is outside the working directory`)
-  }
-}
+import { assertSafePath } from './pathSafety.js'
 
 export const PatchFile: Tool = {
   name: 'patch_file',
@@ -28,7 +21,7 @@ export const PatchFile: Tool = {
     const oldContent = args.old_content as string
     const newContent = args.new_content as string
 
-    assertSafePath(filePath)
+    await assertSafePath(filePath)
 
     let source: string
     try {

@@ -1,6 +1,7 @@
 import { Tool } from './types.js'
 import fg from 'fast-glob'
 import { GLOB_MAX_FILES } from '../constants.js'
+import { assertSafeDir, BLOCKED_GLOB_PATTERNS } from './pathSafety.js'
 
 export const Glob: Tool = {
   name: 'glob',
@@ -14,8 +15,11 @@ export const Glob: Tool = {
     required: ['pattern'],
   },
   async execute(args) {
+    const cwd = (args.cwd as string) || '.'
+    await assertSafeDir(cwd)
+
     const files = await fg(args.pattern as string, {
-      cwd: (args.cwd as string) || '.',
+      cwd,
       ignore: [
         '**/node_modules/**',
         '**/.git/**',
@@ -44,10 +48,7 @@ export const Glob: Tool = {
         '**/.next/**',
         '**/.nuxt/**',
         '**/.svelte-kit/**',
-        '**/.agent/**',
-        '**/.claude/**',
-        '**/.kiro/**',
-        '**/.github/**',
+        ...BLOCKED_GLOB_PATTERNS,
       ],
       dot: true,
     })

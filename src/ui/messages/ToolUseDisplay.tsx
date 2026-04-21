@@ -2,22 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Box, Text } from 'ink'
 import figures from 'figures'
 import type { ToolStatus } from '../App.js'
-
-const TOOL_DISPLAY: Record<string, string> = {
-  read_file:        'Read',
-  write_file:       'Write',
-  patch_file:       'Edit',
-  read_folder:      'List',
-  shell:            'Bash',
-  grep:             'Grep',
-  glob:             'Glob',
-  web_fetch:        'WebFetch',
-  subagent:         'Agent',
-  git:              'Git',
-  introspect:       'Introspect',
-  update_knowledge: 'UpdateKnowledge',
-  todo:             'TodoWrite',
-}
+import { TOOL_DISPLAY } from './toolDisplay.js'
 
 export const ToolUseDisplay = React.memo(function ToolUseDisplay({ tool }: { tool: ToolStatus }) {
   const display = TOOL_DISPLAY[tool.name] ?? tool.name

@@ -41,7 +41,7 @@ export const StatusBar = React.memo(function StatusBar({ tokenCount, model, acti
     <Box flexDirection="column">
       <Box paddingX={2} gap={0}>
         {tokenCount > 0 && <Text dimColor>{figures.bullet} {tokenCount.toLocaleString()} tokens  </Text>}
-        {branch && <Text dimColor>{figures.circlePipe} {branch}  </Text>}
+        {branch && <Text dimColor>{figures.arrowRight} {branch}  </Text>}
         <Text dimColor>{figures.lozenge} {model}</Text>
         {contextPct > 0 && (
           <>
