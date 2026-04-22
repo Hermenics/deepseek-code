@@ -7,7 +7,9 @@ import { Agent, type ToolPermissionResult } from '../agent/agent.js'
 import { MessageList } from './messages/MessageList.js'
 import { TodoPanel } from './messages/TodoPanel.js'
 import { ToolUseDisplay } from './messages/ToolUseDisplay.js'
-import { InputBox } from './input/InputBox.js'
+import { InputBox, LoadingSpinner } from './input/InputBox.js'
+import { QueuedMessagesList } from './input/QueuedMessagesList.js'
+import { enqueue } from './queueLogic.js'
 import { StatusBar } from './layout/StatusBar.js'
 import { ThemeSelector } from './setup/ThemeSelector.js'
 import { ModelSelector } from './setup/ModelSelector.js'
@@ -69,6 +71,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [toolCallCount, setToolCallCount] = useState(0)
   const [agentPhase, setAgentPhase] = useState<AgentPhase>('idle')
   const [interactionMode, setInteractionMode] = useState<InteractionMode>(DEFAULT_MODE)
+  const [queuedMessages, setQueuedMessages] = useState<string[]>([])
   const [agent] = useState(() => new Agent(providerConfig ?? undefined))
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
   const [showThemeSelector, setShowThemeSelector] = useState(false)
@@ -172,7 +175,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       shellProcRef.current.kill()
       shellProcRef.current = null
     }
+    setQueuedMessages([])
   }, [agent])
+
+  const handleQueue = useCallback((msg: string) => {
+    setQueuedMessages((q) => enqueue(q, msg))
+  }, [])
 
   const handleModeChange = useCallback(() => {
     setInteractionMode((current) => nextMode(current))
@@ -241,6 +249,13 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         setIsLoading(false)
         setAgentPhase('idle')
         setTokenCount(agent.tokenCount)
+        // Process queued messages — setTimeout avoids re-entrant setState loop
+        setQueuedMessages((q) => {
+          if (q.length === 0) return q
+          const [first, ...rest] = q
+          setTimeout(() => handleSubmit(first!), 0)
+          return rest
+        })
         const pct = agent.contextLimit > 0 ? Math.round((agent.contextUsage / agent.contextLimit) * 100) : 0
         setContextPct(pct)
         if (sessionId) {
@@ -507,6 +522,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       <MessageList messages={messages} streamText={streamText} streamRole={streamRole} theme={theme} activeAgent={activeAgent} headerProvider={headerProvider} headerAgent={headerAgent} />
       {toolStatus && <ToolUseDisplay tool={toolStatus} />}
       <TodoPanel />
+      {isLoading && <LoadingSpinner toolCallCount={toolCallCount} phase={agentPhase} />}
+      {queuedMessages.length > 0 && <QueuedMessagesList messages={queuedMessages} />}
       {showThemeSelector ? (
         <ThemeSelector
           currentTheme={theme}
@@ -551,6 +568,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           isLoading={isLoading}
           toolCallCount={toolCallCount}
           onAbort={handleAbort}
+          onQueue={handleQueue}
           phase={agentPhase}
           contextPct={contextPct}
           agentLabel={activeAgent ?? 'deepseek'}

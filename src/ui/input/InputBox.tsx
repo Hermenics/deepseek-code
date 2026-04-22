@@ -239,7 +239,7 @@ const LOADING_MSGS = [
   'Shipping it and praying...',
 ]
 
-function LoadingSpinner({ toolCallCount, phase }: { toolCallCount: number; phase: AgentPhase }) {
+export function LoadingSpinner({ toolCallCount, phase }: { toolCallCount: number; phase: AgentPhase }) {
   const tick = useClock()
   const [msgIdx, setMsgIdx] = useState(() => Math.floor(Math.random() * LOADING_MSGS.length))
   const [refineIdx] = useState(() => Math.floor(Math.random() * REFINING_MSGS.length))
@@ -293,11 +293,30 @@ export function parseKey(sequence: string): KeyInfo {
   return { name: undefined, sequence, ctrl, meta, shift }
 }
 
+export function handleEnterPress(opts: {
+  value: string
+  isLoading: boolean
+  onSubmit: (text: string) => void
+  onQueue?: (text: string) => void
+}): { clearInput: boolean } {
+  const trimmed = opts.value.trim()
+  if (!trimmed) return { clearInput: false }
+
+  if (opts.isLoading) {
+    opts.onQueue?.(trimmed)
+    return { clearInput: true }
+  }
+
+  opts.onSubmit(trimmed)
+  return { clearInput: true }
+}
+
 export function InputBox({
   onSubmit,
   isLoading,
   toolCallCount,
   onAbort,
+  onQueue,
   phase = 'idle',
   contextPct = 0,
   agentLabel = 'deepseek',
@@ -308,6 +327,7 @@ export function InputBox({
   isLoading: boolean
   toolCallCount: number
   onAbort?: () => void
+  onQueue?: (text: string) => void
   phase?: AgentPhase
   contextPct?: number  // 0–100
   agentLabel?: string
@@ -343,14 +363,14 @@ export function InputBox({
   // Keep a ref that always reflects the latest state/props so the stdin
   // listener (registered once) never closes over stale values.
   const stateRef = useRef({
-    isLoading, onAbort, onSubmit, onModeChange,
+    isLoading, onAbort, onSubmit, onQueue, onModeChange,
     value, cursorPos, pastedBlock,
     showDropdown, matches, selectedIdx,
     inputHistory, historyIdx, savedDraft, ctrlCAt,
   })
   useEffect(() => {
     stateRef.current = {
-      isLoading, onAbort, onSubmit, onModeChange,
+      isLoading, onAbort, onSubmit, onQueue, onModeChange,
       value, cursorPos, pastedBlock,
       showDropdown, matches, selectedIdx,
       inputHistory, historyIdx, savedDraft, ctrlCAt,
@@ -395,7 +415,24 @@ export function InputBox({
         return
       }
 
-      if (s.isLoading) return
+      // When loading, only allow Enter (to queue) — block other editing keys
+      if (s.isLoading) {
+        const key = parseKey(sequence)
+        if (key.name === 'return') {
+          const result = handleEnterPress({
+            value: s.value,
+            isLoading: true,
+            onSubmit: s.onSubmit,
+            onQueue: s.onQueue,
+          })
+          if (result.clearInput) {
+            setValue('')
+            setCursorPos(0)
+            setPastedBlock(null)
+          }
+        }
+        return
+      }
 
       const key = parseKey(sequence)
 
@@ -600,10 +637,8 @@ export function InputBox({
         )
       })()}
 
-      {/* Input area or loading */}
-      {isLoading ? (
-        <LoadingSpinner toolCallCount={toolCallCount} phase={phase} />
-      ) : ctrlCAt !== null ? (
+      {/* Input area — always visible */}
+      {ctrlCAt !== null ? (
         <Box paddingLeft={1}>
           <Text color="yellow">Press Ctrl+C again to exit.</Text>
         </Box>
