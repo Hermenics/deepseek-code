@@ -1,18 +1,14 @@
+import { execa } from 'execa'
 import type { Tool } from './types.js'
 
 async function git(args: string[]): Promise<{ out: string; code: number }> {
-  const proc = Bun.spawn(['git', ...args], {
-    cwd: process.cwd(),
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  const [stdout, stderr] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-  ])
-  const code = await proc.exited
-  const out = (stdout + (stderr ? '\n' + stderr : '')).trim()
-  return { out, code }
+  try {
+    const result = await execa('git', args, { cwd: process.cwd(), reject: false })
+    const out = (result.stdout + (result.stderr ? '\n' + result.stderr : '')).trim()
+    return { out, code: result.exitCode ?? 0 }
+  } catch (err: any) {
+    return { out: err.message ?? String(err), code: 1 }
+  }
 }
 
 export const Git: Tool = {

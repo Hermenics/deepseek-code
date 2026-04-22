@@ -13,7 +13,7 @@
   "scripts": {
     "start": "bun src/index.tsx",
     "dev": "bun --watch src/index.tsx",
-    "build": "bun build src/index.tsx --outfile dist/cli.mjs --target bun --minify && sed -i '2{/^\\/\\/ @bun$/d}' dist/cli.mjs && chmod +x dist/cli.mjs",
+    "build": "bun build src/index.tsx --outfile dist/cli.mjs --target node --minify && chmod +x dist/cli.mjs",
     "prepublishOnly": "bun run build"
   },
   "files": [
