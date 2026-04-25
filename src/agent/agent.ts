@@ -20,7 +20,7 @@ import { estimateCost, formatCost, getContextLimit, type TokenUsage } from './co
 import type { ProviderConfig } from '../ui/setup/ApiKeySetup.js'
 import { UNDO_STACK_MAX, CONTEXT_COMPACT_THRESHOLD } from '../constants.js'
 import { auditLog } from './auditLog.js'
-import { canUseTool, getToolsForMode, type InteractionMode } from '../ui/interactionMode.js'
+import { canUseTool, DEFAULT_MODE, getToolsForMode, type InteractionMode } from '../ui/interactionMode.js'
 
 class DenyAbortError extends Error {
   constructor() { super('deny-abort') }
@@ -81,7 +81,7 @@ export class Agent {
   private toolPermissionHandler: ToolPermissionHandler | null = null
   private sessionApprovedTools: Set<string> = new Set()
   private allowedTools: string[] | '*' | null = null
-  public interactionMode: InteractionMode = 'chat'
+  public interactionMode: InteractionMode = DEFAULT_MODE
 
   setConfirmHandler(handler: ((message: string) => Promise<boolean>) | null) {
     this.confirmHandler = handler

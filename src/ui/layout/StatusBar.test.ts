@@ -37,8 +37,8 @@ describe('StatusBar', () => {
       })
     })
 
-    it('should use cyan for chat mode', () => {
-      expect(MODE_COLORS['chat']).toBe('cyan')
+    it('should use blue for chat mode', () => {
+      expect(MODE_COLORS['chat']).toBe('blue')
     })
 
     it('should use yellow for plan mode', () => {

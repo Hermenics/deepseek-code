@@ -17,8 +17,8 @@ describe('interactionMode', () => {
   })
 
   describe('DEFAULT_MODE', () => {
-    it('should have chat as the default initial mode', () => {
-      expect(DEFAULT_MODE).toBe('chat')
+    it('should have agent as the default initial mode', () => {
+      expect(DEFAULT_MODE).toBe('agent')
     })
   })
 

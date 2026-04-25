@@ -4,7 +4,7 @@ export type InteractionMode = 'chat' | 'plan' | 'agent' | 'auto-accept'
 
 export const MODES: InteractionMode[] = ['chat', 'plan', 'agent', 'auto-accept']
 
-export const DEFAULT_MODE: InteractionMode = 'chat'
+export const DEFAULT_MODE: InteractionMode = 'agent'
 
 // Ciclo: chat → plan → agent → auto-accept → chat
 export function nextMode(current: InteractionMode): InteractionMode {
@@ -24,9 +24,9 @@ const READ_ONLY_TOOLS = new Set([
 
 // Permissões por modo
 const TOOL_PERMISSIONS: Record<InteractionMode, Set<string>> = {
-  chat:          new Set([...READ_ONLY_TOOLS, 'shell']),
-  plan:          new Set([...READ_ONLY_TOOLS]),
-  agent:         new Set([...READ_ONLY_TOOLS, 'shell', 'write_file', 'patch_file', 'update_knowledge']),
+  chat: new Set([...READ_ONLY_TOOLS, 'shell']),
+  plan: new Set([...READ_ONLY_TOOLS]),
+  agent: new Set([...READ_ONLY_TOOLS, 'shell', 'write_file', 'patch_file', 'update_knowledge']),
   'auto-accept': new Set([...READ_ONLY_TOOLS, 'shell', 'write_file', 'patch_file', 'update_knowledge']),
 }
 
@@ -50,7 +50,7 @@ export const MODE_LABELS: Record<InteractionMode, string> = {
 }
 
 export const MODE_COLORS: Record<InteractionMode, string> = {
-  'chat': 'cyan',
+  'chat': 'blue',
   'plan': 'yellow',
   'agent': 'green',
   'auto-accept': 'red',
