@@ -7,10 +7,11 @@ const DOCS = `
 DeepSeek Code is a terminal-based AI coding assistant built with Bun, Ink (React for CLI) and the DeepSeek API. It runs an agent loop with streaming responses and tool calls.
 
 ## Models
-- \`deepseek-chat\` — DeepSeek-V3: fast, general purpose, 128K context
-- \`deepseek-reasoner\` — DeepSeek-R1: chain-of-thought reasoning, best for complex problems
+- \`deepseek-v4-flash\` — DeepSeek V4 Flash: fast, general purpose, 128K context
+- \`deepseek-v4-pro\` — DeepSeek V4 Pro: advanced reasoning, best for complex problems
+- \`deepseek-reasoner\` — DeepSeek R1: chain-of-thought reasoning
 
-Switch with: \`/model deepseek-chat\` or \`/model deepseek-reasoner\`
+Switch with: \`/model <name>\` or use \`/models\` to pick interactively
 
 ## Slash Commands
 - \`/agent <name>\` — Load a custom agent

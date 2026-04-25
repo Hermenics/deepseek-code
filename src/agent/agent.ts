@@ -72,7 +72,7 @@ export class Agent {
   public mcpErrors: string[] = []
 
   public tokenCount = 0
-  public model: Model = 'deepseek-chat'
+  public model: Model = 'deepseek-v4-flash'
   public activeAgent: string | null = null
   public provider: ProviderConfig['provider'] = 'deepseek'
   public contextUsage = 0      // last known prompt token count
@@ -173,6 +173,21 @@ export class Agent {
       allowedTools: this.allowedTools,
       sessionApproved: [...this.sessionApprovedTools],
       modeTools: getToolsForMode(this.interactionMode),
+    }
+  }
+
+  // ── Available models (dynamic) ──────────────────────────────────────────────
+
+  async getAvailableModels(): Promise<string[]> {
+    try {
+      const res = await this.client.models.list({ signal: AbortSignal.timeout(10_000) })
+      const models: string[] = []
+      for await (const m of res) {
+        models.push(m.id)
+      }
+      return models
+    } catch {
+      return []
     }
   }
 
@@ -299,7 +314,7 @@ export class Agent {
 
   resetAgent() {
     this.systemPrompt = DEFAULT_SYSTEM_PROMPT
-    this.model = 'deepseek-chat'
+    this.model = 'deepseek-v4-flash'
     this.activeAgent = null
     this.allowedTools = null
     this.sessionApprovedTools = new Set()

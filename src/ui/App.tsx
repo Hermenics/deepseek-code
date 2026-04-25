@@ -76,6 +76,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
   const [showThemeSelector, setShowThemeSelector] = useState(false)
   const [showModelSelector, setShowModelSelector] = useState(false)
+  const [availableModels, setAvailableModels] = useState<string[]>([])
   const [showLanguageInput, setShowLanguageInput] = useState(false)
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   const [toolPermissionState, setToolPermissionState] = useState<ToolPermissionState | null>(null)
@@ -323,9 +324,14 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           agent.setModel(cmd.model)
           setMessages((m) => [...m, { role: 'assistant', content: `Model switched to ${cmd.model}` }])
           return
-        case 'models':
+        case 'models': {
+          setIsLoading(true)
+          const models = await agent.getAvailableModels()
+          setIsLoading(false)
+          setAvailableModels(models)
           setShowModelSelector(true)
           return
+        }
         case 'language':
           setShowLanguageInput(true)
           return
@@ -533,6 +539,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       ) : showModelSelector ? (
         <ModelSelector
           currentModel={agent.model}
+          models={availableModels}
           onSelect={(m) => {
             agent.setModel(m)
             setMessages((prev) => [...prev, { role: 'assistant', content: `Model switched to ${m}` }])

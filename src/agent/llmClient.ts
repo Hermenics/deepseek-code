@@ -52,6 +52,6 @@ export function defaultModel(provider: ProviderConfig['provider']): string {
     case 'bedrock': return 'anthropic.claude-3-5-sonnet-20241022-v2:0'
     case 'vertex':  return 'google/gemini-2.0-flash-001'
     case 'local':   return 'llama3'
-    default:        return 'deepseek-chat'
+    default:        return 'deepseek-v4-flash'
   }
 }

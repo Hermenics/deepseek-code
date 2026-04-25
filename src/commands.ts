@@ -1,4 +1,4 @@
-export type Model = 'deepseek-chat' | 'deepseek-reasoner'
+export type Model = string
 
 export type CommandResult =
   | { type: 'quit' }
@@ -26,7 +26,6 @@ export type CommandResult =
   | { type: 'permissions' }
   | { type: 'unknown'; input: string }
 
-const MODELS: Model[] = ['deepseek-chat', 'deepseek-reasoner']
 
 export function parseCommand(input: string): CommandResult | null {
   const trimmed = input.trim()
@@ -56,9 +55,9 @@ export function parseCommand(input: string): CommandResult | null {
       return { type: 'unknown', input: 'Usage: /agent <name>' }
     }
     case 'model': {
-      const m = args[0] as Model
-      if (m && MODELS.includes(m)) return { type: 'model', model: m }
-      return { type: 'unknown', input: `Usage: /model <${MODELS.join('|')}>` }
+      const m = args[0]
+      if (m) return { type: 'model', model: m }
+      return { type: 'unknown', input: 'Usage: /model <model-name>' }
     }
     case 'checkpoint': {
       const sub = args[0]

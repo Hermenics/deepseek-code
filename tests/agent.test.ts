@@ -23,7 +23,7 @@ describe('Agent class', () => {
   describe('constructor', () => {
     it('should create an agent with default config', () => {
       const agent = new Agent()
-      expect(agent.model).toBe('deepseek-chat')
+      expect(agent.model).toBe('deepseek-v4-flash')
       expect(agent.activeAgent).toBeNull()
       expect(agent.provider).toBe('deepseek')
     })
@@ -45,6 +45,24 @@ describe('Agent class', () => {
       const agent = new Agent()
       agent.setModel('deepseek-reasoner')
       expect(agent.contextLimit).toBe(128_000)
+    })
+
+    it('should accept arbitrary model string', () => {
+      const agent = new Agent()
+      agent.setModel('gpt-4-turbo')
+      expect(agent.model).toBe('gpt-4-turbo')
+    })
+
+    it('should use default context limit for unknown model', () => {
+      const agent = new Agent()
+      agent.setModel('some-unknown-model-xyz')
+      expect(agent.contextLimit).toBe(128_000)
+    })
+
+    it('should accept model with slash (provider/model format)', () => {
+      const agent = new Agent()
+      agent.setModel('google/gemini-2.0-flash-001')
+      expect(agent.model).toBe('google/gemini-2.0-flash-001')
     })
   })
 
@@ -176,7 +194,7 @@ describe('Agent class', () => {
       })
       agent.resetAgent()
       expect(agent.activeAgent).toBeNull()
-      expect(agent.model).toBe('deepseek-chat')
+      expect(agent.model).toBe('deepseek-v4-flash')
     })
   })
 
@@ -218,6 +236,28 @@ describe('Agent class', () => {
     it('should not throw when called without active request', () => {
       const agent = new Agent()
       expect(() => agent.abort()).not.toThrow()
+    })
+  })
+
+  describe('getAvailableModels', () => {
+    it('should return an array', async () => {
+      const agent = new Agent()
+      const models = await agent.getAvailableModels()
+      expect(models).toBeArray()
+    })
+
+    it('should return empty array on API failure', async () => {
+      const agent = new Agent({ provider: 'local', localBaseUrl: 'http://localhost:1' })
+      const models = await agent.getAvailableModels()
+      expect(models).toEqual([])
+    })
+
+    it('should return strings in the array', async () => {
+      const agent = new Agent()
+      const models = await agent.getAvailableModels()
+      for (const m of models) {
+        expect(typeof m).toBe('string')
+      }
     })
   })
 })

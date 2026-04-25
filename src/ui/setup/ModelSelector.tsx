@@ -2,48 +2,52 @@ import React, { useState } from 'react'
 import { Box, Text, useInput } from 'ink'
 import type { Model } from '../../commands.js'
 
-const MODELS: { value: Model; label: string; description: string }[] = [
-  {
-    value: 'deepseek-chat',
-    label: 'DeepSeek V3',
-    description: 'Fast, general purpose · 128K context',
-  },
-  {
-    value: 'deepseek-reasoner',
-    label: 'DeepSeek R1',
-    description: 'Chain-of-thought reasoning · best for complex problems',
-  },
-]
-
 interface Props {
   currentModel: Model
+  models: string[]
   onSelect(model: Model): void
   onCancel(): void
 }
 
-export function ModelSelector({ currentModel, onSelect, onCancel }: Props) {
-  const [idx, setIdx] = useState(() => Math.max(0, MODELS.findIndex((m) => m.value === currentModel)))
+export function ModelSelector({ currentModel, models, onSelect, onCancel }: Props) {
+  const [idx, setIdx] = useState(() => {
+    const i = models.indexOf(currentModel)
+    return i >= 0 ? i : 0
+  })
 
   useInput((_, key) => {
-    if (key.upArrow)   { setIdx((i) => (i - 1 + MODELS.length) % MODELS.length); return }
-    if (key.downArrow) { setIdx((i) => (i + 1) % MODELS.length); return }
-    if (key.return)    { onSelect(MODELS[idx]!.value); return }
+    if (models.length === 0) {
+      if (key.escape) { onCancel(); return }
+      return
+    }
+    if (key.upArrow)   { setIdx((i) => (i - 1 + models.length) % models.length); return }
+    if (key.downArrow) { setIdx((i) => (i + 1) % models.length); return }
+    if (key.return)    { onSelect(models[idx]!); return }
     if (key.escape)    { onCancel(); return }
   })
+
+  if (models.length === 0) {
+    return (
+      <Box flexDirection="column" marginTop={1}>
+        <Text dimColor>/models</Text>
+        <Box marginTop={1}>
+          <Text color="yellow">No models available from this provider.</Text>
+        </Box>
+        <Text dimColor>Esc to go back</Text>
+      </Box>
+    )
+  }
 
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text dimColor>/models</Text>
       <Box flexDirection="column" marginTop={1}>
-        {MODELS.map((m, i) => (
-          <Box key={m.value} gap={2}>
+        {models.map((m, i) => (
+          <Box key={m} gap={2}>
             <Text color={i === idx ? 'cyan' : undefined} bold={i === idx}>
-              {i === idx ? '❯ ' : '  '}{m.label}
+              {i === idx ? '❯ ' : '  '}{m}
             </Text>
-            <Text dimColor={i !== idx} color={i === idx ? 'cyan' : undefined}>
-              {m.description}
-            </Text>
-            {m.value === currentModel && <Text dimColor>[active]</Text>}
+            {m === currentModel && <Text dimColor>[active]</Text>}
           </Box>
         ))}
       </Box>

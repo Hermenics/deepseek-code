@@ -42,8 +42,8 @@ describe('createLLMClient', () => {
 })
 
 describe('defaultModel', () => {
-  it('deepseek retorna deepseek-chat', () => {
-    expect(defaultModel('deepseek')).toBe('deepseek-chat')
+  it('deepseek retorna deepseek-v4-flash', () => {
+    expect(defaultModel('deepseek')).toBe('deepseek-v4-flash')
   })
 
   it('bedrock retorna modelo claude', () => {
