@@ -11,6 +11,7 @@ import React, { useState, useEffect } from 'react'
 import { render, Box, Text } from 'ink'
 import { App } from './ui/App.js'
 import { ApiKeySetup, loadSavedConfig, saveConfig, type ThemeName, type ProviderConfig } from './ui/setup/ApiKeySetup.js'
+import { migrateConfigIfNeeded } from './utils/credentials.js'
 import { LanguageSetup } from './ui/setup/LanguageSetup.js'
 import { loadAgentConfig, type LoadedAgent } from './agent/config.js'
 import { loadSession, newSessionId, type SessionData } from './agent/session.js'
@@ -82,7 +83,7 @@ function Root() {
 
   useEffect(() => {
     const { agentName, initialMessage: msg, resumeId } = parseArgv()
-    loadSavedConfig().then(async ({ providerConfig: saved, theme: savedTheme, language: savedLanguage }) => {
+    migrateConfigIfNeeded().then(() => loadSavedConfig()).then(async ({ providerConfig: saved, theme: savedTheme, language: savedLanguage }) => {
       setTheme(savedTheme)
       if (saved) {
         setProviderConfig(saved)

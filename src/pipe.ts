@@ -5,6 +5,7 @@
  */
 import { Agent } from './agent/agent.js'
 import { loadSavedConfig } from './ui/setup/ApiKeySetup.js'
+import { migrateConfigIfNeeded } from './utils/credentials.js'
 import { setShellConfirmHandler } from './tools/Shell.js'
 
 async function readStdin(): Promise<string> {
@@ -16,6 +17,9 @@ async function readStdin(): Promise<string> {
 export default async function runPipe() {
   // Auto-confirm destructive commands in pipe mode (non-interactive)
   setShellConfirmHandler(async () => true)
+
+  // Migrate legacy config.json → .env + config.json split
+  await migrateConfigIfNeeded()
 
   // Load saved provider config (respects user's configured provider)
   const { providerConfig } = await loadSavedConfig()

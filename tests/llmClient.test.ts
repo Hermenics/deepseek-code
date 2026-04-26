@@ -20,9 +20,13 @@ describe('createLLMClient', () => {
   })
 
   it('vertex provider usa URL do aiplatform', () => {
-    const client = createLLMClient({ provider: 'vertex', gcpProject: 'my-project', gcpLocation: 'us-central1' })
+    const client = createLLMClient({ provider: 'vertex', gcpProject: 'my-project', gcpLocation: 'us-central1', gcpCredentials: '/tmp/sa.json' })
     expect((client as any).baseURL).toContain('aiplatform.googleapis.com')
     expect((client as any).baseURL).toContain('my-project')
+  })
+
+  it('vertex provider sem gcpCredentials lança erro', () => {
+    expect(() => createLLMClient({ provider: 'vertex', gcpProject: 'my-project' })).toThrow('GCP_CREDENTIALS')
   })
 
   it('local provider com URL sem scheme adiciona http://', () => {
@@ -46,12 +50,12 @@ describe('defaultModel', () => {
     expect(defaultModel('deepseek')).toBe('deepseek-v4-flash')
   })
 
-  it('bedrock retorna modelo claude', () => {
-    expect(defaultModel('bedrock')).toContain('claude')
+  it('bedrock retorna modelo deepseek', () => {
+    expect(defaultModel('bedrock')).toBe('deepseek.deepseek-r1-v1:0')
   })
 
-  it('vertex retorna modelo gemini', () => {
-    expect(defaultModel('vertex')).toContain('gemini')
+  it('vertex retorna modelo deepseek', () => {
+    expect(defaultModel('vertex')).toBe('deepseek-ai/deepseek-r1')
   })
 
   it('local retorna llama3', () => {

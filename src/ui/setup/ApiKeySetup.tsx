@@ -4,6 +4,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { mkdir } from 'fs/promises'
 import { readJson, writeRaw } from '../../utils/fs.js'
+import { saveFullConfig, loadFullConfig, migrateConfigIfNeeded } from '../../utils/credentials.js'
 import { WelcomeScreen } from '../layout/WelcomeScreen.js'
 
 const CONFIG_PATH = join(homedir(), '.deepseek', 'config.json')
@@ -18,8 +19,7 @@ export interface ProviderConfig {
   apiKey?: string
   // bedrock
   awsRegion?: string
-  awsAccessKeyId?: string
-  awsSecretAccessKey?: string
+  awsProfile?: string
   // vertex
   gcpProject?: string
   gcpLocation?: string
@@ -31,7 +31,7 @@ export interface ProviderConfig {
 
 export const PROVIDERS: { label: string; value: ProviderName; hint: string }[] = [
   { value: 'deepseek', label: 'DeepSeek API',          hint: 'platform.deepseek.com/api_keys' },
-  { value: 'bedrock',  label: 'Amazon Bedrock',         hint: 'AWS credentials (access key + secret)' },
+  { value: 'bedrock',  label: 'Amazon Bedrock',         hint: 'AWS profile from ~/.aws/credentials' },
   { value: 'vertex',   label: 'Google Vertex AI',       hint: 'GCP project + service account JSON' },
   { value: 'local',    label: 'Modelo local (Ollama / LM Studio)', hint: 'Any OpenAI-compatible endpoint' },
 ]
@@ -83,20 +83,20 @@ function DiffPreview({ theme }: { theme: ThemeName }) {
 export async function saveConfig(data: Record<string, string>): Promise<void> {
   const dir = join(homedir(), '.deepseek')
   await mkdir(dir, { recursive: true })
-  const existing = await readJson<Record<string, string>>(CONFIG_PATH).catch(() => ({}))
-  await writeRaw(CONFIG_PATH, JSON.stringify({ ...existing, ...data }, null, 2))
+  // Carrega config existente, merge com novos dados, salva split
+  const existing = await loadFullConfig().catch(() => ({}))
+  await saveFullConfig({ ...existing, ...data })
 }
 
 export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfig | null; theme: ThemeName; language: string | null }> {
   try {
-    const cfg = await readJson<Record<string, string>>(CONFIG_PATH)
+    const cfg = await loadFullConfig()
     const provider = (cfg.PROVIDER ?? 'deepseek') as ProviderName
     const providerConfig: ProviderConfig = { provider }
     if (provider === 'deepseek' && cfg.DEEPSEEK_API_KEY) providerConfig.apiKey = cfg.DEEPSEEK_API_KEY
     if (provider === 'bedrock') {
       providerConfig.awsRegion = cfg.AWS_REGION
-      providerConfig.awsAccessKeyId = cfg.AWS_ACCESS_KEY_ID
-      providerConfig.awsSecretAccessKey = cfg.AWS_SECRET_ACCESS_KEY
+      providerConfig.awsProfile = cfg.AWS_PROFILE
     }
     if (provider === 'vertex') {
       providerConfig.gcpProject = cfg.GCP_PROJECT
@@ -128,9 +128,8 @@ const PROVIDER_FIELDS: Record<ProviderName, { key: string; label: string; hint: 
     { key: 'DEEPSEEK_API_KEY', label: 'DeepSeek API Key', hint: 'platform.deepseek.com/api_keys', secret: true },
   ],
   bedrock: [
-    { key: 'AWS_REGION',            label: 'AWS Region',            hint: 'e.g. us-east-1' },
-    { key: 'AWS_ACCESS_KEY_ID',     label: 'AWS Access Key ID',     hint: 'IAM user with Bedrock access' },
-    { key: 'AWS_SECRET_ACCESS_KEY', label: 'AWS Secret Access Key', hint: '', secret: true },
+    { key: 'AWS_REGION',  label: 'AWS Region',       hint: 'e.g. us-east-1' },
+    { key: 'AWS_PROFILE', label: 'AWS Profile Name',  hint: 'from ~/.aws/credentials (default: default)' },
   ],
   vertex: [
     { key: 'GCP_PROJECT',     label: 'GCP Project ID', hint: 'your-project-id' },
@@ -213,8 +212,7 @@ export function ApiKeySetup({ onDone }: Props) {
                 provider: selectedProvider,
                 apiKey: updated['DEEPSEEK_API_KEY'],
                 awsRegion: updated['AWS_REGION'],
-                awsAccessKeyId: updated['AWS_ACCESS_KEY_ID'],
-                awsSecretAccessKey: updated['AWS_SECRET_ACCESS_KEY'],
+                awsProfile: updated['AWS_PROFILE'],
                 gcpProject: updated['GCP_PROJECT'],
                 gcpLocation: updated['GCP_LOCATION'],
                 gcpCredentials: updated['GCP_CREDENTIALS'],

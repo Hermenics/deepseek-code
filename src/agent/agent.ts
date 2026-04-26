@@ -93,9 +93,7 @@ export class Agent {
   }
 
   constructor(providerConfig?: ProviderConfig) {
-    this.client = providerConfig
-      ? createLLMClient(providerConfig)
-      : new OpenAI({ apiKey: process.env.DEEPSEEK_API_KEY, baseURL: 'https://api.deepseek.com' })
+    this.client = createLLMClient(providerConfig ?? { provider: 'deepseek' })
     if (providerConfig) {
       this.provider = providerConfig.provider
       this.model = (providerConfig.provider === 'local' && providerConfig.localModel
@@ -314,7 +312,7 @@ export class Agent {
 
   resetAgent() {
     this.systemPrompt = DEFAULT_SYSTEM_PROMPT
-    this.model = 'deepseek-v4-flash'
+    this.model = defaultModel(this.provider) as Model
     this.activeAgent = null
     this.allowedTools = null
     this.sessionApprovedTools = new Set()
