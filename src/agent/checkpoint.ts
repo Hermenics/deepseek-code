@@ -3,9 +3,9 @@ import { homedir } from 'os'
 import { mkdir, readdir, unlink } from 'fs/promises'
 import { readJson, writeJson } from '../utils/fs.js'
 import type { MessageOrBoundary } from './compactBoundary.js'
+import { CHECKPOINT_MAX } from '../constants.js'
 
 const DIR = join(homedir(), '.deepseek', 'checkpoints')
-const MAX = 20
 
 export interface Checkpoint {
   id: string
@@ -54,7 +54,7 @@ export async function loadCheckpoint(id: string): Promise<Checkpoint | null> {
 async function prune() {
   try {
     const files = (await readdir(DIR)).filter((f) => f.endsWith('.json')).sort()
-    for (const f of files.slice(0, Math.max(0, files.length - MAX))) {
+    for (const f of files.slice(0, Math.max(0, files.length - CHECKPOINT_MAX))) {
       await unlink(join(DIR, f)).catch(() => {})
     }
   } catch { /* ignore */ }

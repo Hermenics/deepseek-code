@@ -41,7 +41,7 @@ export async function loadMcpTools(): Promise<{ tools: Tool[]; errors: string[] 
 
   for (const [serverName, serverConfig] of Object.entries(config.servers)) {
     try {
-      const client = new Client({ name: 'deepseek-code', version: '0.1.0' })
+      const client = new Client({ name: 'deepseek-code', version: '0.4.4' })
 
       const transport = serverConfig.transport === 'stdio'
         ? new StdioClientTransport({
