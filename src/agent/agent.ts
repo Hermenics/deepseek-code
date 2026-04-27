@@ -70,6 +70,7 @@ export class Agent {
   private abortController: AbortController | null = null
   private readyPromise: Promise<void> = Promise.resolve()
   public mcpErrors: string[] = []
+  public initErrors: string[] = []
 
   public tokenCount = 0
   public model: Model = 'deepseek-v4-flash'
@@ -127,8 +128,9 @@ export class Agent {
         this.toolMap = new Map(this.tools.map((t) => [t.name, t]))
         this.openaiTools = toOpenAITools(this.tools)
       }
-    } catch {
+    } catch (e) {
       // Fall back to defaults — agent still works without steering/history
+      this.initErrors.push(`Init warning: ${(e as Error).message}`)
     }
   }
 

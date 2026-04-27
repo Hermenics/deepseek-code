@@ -3,6 +3,48 @@ import fg from 'fast-glob'
 import { GLOB_MAX_FILES } from '../constants.js'
 import { assertSafeDir, BLOCKED_GLOB_PATTERNS } from './pathSafety.js'
 
+// ── Glob ignore patterns — separated by category for clarity ──
+
+/** Heavy directories not already covered by BLOCKED_GLOB_PATTERNS */
+const GLOB_IGNORE_DIRS: string[] = [
+  '**/target/**',
+  '**/out/**',
+  '**/.cache/**',
+  '**/__pycache__/**',
+  '**/.ipynb_checkpoints/**',
+  '**/.vscode/**',
+  '**/.idea/**',
+  '**/.next/**',
+  '**/.nuxt/**',
+  '**/.svelte-kit/**',
+]
+
+/** Lockfiles, binaries, media, and other non-source files */
+const GLOB_IGNORE_FILES: string[] = [
+  '**/*.map',
+  '**/*.min.*',
+  '**/package-lock.json',
+  '**/yarn.lock',
+  '**/pnpm-lock.yaml',
+  '**/bun.lock',
+  '**/*.{mp4,mov,avi,flv}',
+  '**/*.{png,jpg,jpeg,gif,webp,ico,pdf}',
+  '**/*.svg',
+  '**/*.{zip,gz,tar,7z}',
+  '**/*.log',
+  '**/.env*',
+  '**/.DS_Store',
+]
+
+/** All glob ignore patterns, deduplicated via Set */
+export const GLOB_IGNORE_PATTERNS: string[] = [
+  ...new Set([
+    ...BLOCKED_GLOB_PATTERNS,
+    ...GLOB_IGNORE_DIRS,
+    ...GLOB_IGNORE_FILES,
+  ]),
+]
+
 export const Glob: Tool = {
   name: 'glob',
   description: 'Find files matching a glob pattern.',
@@ -20,36 +62,7 @@ export const Glob: Tool = {
 
     const files = await fg(args.pattern as string, {
       cwd,
-      ignore: [
-        '**/node_modules/**',
-        '**/.git/**',
-        '**/dist/**',
-        '**/build/**',
-        '**/target/**',
-        '**/out/**',
-        '**/*.map',
-        '**/*.min.*',
-        '**/.cache/**',
-        '**/__pycache__/**',
-        '**/.ipynb_checkpoints/**',
-        '**/package-lock.json',
-        '**/yarn.lock',
-        '**/pnpm-lock.yaml',
-        '**/*.{mp4,mov,avi,flv}',
-        '**/*.{png,jpg,jpeg,gif,webp,ico,pdf}',
-        '**/*.svg',
-        '**/*.{zip,gz,tar,7z}',
-        '**/*.log',
-        '**/.vscode/**',
-        '**/.idea/**',
-        '**/.env*',
-        '**/.DS_Store',
-        '**/bun.lock',
-        '**/.next/**',
-        '**/.nuxt/**',
-        '**/.svelte-kit/**',
-        ...BLOCKED_GLOB_PATTERNS,
-      ],
+      ignore: GLOB_IGNORE_PATTERNS,
       dot: true,
     })
     if (!files.length) return 'No matches'
