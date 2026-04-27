@@ -6,8 +6,8 @@ async function git(args: string[]): Promise<{ out: string; code: number }> {
     const result = await execa('git', args, { cwd: process.cwd(), reject: false })
     const out = (result.stdout + (result.stderr ? '\n' + result.stderr : '')).trim()
     return { out, code: result.exitCode ?? 0 }
-  } catch (err: any) {
-    return { out: err.message ?? String(err), code: 1 }
+  } catch (err: unknown) {
+    return { out: (err as Error).message ?? String(err), code: 1 }
   }
 }
 

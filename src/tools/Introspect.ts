@@ -39,7 +39,7 @@ DeepSeek Code supports subagents — independent mini-agents that can be spawned
 Subagents have:
 - Their own isolated context (no access to the parent's conversation history)
 - Access to all tools (filesystem, shell, grep, etc.) except \`subagent\` itself (no recursion)
-- A limit of 10 iterations per task
+- A limit of 15 iterations per task
 
 Example use cases:
 - Analyzing a large codebase section

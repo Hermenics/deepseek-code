@@ -4,6 +4,7 @@ import { join } from 'path'
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
 import type { ProviderConfig } from '../ui/setup/ApiKeySetup.js'
 import { createLLMClient, defaultModel } from '../agent/llmClient.js'
+import { SUBAGENT_MAX_ITERATIONS } from '../constants.js'
 
 // Provider config inherited from the parent Agent
 let subAgentProvider: ProviderConfig = { provider: 'deepseek' }
@@ -74,7 +75,7 @@ export const SubAgent: Tool = {
       { role: 'user', content: task },
     ]
 
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < SUBAGENT_MAX_ITERATIONS; i++) {
       const response = await client.chat.completions.create({
         model,
         messages,
