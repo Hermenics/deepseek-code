@@ -1,6 +1,6 @@
 import { homedir } from 'os'
 import { join, dirname } from 'path'
-import { chmod, mkdir } from 'fs/promises'
+import { chmod, mkdir, readFile } from 'fs/promises'
 import { readJson, writeRaw } from './fs'
 
 // ─── Paths ──────────────────────────────────────────────────────
@@ -26,8 +26,7 @@ const LEGACY_KEYS = new Set([
 
 export async function loadEnvFile(envPath: string = ENV_PATH): Promise<Record<string, string>> {
   try {
-    const file = Bun.file(envPath)
-    const text = await file.text()
+    const text = await readFile(envPath, 'utf-8')
     const result: Record<string, string> = {}
 
     for (const line of text.split('\n')) {
