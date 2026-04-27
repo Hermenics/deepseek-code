@@ -23,7 +23,17 @@ export const ReadFile: Tool = {
   async execute(args) {
     const filePath = args.path as string
     await assertSafePath(filePath)
-    const content = await fs.readFile(filePath, 'utf-8')
+
+    let content: string
+    try {
+      content = await fs.readFile(filePath, 'utf-8')
+    } catch (err) {
+      const e = err as NodeJS.ErrnoException
+      if (e.code === 'ENOENT') return `Error: file not found: ${filePath}`
+      if (e.code === 'EACCES') return `Error: permission denied: ${filePath}`
+      return `Error: could not read ${filePath}: ${e.message}`
+    }
+
     const lines = content.split('\n')
     const total = lines.length
 

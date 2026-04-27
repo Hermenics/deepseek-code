@@ -4,19 +4,52 @@ import * as path from 'path'
 import { assertSafeDir, BLOCKED_DIRS } from './pathSafety.js'
 
 const EXCLUDE = new Set([...BLOCKED_DIRS, '.cache'])
+const MAX_ENTRIES = 1000
+const DEFAULT_MAX_DEPTH = 5
 
-async function listDir(dir: string, recursive: boolean, prefix = ''): Promise<string[]> {
-  const entries = await fs.readdir(dir, { withFileTypes: true })
-  const results: string[] = []
+interface ListDirState {
+  results: string[]
+  truncated: boolean
+}
+
+async function listDir(
+  dir: string,
+  recursive: boolean,
+  prefix: string,
+  depth: number,
+  state: ListDirState,
+): Promise<void> {
+  if (state.truncated) return
+
+  let entries
+  try {
+    entries = await fs.readdir(dir, { withFileTypes: true })
+  } catch (e) {
+    // Gracefully handle permission errors — skip unreadable dirs
+    const code = (e as NodeJS.ErrnoException).code
+    if (code === 'EACCES' || code === 'EPERM') {
+      state.results.push(prefix ? `${prefix}/ [permission denied]` : '[permission denied]')
+      return
+    }
+    throw e
+  }
+
   for (const e of entries) {
+    if (state.truncated) return
     if (EXCLUDE.has(e.name)) continue
+
     const rel = prefix ? `${prefix}/${e.name}` : e.name
-    results.push(e.isDirectory() ? `${rel}/` : rel)
-    if (e.isDirectory() && recursive) {
-      results.push(...(await listDir(path.join(dir, e.name), true, rel)))
+    state.results.push(e.isDirectory() ? `${rel}/` : rel)
+
+    if (state.results.length >= MAX_ENTRIES) {
+      state.truncated = true
+      return
+    }
+
+    if (e.isDirectory() && recursive && depth > 0) {
+      await listDir(path.join(dir, e.name), true, rel, depth - 1, state)
     }
   }
-  return results
 }
 
 export const ReadFolder: Tool = {
@@ -33,7 +66,14 @@ export const ReadFolder: Tool = {
   async execute(args) {
     const dirPath = args.path as string
     await assertSafeDir(dirPath)
-    const items = await listDir(dirPath, !!args.recursive)
-    return items.join('\n') || '(empty directory)'
+
+    const state: ListDirState = { results: [], truncated: false }
+    await listDir(dirPath, !!args.recursive, '', DEFAULT_MAX_DEPTH, state)
+
+    if (state.truncated) {
+      return state.results.join('\n') + `\n\n[Truncated: exceeded ${MAX_ENTRIES} entries. Use a more specific path.]`
+    }
+
+    return state.results.join('\n') || '(empty directory)'
   },
 }
