@@ -99,7 +99,7 @@ describe('vertex provider', () => {
 
     it('lança erro se getAccessToken retorna token nulo', async () => {
       mockGetAccessToken.mockImplementation(() =>
-        Promise.resolve({ token: null }),
+        Promise.resolve({ token: null as unknown as string }),
       )
 
       expect(getVertexAccessToken('/path/to/sa.json')).rejects.toThrow(

@@ -166,7 +166,7 @@ describe('reasoning_content', () => {
       // Assert — a mensagem assistant do primeiro turno DEVE ter reasoning_content
       const messages = agent.getMessages()
       const assistantWithToolCall = messages.find(
-        (m) => m.role === 'assistant' && (m as Record<string, unknown>).tool_calls
+        (m) => m.role === 'assistant' && (m as unknown as Record<string, unknown>).tool_calls
       ) as AssistantMessageWithReasoning | undefined
 
       expect(assistantWithToolCall).toBeDefined()

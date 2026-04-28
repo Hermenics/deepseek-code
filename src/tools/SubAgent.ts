@@ -93,7 +93,7 @@ export const SubAgent: Tool = {
         content: msg.content ?? null,
         tool_calls: msg.tool_calls,
       }
-      const msgReasoning = (msg as Record<string, unknown>).reasoning_content
+      const msgReasoning = (msg as unknown as Record<string, unknown>).reasoning_content
       if (typeof msgReasoning === 'string' && msgReasoning) assistantMsg.reasoning_content = msgReasoning
       messages.push(assistantMsg)
 

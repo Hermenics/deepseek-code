@@ -1,6 +1,6 @@
 import { homedir } from 'os'
 import { join, dirname } from 'path'
-import { chmod, mkdir, readFile } from 'fs/promises'
+import { chmod, mkdir, readFile, rm } from 'fs/promises'
 import { readJson, writeRaw } from './fs'
 
 // ─── Paths ──────────────────────────────────────────────────────
@@ -136,4 +136,24 @@ export async function migrateConfigIfNeeded(
   // Escrever .env primeiro, depois config.json
   await saveEnvFile(envPath, mergedEnv)
   await writeRaw(configPath, JSON.stringify(config, null, 2))
+}
+
+// ─── Logout ─────────────────────────────────────────────────────
+
+export async function logout(
+  configPath: string = CONFIG_PATH,
+  envPath: string = ENV_PATH,
+): Promise<string[]> {
+  const deleted: string[] = []
+
+  for (const filePath of [configPath, envPath]) {
+    try {
+      await rm(filePath)
+      deleted.push(filePath)
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+    }
+  }
+
+  return deleted
 }

@@ -11,14 +11,14 @@ import React, { useState, useEffect } from 'react'
 import { render, Box, Text } from 'ink'
 import { App } from './ui/App.js'
 import { ApiKeySetup, loadSavedConfig, saveConfig, type ThemeName, type ProviderConfig } from './ui/setup/ApiKeySetup.js'
-import { migrateConfigIfNeeded } from './utils/credentials.js'
+import { migrateConfigIfNeeded, logout as doLogout } from './utils/credentials.js'
 import { LanguageSetup } from './ui/setup/LanguageSetup.js'
 import { loadAgentConfig, type LoadedAgent } from './agent/config.js'
 import { loadSession, newSessionId, type SessionData } from './agent/session.js'
 import pkg from '../package.json' with { type: 'json' }
 
 // ── deepseek update ───────────────────────────────────────────────────────────
-const { update } = parseArgv()
+const { update, logout } = parseArgv()
 if (update) {
   const name = pkg.name
   const current = pkg.version
@@ -46,6 +46,18 @@ if (update) {
   process.exit(0)
 }
 
+// ── deepseek logout ──────────────────────────────────────────────────────────
+if (logout) {
+  const deleted = await doLogout()
+  if (deleted.length > 0) {
+    process.stdout.write(`Logged out. Deleted:\n`)
+    for (const f of deleted) process.stdout.write(`  ${f}\n`)
+  } else {
+    process.stdout.write(`Already logged out (no credentials found).\n`)
+  }
+  process.exit(0)
+}
+
 // Parse argv:
 //   deepseek                          → {}
 //   deepseek "msg"                    → { initialMessage: "msg" }
@@ -53,19 +65,23 @@ if (update) {
 //   deepseek agent <name> "msg"       → { agentName: "name", initialMessage: "msg" }
 //   deepseek --resume <id>            → { resumeId: "id" }
 //   deepseek update                   → check and install latest version
-function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; update: boolean } {
+//   deepseek logout                   → remove saved credentials and exit
+function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; update: boolean; logout: boolean } {
   const args = process.argv.slice(2).filter((a) => a !== '--pipe')
   if (args[0] === 'update') {
-    return { agentName: null, initialMessage: null, resumeId: null, update: true }
+    return { agentName: null, initialMessage: null, resumeId: null, update: true, logout: false }
+  }
+  if (args[0] === 'logout') {
+    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: true }
   }
   const resumeIdx = args.indexOf('--resume')
   if (resumeIdx !== -1) {
-    return { agentName: null, initialMessage: null, resumeId: args[resumeIdx + 1] ?? null, update: false }
+    return { agentName: null, initialMessage: null, resumeId: args[resumeIdx + 1] ?? null, update: false, logout: false }
   }
   if (args[0] === 'agent') {
-    return { agentName: args[1] ?? null, initialMessage: args[2] ?? null, resumeId: null, update: false }
+    return { agentName: args[1] ?? null, initialMessage: args[2] ?? null, resumeId: null, update: false, logout: false }
   }
-  return { agentName: null, initialMessage: args[0] ?? null, resumeId: null, update: false }
+  return { agentName: null, initialMessage: args[0] ?? null, resumeId: null, update: false, logout: false }
 }
 
 const SESSION_ID = newSessionId()
