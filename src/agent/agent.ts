@@ -22,6 +22,9 @@ import { UNDO_STACK_MAX, CONTEXT_COMPACT_THRESHOLD } from '../constants.js'
 import { auditLog } from './auditLog.js'
 import { canUseTool, DEFAULT_MODE, getToolsForMode, type InteractionMode } from '../ui/interactionMode.js'
 
+/** Workaround: OpenAI SDK não tipou reasoning_content ainda (campo exclusivo do deepseek-reasoner) */
+type AssistantMessageWithReasoning = ChatCompletionMessageParam & { reasoning_content?: string }
+
 class DenyAbortError extends Error {
   constructor() { super('deny-abort') }
 }
@@ -408,6 +411,7 @@ export class Agent {
       }
 
       let assistantText = ''
+      let reasoningText = ''
       const toolCalls: Map<number, { id: string; name: string; args: string }> = new Map()
 
       try {
@@ -423,6 +427,12 @@ export class Agent {
 
           const delta = chunk.choices[0]?.delta
           if (!delta) continue
+
+          // Cast necessário: OpenAI SDK não tipou reasoning_content no delta (campo exclusivo do deepseek-reasoner)
+          const deltaReasoning = (delta as Record<string, unknown>).reasoning_content
+          if (typeof deltaReasoning === 'string' && deltaReasoning) {
+            reasoningText += deltaReasoning
+          }
 
           if (delta.content) {
             assistantText += delta.content
@@ -444,7 +454,11 @@ export class Agent {
         }
       } catch (e: unknown) {
         if (this.abortController?.signal.aborted) {
-          if (assistantText) this.messages.push({ role: 'assistant', content: assistantText })
+          if (assistantText || reasoningText) {
+            const abortMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText || null }
+            if (reasoningText) abortMsg.reasoning_content = reasoningText
+            this.messages.push(abortMsg)
+          }
           await saveHistory(this.messages)
           cb.onDone()
           return
@@ -453,7 +467,9 @@ export class Agent {
       }
 
       if (toolCalls.size === 0) {
-        this.messages.push({ role: 'assistant', content: assistantText })
+        const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText }
+        if (reasoningText) finalMsg.reasoning_content = reasoningText
+        this.messages.push(finalMsg)
         await saveHistory(this.messages)
         cb.onDone()
         return
@@ -464,7 +480,13 @@ export class Agent {
         type: 'function' as const,
         function: { name: tc.name, arguments: tc.args },
       }))
-      this.messages.push({ role: 'assistant', content: assistantText || null, tool_calls: tcArray })
+      const assistantMsg: AssistantMessageWithReasoning = {
+        role: 'assistant',
+        content: assistantText || null,
+        tool_calls: tcArray,
+      }
+      if (reasoningText) assistantMsg.reasoning_content = reasoningText
+      this.messages.push(assistantMsg)
 
       // ── Parse all args first ───────────────────────────────────────────────
       const parsedList = tcArray.map((tc) => {

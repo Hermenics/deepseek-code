@@ -88,7 +88,14 @@ export const SubAgent: Tool = {
         return msg.content ?? '(no output)'
       }
 
-      messages.push({ role: 'assistant', content: msg.content ?? null, tool_calls: msg.tool_calls })
+      const assistantMsg: ChatCompletionMessageParam & { reasoning_content?: string } = {
+        role: 'assistant',
+        content: msg.content ?? null,
+        tool_calls: msg.tool_calls,
+      }
+      const msgReasoning = (msg as Record<string, unknown>).reasoning_content
+      if (typeof msgReasoning === 'string' && msgReasoning) assistantMsg.reasoning_content = msgReasoning
+      messages.push(assistantMsg)
 
       for (const tc of msg.tool_calls) {
         let parsedArgs: Record<string, unknown> = {}
