@@ -81,6 +81,38 @@ export function createVertexFetch(
 }
 
 /**
+ * Lista apenas os modelos DeepSeek disponíveis no Vertex AI do projeto.
+ * Usa a API REST do Model Garden filtrando por "deepseek" no nome.
+ */
+export async function listVertexDeepSeekModels(
+  project: string,
+  location: string,
+  credentialsPath: string,
+): Promise<string[]> {
+  try {
+    const token = await getVertexAccessToken(credentialsPath)
+    const url = `https://${location}-aiplatform.googleapis.com/v1/publishers/deepseek-ai/models`
+    const res = await globalThis.fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    if (!res.ok) return []
+    const data = await res.json() as { publisherModels?: { name?: string }[] }
+    return (data.publisherModels ?? [])
+      .map((m) => {
+        // name é algo como "publishers/deepseek-ai/models/deepseek-r1"
+        // O ID que o endpoint OpenAI do Vertex espera é "deepseek-ai/deepseek-r1"
+        const parts = m.name?.split('/') ?? []
+        if (parts.length >= 4) return `${parts[1]}/${parts[3]}`
+        return m.name ?? ''
+      })
+      .filter(Boolean)
+      .sort()
+  } catch {
+    return []
+  }
+}
+
+/**
  * Limpa o cache de token (útil para testes e rotação forçada).
  */
 export function clearTokenCache(): void {

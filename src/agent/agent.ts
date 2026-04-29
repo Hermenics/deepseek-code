@@ -13,6 +13,8 @@ import type { Tool } from '../tools/types.js'
 import { resolveAgentFiles } from './files.js'
 import { loadSteering } from './steering.js'
 import { createLLMClient, defaultModel } from './llmClient.js'
+import { listBedrockDeepSeekModels } from './providers/bedrock.js'
+import { listVertexDeepSeekModels } from './providers/vertex.js'
 import { saveHistory } from './history.js'
 import { saveCheckpoint, listCheckpoints, loadCheckpoint } from './checkpoint.js'
 import { createBoundaryMarker, getMessagesAfterBoundary, isBoundaryMarker, type MessageOrBoundary } from './compactBoundary.js'
@@ -79,6 +81,7 @@ export class Agent {
   public model: Model = 'deepseek-v4-flash'
   public activeAgent: string | null = null
   public provider: ProviderConfig['provider'] = 'deepseek'
+  private providerConfig: ProviderConfig = { provider: 'deepseek' }
   public contextUsage = 0      // last known prompt token count
   public contextLimit = 128_000
   private confirmHandler: ((message: string) => Promise<boolean>) | null = null
@@ -100,6 +103,7 @@ export class Agent {
     this.client = createLLMClient(providerConfig ?? { provider: 'deepseek' })
     if (providerConfig) {
       this.provider = providerConfig.provider
+      this.providerConfig = providerConfig
       this.model = (providerConfig.provider === 'local' && providerConfig.localModel
         ? providerConfig.localModel
         : defaultModel(providerConfig.provider)) as Model
@@ -182,6 +186,22 @@ export class Agent {
   // ── Available models (dynamic) ──────────────────────────────────────────────
 
   async getAvailableModels(): Promise<string[]> {
+    // Bedrock e Vertex: lista apenas modelos DeepSeek via SDK/API nativa
+    // (o endpoint /v1/models do OpenAI-compat não funciona nesses providers)
+    if (this.provider === 'bedrock') {
+      const region  = this.providerConfig.awsRegion  ?? 'us-east-1'
+      const profile = this.providerConfig.awsProfile ?? 'default'
+      return listBedrockDeepSeekModels(region, profile)
+    }
+
+    if (this.provider === 'vertex') {
+      const project     = this.providerConfig.gcpProject     ?? ''
+      const location    = this.providerConfig.gcpLocation    ?? 'us-central1'
+      const credentials = this.providerConfig.gcpCredentials ?? ''
+      return listVertexDeepSeekModels(project, location, credentials)
+    }
+
+    // DeepSeek nativo e local: usa o endpoint /v1/models padrão
     try {
       const res = await this.client.models.list({ signal: AbortSignal.timeout(10_000) })
       const models: string[] = []

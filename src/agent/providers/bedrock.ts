@@ -2,6 +2,29 @@ import { fromIni } from '@aws-sdk/credential-providers'
 import { SignatureV4 } from '@smithy/signature-v4'
 import { HttpRequest } from '@smithy/protocol-http'
 import { Sha256 } from '@aws-crypto/sha256-js'
+import { BedrockClient, ListFoundationModelsCommand } from '@aws-sdk/client-bedrock'
+
+/**
+ * Lista apenas os modelos DeepSeek disponíveis no Bedrock da conta/região.
+ * Filtra por "deepseek" no modelId para manter consistência com o propósito do app.
+ */
+export async function listBedrockDeepSeekModels(region: string, profile: string): Promise<string[]> {
+  const client = new BedrockClient({
+    region,
+    credentials: fromIni({ profile }),
+  })
+
+  try {
+    const response = await client.send(new ListFoundationModelsCommand({}))
+    const models = response.modelSummaries ?? []
+    return models
+      .map((m) => m.modelId ?? '')
+      .filter((id) => id.toLowerCase().includes('deepseek'))
+      .sort()
+  } catch {
+    return []
+  }
+}
 
 /**
  * Cria um fetch wrapper que assina requests com AWS SigV4.
