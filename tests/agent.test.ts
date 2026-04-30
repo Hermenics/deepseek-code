@@ -2,6 +2,31 @@ import { describe, it, expect, mock, beforeEach, afterEach, beforeAll } from 'bu
 import { Agent } from '../src/agent/agent.js'
 import type { AgentCallbacks, ToolPermissionResult } from '../src/agent/agent.js'
 
+// Helper: injeta um client mockado no Agent via cast (mesmo padrão de reasoning.test.ts)
+function injectMockClient(agent: Agent, clientMock: object) {
+  ;(agent as unknown as Record<string, unknown>).client = clientMock
+}
+
+// Helper: resolve o readyPromise para não aguardar inicialização assíncrona real
+function resolveReady(agent: Agent) {
+  ;(agent as unknown as Record<string, unknown>).readyPromise = Promise.resolve()
+}
+
+// Helper: cria um async iterable a partir de chunks
+async function* makeStream(chunks: object[]) {
+  for (const chunk of chunks) {
+    yield chunk
+  }
+}
+
+// Helper: cria um async iterable que lança erro após alguns chunks
+async function* makeErrorStream(chunks: object[], error: Error) {
+  for (const chunk of chunks) {
+    yield chunk
+  }
+  throw error
+}
+
 // Agent requires an API key to instantiate the OpenAI client
 beforeAll(() => {
   process.env.DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || 'test-key-for-unit-tests'
@@ -258,6 +283,189 @@ describe('Agent class', () => {
       for (const m of models) {
         expect(typeof m).toBe('string')
       }
+    })
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Testes de propagação de erro do Agent.run()
+// Contexto: erros da API (401, 503, stream quebrado) devem propagar via rejeição
+// da promise retornada por run(). O bug reportado está na UI que não captura
+// esses erros — aqui confirmamos que o Agent já os propaga corretamente.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('Agent error propagation', () => {
+  // Callbacks com mocks rastreáveis para verificar que onDone NÃO é chamado em erro
+  function makeTrackedCallbacks() {
+    return {
+      onToken: mock((_text: string) => {}),
+      onToolCall: mock((_name: string) => {}),
+      onToolResult: mock((_name: string, _result: string) => {}),
+      onDone: mock(() => {}),
+    }
+  }
+
+  describe('run(): erros da API devem propagar', () => {
+    it('should reject with API error and NOT call onDone when create throws 401', async () => {
+      // Arrange
+      const agent = new Agent()
+      resolveReady(agent)
+
+      const apiError = new Error('401 Unauthorized')
+      ;(apiError as unknown as Record<string, unknown>).status = 401
+
+      injectMockClient(agent, {
+        chat: {
+          completions: {
+            create: mock(() => { throw apiError }),
+          },
+        },
+        models: {
+          list: mock(async () => ({ [Symbol.asyncIterator]: async function* () {} })),
+        },
+      })
+
+      const cb = makeTrackedCallbacks()
+
+      // Act + Assert
+      await expect(agent.run('hello', cb)).rejects.toThrow('401 Unauthorized')
+      expect(cb.onDone).not.toHaveBeenCalled()
+    })
+
+    it('should reject with API error and NOT call onDone when create throws generic auth error', async () => {
+      // Arrange
+      const agent = new Agent()
+      resolveReady(agent)
+
+      const authError = new Error('Authentication failed: invalid API key')
+
+      injectMockClient(agent, {
+        chat: {
+          completions: {
+            create: mock(() => { throw authError }),
+          },
+        },
+        models: {
+          list: mock(async () => ({ [Symbol.asyncIterator]: async function* () {} })),
+        },
+      })
+
+      const cb = makeTrackedCallbacks()
+
+      // Act + Assert
+      await expect(agent.run('hello', cb)).rejects.toThrow('Authentication failed')
+      expect(cb.onDone).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('run(): erros de rede após retries esgotados devem propagar', () => {
+    it('should reject after retries are exhausted when create throws 503', async () => {
+      // Arrange
+      const agent = new Agent()
+      resolveReady(agent)
+
+      const networkError = new Error('Service Unavailable')
+      ;(networkError as unknown as Record<string, unknown>).status = 503
+
+      // withRetry tenta 4 vezes (attempt 0..3) para status 503 — o mock sempre falha
+      const createMock = mock(() => { throw networkError })
+
+      injectMockClient(agent, {
+        chat: {
+          completions: {
+            // Substitui os delays de retry para o teste não demorar
+            create: createMock,
+          },
+        },
+        models: {
+          list: mock(async () => ({ [Symbol.asyncIterator]: async function* () {} })),
+        },
+      })
+
+      // Substitui os delays do withRetry por zero para o teste ser rápido
+      ;(agent as unknown as Record<string, unknown>).withRetry = async (fn: () => Promise<unknown>) => {
+        const delays = [0, 0, 0]
+        for (let attempt = 0; attempt <= delays.length; attempt++) {
+          try {
+            return await fn()
+          } catch (e: unknown) {
+            const err = e as { status?: number }
+            if ((err.status === 503) && attempt < delays.length) continue
+            throw e
+          }
+        }
+        throw new Error('unreachable')
+      }
+
+      const cb = makeTrackedCallbacks()
+
+      // Act + Assert — deve rejeitar após esgotar retries
+      await expect(agent.run('hello', cb)).rejects.toThrow('Service Unavailable')
+      expect(cb.onDone).not.toHaveBeenCalled()
+      // Confirma que tentou múltiplas vezes (4 tentativas: attempt 0, 1, 2, 3)
+      expect(createMock).toHaveBeenCalledTimes(4)
+    }, 10_000)
+  })
+
+  describe('run(): erros no meio do stream devem propagar', () => {
+    it('should reject when stream throws mid-iteration', async () => {
+      // Arrange
+      const agent = new Agent()
+      resolveReady(agent)
+
+      const streamError = new Error('Stream connection reset')
+
+      // Stream emite um chunk válido e depois lança erro
+      const brokenStream = makeErrorStream(
+        [
+          { choices: [{ delta: { content: 'Olá' } }] },
+        ],
+        streamError,
+      )
+
+      injectMockClient(agent, {
+        chat: {
+          completions: {
+            create: mock(() => brokenStream),
+          },
+        },
+        models: {
+          list: mock(async () => ({ [Symbol.asyncIterator]: async function* () {} })),
+        },
+      })
+
+      const cb = makeTrackedCallbacks()
+
+      // Act + Assert
+      await expect(agent.run('hello', cb)).rejects.toThrow('Stream connection reset')
+      expect(cb.onDone).not.toHaveBeenCalled()
+    })
+
+    it('should reject when stream throws immediately without any chunks', async () => {
+      // Arrange
+      const agent = new Agent()
+      resolveReady(agent)
+
+      const streamError = new Error('Connection refused')
+
+      const emptyBrokenStream = makeErrorStream([], streamError)
+
+      injectMockClient(agent, {
+        chat: {
+          completions: {
+            create: mock(() => emptyBrokenStream),
+          },
+        },
+        models: {
+          list: mock(async () => ({ [Symbol.asyncIterator]: async function* () {} })),
+        },
+      })
+
+      const cb = makeTrackedCallbacks()
+
+      // Act + Assert
+      await expect(agent.run('hello', cb)).rejects.toThrow('Connection refused')
+      expect(cb.onDone).not.toHaveBeenCalled()
     })
   })
 })

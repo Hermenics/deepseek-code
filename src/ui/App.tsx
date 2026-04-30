@@ -19,6 +19,7 @@ import { loadAgentConfig, listAgents, type LoadedAgent } from '../agent/config.j
 import { appendInputHistory } from '../agent/inputHistory.js'
 import type { ThemeName, ProviderConfig } from './setup/ApiKeySetup.js'
 import { saveConfig } from './setup/ApiKeySetup.js'
+import { formatChatError } from '../utils/chatError.js'
 import { saveSession, type SessionData } from '../agent/session.js'
 import { DEFAULT_MODE, nextMode, isAutoAccept, type InteractionMode } from './interactionMode.js'
 
@@ -212,82 +213,95 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       }
     }, 50)
 
-    await agent.run(prompt, {
-      onPhaseChange(phase) { setAgentPhase(phase) },
-      onToken(token) { tokenBuffer += token },
-      onToolCall(name, args) {
-        clearInterval(flushInterval)
-        // Commit any pending stream text before switching to tool display
-        const pending = (streamTextAccum + tokenBuffer).trim()
-        tokenBuffer = ''
-        streamTextAccum = ''
-        setStreamText('')
-        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
-        setToolCallCount((c) => c + 1)
-        setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
-      },
-      onToolResult(name, result, args) {
-        setToolStatus(null)
-        if (name === 'write_file') {
-          setMessages((m) => [...m, { role: 'tool', content: `✓ write_file → ${result}` }])
-        } else if (name === 'subagent') {
-          setMessages((m) => [...m, { role: 'tool', content: `✓ subagent → ${result}` }])
-        } else {
-          const argLabel = args?.path ?? args?.pattern ?? args?.command ?? ''
-          const payload = JSON.stringify({ arg: argLabel ? String(argLabel) : '', output: result ?? '' })
-          setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${payload}` }])
-        }
-      },
-      onDone() {
-        clearInterval(flushInterval)
-        const pending = (streamTextAccum + tokenBuffer).trim()
-        tokenBuffer = ''
-        streamTextAccum = ''
-        setToolStatus(null)
-        // Clear stream BEFORE committing to Static — prevents 1-frame duplication
-        setStreamText('')
-        if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
-        setIsLoading(false)
-        setAgentPhase('idle')
-        setTokenCount(agent.tokenCount)
-        // Process queued messages — setTimeout avoids re-entrant setState loop
-        setQueuedMessages((q) => {
-          if (q.length === 0) return q
-          const [first, ...rest] = q
-          setTimeout(() => handleSubmit(first!), 0)
-          return rest
-        })
-        const pct = agent.contextLimit > 0 ? Math.round((agent.contextUsage / agent.contextLimit) * 100) : 0
-        setContextPct(pct)
-        if (sessionId) {
-          setTimeout(() => {
-            setMessages((current) => {
-              saveSession({
-                id: sessionId,
-                createdAt: initialSession?.createdAt ?? new Date().toISOString(),
-                updatedAt: new Date().toISOString(),
-                cwd: process.cwd(),
-                model: agent.model,
-                provider: agent.provider,
-                language: language ?? null,
-                activeAgent: agent.activeAgent,
-                agentMessages: agent.getRawMessages(),
-                uiMessages: current,
-                filesModified: agent.getFilesModified(),
+    try {
+      await agent.run(prompt, {
+        onPhaseChange(phase) { setAgentPhase(phase) },
+        onToken(token) { tokenBuffer += token },
+        onToolCall(name, args) {
+          clearInterval(flushInterval)
+          // Commit any pending stream text before switching to tool display
+          const pending = (streamTextAccum + tokenBuffer).trim()
+          tokenBuffer = ''
+          streamTextAccum = ''
+          setStreamText('')
+          if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
+          setToolCallCount((c) => c + 1)
+          setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
+        },
+        onToolResult(name, result, args) {
+          setToolStatus(null)
+          if (name === 'write_file') {
+            setMessages((m) => [...m, { role: 'tool', content: `✓ write_file → ${result}` }])
+          } else if (name === 'subagent') {
+            setMessages((m) => [...m, { role: 'tool', content: `✓ subagent → ${result}` }])
+          } else {
+            const argLabel = args?.path ?? args?.pattern ?? args?.command ?? ''
+            const payload = JSON.stringify({ arg: argLabel ? String(argLabel) : '', output: result ?? '' })
+            setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${payload}` }])
+          }
+        },
+        onDone() {
+          clearInterval(flushInterval)
+          const pending = (streamTextAccum + tokenBuffer).trim()
+          tokenBuffer = ''
+          streamTextAccum = ''
+          setToolStatus(null)
+          // Clear stream BEFORE committing to Static — prevents 1-frame duplication
+          setStreamText('')
+          if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
+          setIsLoading(false)
+          setAgentPhase('idle')
+          setTokenCount(agent.tokenCount)
+          // Process queued messages — setTimeout avoids re-entrant setState loop
+          setQueuedMessages((q) => {
+            if (q.length === 0) return q
+            const [first, ...rest] = q
+            setTimeout(() => handleSubmit(first!), 0)
+            return rest
+          })
+          const pct = agent.contextLimit > 0 ? Math.round((agent.contextUsage / agent.contextLimit) * 100) : 0
+          setContextPct(pct)
+          if (sessionId) {
+            setTimeout(() => {
+              setMessages((current) => {
+                saveSession({
+                  id: sessionId,
+                  createdAt: initialSession?.createdAt ?? new Date().toISOString(),
+                  updatedAt: new Date().toISOString(),
+                  cwd: process.cwd(),
+                  model: agent.model,
+                  provider: agent.provider,
+                  language: language ?? null,
+                  activeAgent: agent.activeAgent,
+                  agentMessages: agent.getRawMessages(),
+                  uiMessages: current,
+                  filesModified: agent.getFilesModified(),
+                })
+                return current
               })
-              return current
-            })
-          }, 100)
-        }
-      },
-      onDenyAbort() {
-        setMessages((m) => [...m, { role: 'assistant', content: '⛔ Execution aborted by user.' }])
-      },
-      onAutoCompact(summary) {
-        setMessages((m) => [...m, { role: 'assistant', content: `⚡ Context compacted automatically.\n\n${summary}` }])
-      },
-    })
-  }, [agent, sessionId, language, initialSession])
+            }, 100)
+          }
+        },
+        onDenyAbort() {
+          setMessages((m) => [...m, { role: 'assistant', content: '⛔ Execution aborted by user.' }])
+        },
+        onAutoCompact(summary) {
+          setMessages((m) => [...m, { role: 'assistant', content: `⚡ Context compacted automatically.\n\n${summary}` }])
+        },
+      })
+    } catch (e: unknown) {
+      clearInterval(flushInterval)
+      setStreamText('')
+      setToolStatus(null)
+      setIsLoading(false)
+      setAgentPhase('idle')
+      const provider = providerConfig?.provider ?? 'deepseek'
+      const message = e instanceof Error
+        ? formatChatError(e, provider)
+        : String(e)
+      setMessages((m) => [...m, { role: 'assistant', content: `⚠ Error: ${message}` }])
+    }
+  }, [agent, sessionId, language, initialSession, providerConfig])
 
   // ── runWithPrompt: runs an internal prompt without exposing the text to the user ──
   const runWithPrompt = useCallback(async (label: string, prompt: string) => {

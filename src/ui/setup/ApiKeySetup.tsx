@@ -110,7 +110,7 @@ export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfi
     const isReady =
       (provider === 'deepseek' && !!providerConfig.apiKey) ||
       (provider === 'bedrock' && !!providerConfig.awsRegion) ||
-      (provider === 'vertex' && !!providerConfig.gcpProject) ||
+      (provider === 'vertex' && !!providerConfig.gcpProject && !!providerConfig.gcpCredentials) ||
       (provider === 'local' && !!providerConfig.localBaseUrl)
     return {
       providerConfig: isReady ? providerConfig : null,
