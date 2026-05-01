@@ -383,4 +383,84 @@ describe('reasoning_content', () => {
       expect('reasoning_content' in assistantMsg).toBe(true)
     })
   })
+
+  // ─────────────────────────────────────────────────────────────────────────
+
+  describe('Regressão: bug 400 "reasoning_content must be passed back"', () => {
+    it('should NOT throw 400 when deepseek-v4-flash returns reasoning_content in multi-turn with tool calls', async () => {
+      // Reproduz exatamente o bug original:
+      // 1. Usuário manda mensagem
+      // 2. Modelo retorna reasoning_content + tool_calls (ex: read_folder)
+      // 3. Tool executa e retorna resultado
+      // 4. Modelo faz segunda chamada — reasoning_content DEVE estar nas mensagens
+      //    senão a API retorna 400 "reasoning_content must be passed back"
+
+      // Turno 1: modelo retorna reasoning_content + tool_call (simula deepseek-v4-flash)
+      const turn1Chunks = [
+        { choices: [{ delta: { reasoning_content: 'Vou listar os arquivos do projeto.' } }] },
+        {
+          choices: [{
+            delta: {
+              tool_calls: [{
+                index: 0,
+                id: 'call_list_001',
+                function: { name: 'read_folder', arguments: '{"path":".","recursive":false}' },
+              }],
+            },
+          }],
+        },
+        { choices: [{ delta: {} }], usage: { total_tokens: 30, prompt_tokens: 25, completion_tokens: 5 } },
+      ]
+
+      // Turno 2: modelo responde com base no resultado da tool (sem tool_calls)
+      const turn2Chunks = [
+        { choices: [{ delta: { content: 'O projeto tem os seguintes arquivos: package.json, src/, tests/.' } }] },
+        { choices: [{ delta: {} }], usage: { total_tokens: 20, prompt_tokens: 15, completion_tokens: 5 } },
+      ]
+
+      // Captura as mensagens enviadas em cada chamada para verificar que reasoning_content está presente
+      const capturedMessages: unknown[][] = []
+      let callCount = 0
+
+      const mockCreate = mock((params: { messages: unknown[] }) => {
+        capturedMessages.push(params.messages)
+        callCount++
+        return callCount === 1 ? makeStream(turn1Chunks) : makeStream(turn2Chunks)
+      })
+
+      const agent = new Agent()
+      agent.setModel('deepseek-v4-flash')
+      injectMockClient(agent, {
+        chat: { completions: { create: mockCreate } },
+        models: { list: mock(async () => ({ [Symbol.asyncIterator]: async function* () {} })) },
+      })
+
+      // Mock da tool read_folder
+      const toolMap = (agent as unknown as Record<string, unknown>).toolMap as Map<string, { execute: (a: unknown) => Promise<string> }>
+      toolMap.set('read_folder', { execute: mock(async () => 'package.json\nsrc/\ntests/') })
+
+      const cb = makeCallbacks()
+
+      // Act — não deve lançar erro 400
+      await expect(agent.run('O que podemos adicionar neste projeto?', cb)).resolves.toBeUndefined()
+
+      // Assert 1: duas chamadas foram feitas (turno 1 + turno 2)
+      expect(callCount).toBe(2)
+
+      // Assert 2: na segunda chamada, a mensagem do assistente do turno 1
+      // DEVE conter reasoning_content — sem isso a API retorna 400
+      const turn2Messages = capturedMessages[1] as Array<Record<string, unknown>>
+      const assistantMsgInTurn2 = turn2Messages.find(
+        (m) => m.role === 'assistant' && (m as Record<string, unknown>).tool_calls
+      ) as AssistantMessageWithReasoning | undefined
+
+      expect(assistantMsgInTurn2).toBeDefined()
+      expect(assistantMsgInTurn2?.reasoning_content).toBe('Vou listar os arquivos do projeto.')
+
+      // Assert 3: resposta final está correta
+      const finalMessages = agent.getMessages()
+      const lastAssistant = [...finalMessages].reverse().find((m) => m.role === 'assistant') as AssistantMessageWithReasoning | undefined
+      expect(lastAssistant?.content).toBe('O projeto tem os seguintes arquivos: package.json, src/, tests/.')
+    })
+  })
 })
