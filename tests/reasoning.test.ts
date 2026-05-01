@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, beforeAll } from 'bun:test'
+import { describe, it, expect, mock, beforeAll, spyOn } from 'bun:test'
 import { Agent } from '../src/agent/agent.js'
 import {
   getMessagesAfterBoundary,
@@ -6,6 +6,7 @@ import {
   type MessageOrBoundary,
 } from '../src/agent/compactBoundary.js'
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
+import * as historyModule from '../src/agent/history.js'
 
 // O OpenAI SDK não tem reasoning_content nos tipos — usamos cast
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & {
@@ -15,6 +16,8 @@ type AssistantMessageWithReasoning = ChatCompletionMessageParam & {
 
 beforeAll(() => {
   process.env.DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || 'test-key-for-unit-tests'
+  // Impede que os testes gravem no ~/.deepseek/history.json em disco
+  spyOn(historyModule, 'saveHistory').mockImplementation(async () => {})
 })
 
 // Helper: cria um async iterable a partir de chunks de streaming
