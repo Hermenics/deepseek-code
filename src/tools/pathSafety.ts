@@ -6,6 +6,7 @@ export const BLOCKED_DIRS = [
   '.claude',
   '.kiro',
   '.github',
+  '.deepseek',
   'node_modules',
   'dist',
   'build',
