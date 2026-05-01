@@ -49,7 +49,6 @@ async function loadSavedConfigFromPaths(
   envFilePath: string,
 ): Promise<{ providerConfig: import('../src/ui/setup/ApiKeySetup.js').ProviderConfig | null; theme: string; language: string | null }> {
   const { loadFullConfig } = await import('../src/utils/credentials.js')
-  const { ThemeName } = await import('../src/ui/setup/ApiKeySetup.js').catch(() => ({ ThemeName: undefined }))
 
   const cfg = await loadFullConfig(cfgPath, envFilePath)
   const provider = (cfg.PROVIDER ?? 'deepseek') as import('../src/ui/setup/ApiKeySetup.js').ProviderName
