@@ -408,13 +408,18 @@ export class Agent {
     while (true) {
       this.abortController = new AbortController()
 
+      // Sanitiza mensagens para a API: converte reasoning_content em prefixo de texto
+      // quando o modelo atual NÃO é o reasoner (evita o erro 400 de thinking mode)
+      const rawMessages = getMessagesAfterBoundary(this.messages)
+      const apiMessages = this.sanitizeMessagesForApi(rawMessages)
+
       let stream: Awaited<ReturnType<typeof this.client.chat.completions.create>>
       try {
         stream = await this.withRetry(() =>
           this.client.chat.completions.create(
             {
               model: this.model,
-              messages: getMessagesAfterBoundary(this.messages),
+              messages: apiMessages,
               tools: this.openaiTools,
               stream: true,
               stream_options: { include_usage: true },
@@ -596,6 +601,34 @@ export class Agent {
     auditLog({ type: 'tool_result', tool: tc.function.name, result: result.slice(0, 200), durationMs: Date.now() - t0 })
     cb.onToolResult(tc.function.name, result, parsedArgs)
     return { tc, result }
+  }
+
+  /**
+   * Sanitiza mensagens antes de enviar para a API.
+   *
+   * O modelo deepseek-reasoner exige que reasoning_content seja passado de volta
+   * nas mensagens do assistente. Outros modelos (deepseek-chat, etc.) NÃO aceitam
+   * esse campo e retornam 400. Esta função:
+   * - Para o reasoner: preserva reasoning_content como está
+   * - Para outros modelos: remove reasoning_content das mensagens (evita o 400)
+   */
+  private sanitizeMessagesForApi(
+    messages: ChatCompletionMessageParam[]
+  ): ChatCompletionMessageParam[] {
+    const isReasoner = this.model === 'deepseek-reasoner'
+    if (isReasoner) {
+      // Reasoner aceita e exige reasoning_content — passa tudo como está
+      return messages
+    }
+    // Outros modelos: remove reasoning_content para evitar erro 400
+    return messages.map((msg) => {
+      const m = msg as AssistantMessageWithReasoning
+      if (m.role === 'assistant' && m.reasoning_content) {
+        const { reasoning_content: _, ...rest } = m
+        return rest as ChatCompletionMessageParam
+      }
+      return msg
+    })
   }
 
   private async executeTool(name: string, args: Record<string, unknown>): Promise<string> {

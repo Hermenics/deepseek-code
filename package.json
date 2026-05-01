@@ -1,6 +1,6 @@
 {
   "name": "@aethelics/deepseek-code",
-  "version": "0.4.8",
+  "version": "0.5.0",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
@@ -30,6 +30,7 @@
     "cli-boxes": "^4.0.1",
     "code-excerpt": "^4.0.0",
     "diff": "^9.0.0",
+    "ecdsa-sig-formatter": "^1.0.11",
     "execa": "^9.6.1",
     "fast-glob": "^3.3.3",
     "figures": "^6.1.0",

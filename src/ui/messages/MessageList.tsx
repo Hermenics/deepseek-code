@@ -117,7 +117,7 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
     return (
       <Box flexDirection="column" paddingLeft={2}>
         <Box gap={1}>
-          <Text color="green" bold>{figures.circleFilled}</Text>
+          <Text color="white" bold>●</Text>
           <Text bold>{display}</Text>
           {arg ? <Text dimColor>({arg})</Text> : null}
         </Box>
@@ -153,7 +153,7 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
   return (
     <Box flexDirection="column" marginTop={1}>
       <Box gap={1} alignItems="flex-start">
-        <Text color="green" bold>{figures.circleFilled}</Text>
+        <Text color="white" bold>●</Text>
         <Box flexDirection="column" flexShrink={1}>
           <MarkdownRenderer content={m.content} theme={theme} />
         </Box>
@@ -246,7 +246,7 @@ export function MessageList({ messages, streamText, streamRole = 'assistant', th
             </>
           ) : (
             <Box gap={1} alignItems="flex-start">
-              <Text color="green" bold>{figures.circleFilled}</Text>
+              <Text color="white" bold>●</Text>
               <Box flexDirection="column" flexShrink={1}>
                 <MarkdownRenderer content={sanitizeStreamMarkdown(streamText)} theme={theme} />
               </Box>

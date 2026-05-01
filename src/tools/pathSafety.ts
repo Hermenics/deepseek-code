@@ -13,10 +13,49 @@ export const BLOCKED_DIRS = [
 ]
 
 /**
+ * Padrões de arquivos sensíveis que nunca devem ser lidos pelo agente.
+ * Inclui arquivos de credenciais, chaves, tokens e configurações secretas.
+ */
+const SENSITIVE_FILE_PATTERNS: RegExp[] = [
+  /^\.env(\..+)?$/i,           // .env, .env.local, .env.production, etc.
+  /^\.env\.[^/]+$/i,           // qualquer variante de .env
+  /.*\.pem$/i,                 // chaves privadas PEM
+  /.*\.key$/i,                 // arquivos de chave
+  /.*\.p12$/i,                 // certificados PKCS#12
+  /.*\.pfx$/i,                 // certificados PFX
+  /^credentials(\.json)?$/i,   // credentials, credentials.json
+  /^secrets?(\.json|\.yaml|\.yml|\.toml)?$/i, // secrets.*
+  /^\.netrc$/i,                // credenciais de rede
+  /^\.npmrc$/i,                // tokens npm
+  /^\.pypirc$/i,               // tokens PyPI
+  /^id_rsa(\.pub)?$/i,         // chaves SSH RSA
+  /^id_ed25519(\.pub)?$/i,     // chaves SSH Ed25519
+  /^id_ecdsa(\.pub)?$/i,       // chaves SSH ECDSA
+  /^id_dsa(\.pub)?$/i,         // chaves SSH DSA
+  /^known_hosts$/i,            // hosts conhecidos SSH
+  /^service.?account.*\.json$/i, // service accounts GCP
+  /^gcloud.*\.json$/i,         // credenciais gcloud
+  /^\.aws\/credentials$/i,     // credenciais AWS
+  /^\.aws\/config$/i,          // config AWS
+]
+
+/**
+ * Verifica se um nome de arquivo corresponde a um padrão sensível.
+ */
+function isSensitiveFile(filePath: string): boolean {
+  const basename = path.basename(filePath)
+  const normalized = filePath.replace(/\\/g, '/')
+  return SENSITIVE_FILE_PATTERNS.some((pattern) =>
+    pattern.test(basename) || pattern.test(normalized)
+  )
+}
+
+/**
  * Validates that a file path is safe to access:
  * 1. Must be inside the current working directory
  * 2. Must not be inside a blocked directory
  * 3. Must not escape via symlinks
+ * 4. Must not be a sensitive file (credentials, keys, secrets)
  */
 export async function assertSafePath(filePath: string): Promise<void> {
   const resolved = path.resolve(filePath)
@@ -41,6 +80,11 @@ export async function assertSafePath(filePath: string): Promise<void> {
   const topDir = relative.split(path.sep)[0]
   if (topDir && BLOCKED_DIRS.includes(topDir)) {
     throw new Error(`Directory '${topDir}/' is off-limits. Use read_folder to see available directories.`)
+  }
+
+  // Bloqueia arquivos sensíveis (credenciais, chaves, secrets)
+  if (isSensitiveFile(filePath)) {
+    throw new Error(`File '${path.basename(filePath)}' is a sensitive file and cannot be read by the agent.`)
   }
 }
 
