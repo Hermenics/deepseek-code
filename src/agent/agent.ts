@@ -318,7 +318,17 @@ export class Agent {
   }
 
   loadSessionMessages(messages: MessageOrBoundary[]): void {
-    this.messages = messages
+    // Limpa reasoning_content de sessões antigas salvas com modelos não-reasoner
+    // Evita o erro 400 ao retomar uma sessão onde o campo foi salvo indevidamente
+    this.messages = messages.map((m) => {
+      if (isBoundaryMarker(m)) return m
+      const msg = m as AssistantMessageWithReasoning
+      if (msg.role === 'assistant' && msg.reasoning_content) {
+        const { reasoning_content: _, ...rest } = msg
+        return rest as ChatCompletionMessageParam
+      }
+      return m
+    })
   }
 
   async applyAgentConfig(config: AgentConfig): Promise<void> {
@@ -481,7 +491,8 @@ export class Agent {
         if (this.abortController?.signal.aborted) {
           if (assistantText || reasoningText) {
             const abortMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText || null }
-            if (reasoningText) abortMsg.reasoning_content = reasoningText
+            // Só preserva reasoning_content no histórico para o reasoner — outros modelos rejeitam o campo com 400
+            if (reasoningText && this.model === 'deepseek-reasoner') abortMsg.reasoning_content = reasoningText
             this.messages.push(abortMsg)
           }
           await saveHistory(this.messages)
@@ -493,7 +504,8 @@ export class Agent {
 
       if (toolCalls.size === 0) {
         const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText }
-        if (reasoningText) finalMsg.reasoning_content = reasoningText
+        // Só preserva reasoning_content no histórico para o reasoner — outros modelos rejeitam o campo com 400
+        if (reasoningText && this.model === 'deepseek-reasoner') finalMsg.reasoning_content = reasoningText
         this.messages.push(finalMsg)
         await saveHistory(this.messages)
         cb.onDone()
@@ -510,7 +522,8 @@ export class Agent {
         content: assistantText || null,
         tool_calls: tcArray,
       }
-      if (reasoningText) assistantMsg.reasoning_content = reasoningText
+      // Só preserva reasoning_content no histórico para o reasoner — outros modelos rejeitam o campo com 400
+      if (reasoningText && this.model === 'deepseek-reasoner') assistantMsg.reasoning_content = reasoningText
       this.messages.push(assistantMsg)
 
       // ── Parse all args first ───────────────────────────────────────────────

@@ -149,6 +149,8 @@ describe('reasoning_content', () => {
       })
 
       const agent = new Agent()
+      // Usa deepseek-reasoner para que reasoning_content seja preservado no histórico
+      agent.setModel('deepseek-reasoner')
       injectMockClient(agent, {
         chat: { completions: { create: mockCreate } },
         models: { list: mock(async () => ({ [Symbol.asyncIterator]: async function* () {} })) },
@@ -163,14 +165,13 @@ describe('reasoning_content', () => {
       // Act
       await agent.run('Leia o arquivo /tmp/x.txt', cb)
 
-      // Assert — a mensagem assistant do primeiro turno DEVE ter reasoning_content
+      // Assert — a mensagem assistant do primeiro turno DEVE ter reasoning_content (modelo é o reasoner)
       const messages = agent.getMessages()
       const assistantWithToolCall = messages.find(
         (m) => m.role === 'assistant' && (m as unknown as Record<string, unknown>).tool_calls
       ) as AssistantMessageWithReasoning | undefined
 
       expect(assistantWithToolCall).toBeDefined()
-      // FALHA: runLoop acumula delta.content e delta.tool_calls mas ignora delta.reasoning_content
       expect(assistantWithToolCall?.reasoning_content).toBe('Preciso ler o arquivo primeiro.')
     })
 
@@ -185,6 +186,8 @@ describe('reasoning_content', () => {
       const mockCreate = mock(() => makeStream(streamChunks))
 
       const agent = new Agent()
+      // Usa deepseek-reasoner para que reasoning_content seja preservado no histórico
+      agent.setModel('deepseek-reasoner')
       injectMockClient(agent, {
         chat: { completions: { create: mockCreate } },
         models: { list: mock(async () => ({ [Symbol.asyncIterator]: async function* () {} })) },
@@ -201,7 +204,6 @@ describe('reasoning_content', () => {
 
       expect(assistantMsg).toBeDefined()
       expect(assistantMsg?.content).toBe('A resposta é 42.')
-      // FALHA: runLoop não captura delta.reasoning_content e não o inclui na mensagem
       expect(assistantMsg?.reasoning_content).toBe('Analisei e a resposta é 42.')
     })
 
@@ -232,9 +234,45 @@ describe('reasoning_content', () => {
       expect(assistantMsg).toBeDefined()
       expect('reasoning_content' in (assistantMsg ?? {})).toBe(false)
     })
+
+    it('should NOT preserve reasoning_content in history for non-reasoner models', async () => {
+      // Arrange — modelo não-reasoner que retorna reasoning_content no delta (ex: deepseek-v4-pro)
+      // O campo NÃO deve ser salvo no histórico para evitar o erro 400 na próxima chamada
+      const streamChunks = [
+        { choices: [{ delta: { reasoning_content: 'Raciocínio interno do v4-pro.' } }] },
+        { choices: [{ delta: { content: 'Resposta final.' } }] },
+        { choices: [{ delta: {} }], usage: { total_tokens: 15, prompt_tokens: 10, completion_tokens: 5 } },
+      ]
+
+      const mockCreate = mock(() => makeStream(streamChunks))
+
+      const agent = new Agent()
+      // deepseek-v4-pro NÃO é o reasoner — não deve salvar reasoning_content
+      agent.setModel('deepseek-v4-pro')
+      injectMockClient(agent, {
+        chat: { completions: { create: mockCreate } },
+        models: { list: mock(async () => ({ [Symbol.asyncIterator]: async function* () {} })) },
+      })
+
+      const cb = makeCallbacks()
+
+      // Act
+      await agent.run('Olá.', cb)
+
+      // Assert — reasoning_content NÃO deve estar no histórico para modelos não-reasoner
+      const messages = agent.getMessages()
+      const assistantMsg = messages.find((m) => m.role === 'assistant') as AssistantMessageWithReasoning | undefined
+
+      expect(assistantMsg).toBeDefined()
+      expect(assistantMsg?.content).toBe('Resposta final.')
+      expect('reasoning_content' in (assistantMsg ?? {})).toBe(false)
+    })
+
     it('should preserve reasoning_content in abort path when stream is interrupted', async () => {
       // Arrange — stream que emite reasoning + content, depois simula abort
       const agent = new Agent()
+      // Usa deepseek-reasoner para que reasoning_content seja preservado no abort path
+      agent.setModel('deepseek-reasoner')
 
       // Captura o abortController que o runLoop cria internamente
       let internalAbort: AbortController | null = null
@@ -263,7 +301,7 @@ describe('reasoning_content', () => {
       // Act
       await agent.run('Teste abort', cb)
 
-      // Assert — a mensagem do assistant deve ter reasoning_content mesmo após abort
+      // Assert — a mensagem do assistant deve ter reasoning_content mesmo após abort (modelo é o reasoner)
       const messages = agent.getMessages()
       const assistantMsg = messages.find((m) => m.role === 'assistant') as AssistantMessageWithReasoning | undefined
 
