@@ -76,9 +76,21 @@ export const SubAgent: Tool = {
     ]
 
     for (let i = 0; i < SUBAGENT_MAX_ITERATIONS; i++) {
+      // Sanitiza mensagens antes de enviar: remove reasoning_content para modelos não-reasoner
+      const apiMessages = model === 'deepseek-reasoner'
+        ? messages
+        : messages.map((m) => {
+            const msg = m as ChatCompletionMessageParam & { reasoning_content?: string }
+            if (msg.role === 'assistant' && msg.reasoning_content) {
+              const { reasoning_content: _, ...rest } = msg
+              return rest as ChatCompletionMessageParam
+            }
+            return m
+          })
+
       const response = await client.chat.completions.create({
         model,
-        messages,
+        messages: apiMessages,
         tools: openaiTools,
       })
 
@@ -93,8 +105,11 @@ export const SubAgent: Tool = {
         content: msg.content ?? null,
         tool_calls: msg.tool_calls,
       }
+      // Só preserva reasoning_content no histórico para o reasoner — outros modelos rejeitam com 400
       const msgReasoning = (msg as unknown as Record<string, unknown>).reasoning_content
-      if (typeof msgReasoning === 'string' && msgReasoning) assistantMsg.reasoning_content = msgReasoning
+      if (typeof msgReasoning === 'string' && msgReasoning && model === 'deepseek-reasoner') {
+        assistantMsg.reasoning_content = msgReasoning
+      }
       messages.push(assistantMsg)
 
       for (const tc of msg.tool_calls) {

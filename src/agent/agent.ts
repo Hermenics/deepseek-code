@@ -418,8 +418,7 @@ export class Agent {
     while (true) {
       this.abortController = new AbortController()
 
-      // Sanitiza mensagens para a API: converte reasoning_content em prefixo de texto
-      // quando o modelo atual NÃO é o reasoner (evita o erro 400 de thinking mode)
+      // Sanitiza mensagens para a API: remove reasoning_content para modelos não-reasoner
       const rawMessages = getMessagesAfterBoundary(this.messages)
       const apiMessages = this.sanitizeMessagesForApi(rawMessages)
 
