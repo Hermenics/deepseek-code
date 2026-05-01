@@ -238,11 +238,12 @@ describe('reasoning_content', () => {
       expect('reasoning_content' in (assistantMsg ?? {})).toBe(false)
     })
 
-    it('should NOT preserve reasoning_content in history for non-reasoner models', async () => {
-      // Arrange — modelo não-reasoner que retorna reasoning_content no delta (ex: deepseek-v4-pro)
-      // O campo NÃO deve ser salvo no histórico para evitar o erro 400 na próxima chamada
+    it('should preserve reasoning_content in history for ALL models (DeepSeek-V4-Flash has built-in thinking mode)', async () => {
+      // DeepSeek-V4-Flash tem thinking mode embutido e pode retornar reasoning_content.
+      // A API EXIGE que o campo seja passado de volta nas mensagens seguintes.
+      // Portanto, reasoning_content deve ser preservado para TODOS os modelos.
       const streamChunks = [
-        { choices: [{ delta: { reasoning_content: 'Raciocínio interno do v4-pro.' } }] },
+        { choices: [{ delta: { reasoning_content: 'Raciocínio interno do v4-flash.' } }] },
         { choices: [{ delta: { content: 'Resposta final.' } }] },
         { choices: [{ delta: {} }], usage: { total_tokens: 15, prompt_tokens: 10, completion_tokens: 5 } },
       ]
@@ -250,25 +251,22 @@ describe('reasoning_content', () => {
       const mockCreate = mock(() => makeStream(streamChunks))
 
       const agent = new Agent()
-      // deepseek-v4-pro NÃO é o reasoner — não deve salvar reasoning_content
-      agent.setModel('deepseek-v4-pro')
+      agent.setModel('deepseek-v4-flash')
       injectMockClient(agent, {
         chat: { completions: { create: mockCreate } },
         models: { list: mock(async () => ({ [Symbol.asyncIterator]: async function* () {} })) },
       })
 
       const cb = makeCallbacks()
-
-      // Act
       await agent.run('Olá.', cb)
 
-      // Assert — reasoning_content NÃO deve estar no histórico para modelos não-reasoner
       const messages = agent.getMessages()
       const assistantMsg = messages.find((m) => m.role === 'assistant') as AssistantMessageWithReasoning | undefined
 
       expect(assistantMsg).toBeDefined()
       expect(assistantMsg?.content).toBe('Resposta final.')
-      expect('reasoning_content' in (assistantMsg ?? {})).toBe(false)
+      // reasoning_content DEVE ser preservado — a API exige que seja passado de volta
+      expect(assistantMsg?.reasoning_content).toBe('Raciocínio interno do v4-flash.')
     })
 
     it('should preserve reasoning_content in abort path when stream is interrupted', async () => {

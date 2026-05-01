@@ -76,21 +76,11 @@ export const SubAgent: Tool = {
     ]
 
     for (let i = 0; i < SUBAGENT_MAX_ITERATIONS; i++) {
-      // Sanitiza mensagens antes de enviar: remove reasoning_content para modelos não-reasoner
-      const apiMessages = model === 'deepseek-reasoner'
-        ? messages
-        : messages.map((m) => {
-            const msg = m as ChatCompletionMessageParam & { reasoning_content?: string }
-            if (msg.role === 'assistant' && msg.reasoning_content) {
-              const { reasoning_content: _, ...rest } = msg
-              return rest as ChatCompletionMessageParam
-            }
-            return m
-          })
-
+      // Passa mensagens como estão — reasoning_content deve ser preservado para todos os modelos
+      // DeepSeek-V4-Flash tem thinking mode embutido e a API exige o campo de volta quando presente
       const response = await client.chat.completions.create({
         model,
-        messages: apiMessages,
+        messages,
         tools: openaiTools,
       })
 
@@ -105,9 +95,9 @@ export const SubAgent: Tool = {
         content: msg.content ?? null,
         tool_calls: msg.tool_calls,
       }
-      // Só preserva reasoning_content no histórico para o reasoner — outros modelos rejeitam com 400
+      // Preserva reasoning_content sempre — a API exige que seja passado de volta quando presente
       const msgReasoning = (msg as unknown as Record<string, unknown>).reasoning_content
-      if (typeof msgReasoning === 'string' && msgReasoning && model === 'deepseek-reasoner') {
+      if (typeof msgReasoning === 'string' && msgReasoning) {
         assistantMsg.reasoning_content = msgReasoning
       }
       messages.push(assistantMsg)

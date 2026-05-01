@@ -318,17 +318,7 @@ export class Agent {
   }
 
   loadSessionMessages(messages: MessageOrBoundary[]): void {
-    // Limpa reasoning_content de sessões antigas salvas com modelos não-reasoner
-    // Evita o erro 400 ao retomar uma sessão onde o campo foi salvo indevidamente
-    this.messages = messages.map((m) => {
-      if (isBoundaryMarker(m)) return m
-      const msg = m as AssistantMessageWithReasoning
-      if (msg.role === 'assistant' && msg.reasoning_content) {
-        const { reasoning_content: _, ...rest } = msg
-        return rest as ChatCompletionMessageParam
-      }
-      return m
-    })
+    this.messages = messages
   }
 
   async applyAgentConfig(config: AgentConfig): Promise<void> {
@@ -490,8 +480,9 @@ export class Agent {
         if (this.abortController?.signal.aborted) {
           if (assistantText || reasoningText) {
             const abortMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText || null }
-            // Só preserva reasoning_content no histórico para o reasoner — outros modelos rejeitam o campo com 400
-            if (reasoningText && this.model === 'deepseek-reasoner') abortMsg.reasoning_content = reasoningText
+            // Preserva reasoning_content sempre — DeepSeek-V4-Flash tem thinking mode embutido
+            // e a API exige que o campo seja passado de volta quando presente
+            if (reasoningText) abortMsg.reasoning_content = reasoningText
             this.messages.push(abortMsg)
           }
           await saveHistory(this.messages)
@@ -503,8 +494,8 @@ export class Agent {
 
       if (toolCalls.size === 0) {
         const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText }
-        // Só preserva reasoning_content no histórico para o reasoner — outros modelos rejeitam o campo com 400
-        if (reasoningText && this.model === 'deepseek-reasoner') finalMsg.reasoning_content = reasoningText
+        // Preserva reasoning_content sempre — DeepSeek-V4-Flash tem thinking mode embutido
+        if (reasoningText) finalMsg.reasoning_content = reasoningText
         this.messages.push(finalMsg)
         await saveHistory(this.messages)
         cb.onDone()
@@ -521,8 +512,8 @@ export class Agent {
         content: assistantText || null,
         tool_calls: tcArray,
       }
-      // Só preserva reasoning_content no histórico para o reasoner — outros modelos rejeitam o campo com 400
-      if (reasoningText && this.model === 'deepseek-reasoner') assistantMsg.reasoning_content = reasoningText
+      // Preserva reasoning_content sempre — DeepSeek-V4-Flash tem thinking mode embutido
+      if (reasoningText) assistantMsg.reasoning_content = reasoningText
       this.messages.push(assistantMsg)
 
       // ── Parse all args first ───────────────────────────────────────────────
@@ -618,29 +609,15 @@ export class Agent {
   /**
    * Sanitiza mensagens antes de enviar para a API.
    *
-   * O modelo deepseek-reasoner exige que reasoning_content seja passado de volta
-   * nas mensagens do assistente. Outros modelos (deepseek-chat, etc.) NÃO aceitam
-   * esse campo e retornam 400. Esta função:
-   * - Para o reasoner: preserva reasoning_content como está
-   * - Para outros modelos: remove reasoning_content das mensagens (evita o 400)
+   * O DeepSeek-V4-Flash tem thinking mode embutido e pode retornar reasoning_content
+   * em qualquer modelo. Quando retorna, a API EXIGE que seja passado de volta.
+   * Portanto: sempre preservamos reasoning_content no histórico e na API.
    */
   private sanitizeMessagesForApi(
     messages: ChatCompletionMessageParam[]
   ): ChatCompletionMessageParam[] {
-    const isReasoner = this.model === 'deepseek-reasoner'
-    if (isReasoner) {
-      // Reasoner aceita e exige reasoning_content — passa tudo como está
-      return messages
-    }
-    // Outros modelos: remove reasoning_content para evitar erro 400
-    return messages.map((msg) => {
-      const m = msg as AssistantMessageWithReasoning
-      if (m.role === 'assistant' && m.reasoning_content) {
-        const { reasoning_content: _, ...rest } = m
-        return rest as ChatCompletionMessageParam
-      }
-      return msg
-    })
+    // Passa tudo como está — reasoning_content deve ser preservado para todos os modelos
+    return messages
   }
 
   private async executeTool(name: string, args: Record<string, unknown>): Promise<string> {
