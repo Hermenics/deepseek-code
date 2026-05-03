@@ -1,6 +1,6 @@
 {
   "name": "@aethelics/deepseek-code",
-  "version": "0.4.9",
+  "version": "0.4.10",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
@@ -13,7 +13,7 @@
   "scripts": {
     "start": "bun src/index.tsx",
     "dev": "bun --watch src/index.tsx",
-    "build": "bun build src/index.tsx --outfile dist/cli.mjs --target node --minify --external react-devtools-core && chmod +x dist/cli.mjs",
+    "build": "bun run build.ts",
     "prepublishOnly": "bun run build"
   },
   "files": [
@@ -49,6 +49,7 @@
     "@types/bun": "^1.3.12",
     "@types/diff": "^8.0.0",
     "@types/react": "^18.3.28",
+    "react-devtools-core": "^7.0.1",
     "typescript": "^5.9.3",
     "vitest": "^1.6.0"
   }

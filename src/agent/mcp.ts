@@ -4,6 +4,66 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import { join } from 'path'
 import type { Tool } from '../tools/types.js'
 import { readJson } from '../utils/fs.js'
+import { auditLog, type AuditEvent } from './auditLog.js'
+
+// Vars de ambiente que não podem ser sobrescritas por servidores MCP
+const CRITICAL_ENV_VARS = new Set([
+  'PATH',
+  'LD_PRELOAD',
+  'LD_LIBRARY_PATH',
+  'DYLD_INSERT_LIBRARIES',
+  'DYLD_LIBRARY_PATH',
+  'HOME',
+  'USER',
+  'SHELL',
+  'PYTHONPATH',
+  'NODE_OPTIONS',
+  'NODE_PATH',
+  'BUN_INSTALL',
+])
+
+// Padrões de injeção de shell proibidos no campo command
+const SHELL_INJECTION_RE = /[;|`<>]|&&|\|\||\$\(|>>|<</
+const PATH_TRAVERSAL_RE = /\.\.[/\\]/
+
+/**
+ * Mescla `base` com `override` bloqueando sobrescrita de variáveis críticas
+ * de ambiente. Vars críticas ausentes do `base` também não são injetadas.
+ */
+export function sanitizeMcpEnv(
+  base: Record<string, string>,
+  override: Record<string, string>,
+): Record<string, string> {
+  const result: Record<string, string> = { ...base }
+  for (const [key, value] of Object.entries(override)) {
+    if (CRITICAL_ENV_VARS.has(key)) continue
+    result[key] = value
+  }
+  return result
+}
+
+/**
+ * Valida o campo `command` de um servidor MCP stdio.
+ * Lança erro se o comando for vazio, contiver path traversal ou injeção de shell.
+ */
+export function validateMcpCommand(command: string): void {
+  if (command.trim() === '') {
+    throw new Error('MCP command cannot be empty')
+  }
+  if (PATH_TRAVERSAL_RE.test(command)) {
+    throw new Error(`MCP command contains path traversal: ${command}`)
+  }
+  if (SHELL_INJECTION_RE.test(command)) {
+    throw new Error(`MCP command contains shell injection characters: ${command}`)
+  }
+}
+
+/**
+ * Constrói um evento de auditoria para o carregamento de um servidor MCP.
+ */
+export function buildMcpLoadEvent(serverName: string, transport: string): AuditEvent {
+  return { type: 'mcp_server_load', serverName, transport }
+}
 
 interface StdioServer {
   transport: 'stdio'
@@ -41,17 +101,30 @@ export async function loadMcpTools(): Promise<{ tools: Tool[]; errors: string[] 
 
   for (const [serverName, serverConfig] of Object.entries(config.servers)) {
     try {
+      // Validar comando antes de criar transport (apenas stdio)
+      if (serverConfig.transport === 'stdio') {
+        validateMcpCommand(serverConfig.command)
+      }
+
       const client = new Client({ name: 'deepseek-code', version: '0.4.4' })
 
       const transport = serverConfig.transport === 'stdio'
         ? new StdioClientTransport({
             command: serverConfig.command,
             args: serverConfig.args ?? [],
-            env: { ...process.env, ...serverConfig.env } as Record<string, string>,
+            env: sanitizeMcpEnv(
+              Object.fromEntries(
+                Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)
+              ),
+              serverConfig.env ?? {},
+            ),
           })
         : new StreamableHTTPClientTransport(new URL(serverConfig.url))
 
       await client.connect(transport)
+
+      // Registrar evento de auditoria após conexão bem-sucedida
+      await auditLog(buildMcpLoadEvent(serverName, serverConfig.transport))
 
       const { tools: mcpTools } = await client.listTools()
 

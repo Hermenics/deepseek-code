@@ -13,6 +13,7 @@ export type AuditEvent =
   | { type: 'compact_error'; reason: string }
   | { type: 'checkpoint'; id: string; label?: string }
   | { type: 'session_end'; totalTokens: number }
+  | { type: 'mcp_server_load'; serverName: string; transport: string }
 
 let initialized = false
 
