@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { parseKey, getMatches } from './InputBox.js'
+import { parseKey, getMatches } from '../src/ui/input/InputBox.js'
 
 describe('InputBox', () => {
   describe('parseKey()', () => {

@@ -7,7 +7,7 @@ import {
   DEFAULT_MODE,
   MODES,
   type InteractionMode,
-} from './interactionMode.js'
+} from '../src/ui/interactionMode.js'
 
 describe('interactionMode', () => {
   describe('MODES', () => {

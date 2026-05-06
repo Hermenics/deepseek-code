@@ -1,4 +1,4 @@
-// Stub: tipos e constantes apenas — lógica será implementada na fase GREEN
+// Interaction modes and tool permission matrix
 
 export type InteractionMode = 'chat' | 'plan' | 'agent' | 'auto-accept'
 

@@ -1,36 +1,46 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, mock } from 'bun:test'
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
-const mockSend = vi.fn(async () => ({
+const mockSend = mock(async () => ({
   modelSummaries: [
     { modelId: 'deepseek.deepseek-r1-v1:0' },
     { modelId: 'deepseek.deepseek-v3-0324:0' },
-    { modelId: 'amazon.titan-text-express-v1:0' },        // deve ser filtrado
-    { modelId: 'meta.llama3-8b-instruct-v1:0' },          // deve ser filtrado
+    { modelId: 'amazon.titan-text-express-v1:0' },         // deve ser filtrado
+    { modelId: 'meta.llama3-8b-instruct-v1:0' },           // deve ser filtrado
     { modelId: 'anthropic.claude-3-sonnet-20240229-v1:0' }, // deve ser filtrado
   ],
 }))
 
-vi.mock('@aws-sdk/client-bedrock', () => ({
+mock.module('@aws-sdk/client-bedrock', () => ({
   BedrockClient: class {
     send = mockSend
   },
   ListFoundationModelsCommand: class {},
 }))
 
-vi.mock('@aws-sdk/credential-providers', () => ({
+mock.module('@aws-sdk/credential-providers', () => ({
   fromIni: () => ({}),
 }))
 
 // ── Importa DEPOIS dos mocks ───────────────────────────────────────────────
-const { listBedrockDeepSeekModels } = await import('./bedrock.js')
+const { listBedrockDeepSeekModels } = await import('../src/agent/providers/bedrock.js')
 
 // ── Testes ─────────────────────────────────────────────────────────────────
 
 describe('listBedrockDeepSeekModels', () => {
   beforeEach(() => {
     mockSend.mockClear()
+    // Restaura implementação padrão após cada teste
+    mockSend.mockImplementation(async () => ({
+      modelSummaries: [
+        { modelId: 'deepseek.deepseek-r1-v1:0' },
+        { modelId: 'deepseek.deepseek-v3-0324:0' },
+        { modelId: 'amazon.titan-text-express-v1:0' },
+        { modelId: 'meta.llama3-8b-instruct-v1:0' },
+        { modelId: 'anthropic.claude-3-sonnet-20240229-v1:0' },
+      ],
+    }))
   })
 
   it('retorna apenas modelos com "deepseek" no ID', async () => {
@@ -73,7 +83,7 @@ describe('listBedrockDeepSeekModels', () => {
   })
 
   it('lida com modelSummaries undefined', async () => {
-    mockSend.mockImplementationOnce(async () => ({ modelSummaries: undefined } as unknown as { modelSummaries: { modelId: string }[] }))
+    mockSend.mockImplementationOnce(async () => ({ modelSummaries: undefined }))
     const models = await listBedrockDeepSeekModels('us-east-1', 'default')
     expect(models).toEqual([])
   })

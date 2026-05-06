@@ -5,7 +5,7 @@ import {
   isBoundaryMarker,
   getMessagesAfterBoundary,
   type MessageOrBoundary,
-} from './compactBoundary'
+} from '../src/agent/compactBoundary.js'
 
 describe('isBoundaryMarker', () => {
   it('should return true for a boundary marker', () => {

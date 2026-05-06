@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { MODE_COLORS, MODE_LABELS, MODES } from '../interactionMode.js'
+import { MODE_COLORS, MODE_LABELS, MODES } from '../src/ui/interactionMode.js'
 
 describe('StatusBar', () => {
   describe('MODE_LABELS', () => {

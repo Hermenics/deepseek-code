@@ -10,7 +10,7 @@ const result = await Bun.build({
   alias: {
     'react-devtools-core': resolve('./src/stubs/react-devtools-core.ts'),
   },
-})
+} as Parameters<typeof Bun.build>[0])
 
 if (!result.success) {
   for (const log of result.logs) {

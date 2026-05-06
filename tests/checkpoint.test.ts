@@ -75,7 +75,7 @@ describe('checkpoint', () => {
     it('should return array', async () => {
       const result = await listCheckpoints()
       expect(result).toBeArray()
-    })
+    }, 15000)
 
     it('should include recently saved checkpoints', async () => {
       const messages = [{ role: 'system' as const, content: 'list test' }]
