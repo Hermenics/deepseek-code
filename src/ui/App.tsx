@@ -538,66 +538,73 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [agent, isLoading, exit, runWithPrompt, runAgent])
 
   return (
-    <Box flexDirection="column" width="100%">
-      <MessageList messages={messages} streamText={streamText} streamRole={streamRole} theme={theme} activeAgent={activeAgent} headerProvider={headerProvider} headerAgent={headerAgent} />
-      {toolStatus && <ToolUseDisplay tool={toolStatus} />}
-      <TodoPanel />
-      {isLoading && <LoadingSpinner toolCallCount={toolCallCount} phase={agentPhase} />}
-      {queuedMessages.length > 0 && <QueuedMessagesList messages={queuedMessages} />}
-      {showThemeSelector ? (
-        <ThemeSelector
-          currentTheme={theme}
-          onSelect={(t) => { setTheme(t); onThemeChange?.(t); setShowThemeSelector(false) }}
-          onCancel={() => setShowThemeSelector(false)}
-        />
-      ) : showModelSelector ? (
-        <ModelSelector
-          currentModel={agent.model}
-          models={availableModels}
-          onSelect={(m) => {
-            agent.setModel(m)
-            setMessages((prev) => [...prev, { role: 'assistant', content: `Model switched to ${m}` }])
-            setShowModelSelector(false)
-          }}
-          onCancel={() => setShowModelSelector(false)}
-        />
-      ) : showLanguageInput ? (
-        <LanguageInput
-          currentLanguage={language ?? null}
-          onDone={(lang) => {
-            agent.setLanguage(lang)
-            saveConfig({ LANGUAGE: lang })
-            setMessages((prev) => [...prev, { role: 'assistant', content: `Language set to ${lang}` }])
-            setShowLanguageInput(false)
-          }}
-          onCancel={() => setShowLanguageInput(false)}
-        />
-      ) : toolPermissionState ? (
-        <ToolPermissionPrompt
-          toolName={toolPermissionState.toolName}
-          args={toolPermissionState.args}
-          onDecide={handleToolPermission}
-        />
-      ) : confirmState ? (
-        <ConfirmPrompt
-          message={confirmState.message}
-          onConfirm={handleConfirm}
-        />
-      ) : (
-        <InputBox
-          onSubmit={handleSubmit}
-          isLoading={isLoading}
-          toolCallCount={toolCallCount}
-          onAbort={handleAbort}
-          onQueue={handleQueue}
-          phase={agentPhase}
-          contextPct={contextPct}
-          agentLabel={activeAgent ?? 'deepseek'}
-          interactionMode={interactionMode}
-          onModeChange={handleModeChange}
-        />
-      )}
-      <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} />
+    <Box flexDirection="column" width="100%" height="100%">
+      {/* Área de mensagens — cresce pra ocupar todo espaço disponível */}
+      <Box flexDirection="column" flexGrow={1} overflow="hidden">
+        <MessageList messages={messages} streamText={streamText} streamRole={streamRole} theme={theme} activeAgent={activeAgent} headerProvider={headerProvider} headerAgent={headerAgent} />
+        {toolStatus && <ToolUseDisplay tool={toolStatus} />}
+        <TodoPanel />
+        {isLoading && <LoadingSpinner toolCallCount={toolCallCount} phase={agentPhase} />}
+        {queuedMessages.length > 0 && <QueuedMessagesList messages={queuedMessages} />}
+      </Box>
+
+      {/* Rodapé fixo no final */}
+      <Box flexDirection="column" flexShrink={0}>
+        {showThemeSelector ? (
+          <ThemeSelector
+            currentTheme={theme}
+            onSelect={(t) => { setTheme(t); onThemeChange?.(t); setShowThemeSelector(false) }}
+            onCancel={() => setShowThemeSelector(false)}
+          />
+        ) : showModelSelector ? (
+          <ModelSelector
+            currentModel={agent.model}
+            models={availableModels}
+            onSelect={(m) => {
+              agent.setModel(m)
+              setMessages((prev) => [...prev, { role: 'assistant', content: `Model switched to ${m}` }])
+              setShowModelSelector(false)
+            }}
+            onCancel={() => setShowModelSelector(false)}
+          />
+        ) : showLanguageInput ? (
+          <LanguageInput
+            currentLanguage={language ?? null}
+            onDone={(lang) => {
+              agent.setLanguage(lang)
+              saveConfig({ LANGUAGE: lang })
+              setMessages((prev) => [...prev, { role: 'assistant', content: `Language set to ${lang}` }])
+              setShowLanguageInput(false)
+            }}
+            onCancel={() => setShowLanguageInput(false)}
+          />
+        ) : toolPermissionState ? (
+          <ToolPermissionPrompt
+            toolName={toolPermissionState.toolName}
+            args={toolPermissionState.args}
+            onDecide={handleToolPermission}
+          />
+        ) : confirmState ? (
+          <ConfirmPrompt
+            message={confirmState.message}
+            onConfirm={handleConfirm}
+          />
+        ) : (
+          <InputBox
+            onSubmit={handleSubmit}
+            isLoading={isLoading}
+            toolCallCount={toolCallCount}
+            onAbort={handleAbort}
+            onQueue={handleQueue}
+            phase={agentPhase}
+            contextPct={contextPct}
+            agentLabel={activeAgent ?? 'deepseek'}
+            interactionMode={interactionMode}
+            onModeChange={handleModeChange}
+          />
+        )}
+        <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} />
+      </Box>
     </Box>
   )
 }
