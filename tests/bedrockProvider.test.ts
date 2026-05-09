@@ -83,7 +83,7 @@ describe('listBedrockDeepSeekModels', () => {
   })
 
   it('lida com modelSummaries undefined', async () => {
-    mockSend.mockImplementationOnce(async () => ({ modelSummaries: undefined }))
+    mockSend.mockImplementationOnce(async () => ({ modelSummaries: undefined } as any))
     const models = await listBedrockDeepSeekModels('us-east-1', 'default')
     expect(models).toEqual([])
   })

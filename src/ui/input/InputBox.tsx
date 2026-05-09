@@ -33,7 +33,7 @@ const DESCRIPTIONS: Record<string, string> = {
   '/review': 'Review code in the project',
 }
 
-const SPINNER = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+const SPINNER = ['✻', '✼', '✽', '✾', '✿', '❀', '✿', '✾', '✽', '✼']
 
 const REFINING_MSGS = [
   'Prompt-engineering your prompt...',
@@ -323,6 +323,7 @@ export function InputBox({
   agentLabel = 'deepseek',
   interactionMode = 'chat',
   onModeChange,
+  sessionId,
 }: {
   onSubmit: (text: string) => void
   isLoading: boolean
@@ -334,6 +335,7 @@ export function InputBox({
   agentLabel?: string
   interactionMode?: InteractionMode
   onModeChange?: () => void
+  sessionId?: string
 }) {
   const [value, setValue] = useState('')
   const [cursorPos, setCursorPos] = useState(0)
@@ -580,7 +582,7 @@ export function InputBox({
   }, []) // ← mount/unmount only — no more stdin thrashing on every keystroke
 
   const cols = process.stdout.columns ?? 80
-  const isLong = value.length >= cols - 7 // account for " > " prefix (3 chars) + cursor + margin
+  const maxVisible = Math.max(20, cols - 10) // espaço pra prompt, ctx%, margem
 
   useEffect(() => {
     if (isLoading) return
@@ -599,22 +601,42 @@ export function InputBox({
       )
     }
 
-    if (isLong) {
-      const before = value.slice(0, cursorPos)
-      const at = value.slice(cursorPos, cursorPos + 1) || ' '
-      const after = value.slice(cursorPos + 1)
-      return <Text>{`${before}\x1b[7m${at}\x1b[27m${after}`}</Text>
+    // Se cabe numa linha, renderiza normal sem wrapping
+    if (value.length <= maxVisible) {
+      const beforeCursor = value.slice(0, cursorPos)
+      const atCursor = value.slice(cursorPos, cursorPos + 1)
+      const afterCursor = value.slice(cursorPos + 1)
+      return (
+        <>
+          <Text>{beforeCursor}</Text>
+          <Text color="white" backgroundColor="white" inverse>{atCursor || ' '}</Text>
+          <Text>{afterCursor}</Text>
+        </>
+      )
     }
 
-    const beforeCursor = value.slice(0, cursorPos)
-    const atCursor = value.slice(cursorPos, cursorPos + 1)
-    const afterCursor = value.slice(cursorPos + 1)
+    // Texto longo: sliding window com indicadores de truncamento
+    const half = Math.floor((maxVisible - 2) / 2)
+    let start = Math.max(0, cursorPos - half)
+    let end = Math.min(value.length, start + maxVisible - 2)
+    if (end === value.length) start = Math.max(0, end - maxVisible + 2)
+    if (start === 0) end = Math.min(value.length, maxVisible - 2)
+
+    const prefix = start > 0 ? '…' : ''
+    const suffix = end < value.length ? '…' : ''
+    const visible = value.slice(start, end)
+    const localCursor = cursorPos - start
+    const beforeCursor = visible.slice(0, localCursor)
+    const atCursor = visible.slice(localCursor, localCursor + 1)
+    const afterCursor = visible.slice(localCursor + 1)
 
     return (
       <>
+        <Text dimColor>{prefix}</Text>
         <Text>{beforeCursor}</Text>
         <Text color="white" backgroundColor="white" inverse>{atCursor || ' '}</Text>
         <Text>{afterCursor}</Text>
+        <Text dimColor>{suffix}</Text>
       </>
     )
   }
@@ -640,8 +662,11 @@ export function InputBox({
 
       {/* Input area — always visible */}
       {ctrlCAt !== null ? (
-        <Box paddingLeft={1}>
+        <Box flexDirection="column" paddingLeft={1}>
           <Text color="yellow">Press Ctrl+C again to exit.</Text>
+          {sessionId && (
+            <Text dimColor>  deepseek --resume {sessionId}</Text>
+          )}
         </Box>
       ) : (
         <Box>

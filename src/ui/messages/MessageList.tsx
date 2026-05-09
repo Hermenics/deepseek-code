@@ -164,7 +164,7 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
 
 type StaticItem =
   | { kind: 'header'; provider: string; agentName: string | null }
-  | { kind: 'message'; message: Message; index: number }
+  | { kind: 'message'; message: Message; id: string }
 
 export function MessageList({ messages, streamText, streamRole = 'assistant', theme, activeAgent, headerProvider, headerAgent }: {
   messages: Message[]
@@ -179,7 +179,7 @@ export function MessageList({ messages, streamText, streamRole = 'assistant', th
 
   const items: StaticItem[] = [
     { kind: 'header', provider: headerProvider ?? 'deepseek', agentName: headerAgent ?? null },
-    ...messages.map((message, index) => ({ kind: 'message' as const, message, index })),
+    ...messages.map((message, index) => ({ kind: 'message' as const, message, id: `${message.role}-${index}-${message.content.slice(0, 16)}` })),
   ]
 
   return (
@@ -229,7 +229,7 @@ export function MessageList({ messages, streamText, streamRole = 'assistant', th
               </Box>
             )
           }
-          return <MessageItem key={item.index} message={item.message} theme={theme} agentLabel={agentLabel} />
+          return <MessageItem key={item.id} message={item.message} theme={theme} agentLabel={agentLabel} />
         }}
       </Static>
       {streamText ? (

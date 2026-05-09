@@ -8,7 +8,23 @@ function isValidUrl(url: string): boolean {
 }
 
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  return html
+    // Remove scripts e styles completos (conteúdo + tag)
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    // Remove todas as outras tags
+    .replace(/<[^>]+>/g, ' ')
+    // Decodifica entidades HTML comuns
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    // Colapsa espaços em branco excessivos
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 export const WebFetch: Tool = {

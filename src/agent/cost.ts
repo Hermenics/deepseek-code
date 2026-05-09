@@ -15,8 +15,8 @@ const MODEL_CONTEXT: Record<string, number> = {
 }
 
 export function getContextLimit(provider: string, model: string): number {
-  if (provider === 'vertex')  return 1_000_000  // Gemini 2.0 Flash
-  if (provider === 'bedrock') return 200_000     // Claude 3.5 Sonnet
+  if (provider === 'vertex')  return 128_000  // DeepSeek R1 no Vertex
+  if (provider === 'bedrock') return 128_000  // DeepSeek R1 no Bedrock
   return MODEL_CONTEXT[model] ?? 128_000
 }
 

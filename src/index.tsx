@@ -169,8 +169,8 @@ function Root() {
 // Limpa o prompt do shell antes de renderizar
 process.stdout.write('\x1b[2J\x1b[H')
 
-const { waitUntilExit } = render(<Root />, { exitOnCtrlC: false, fullScreen: true })
+const { waitUntilExit } = render(<Root />, { exitOnCtrlC: false })
 waitUntilExit().then(() => {
-  process.stderr.write(`\n  Resume this session:\n  deepseek --resume ${SESSION_ID}\n\n`)
+  process.stdout.write(`\n  Resume this session:\n  deepseek --resume ${SESSION_ID}\n\n`)
   process.exit(0)
 })

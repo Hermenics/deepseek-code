@@ -25,9 +25,15 @@ export const StatusBar = React.memo(function StatusBar({ tokenCount, model, acti
   const [branch, setBranch] = useState('')
 
   useEffect(() => {
-    getGitBranch().then(setBranch)
-    const interval = setInterval(() => getGitBranch().then(setBranch), 10000)
-    return () => clearInterval(interval)
+    let cancelled = false
+    getGitBranch().then((b) => { if (!cancelled) setBranch(b) })
+    const interval = setInterval(() => {
+      getGitBranch().then((b) => { if (!cancelled) setBranch(b) })
+    }, 30_000)
+    return () => {
+      cancelled = true
+      clearInterval(interval)
+    }
   }, [])
 
   const parts: string[] = []

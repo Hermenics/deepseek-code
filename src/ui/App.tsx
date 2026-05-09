@@ -61,6 +61,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   headerAgent?: string | null
 }) {
   const { exit } = useApp()
+  const initialSessionRef = useRef(initialSession)
   const [messages, setMessages] = useState<Message[]>([])
   const [streamText, setStreamText] = useState('')
   const [streamRole, setStreamRole] = useState<'assistant' | 'terminal'>('assistant')
@@ -139,11 +140,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       if (language) {
         agent.setLanguage(language)
       }
-      if (initialSession?.agentMessages?.length) {
-        agent.loadSessionMessages(initialSession.agentMessages)
+      const session = initialSessionRef.current
+      if (session?.agentMessages?.length) {
+        agent.loadSessionMessages(session.agentMessages)
       }
-      if (initialSession?.uiMessages?.length) {
-        setMessages(initialSession.uiMessages)
+      if (session?.uiMessages?.length) {
+        setMessages(session.uiMessages)
       }
       if (agent.mcpErrors.length > 0) {
         const errMsg = `⚠ MCP connection errors:\n${agent.mcpErrors.map((e) => `  • ${e}`).join('\n')}`
@@ -230,15 +232,16 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         },
         onToolResult(name, result, args) {
           setToolStatus(null)
-          if (name === 'write_file') {
-            setMessages((m) => [...m, { role: 'tool', content: `✓ write_file → ${result}` }])
-          } else if (name === 'subagent') {
-            setMessages((m) => [...m, { role: 'tool', content: `✓ subagent → ${result}` }])
-          } else {
-            const argLabel = args?.path ?? args?.pattern ?? args?.command ?? ''
-            const payload = JSON.stringify({ arg: argLabel ? String(argLabel) : '', output: result ?? '' })
-            setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${payload}` }])
+          // Só mostra output de shell, write_file e patch_file
+          if (name === 'shell') {
+            const cmd = args?.command ?? ''
+            const payload = JSON.stringify({ arg: String(cmd), output: result ?? '' })
+            setMessages((m) => [...m, { role: 'tool', content: `✓ shell → ${payload}` }])
+          } else if (name === 'write_file' || name === 'patch_file') {
+            setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${result}` }])
           }
+          // Demais tools (grep, glob, read_file, read_folder, web_fetch,
+          // subagent, introspect, update_knowledge, todo, git) não mostram output
         },
         onDone() {
           clearInterval(flushInterval)
@@ -601,6 +604,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             agentLabel={activeAgent ?? 'deepseek'}
             interactionMode={interactionMode}
             onModeChange={handleModeChange}
+            sessionId={sessionId}
           />
         )}
         <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} />

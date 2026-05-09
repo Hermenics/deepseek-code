@@ -65,12 +65,12 @@ describe('formatCost', () => {
 })
 
 describe('getContextLimit', () => {
-  it('should return 1M for vertex provider', () => {
-    expect(getContextLimit('vertex', 'any-model')).toBe(1_000_000)
+  it('should return 128K for vertex provider (DeepSeek R1)', () => {
+    expect(getContextLimit('vertex', 'any-model')).toBe(128_000)
   })
 
-  it('should return 200K for bedrock provider', () => {
-    expect(getContextLimit('bedrock', 'any-model')).toBe(200_000)
+  it('should return 128K for bedrock provider (DeepSeek R1)', () => {
+    expect(getContextLimit('bedrock', 'any-model')).toBe(128_000)
   })
 
   it('should return 128K for deepseek-chat', () => {

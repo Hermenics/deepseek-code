@@ -23,7 +23,12 @@ export interface SessionData {
 }
 
 export function newSessionId(): string {
-  return `session-${Date.now()}`
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
+  let id = ''
+  for (let i = 0; i < 12; i++) {
+    id += chars[Math.floor(Math.random() * chars.length)]
+  }
+  return id
 }
 
 export async function saveSession(data: SessionData): Promise<void> {
