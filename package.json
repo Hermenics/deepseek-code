@@ -1,10 +1,10 @@
 {
   "name": "@aethelics/deepseek-code",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
-    "deepseek": "dist/cli.mjs"
+    "deepseek": "dist/deepseek"
   },
   "engines": {
     "node": ">=18",

@@ -1,10 +1,14 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 // Pipe mode: only when --pipe flag is explicitly passed
 if (process.argv.includes('--pipe')) {
   const { default: runPipe } = await import('./pipe.js')
   await runPipe()
   process.exit(0)
 }
+
+// Set terminal title
+process.title = 'deepseek'
+process.stdout.write('\x1b]0;DeepSeek\x07')
 
 import { useState, useEffect } from 'react'
 import { createCliRenderer } from '@opentui/core'
