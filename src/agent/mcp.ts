@@ -6,7 +6,7 @@ import type { Tool } from '../tools/types.js'
 import { readJson } from '../utils/fs.js'
 import { auditLog, type AuditEvent } from './auditLog.js'
 
-// Vars de ambiente que não podem ser sobrescritas por servidores MCP
+// Environment variables that cannot be overwritten by MCP servers
 const CRITICAL_ENV_VARS = new Set([
   'PATH',
   'LD_PRELOAD',
@@ -22,13 +22,13 @@ const CRITICAL_ENV_VARS = new Set([
   'BUN_INSTALL',
 ])
 
-// Padrões de injeção de shell proibidos no campo command
+// Prohibited shell injection patterns in the command field
 const SHELL_INJECTION_RE = /[;|`<>]|&&|\|\||\$\(|>>|<</
 const PATH_TRAVERSAL_RE = /\.\.[/\\]/
 
 /**
- * Mescla `base` com `override` bloqueando sobrescrita de variáveis críticas
- * de ambiente. Vars críticas ausentes do `base` também não são injetadas.
+ * Merges `base` with `override` while blocking overwrite of critical
+ * environment variables. Critical vars absent from `base` are also not injected.
  */
 export function sanitizeMcpEnv(
   base: Record<string, string>,
@@ -59,7 +59,7 @@ export function validateMcpCommand(command: string): void {
 }
 
 /**
- * Constrói um evento de auditoria para o carregamento de um servidor MCP.
+ * Builds an audit event for the loading of an MCP server.
  */
 export function buildMcpLoadEvent(serverName: string, transport: string): AuditEvent {
   return { type: 'mcp_server_load', serverName, transport }
@@ -101,7 +101,7 @@ export async function loadMcpTools(): Promise<{ tools: Tool[]; errors: string[] 
 
   for (const [serverName, serverConfig] of Object.entries(config.servers)) {
     try {
-      // Validar comando antes de criar transport (apenas stdio)
+      // Validate command before creating transport (stdio only)
       if (serverConfig.transport === 'stdio') {
         validateMcpCommand(serverConfig.command)
       }
@@ -123,7 +123,7 @@ export async function loadMcpTools(): Promise<{ tools: Tool[]; errors: string[] 
 
       await client.connect(transport)
 
-      // Registrar evento de auditoria após conexão bem-sucedida
+      // Log audit event after successful connection
       await auditLog(buildMcpLoadEvent(serverName, serverConfig.transport))
 
       const { tools: mcpTools } = await client.listTools()

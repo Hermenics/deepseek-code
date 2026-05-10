@@ -28,6 +28,55 @@ afterEach(async () => {
   await rm(tempDir, { recursive: true, force: true })
 })
 
+// ─── DEEPSEEK_BASE_URL como chave sensível ───────────────────────
+
+describe('SENSITIVE_KEYS', () => {
+  it('deve conter DEEPSEEK_BASE_URL', () => {
+    expect(SENSITIVE_KEYS.has('DEEPSEEK_BASE_URL')).toBe(true)
+  })
+
+  it('DEEPSEEK_BASE_URL deve ser salvo no .env, não no config.json', async () => {
+    const data = {
+      DEEPSEEK_API_KEY: 'sk-test',
+      DEEPSEEK_BASE_URL: 'https://success.ai/v1',
+      theme: 'dark',
+    }
+
+    await saveFullConfig(data, configPath, envPath)
+
+    const envContent = await readFile(envPath, 'utf-8')
+    expect(envContent).toContain('DEEPSEEK_BASE_URL=https://success.ai/v1')
+
+    const configContent = JSON.parse(await readFile(configPath, 'utf-8'))
+    expect(configContent).not.toHaveProperty('DEEPSEEK_BASE_URL')
+  })
+
+  it('DEEPSEEK_BASE_URL deve ser carregado via loadFullConfig', async () => {
+    await Bun.write(envPath, 'DEEPSEEK_API_KEY=sk-abc\nDEEPSEEK_BASE_URL=https://proxy.example.com/v1\n')
+
+    const cfg = await loadFullConfig(configPath, envPath)
+    expect(cfg.DEEPSEEK_BASE_URL).toBe('https://proxy.example.com/v1')
+  })
+
+  it('DEEPSEEK_BASE_URL deve ser migrado do config.json para .env', async () => {
+    await Bun.write(
+      configPath,
+      JSON.stringify({
+        theme: 'dark',
+        DEEPSEEK_BASE_URL: 'https://migrate.example.com/v1',
+      }),
+    )
+
+    await migrateConfigIfNeeded(configPath, envPath)
+
+    const envContent = await readFile(envPath, 'utf-8')
+    expect(envContent).toContain('DEEPSEEK_BASE_URL=https://migrate.example.com/v1')
+
+    const config = JSON.parse(await readFile(configPath, 'utf-8'))
+    expect(config).not.toHaveProperty('DEEPSEEK_BASE_URL')
+  })
+})
+
 // ─── loadEnvFile ────────────────────────────────────────────────
 
 describe('loadEnvFile', () => {

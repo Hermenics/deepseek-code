@@ -17,7 +17,7 @@ export function getMessagesAfterBoundary(
 ): ChatCompletionMessageParam[] {
   if (messages.length === 0) return []
 
-  // Scan reverso para encontrar o último boundary
+  // Reverse scan to find the last boundary
   let lastBoundaryIdx = -1
   for (let i = messages.length - 1; i >= 0; i--) {
     if (isBoundaryMarker(messages[i]!)) {
@@ -27,11 +27,11 @@ export function getMessagesAfterBoundary(
   }
 
   if (lastBoundaryIdx === -1) {
-    // Sem boundary — backward compatible, retorna tudo sem markers
+    // No boundary — backward compatible, return everything without markers
     return messages.filter((m) => !isBoundaryMarker(m)) as ChatCompletionMessageParam[]
   }
 
-  // System prompt é sempre messages[0]
+  // System prompt is always messages[0]
   const systemMsg = messages[0]
   const afterBoundary = messages
     .slice(lastBoundaryIdx + 1)

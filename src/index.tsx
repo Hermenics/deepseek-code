@@ -166,7 +166,7 @@ function Root() {
   )
 }
 
-// Limpa o prompt do shell antes de renderizar
+// Clear the shell prompt before rendering
 process.stdout.write('\x1b[2J\x1b[H')
 
 const { waitUntilExit } = render(<Root />, { exitOnCtrlC: false })

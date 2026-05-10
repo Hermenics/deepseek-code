@@ -17,6 +17,7 @@ export interface ProviderConfig {
   provider: ProviderName
   // deepseek
   apiKey?: string
+  baseURL?: string
   // bedrock
   awsRegion?: string
   awsProfile?: string
@@ -33,7 +34,7 @@ export const PROVIDERS: { label: string; value: ProviderName; hint: string }[] =
   { value: 'deepseek', label: 'DeepSeek API',          hint: 'platform.deepseek.com/api_keys' },
   { value: 'bedrock',  label: 'Amazon Bedrock',         hint: 'AWS profile from ~/.aws/credentials' },
   { value: 'vertex',   label: 'Google Vertex AI',       hint: 'GCP project + service account JSON' },
-  { value: 'local',    label: 'Modelo local (Ollama / LM Studio)', hint: 'Any OpenAI-compatible endpoint' },
+  { value: 'local',    label: 'Local model (Ollama / LM Studio)', hint: 'Any OpenAI-compatible endpoint' },
 ]
 
 const THEMES: { label: string; value: ThemeName }[] = [
@@ -83,7 +84,7 @@ function DiffPreview({ theme }: { theme: ThemeName }) {
 export async function saveConfig(data: Record<string, string>): Promise<void> {
   const dir = join(homedir(), '.deepseek')
   await mkdir(dir, { recursive: true })
-  // Carrega config existente, merge com novos dados, salva split
+  // Load existing config, merge with new data, save split
   const existing = await loadFullConfig().catch(() => ({}))
   await saveFullConfig({ ...existing, ...data })
 }
@@ -93,7 +94,10 @@ export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfi
     const cfg = await loadFullConfig()
     const provider = (cfg.PROVIDER ?? 'deepseek') as ProviderName
     const providerConfig: ProviderConfig = { provider }
-    if (provider === 'deepseek' && cfg.DEEPSEEK_API_KEY) providerConfig.apiKey = cfg.DEEPSEEK_API_KEY
+    if (provider === 'deepseek' && cfg.DEEPSEEK_API_KEY) {
+      providerConfig.apiKey = cfg.DEEPSEEK_API_KEY
+      if (cfg.DEEPSEEK_BASE_URL) providerConfig.baseURL = cfg.DEEPSEEK_BASE_URL
+    }
     if (provider === 'bedrock') {
       providerConfig.awsRegion = cfg.AWS_REGION
       providerConfig.awsProfile = cfg.AWS_PROFILE
@@ -123,9 +127,10 @@ export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfi
 }
 
 // Fields per provider, in order
-const PROVIDER_FIELDS: Record<ProviderName, { key: string; label: string; hint: string; secret?: boolean }[]> = {
+const PROVIDER_FIELDS: Record<ProviderName, { key: string; label: string; hint: string; secret?: boolean; optional?: boolean }[]> = {
   deepseek: [
-    { key: 'DEEPSEEK_API_KEY', label: 'DeepSeek API Key', hint: 'platform.deepseek.com/api_keys', secret: true },
+    { key: 'DEEPSEEK_API_KEY',  label: 'DeepSeek API Key',  hint: 'platform.deepseek.com/api_keys', secret: true },
+    { key: 'DEEPSEEK_BASE_URL', label: 'Base URL (optional)', hint: 'Leave empty to use api.deepseek.com — or enter a custom URL (e.g. https://success.ai/...)', optional: true },
   ],
   bedrock: [
     { key: 'AWS_REGION',  label: 'AWS Region',       hint: 'e.g. us-east-1' },
@@ -195,7 +200,7 @@ export function ApiKeySetup({ onDone }: Props) {
     if (step === 'fields') {
       if (key.return) {
         const trimmed = currentInput.trim()
-        if (!trimmed) { setError(`${currentField.label} cannot be empty.`); return }
+        if (!trimmed && !currentField.optional) { setError(`${currentField.label} cannot be empty.`); return }
         const updated = { ...fieldValues, [currentField.key]: trimmed }
         setFieldValues(updated)
         setError('')
@@ -207,10 +212,11 @@ export function ApiKeySetup({ onDone }: Props) {
           saveConfig({ ...updated, PROVIDER: selectedProvider, THEME: selectedTheme })
             .then(() => {
               // Set env vars for immediate use
-              for (const [k, v] of Object.entries(updated)) process.env[k] = v
+              for (const [k, v] of Object.entries(updated)) if (v) process.env[k] = v
               const providerConfig: ProviderConfig = {
                 provider: selectedProvider,
                 apiKey: updated['DEEPSEEK_API_KEY'],
+                baseURL: updated['DEEPSEEK_BASE_URL'] || undefined,
                 awsRegion: updated['AWS_REGION'],
                 awsProfile: updated['AWS_PROFILE'],
                 gcpProject: updated['GCP_PROJECT'],

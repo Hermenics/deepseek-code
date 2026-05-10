@@ -24,7 +24,7 @@ import { UNDO_STACK_MAX, CONTEXT_COMPACT_THRESHOLD } from '../constants.js'
 import { auditLog } from './auditLog.js'
 import { canUseTool, DEFAULT_MODE, getToolsForMode, type InteractionMode } from '../ui/interactionMode.js'
 
-/** Workaround: OpenAI SDK não tipou reasoning_content ainda (campo exclusivo do deepseek-reasoner) */
+/** Workaround: OpenAI SDK has not typed reasoning_content yet (exclusive field of deepseek-reasoner) */
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & { reasoning_content?: string }
 
 class DenyAbortError extends Error {
@@ -186,8 +186,8 @@ export class Agent {
   // ── Available models (dynamic) ──────────────────────────────────────────────
 
   async getAvailableModels(): Promise<string[]> {
-    // Bedrock e Vertex: lista apenas modelos DeepSeek via SDK/API nativa
-    // (o endpoint /v1/models do OpenAI-compat não funciona nesses providers)
+    // Bedrock and Vertex: list only DeepSeek models via native SDK/API
+    // (the /v1/models OpenAI-compat endpoint does not work for these providers)
     if (this.provider === 'bedrock') {
       const region  = this.providerConfig.awsRegion  ?? 'us-east-1'
       const profile = this.providerConfig.awsProfile ?? 'default'
@@ -201,7 +201,7 @@ export class Agent {
       return listVertexDeepSeekModels(project, location, credentials)
     }
 
-    // DeepSeek nativo e local: usa o endpoint /v1/models padrão
+    // Native DeepSeek and local: use the standard /v1/models endpoint
     try {
       const res = await this.client.models.list({ signal: AbortSignal.timeout(10_000) })
       const models: string[] = []
@@ -408,7 +408,7 @@ export class Agent {
     while (true) {
       this.abortController = new AbortController()
 
-      // Sanitiza mensagens para a API: remove reasoning_content para modelos não-reasoner
+      // Sanitize messages for the API: reasoning_content must be preserved for all models
       const rawMessages = getMessagesAfterBoundary(this.messages)
       const apiMessages = this.sanitizeMessagesForApi(rawMessages)
 
@@ -452,7 +452,7 @@ export class Agent {
           const delta = chunk.choices[0]?.delta
           if (!delta) continue
 
-          // Cast necessário: OpenAI SDK não tipou reasoning_content no delta (campo exclusivo do deepseek-reasoner)
+          // Cast required: OpenAI SDK has not typed reasoning_content in delta (exclusive field of deepseek-reasoner)
           const deltaReasoning = (delta as Record<string, unknown>).reasoning_content
           if (typeof deltaReasoning === 'string' && deltaReasoning) {
             reasoningText += deltaReasoning
@@ -480,8 +480,8 @@ export class Agent {
         if (this.abortController?.signal.aborted) {
           if (assistantText || reasoningText) {
             const abortMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText || null }
-            // Preserva reasoning_content sempre — DeepSeek-V4-Flash tem thinking mode embutido
-            // e a API exige que o campo seja passado de volta quando presente
+            // Always preserve reasoning_content — DeepSeek-V4-Flash has built-in thinking mode
+            // and the API requires the field to be passed back when present
             if (reasoningText) abortMsg.reasoning_content = reasoningText
             this.messages.push(abortMsg)
           }
@@ -494,7 +494,7 @@ export class Agent {
 
       if (toolCalls.size === 0) {
         const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText }
-        // Preserva reasoning_content sempre — DeepSeek-V4-Flash tem thinking mode embutido
+        // Always preserve reasoning_content — DeepSeek-V4-Flash has built-in thinking mode
         if (reasoningText) finalMsg.reasoning_content = reasoningText
         this.messages.push(finalMsg)
         await saveHistory(this.messages)
@@ -512,7 +512,7 @@ export class Agent {
         content: assistantText || null,
         tool_calls: tcArray,
       }
-      // Preserva reasoning_content sempre — DeepSeek-V4-Flash tem thinking mode embutido
+      // Always preserve reasoning_content — DeepSeek-V4-Flash has built-in thinking mode
       if (reasoningText) assistantMsg.reasoning_content = reasoningText
       this.messages.push(assistantMsg)
 
@@ -607,16 +607,16 @@ export class Agent {
   }
 
   /**
-   * Sanitiza mensagens antes de enviar para a API.
+   * Sanitizes messages before sending to the API.
    *
-   * O DeepSeek-V4-Flash tem thinking mode embutido e pode retornar reasoning_content
-   * em qualquer modelo. Quando retorna, a API EXIGE que seja passado de volta.
-   * Portanto: sempre preservamos reasoning_content no histórico e na API.
+   * DeepSeek-V4-Flash has built-in thinking mode and may return reasoning_content
+   * on any model. When returned, the API REQUIRES it to be passed back.
+   * Therefore: we always preserve reasoning_content in history and in the API.
    */
   private sanitizeMessagesForApi(
     messages: ChatCompletionMessageParam[]
   ): ChatCompletionMessageParam[] {
-    // Passa tudo como está — reasoning_content deve ser preservado para todos os modelos
+    // Pass everything as-is — reasoning_content must be preserved for all models
     return messages
   }
 

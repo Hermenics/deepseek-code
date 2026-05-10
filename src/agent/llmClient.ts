@@ -47,7 +47,7 @@ export function createLLMClient(cfg: ProviderConfig): OpenAI {
     default: // deepseek
       return new OpenAI({
         apiKey: cfg.apiKey ?? process.env.DEEPSEEK_API_KEY,
-        baseURL: 'https://api.deepseek.com',
+        baseURL: cfg.baseURL ?? process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com',
       })
   }
 }

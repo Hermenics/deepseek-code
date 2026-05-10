@@ -8,6 +8,25 @@ describe('createLLMClient', () => {
     expect((client as any).baseURL).toBe('https://api.deepseek.com')
   })
 
+  it('deepseek provider usa baseURL customizada do cfg', () => {
+    const client = createLLMClient({ provider: 'deepseek', apiKey: 'test-key', baseURL: 'https://success.ai/v1' })
+    expect((client as any).baseURL).toBe('https://success.ai/v1')
+  })
+
+  it('deepseek provider usa DEEPSEEK_BASE_URL do env quando cfg.baseURL não definido', () => {
+    process.env.DEEPSEEK_BASE_URL = 'https://proxy.example.com/v1'
+    const client = createLLMClient({ provider: 'deepseek', apiKey: 'test-key' })
+    expect((client as any).baseURL).toBe('https://proxy.example.com/v1')
+    delete process.env.DEEPSEEK_BASE_URL
+  })
+
+  it('deepseek provider cfg.baseURL tem prioridade sobre DEEPSEEK_BASE_URL do env', () => {
+    process.env.DEEPSEEK_BASE_URL = 'https://env.example.com/v1'
+    const client = createLLMClient({ provider: 'deepseek', apiKey: 'test-key', baseURL: 'https://cfg.example.com/v1' })
+    expect((client as any).baseURL).toBe('https://cfg.example.com/v1')
+    delete process.env.DEEPSEEK_BASE_URL
+  })
+
   it('bedrock provider usa região padrão us-east-1', () => {
     const client = createLLMClient({ provider: 'bedrock' })
     expect((client as any).baseURL).toContain('us-east-1')

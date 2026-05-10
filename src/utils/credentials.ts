@@ -13,10 +13,11 @@ const ENV_PATH = join(CONFIG_DIR, '.env')
 
 export const SENSITIVE_KEYS = new Set([
   'DEEPSEEK_API_KEY',
+  'DEEPSEEK_BASE_URL',
   'GCP_CREDENTIALS',
 ])
 
-// Chaves legadas que devem ser removidas sem migrar para .env
+// Legacy keys that should be removed without migrating to .env
 const LEGACY_KEYS = new Set([
   'AWS_ACCESS_KEY_ID',
   'AWS_SECRET_ACCESS_KEY',
@@ -41,7 +42,7 @@ export async function loadEnvFile(envPath: string = ENV_PATH): Promise<Record<st
 
     return result
   } catch {
-    // Arquivo nao existe ou nao pode ser lido
+    // File does not exist or cannot be read
     return {}
   }
 }
@@ -67,7 +68,7 @@ export async function loadFullConfig(
   try {
     jsonData = await readJson<Record<string, string>>(configPath)
   } catch {
-    // config.json nao existe
+    // config.json does not exist
   }
 
   const envData = await loadEnvFile(envPath)
@@ -107,7 +108,7 @@ export async function migrateConfigIfNeeded(
   try {
     config = await readJson<Record<string, string>>(configPath)
   } catch {
-    // config.json nao existe — nada a migrar
+    // config.json does not exist — nothing to migrate
     return
   }
 
@@ -116,11 +117,11 @@ export async function migrateConfigIfNeeded(
 
   for (const key of Object.keys(config)) {
     if (LEGACY_KEYS.has(key)) {
-      // Remover sem migrar
+      // Remove without migrating
       delete config[key]
       changed = true
     } else if (SENSITIVE_KEYS.has(key)) {
-      // Mover para .env
+      // Move to .env
       toEnv[key] = config[key]
       delete config[key]
       changed = true
@@ -129,11 +130,11 @@ export async function migrateConfigIfNeeded(
 
   if (!changed) return
 
-  // Carregar .env existente para merge (idempotencia)
+  // Load existing .env for merge (idempotency)
   const existingEnv = await loadEnvFile(envPath)
   const mergedEnv = { ...existingEnv, ...toEnv }
 
-  // Escrever .env primeiro, depois config.json
+  // Write .env first, then config.json
   await saveEnvFile(envPath, mergedEnv)
   await writeRaw(configPath, JSON.stringify(config, null, 2))
 }
