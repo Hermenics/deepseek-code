@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
-import { Box, Text, useInput } from 'ink'
+import { useState } from 'react'
+import { useKeyboard } from '@opentui/react'
+import type { KeyEvent } from '@opentui/core'
 import type { Model } from '../../commands.js'
 
 interface Props {
@@ -15,44 +16,44 @@ export function ModelSelector({ currentModel, models, onSelect, onCancel }: Prop
     return i >= 0 ? i : 0
   })
 
-  useInput((_, key) => {
+  useKeyboard((key: KeyEvent) => {
     if (models.length === 0) {
-      if (key.escape) { onCancel(); return }
+      if (key.name === 'escape') { onCancel(); return }
       return
     }
-    if (key.upArrow)   { setIdx((i) => (i - 1 + models.length) % models.length); return }
-    if (key.downArrow) { setIdx((i) => (i + 1) % models.length); return }
-    if (key.return)    { onSelect(models[idx]!); return }
-    if (key.escape)    { onCancel(); return }
+    if (key.name === 'up') { setIdx((i) => (i - 1 + models.length) % models.length); return }
+    if (key.name === 'down') { setIdx((i) => (i + 1) % models.length); return }
+    if (key.name === 'return') { onSelect(models[idx]!); return }
+    if (key.name === 'escape') { onCancel(); return }
   })
 
   if (models.length === 0) {
     return (
-      <Box flexDirection="column" marginTop={1}>
-        <Text dimColor>/models</Text>
-        <Box marginTop={1}>
-          <Text color="yellow">No models available from this provider.</Text>
-        </Box>
-        <Text dimColor>Esc to go back</Text>
-      </Box>
+      <box flexDirection="column" marginTop={1}>
+        <text fg="#888888">/models</text>
+        <box marginTop={1}>
+          <text fg="yellow">No models available from this provider.</text>
+        </box>
+        <text fg="#888888">Esc to go back</text>
+      </box>
     )
   }
 
   return (
-    <Box flexDirection="column" marginTop={1}>
-      <Text dimColor>/models</Text>
-      <Box flexDirection="column" marginTop={1}>
+    <box flexDirection="column" marginTop={1}>
+      <text fg="#888888">/models</text>
+      <box flexDirection="column" marginTop={1}>
         {models.map((m, i) => (
-          <Box key={m} gap={2}>
-            <Text color={i === idx ? 'cyan' : undefined} bold={i === idx}>
+          <box key={m} flexDirection="row" gap={2}>
+            <text fg={i === idx ? 'cyan' : undefined}>
               {i === idx ? '❯ ' : '  '}{m}
-            </Text>
-            {m === currentModel && <Text dimColor>[active]</Text>}
-          </Box>
+            </text>
+            {m === currentModel && <text fg="#888888">[active]</text>}
+          </box>
         ))}
-      </Box>
-      <Box marginTop={1}><Text dimColor>{'─'.repeat(60)}</Text></Box>
-      <Text dimColor>↑↓ navigate · Enter select · Esc cancel</Text>
-    </Box>
+      </box>
+      <box marginTop={1}><text fg="#888888">{'─'.repeat(60)}</text></box>
+      <text fg="#888888">↑↓ navigate · Enter select · Esc cancel</text>
+    </box>
   )
 }

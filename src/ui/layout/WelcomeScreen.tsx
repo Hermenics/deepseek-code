@@ -1,84 +1,68 @@
-import React, { useEffect, useState } from 'react'
-import { Box, Text } from 'ink'
-import chalk from 'chalk'
-import figures from 'figures'
-import cliBoxes from 'cli-boxes'
+import { useState, useEffect } from 'react'
 import pkg from '../../../package.json' with { type: 'json' }
-import { DeepSeekMascot } from './Mascot.js'
+
+export function DeepSeekMascot() {
+  return (
+    <box flexDirection="column">
+      <text fg="cyan">{' ▄▄███▄▄'}</text>
+      <text fg="cyan">{'▄█ ◉    ██▄'}</text>
+      <text fg="cyan">{'█          ~~█'}</text>
+      <text fg="cyan">{'▀▄▄█▄▄▄▄█▀'}</text>
+    </box>
+  )
+}
 
 export function WelcomeArt() {
   const cols = process.stdout.columns ?? 80
   const isNarrow = cols < 94
 
   if (isNarrow) {
-    // Compact version for narrow terminals
     return (
-      <Box flexDirection="column" marginBottom={1} marginTop={1}>
-        <Box gap={2} alignItems="center">
+      <box flexDirection="column" marginBottom={1} marginTop={1}>
+        <box flexDirection="row" gap={2}>
           <DeepSeekMascot />
-          <Box flexDirection="column">
-            <Box gap={1}>
-              <Text bold color="cyan">{figures.lozenge} DeepSeek Code</Text>
-              <Text dimColor>v{pkg.version}</Text>
-            </Box>
-            <Text color="blueBright" bold>Deep reasoning.</Text>
-            <Text dimColor>Elite code.</Text>
-          </Box>
-        </Box>
-        <Box marginTop={1}>
-          <Text dimColor>{cliBoxes.round.top.repeat(cols - 8)}</Text>
-        </Box>
-      </Box>
+          <box flexDirection="column">
+            <box flexDirection="row" gap={1}>
+              <text fg="cyan">{'◆ DeepSeek Code'}</text>
+              <text fg="#888888">{'v' + pkg.version}</text>
+            </box>
+            <text fg="#5599ff">Deep reasoning.</text>
+            <text fg="#888888">Elite code.</text>
+          </box>
+        </box>
+      </box>
     )
   }
 
-  // Full version for wide terminals
-  const wave1 = '  *          .        *             .       *          .*          .   '
-  const wave2 = '       .          *         .              *               .              *'
-  const wave3 = '  .       *              .        *               .       *               . '
-  const wave4 = '        .       *                    .        *       .    '
-  const wave5 = '  *          .        *             .       *          .   '
-  const shore = '~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~'
-  const foam = '~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~ '
-
-  const clip = (s: string) => s.slice(0, cols)
-
   return (
-    <Box flexDirection="column">
-      <Box gap={1}>
-        <Text color="cyan">{'Welcome to DeepSeek Code'} </Text>
-        <Text dimColor>v{pkg.version}</Text>
-      </Box>
-      <Box marginTop={1} flexDirection="column">
-        <Text dimColor>{clip(wave1)}</Text>
-        <Text dimColor>{clip(wave2)}</Text>
-        <Text dimColor>{clip(wave3)}</Text>
-        <Text dimColor>{clip(wave4)}</Text>
-        <Text dimColor>{clip(wave5)}</Text>
-        <Box>
-          <Text color="cyan">{'          ▄▄███▄▄'}</Text>
-          <Text dimColor>{clip('    .        *       .      *        .  *       .      *        .  ')}</Text>
-        </Box>
-        <Box>
-          <Text color="cyan">{'        ▄█ ◉    ██▄'}</Text>
-          <Text dimColor>{clip('  *          .        *              .  *       .      *        .  ')}</Text>
-        </Box>
-        <Box>
-          <Text color="cyan">{'        █          ~~█'}</Text>
-          <Text dimColor>{clip('       *          .        *       .    *       .      *        .  ')}</Text>
-        </Box>
-        <Text dimColor>{clip(shore)}</Text>
-        <Text dimColor>{clip(foam)}</Text>
-      </Box>
-    </Box>
+    <box flexDirection="column">
+      <box flexDirection="row" gap={1}>
+        <text fg="cyan">{'Welcome to DeepSeek Code'}</text>
+        <text fg="#888888">{'v' + pkg.version}</text>
+      </box>
+      <box marginTop={1} flexDirection="column">
+        <box>
+          <text fg="cyan">{'          ▄▄███▄▄'}</text>
+        </box>
+        <box>
+          <text fg="cyan">{'        ▄█ ◉    ██▄'}</text>
+        </box>
+        <box>
+          <text fg="cyan">{'        █          ~~█'}</text>
+        </box>
+        <box>
+          <text fg="cyan">{'        ▀▄▄█▄▄▄▄█▀'}</text>
+        </box>
+      </box>
+    </box>
   )
 }
 
-interface Props {
+interface WelcomeScreenProps {
   children: React.ReactNode
 }
 
-export function WelcomeScreen({ children }: Props) {
+export function WelcomeScreen({ children }: WelcomeScreenProps) {
   const [showChildren, setShowChildren] = useState(false)
 
   useEffect(() => {
@@ -87,9 +71,9 @@ export function WelcomeScreen({ children }: Props) {
   }, [])
 
   return (
-    <Box flexDirection="column">
+    <box flexDirection="column">
       <WelcomeArt />
       {showChildren && children}
-    </Box>
+    </box>
   )
 }

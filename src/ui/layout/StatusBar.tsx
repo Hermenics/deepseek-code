@@ -1,6 +1,4 @@
-import React, { useState, useEffect } from 'react'
-import { Box, Text } from 'ink'
-import figures from 'figures'
+import { useState, useEffect } from 'react'
 import { execa } from 'execa'
 import type { Model } from '../../commands.js'
 import { MODE_COLORS, MODE_LABELS, type InteractionMode } from '../interactionMode.js'
@@ -14,7 +12,7 @@ async function getGitBranch(): Promise<string> {
   }
 }
 
-export const StatusBar = React.memo(function StatusBar({ tokenCount, model, activeAgent, provider, contextPct = 0, interactionMode = 'chat' }: {
+export function StatusBar({ tokenCount, model, activeAgent, provider, contextPct = 0, interactionMode = 'chat' }: {
   tokenCount: number
   model: Model
   activeAgent: string | null
@@ -36,30 +34,25 @@ export const StatusBar = React.memo(function StatusBar({ tokenCount, model, acti
     }
   }, [])
 
-  const parts: string[] = []
-  if (tokenCount > 0) parts.push(`${tokenCount.toLocaleString()} tokens`)
-  if (branch) parts.push(branch)
-  if (contextPct > 0) parts.push(`ctx ${contextPct}%`)
-
-  if (parts.length === 0 && !model) return null
+  if (tokenCount === 0 && !model) return null
 
   return (
-    <Box flexDirection="column">
-      <Box paddingX={2} gap={0}>
-        {tokenCount > 0 && <Text dimColor>{figures.bullet} {tokenCount.toLocaleString()} tokens  </Text>}
-        {branch && <Text dimColor>{figures.arrowRight} {branch}  </Text>}
-        <Text dimColor>{figures.lozenge} {model}</Text>
+    <box flexDirection="column">
+      <box flexDirection="row" paddingLeft={2} paddingRight={2}>
+        {tokenCount > 0 && <text fg="#888888">{'• ' + tokenCount.toLocaleString() + ' tokens  '}</text>}
+        {branch && <text fg="#888888">{'→ ' + branch + '  '}</text>}
+        <text fg="#888888">{'◆ ' + model}</text>
         {contextPct > 0 && (
           <>
-            <Text dimColor>  {figures.lineVertical} ctx </Text>
-            <Text color={contextPct >= 90 ? 'red' : contextPct >= 70 ? 'yellow' : 'cyan'} dimColor={contextPct < 50}>
-              {contextPct}%
-            </Text>
+            <text fg="#888888">{'  │ ctx '}</text>
+            <text fg={contextPct >= 90 ? 'red' : contextPct >= 70 ? 'yellow' : 'cyan'}>
+              {contextPct + '%'}
+            </text>
           </>
         )}
-        <Text dimColor>  {figures.lineVertical} </Text>
-        <Text color={MODE_COLORS[interactionMode]}>{MODE_LABELS[interactionMode]}</Text>
-      </Box>
-    </Box>
+        <text fg="#888888">{'  │ '}</text>
+        <text fg={MODE_COLORS[interactionMode]}>{MODE_LABELS[interactionMode]}</text>
+      </box>
+    </box>
   )
-})
+}

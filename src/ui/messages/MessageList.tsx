@@ -1,55 +1,21 @@
-import React from 'react'
-import { Box, Text, Static } from 'ink'
-import figures from 'figures'
-import stripAnsi from 'strip-ansi'
-import wrapAnsi from 'wrap-ansi'
+import { useMemo } from 'react'
+import { SyntaxStyle, RGBA } from '@opentui/core'
 import type { Message } from '../App.js'
 import { DiffView } from './DiffView.js'
-import { MarkdownRenderer } from './MarkdownRenderer.js'
 import type { ThemeName } from '../setup/ApiKeySetup.js'
-import { DeepSeekMascot } from '../layout/Mascot.js'
-import pkg from '../../../package.json' with { type: 'json' }
 import { TOOL_DISPLAY } from './toolDisplay.js'
+import pkg from '../../../package.json' with { type: 'json' }
 
-/**
- * Sanitizes incomplete streaming text for safe markdown rendering.
- * Closes unclosed code fences and collapses excessive blank lines
- * that the marked lexer would otherwise turn into empty space.
- */
-function sanitizeStreamMarkdown(text: string): string {
-  // Collapse 3+ consecutive newlines into 2 (prevents huge gaps)
-  let sanitized = text.replace(/\n{3,}/g, '\n\n')
-  // Close unclosed code fences so marked doesn't produce broken output
-  const fenceCount = (sanitized.match(/^```/gm) || []).length
-  if (fenceCount % 2 !== 0) {
-    sanitized += '\n```'
-  }
-  return sanitized
-}
-
-// Splits text by \n into individual <Text> elements inside a column <Box>,
-// preventing Ink from rendering newlines outside the parent component bounds.
-// Uses wrap-ansi to prevent text overflow on narrow terminals.
-export function renderLines(text: string): React.ReactNode {
-  const cols = Math.max((process.stdout.columns ?? 80) - 6, 30)
-  const rawLines = text.split(/\r?\n/)
-  // Only apply wrap-ansi to lines that actually exceed terminal width
-  const lines: string[] = []
-  for (const line of rawLines) {
-    if (stripAnsi(line).length > cols) {
-      lines.push(...wrapAnsi(line, cols, { hard: true }).split('\n'))
-    } else {
-      lines.push(line)
-    }
-  }
-  return (
-    <Box flexDirection="column">
-      {lines.map((line, i) => (
-        <Text key={i}>{line}</Text>
-      ))}
-    </Box>
-  )
-}
+const syntaxStyle = SyntaxStyle.fromStyles({
+  keyword: { fg: RGBA.fromHex('#c792ea'), bold: true },
+  string: { fg: RGBA.fromHex('#c3e88d') },
+  comment: { fg: RGBA.fromHex('#676e95'), italic: true },
+  number: { fg: RGBA.fromHex('#f78c6c') },
+  type: { fg: RGBA.fromHex('#ffcb6b') },
+  function: { fg: RGBA.fromHex('#82aaff') },
+  variable: { fg: RGBA.fromHex('#f07178') },
+  default: { fg: RGBA.fromHex('#a6accd') },
+})
 
 function formatToolLine(rawName: string, detail: string): { display: string; arg: string; output: string } {
   const display = TOOL_DISPLAY[rawName] ?? rawName
@@ -58,16 +24,14 @@ function formatToolLine(rawName: string, detail: string): { display: string; arg
   try {
     const parsed = JSON.parse(detail)
     if (parsed && typeof parsed === 'object' && 'arg' in parsed) {
-      const plainArg = stripAnsi(String(parsed.arg ?? ''))
-      arg = plainArg.length > 60 ? parsed.arg.slice(0, 60) + '…' : String(parsed.arg ?? '')
+      const plainArg = String(parsed.arg ?? '')
+      arg = plainArg.length > 60 ? plainArg.slice(0, 60) + '…' : plainArg
       output = String(parsed.output ?? '')
     } else {
-      const plain = stripAnsi(detail)
-      arg = plain.length > 60 ? detail.slice(0, 60) + '…' : detail
+      arg = detail.length > 60 ? detail.slice(0, 60) + '…' : detail
     }
   } catch {
-    const plain = stripAnsi(detail)
-    arg = plain.length > 60 ? detail.slice(0, 60) + '…' : detail
+    arg = detail.length > 60 ? detail.slice(0, 60) + '…' : detail
   }
   return { display, arg, output }
 }
@@ -75,12 +39,12 @@ function formatToolLine(rawName: string, detail: string): { display: string; arg
 function MessageItem({ message: m, theme, agentLabel }: { message: Message; theme: ThemeName; agentLabel: string }) {
   if (m.role === 'user') {
     return (
-      <Box flexDirection="column" marginTop={1}>
-        <Box gap={1}>
-          <Text color="cyan" bold>{figures.pointer}</Text>
-          {renderLines(m.content)}
-        </Box>
-      </Box>
+      <box flexDirection="column" marginTop={1}>
+        <box flexDirection="row" gap={1}>
+          <text fg="cyan">{'❯'}</text>
+          <text>{m.content}</text>
+        </box>
+      </box>
     )
   }
   if (m.role === 'tool') {
@@ -97,15 +61,15 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
       const label = isDone ? m.content.slice('✓ subagent → '.length) : m.content.slice('⚙ subagent('.length, -1)
       const labelTrunc = label.length > 60 ? label.slice(0, 60) + '…' : label
       return (
-        <Box paddingLeft={2} gap={1}>
-          <Text color={isDone ? 'green' : 'yellow'}>⎿ </Text>
-          <Text color={isDone ? 'white' : 'yellow'} dimColor={isDone}>
+        <box flexDirection="row" paddingLeft={2} gap={1}>
+          <text fg={isDone ? 'green' : 'yellow'}>{'⎿ '}</text>
+          <text fg={isDone ? '#888888' : 'yellow'}>
             {labelTrunc || 'Agent'}{!isDone ? ' working…' : ''}
-          </Text>
-        </Box>
+          </text>
+        </box>
       )
     }
-    const raw = m.content.slice(2) // strip "✓ " or "⚙ "
+    const raw = m.content.slice(2)
     const sep = raw.indexOf(' → ')
     const toolName = sep >= 0 ? raw.slice(0, sep) : raw
     const detail = sep >= 0 ? raw.slice(sep + 3) : ''
@@ -115,56 +79,97 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
     const trimmed = outputLines.slice(0, MAX_OUTPUT_LINES)
     const hasMore = outputLines.length > MAX_OUTPUT_LINES
     return (
-      <Box flexDirection="column" paddingLeft={2}>
-        <Box gap={1}>
-          <Text color="white" bold>●</Text>
-          <Text bold>{display}</Text>
-          {arg ? <Text dimColor>({arg})</Text> : null}
-        </Box>
+      <box flexDirection="column" paddingLeft={2}>
+        <box flexDirection="row" gap={1}>
+          <text fg="white">{'●'}</text>
+          <text fg="white">{display}</text>
+          {arg ? <text fg="#888888">{'(' + arg + ')'}</text> : null}
+        </box>
         {trimmed.map((line, i) => (
-          <Box key={i} paddingLeft={2}>
-            <Text color="cyan" dimColor>⎿ </Text>
-            <Text dimColor>{line}</Text>
-          </Box>
+          <box key={i} paddingLeft={2}>
+            <text fg="#666666">{'⎿ '}</text>
+            <text fg="#888888">{line}</text>
+          </box>
         ))}
         {hasMore && (
-          <Box paddingLeft={2}>
-            <Text dimColor>⎿ … {outputLines.length - MAX_OUTPUT_LINES} more lines</Text>
-          </Box>
+          <box paddingLeft={2}>
+            <text fg="#888888">{'⎿ … ' + (outputLines.length - MAX_OUTPUT_LINES) + ' more lines'}</text>
+          </box>
         )}
-      </Box>
+      </box>
     )
   }
-  // terminal (shell execution with !)
   if (m.role === 'terminal') {
     return (
-      <Box flexDirection="column" marginTop={1}>
-        <Box gap={1} alignItems="flex-start">
-          <Text color="magenta" bold>$</Text>
-          <Text color="magenta" dimColor>terminal</Text>
-        </Box>
-        <Box marginLeft={2}>
-          {renderLines(m.content)}
-        </Box>
-      </Box>
+      <box flexDirection="column" marginTop={1}>
+        <box flexDirection="row" gap={1}>
+          <text fg="magenta">{'$'}</text>
+          <text fg="#aa55aa">terminal</text>
+        </box>
+        <box marginLeft={2}>
+          <text>{m.content}</text>
+        </box>
+      </box>
     )
   }
   // assistant
   return (
-    <Box flexDirection="column" marginTop={1}>
-      <Box gap={1} alignItems="flex-start">
-        <Text color="white" bold>●</Text>
-        <Box flexDirection="column" flexShrink={1}>
-          <MarkdownRenderer content={m.content} theme={theme} />
-        </Box>
-      </Box>
-    </Box>
+    <box flexDirection="column" marginTop={1}>
+      <box flexDirection="row" gap={1}>
+        <text fg="white">{'●'}</text>
+        <box flexDirection="column" flexShrink={1}>
+          <markdown content={m.content} syntaxStyle={syntaxStyle} />
+        </box>
+      </box>
+    </box>
   )
 }
 
-type StaticItem =
-  | { kind: 'header'; provider: string; agentName: string | null }
-  | { kind: 'message'; message: Message; id: string }
+function Header({ provider, agentName }: { provider: string; agentName: string | null }) {
+  const cols = process.stdout.columns ?? 80
+  const isNarrow = cols < 60
+
+  if (isNarrow) {
+    return (
+      <box flexDirection="column" marginLeft={1} marginTop={1}>
+        <box flexDirection="row" gap={1}>
+          <text fg="cyan">{'◆ DeepSeek Code'}</text>
+          <text fg="#888888">{'v' + pkg.version}</text>
+        </box>
+        {agentName && <text fg="cyan">{'[' + agentName + ']'}</text>}
+        <text fg="#888888">{'/help  ·  Ctrl+C×2 to exit'}</text>
+      </box>
+    )
+  }
+
+  return (
+    <box flexDirection="row" gap={2} marginLeft={1} marginTop={1}>
+      <box flexDirection="column">
+        <text fg="cyan">{'  ▄▄███▄▄'}</text>
+        <text fg="cyan">{' ▄█ ◉    ██▄'}</text>
+        <text fg="cyan">{'█          ~~█'}</text>
+        <text fg="cyan">{' ▀▄▄█▄▄▄▄█▀'}</text>
+      </box>
+      <box flexDirection="column">
+        <box flexDirection="row" gap={1}>
+          <text fg="cyan">{'◆ DeepSeek Code'}</text>
+          <text fg="#888888">{'v' + pkg.version}</text>
+          <text fg="#888888">{'·'}</text>
+          <text fg="#888888">{provider}</text>
+          {agentName && <>
+            <text fg="#888888">{'·'}</text>
+            <text fg="cyan">{'[' + agentName + ']'}</text>
+          </>}
+        </box>
+        <box flexDirection="row" gap={1}>
+          <text fg="#888888">cwd:</text>
+          <text fg="#5599ff">{process.cwd()}</text>
+        </box>
+        <text fg="#888888">{'/help for commands  ·  Ctrl+C twice to exit'}</text>
+      </box>
+    </box>
+  )
+}
 
 export function MessageList({ messages, streamText, streamRole = 'assistant', theme, activeAgent, headerProvider, headerAgent }: {
   messages: Message[]
@@ -177,83 +182,34 @@ export function MessageList({ messages, streamText, streamRole = 'assistant', th
 }) {
   const agentLabel = activeAgent ?? 'deepseek'
 
-  const items: StaticItem[] = [
-    { kind: 'header', provider: headerProvider ?? 'deepseek', agentName: headerAgent ?? null },
-    ...messages.map((message, index) => ({ kind: 'message' as const, message, id: `${message.role}-${index}-${message.content.slice(0, 16)}` })),
-  ]
-
   return (
-    <Box flexDirection="column" marginBottom={1}>
-      <Static items={items}>
-        {(item) => {
-          if (item.kind === 'header') {
-            const cols = process.stdout.columns ?? 80
-            const isNarrow = cols < 60
-            return (
-              <Box key="header" flexDirection="column" marginX={1} marginTop={1}>
-                {isNarrow ? (
-                  // Compact version for narrow terminals
-                  <Box flexDirection="column">
-                    <Box gap={1}>
-                      <Text bold color="cyan">{figures.lozenge} DeepSeek Code</Text>
-                      <Text dimColor>v{pkg.version}</Text>
-                    </Box>
-                    {item.agentName && (
-                      <Text color="cyan" dimColor>[{item.agentName}]</Text>
-                    )}
-                    <Text dimColor>/help  {figures.bullet}  Ctrl+C{figures.cross}2 to exit</Text>
-                  </Box>
-                ) : (
-                  // Full version for wide terminals
-                  <Box gap={2} alignItems="center">
-                    <DeepSeekMascot />
-                    <Box flexDirection="column">
-                      <Box gap={1} alignItems="center">
-                        <Text bold color="cyan">{figures.lozenge} DeepSeek Code</Text>
-                        <Text dimColor>v{pkg.version}</Text>
-                        <Text dimColor>·</Text>
-                        <Text dimColor>{item.provider}</Text>
-                        {item.agentName && <>
-                          <Text dimColor>·</Text>
-                          <Text color="cyan" dimColor>[{item.agentName}]</Text>
-                        </>}
-                      </Box>
-                      <Box gap={1}>
-                        <Text dimColor>cwd:</Text>
-                        <Text color="blueBright">{process.cwd()}</Text>
-                      </Box>
-                      <Text dimColor>/help for commands  ·  Ctrl+C twice to exit</Text>
-                    </Box>
-                  </Box>
-                )}
-              </Box>
-            )
-          }
-          return <MessageItem key={item.id} message={item.message} theme={theme} agentLabel={agentLabel} />
-        }}
-      </Static>
+    <box flexDirection="column" marginBottom={1}>
+      <Header provider={headerProvider ?? 'deepseek'} agentName={headerAgent ?? null} />
+      {messages.map((message, index) => (
+        <MessageItem key={`${message.role}-${index}`} message={message} theme={theme} agentLabel={agentLabel} />
+      ))}
       {streamText ? (
-        <Box flexDirection="column" marginTop={1}>
+        <box flexDirection="column" marginTop={1}>
           {streamRole === 'terminal' ? (
             <>
-              <Box gap={1}>
-                <Text color="magenta" bold>$</Text>
-                <Text color="magenta" dimColor>terminal</Text>
-              </Box>
-              <Box marginLeft={2}>
-                {renderLines(streamText)}
-              </Box>
+              <box flexDirection="row" gap={1}>
+                <text fg="magenta">{'$'}</text>
+                <text fg="#aa55aa">terminal</text>
+              </box>
+              <box marginLeft={2}>
+                <text>{streamText}</text>
+              </box>
             </>
           ) : (
-            <Box gap={1} alignItems="flex-start">
-              <Text color="white" bold>●</Text>
-              <Box flexDirection="column" flexShrink={1}>
-                <MarkdownRenderer content={sanitizeStreamMarkdown(streamText)} theme={theme} />
-              </Box>
-            </Box>
+            <box flexDirection="row" gap={1}>
+              <text fg="white">{'●'}</text>
+              <box flexDirection="column" flexShrink={1}>
+                <markdown content={streamText} syntaxStyle={syntaxStyle} streaming />
+              </box>
+            </box>
           )}
-        </Box>
+        </box>
       ) : null}
-    </Box>
+    </box>
   )
 }

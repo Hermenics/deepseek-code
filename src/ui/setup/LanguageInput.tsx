@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
-import { Box, Text, useInput } from 'ink'
+import { useState } from 'react'
+import { useKeyboard } from '@opentui/react'
+import type { KeyEvent } from '@opentui/core'
 
 interface Props {
   currentLanguage: string | null
@@ -10,33 +11,33 @@ interface Props {
 export function LanguageInput({ currentLanguage, onDone, onCancel }: Props) {
   const [input, setInput] = useState('')
 
-  useInput((char, key) => {
-    if (key.escape)  { onCancel(); return }
-    if (key.return)  {
+  useKeyboard((key: KeyEvent) => {
+    if (key.name === 'escape') { onCancel(); return }
+    if (key.name === 'return') {
       const lang = input.trim()
       if (lang) onDone(lang)
       return
     }
-    if (key.backspace || key.delete) { setInput((s) => s.slice(0, -1)); return }
-    if (!key.ctrl && !key.meta && char) setInput((s) => s + char)
+    if (key.name === 'backspace' || key.name === 'delete') { setInput((s) => s.slice(0, -1)); return }
+    if (!key.ctrl && !key.meta && key.raw && key.raw.length === 1) setInput((s) => s + key.raw)
   })
 
   return (
-    <Box flexDirection="column" marginTop={1}>
-      <Text dimColor>/language</Text>
-      <Box marginTop={1} gap={1}>
-        <Text color="cyan">{'>'}</Text>
-        <Text>{input}</Text>
-        <Text color="cyan">█</Text>
-        {!input && <Text dimColor>type your preferred language (e.g. Portuguese, English…)</Text>}
-      </Box>
+    <box flexDirection="column" marginTop={1}>
+      <text fg="#888888">/language</text>
+      <box marginTop={1} flexDirection="row" gap={1}>
+        <text fg="cyan">{'>'}</text>
+        <text>{input}</text>
+        <text fg="cyan">█</text>
+        {!input && <text fg="#888888">type your preferred language (e.g. Portuguese, English…)</text>}
+      </box>
       {currentLanguage && (
-        <Box marginTop={0}>
-          <Text dimColor>  current: {currentLanguage}</Text>
-        </Box>
+        <box marginTop={0}>
+          <text fg="#888888">  current: {currentLanguage}</text>
+        </box>
       )}
-      <Box marginTop={1}><Text dimColor>{'─'.repeat(60)}</Text></Box>
-      <Text dimColor>Enter confirm · Esc cancel</Text>
-    </Box>
+      <box marginTop={1}><text fg="#888888">{'─'.repeat(60)}</text></box>
+      <text fg="#888888">Enter confirm · Esc cancel</text>
+    </box>
   )
 }

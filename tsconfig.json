@@ -4,10 +4,12 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
+    "jsxImportSource": "@opentui/react",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "types": ["bun-types"]
+    "types": ["bun-types"],
+    "lib": ["ESNext", "DOM"]
   }
 }

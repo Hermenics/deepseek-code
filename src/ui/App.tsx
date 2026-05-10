@@ -1,8 +1,7 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react'
-import { Box, Text, useInput, useApp } from 'ink'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import { useKeyboard } from '@opentui/react'
 import { execa } from 'execa'
-import stripAnsi from 'strip-ansi'
-import wrapAnsi from 'wrap-ansi'
+import type { KeyEvent } from '@opentui/core'
 import { Agent, type ToolPermissionResult } from '../agent/agent.js'
 import { MessageList } from './messages/MessageList.js'
 import { TodoPanel } from './messages/TodoPanel.js'
@@ -60,7 +59,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   headerProvider?: string
   headerAgent?: string | null
 }) {
-  const { exit } = useApp()
   const initialSessionRef = useRef(initialSession)
   const [messages, setMessages] = useState<Message[]>([])
   const [streamText, setStreamText] = useState('')
@@ -83,15 +81,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   const [toolPermissionState, setToolPermissionState] = useState<ToolPermissionState | null>(null)
 
-  // Sync interaction mode to agent so the loop enforces tool restrictions
   useEffect(() => {
     agent.interactionMode = interactionMode
   }, [agent, interactionMode])
 
-  // Wire up the agent's confirm handler for destructive shell commands
   useEffect(() => {
     agent.setConfirmHandler((message) => {
-      // Auto-accept mode bypasses confirmation prompts
       if (isAutoAccept(interactionMode)) {
         return Promise.resolve(true)
       }
@@ -102,7 +97,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     return () => agent.setConfirmHandler(null)
   }, [agent, interactionMode])
 
-  // Wire up the tool permission handler
   useEffect(() => {
     agent.setToolPermissionHandler((toolName, args) => {
       return new Promise<ToolPermissionResult>((resolve) => {
@@ -113,13 +107,11 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [agent])
 
   useEffect(() => {
-    // Set terminal title
     process.stdout.write('\x1b]0;deepseek\x07')
     return () => { process.stdout.write('\x1b]0;\x07') }
   }, [])
 
   useEffect(() => {
-    // Update terminal title based on loading state
     if (isLoading) {
       process.stdout.write('\x1b]0;deepseek — working...\x07')
     } else {
@@ -129,7 +121,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   useEffect(() => {
     const init = async () => {
-      // Wait for agent initialization then surface any MCP connection errors
       await new Promise<void>((resolve) => {
         const check = () => {
           if (agent.mcpErrors !== undefined) resolve()
@@ -165,12 +156,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     init()
   }, [])
 
-  useInput((_, key) => {
-    if (key.ctrl && key.return) return
-    // Escape clears input (handled in InputBox) — don't exit here
-    // Exit is handled by double Ctrl-C in InputBox
-  })
-
   const shellProcRef = useRef<ReturnType<typeof execa> | null>(null)
 
   const handleAbort = useCallback(() => {
@@ -202,7 +187,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     setToolPermissionState(null)
   }, [toolPermissionState])
 
-  // ── runAgent: shared helper that drives agent.run with streaming callbacks ──
   const runAgent = useCallback(async (prompt: string) => {
     let tokenBuffer = ''
     let streamTextAccum = ''
@@ -221,7 +205,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         onToken(token) { tokenBuffer += token },
         onToolCall(name, args) {
           clearInterval(flushInterval)
-          // Commit any pending stream text before switching to tool display
           const pending = (streamTextAccum + tokenBuffer).trim()
           tokenBuffer = ''
           streamTextAccum = ''
@@ -232,7 +215,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         },
         onToolResult(name, result, args) {
           setToolStatus(null)
-          // Só mostra output de shell, write_file e patch_file
           if (name === 'shell') {
             const cmd = args?.command ?? ''
             const payload = JSON.stringify({ arg: String(cmd), output: result ?? '' })
@@ -240,8 +222,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           } else if (name === 'write_file' || name === 'patch_file') {
             setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${result}` }])
           }
-          // Demais tools (grep, glob, read_file, read_folder, web_fetch,
-          // subagent, introspect, update_knowledge, todo, git) não mostram output
         },
         onDone() {
           clearInterval(flushInterval)
@@ -249,13 +229,11 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           tokenBuffer = ''
           streamTextAccum = ''
           setToolStatus(null)
-          // Clear stream BEFORE committing to Static — prevents 1-frame duplication
           setStreamText('')
           if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
           setIsLoading(false)
           setAgentPhase('idle')
           setTokenCount(agent.tokenCount)
-          // Process queued messages — setTimeout avoids re-entrant setState loop
           setQueuedMessages((q) => {
             if (q.length === 0) return q
             const [first, ...rest] = q
@@ -306,7 +284,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     }
   }, [agent, sessionId, language, initialSession, providerConfig])
 
-  // ── runWithPrompt: runs an internal prompt without exposing the text to the user ──
   const runWithPrompt = useCallback(async (label: string, prompt: string) => {
     if (isLoading) return
     setMessages((m) => [...m, { role: 'user', content: label }])
@@ -322,7 +299,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     const cmd = parseCommand(text)
     if (cmd) {
       switch (cmd.type) {
-        case 'quit': exit(); process.exit(0)
+        case 'quit': process.exit(0)
         case 'clear':
           agent.clearHistory()
           setMessages([])
@@ -385,7 +362,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             setMessages((m) => [...m, { role: 'assistant', content: 'Nothing to retry.' }])
             return
           }
-          // Remove last user+assistant exchange from display and re-run
           setMessages((m) => {
             const idx = [...m].reverse().findIndex((msg) => msg.role === 'user')
             if (idx === -1) return m
@@ -501,7 +477,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
     await appendInputHistory(text)
 
-    // ── Shell execution with ! ────────────────────────────────────────────
+    // Shell execution with !
     if (text.trimStart().startsWith('!')) {
       const shellCmd = text.trimStart().slice(1).trim()
       if (!shellCmd) return
@@ -538,21 +514,23 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     setAgentPhase('refining')
     setStreamText('')
     await runAgent(text)
-  }, [agent, isLoading, exit, runWithPrompt, runAgent])
+  }, [agent, isLoading, runWithPrompt, runAgent])
 
   return (
-    <Box flexDirection="column" width="100%" height="100%">
-      {/* Área de mensagens — cresce pra ocupar todo espaço disponível */}
-      <Box flexDirection="column" flexGrow={1} overflow="hidden">
-        <MessageList messages={messages} streamText={streamText} streamRole={streamRole} theme={theme} activeAgent={activeAgent} headerProvider={headerProvider} headerAgent={headerAgent} />
-        {toolStatus && <ToolUseDisplay tool={toolStatus} />}
-        <TodoPanel />
-        {isLoading && <LoadingSpinner toolCallCount={toolCallCount} phase={agentPhase} />}
-        {queuedMessages.length > 0 && <QueuedMessagesList messages={queuedMessages} />}
-      </Box>
+    <box flexDirection="column" width="100%" height="100%">
+      {/* Messages area */}
+      <scrollbox flexGrow={1} stickyScroll stickyStart="bottom" focused={!showThemeSelector && !showModelSelector && !showLanguageInput && !confirmState && !toolPermissionState}>
+        <box flexDirection="column">
+          <MessageList messages={messages} streamText={streamText} streamRole={streamRole} theme={theme} activeAgent={activeAgent} headerProvider={headerProvider} headerAgent={headerAgent} />
+          {toolStatus && <ToolUseDisplay tool={toolStatus} />}
+          <TodoPanel />
+          {isLoading && <LoadingSpinner toolCallCount={toolCallCount} phase={agentPhase} />}
+          {queuedMessages.length > 0 && <QueuedMessagesList messages={queuedMessages} />}
+        </box>
+      </scrollbox>
 
-      {/* Rodapé fixo no final */}
-      <Box flexDirection="column" flexShrink={0}>
+      {/* Footer */}
+      <box flexDirection="column" flexShrink={0}>
         {showThemeSelector ? (
           <ThemeSelector
             currentTheme={theme}
@@ -608,25 +586,25 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           />
         )}
         <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} />
-      </Box>
-    </Box>
+      </box>
+    </box>
   )
 }
 
 function ConfirmPrompt({ message, onConfirm }: { message: string; onConfirm: (yes: boolean) => void }) {
-  useInput((input, key) => {
-    if (key.ctrl && input === 'c') { onConfirm(false); return }
-    if (input === 'y' || input === 'Y') onConfirm(true)
-    else if (input === 'n' || input === 'N' || key.escape) onConfirm(false)
+  useKeyboard((key: KeyEvent) => {
+    if (key.ctrl && key.name === 'c') { onConfirm(false); return }
+    if (key.name === 'y') onConfirm(true)
+    else if (key.name === 'n' || key.name === 'escape') onConfirm(false)
   })
 
   return (
-    <Box flexDirection="column" marginY={1}>
-      <Box borderStyle="round" borderColor="yellow" paddingX={1}>
-        <Text color="yellow">⚠ {message}</Text>
-      </Box>
-      <Text dimColor>  [y] confirm  [n/Esc] cancel</Text>
-    </Box>
+    <box flexDirection="column" marginTop={1} marginBottom={1}>
+      <box border borderStyle="rounded" borderColor="yellow" paddingLeft={1} paddingRight={1}>
+        <text fg="yellow">{'⚠ ' + message}</text>
+      </box>
+      <text fg="#888888">{'  [y] confirm  [n/Esc] cancel'}</text>
+    </box>
   )
 }
 
@@ -647,52 +625,49 @@ function ToolPermissionPrompt({
 }) {
   const [selected, setSelected] = useState(0)
 
-  useInput((input, key) => {
-    if (key.ctrl && input === 'c') { onDecide('deny'); return }
-    if (input === '1') { onDecide('once'); return }
-    if (input === '2') { onDecide('session'); return }
-    if (input === '3') { onDecide('deny'); return }
-    if (key.upArrow) { setSelected((i) => (i - 1 + PERMISSION_OPTIONS.length) % PERMISSION_OPTIONS.length); return }
-    if (key.downArrow) { setSelected((i) => (i + 1) % PERMISSION_OPTIONS.length); return }
-    if (key.return) { onDecide(PERMISSION_OPTIONS[selected]!.result); return }
-    if (key.escape) { onDecide('deny'); return }
+  useKeyboard((key: KeyEvent) => {
+    if (key.ctrl && key.name === 'c') { onDecide('deny'); return }
+    if (key.name === '1') { onDecide('once'); return }
+    if (key.name === '2') { onDecide('session'); return }
+    if (key.name === '3') { onDecide('deny'); return }
+    if (key.name === 'up') { setSelected((i) => (i - 1 + PERMISSION_OPTIONS.length) % PERMISSION_OPTIONS.length); return }
+    if (key.name === 'down') { setSelected((i) => (i + 1) % PERMISSION_OPTIONS.length); return }
+    if (key.name === 'return') { onDecide(PERMISSION_OPTIONS[selected]!.result); return }
+    if (key.name === 'escape') { onDecide('deny'); return }
   })
 
   const argsPreview = JSON.stringify(args, null, 0)
   const cols = Math.max((process.stdout.columns ?? 80) - 10, 30)
-  const plainPreview = stripAnsi(argsPreview)
-  const preview = plainPreview.length > cols ? argsPreview.slice(0, cols) + '…' : argsPreview
+  const preview = argsPreview.length > cols ? argsPreview.slice(0, cols) + '…' : argsPreview
 
   return (
-    <Box flexDirection="column" marginY={1}>
-      <Box borderStyle="round" borderColor="cyan" paddingX={2} paddingY={0} flexDirection="column">
-        <Box gap={1}>
-          <Text color="cyan" bold>◆ Tool permission</Text>
-        </Box>
-        <Box marginTop={1} gap={1}>
-          <Text dimColor>tool:</Text>
-          <Text color="yellow" bold>{toolName}</Text>
-        </Box>
-        <Box gap={1}>
-          <Text dimColor>args:</Text>
-          <Text dimColor>{preview}</Text>
-        </Box>
-      </Box>
-      <Box flexDirection="column" marginTop={1} marginLeft={2}>
+    <box flexDirection="column" marginTop={1} marginBottom={1}>
+      <box border borderStyle="rounded" borderColor="cyan" paddingLeft={2} paddingRight={2} flexDirection="column">
+        <text fg="cyan">{'◆ Tool permission'}</text>
+        <box marginTop={1} flexDirection="row" gap={1}>
+          <text fg="#888888">tool:</text>
+          <text fg="yellow">{toolName}</text>
+        </box>
+        <box flexDirection="row" gap={1}>
+          <text fg="#888888">args:</text>
+          <text fg="#888888">{preview}</text>
+        </box>
+      </box>
+      <box flexDirection="column" marginTop={1} marginLeft={2}>
         {PERMISSION_OPTIONS.map((opt, i) => (
-          <Box key={opt.key} gap={2}>
-            <Text color={i === selected ? 'cyan' : 'white'} bold={i === selected}>
+          <box key={opt.key} flexDirection="row" gap={2}>
+            <text fg={i === selected ? 'cyan' : 'white'}>
               {i === selected ? '❯' : ' '} [{opt.key}]
-            </Text>
-            <Text color={i === selected ? 'cyan' : undefined} dimColor={i !== selected}>
+            </text>
+            <text fg={i === selected ? 'cyan' : '#888888'}>
               {opt.label}
-            </Text>
-          </Box>
+            </text>
+          </box>
         ))}
-      </Box>
-      <Box marginLeft={2}>
-        <Text dimColor>  ↑↓ navigate  ·  Enter confirm  ·  Esc deny  ·  [3] aborts agent</Text>
-      </Box>
-    </Box>
+      </box>
+      <box marginLeft={2}>
+        <text fg="#888888">{'  ↑↓ navigate  ·  Enter confirm  ·  Esc deny  ·  [3] aborts agent'}</text>
+      </box>
+    </box>
   )
 }

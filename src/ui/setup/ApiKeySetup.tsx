@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react'
-import { Box, Text, useInput } from 'ink'
+import { useState, useEffect } from 'react'
+import { useKeyboard } from '@opentui/react'
+import type { KeyEvent } from '@opentui/core'
 import { homedir } from 'os'
 import { join } from 'path'
 import { mkdir } from 'fs/promises'
@@ -15,17 +16,13 @@ export type ProviderName = 'deepseek' | 'bedrock' | 'vertex' | 'local'
 
 export interface ProviderConfig {
   provider: ProviderName
-  // deepseek
   apiKey?: string
   baseURL?: string
-  // bedrock
   awsRegion?: string
   awsProfile?: string
-  // vertex
   gcpProject?: string
   gcpLocation?: string
-  gcpCredentials?: string // path to service account JSON
-  // local (OpenAI-compatible)
+  gcpCredentials?: string
   localBaseUrl?: string
   localModel?: string
 }
@@ -46,45 +43,9 @@ const THEMES: { label: string; value: ThemeName }[] = [
   { label: 'Light mode (ANSI colors only)', value: 'light-ansi' },
 ]
 
-// Diff colors per theme
-const DIFF_COLORS: Record<ThemeName, { added: string; removed: string; addedWord: string; removedWord: string }> = {
-  'dark':             { added: 'rgb(34,92,43)',    removed: 'rgb(122,41,54)',  addedWord: 'rgb(56,166,96)',   removedWord: 'rgb(179,89,107)' },
-  'light':            { added: 'rgb(105,219,124)', removed: 'rgb(255,168,180)',addedWord: 'rgb(47,157,68)',   removedWord: 'rgb(209,69,75)'  },
-  'dark-daltonized':  { added: 'rgb(0,68,102)',    removed: 'rgb(102,0,0)',    addedWord: 'rgb(0,119,179)',   removedWord: 'rgb(179,0,0)'    },
-  'light-daltonized': { added: 'rgb(153,204,255)', removed: 'rgb(255,204,204)',addedWord: 'rgb(51,102,204)',  removedWord: 'rgb(153,51,51)'  },
-  'dark-ansi':        { added: 'green',            removed: 'red',             addedWord: 'greenBright',      removedWord: 'redBright'       },
-  'light-ansi':       { added: 'green',            removed: 'red',             addedWord: 'greenBright',      removedWord: 'redBright'       },
-}
-
-const DIFF_LINES = [
-  { type: 'context', text: ' function greet() {' },
-  { type: 'removed', text: '-  console.log("Hello, World!");' },
-  { type: 'added',   text: '+  console.log("Hello, DeepSeek!");' },
-  { type: 'context', text: ' }' },
-]
-
-function DiffPreview({ theme }: { theme: ThemeName }) {
-  const c = DIFF_COLORS[theme]
-  return (
-    <Box flexDirection="column" borderStyle="single" borderColor="gray" paddingX={1} marginTop={1}>
-      <Text dimColor>demo.js</Text>
-      {DIFF_LINES.map((line, i) => (
-        <Text key={i} backgroundColor={line.type === 'added' ? c.added : line.type === 'removed' ? c.removed : undefined}>
-          {line.type === 'added'
-            ? <Text color={c.addedWord}>{line.text}</Text>
-            : line.type === 'removed'
-            ? <Text color={c.removedWord}>{line.text}</Text>
-            : <Text dimColor>{line.text}</Text>}
-        </Text>
-      ))}
-    </Box>
-  )
-}
-
 export async function saveConfig(data: Record<string, string>): Promise<void> {
   const dir = join(homedir(), '.deepseek')
   await mkdir(dir, { recursive: true })
-  // Load existing config, merge with new data, save split
   const existing = await loadFullConfig().catch(() => ({}))
   await saveFullConfig({ ...existing, ...data })
 }
@@ -126,11 +87,10 @@ export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfi
   }
 }
 
-// Fields per provider, in order
 const PROVIDER_FIELDS: Record<ProviderName, { key: string; label: string; hint: string; secret?: boolean; optional?: boolean }[]> = {
   deepseek: [
     { key: 'DEEPSEEK_API_KEY',  label: 'DeepSeek API Key',  hint: 'platform.deepseek.com/api_keys', secret: true },
-    { key: 'DEEPSEEK_BASE_URL', label: 'Base URL (optional)', hint: 'Leave empty to use api.deepseek.com — or enter a custom URL (e.g. https://success.ai/...)', optional: true },
+    { key: 'DEEPSEEK_BASE_URL', label: 'Base URL (optional)', hint: 'Leave empty to use api.deepseek.com', optional: true },
   ],
   bedrock: [
     { key: 'AWS_REGION',  label: 'AWS Region',       hint: 'e.g. us-east-1' },
@@ -142,8 +102,8 @@ const PROVIDER_FIELDS: Record<ProviderName, { key: string; label: string; hint: 
     { key: 'GCP_CREDENTIALS', label: 'Service Account JSON path', hint: '/path/to/sa.json' },
   ],
   local: [
-    { key: 'LOCAL_BASE_URL', label: 'Base URL', hint: 'e.g. http://localhost:11434/v1  (OpenAI-compatible)' },
-    { key: 'LOCAL_MODEL',    label: 'Model name', hint: 'e.g. deepseek-r1:8b, llama3, mistral, qwen2.5-coder' },
+    { key: 'LOCAL_BASE_URL', label: 'Base URL', hint: 'e.g. http://localhost:11434/v1' },
+    { key: 'LOCAL_MODEL',    label: 'Model name', hint: 'e.g. deepseek-r1:8b, llama3, mistral' },
   ],
 }
 
@@ -161,7 +121,6 @@ export function ApiKeySetup({ onDone }: Props) {
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({})
   const [currentInput, setCurrentInput] = useState('')
   const [error, setError] = useState('')
-  // Stored when setup completes — useEffect calls onDone after render
   const [donePayload, setDonePayload] = useState<{ theme: ThemeName; config: ProviderConfig } | null>(null)
 
   const selectedTheme = THEMES[themeIdx]!.value
@@ -169,7 +128,6 @@ export function ApiKeySetup({ onDone }: Props) {
   const fields = PROVIDER_FIELDS[selectedProvider]
   const currentField = fields[fieldIdx]!
 
-  // Call onDone after the 'done' step has rendered — avoids stdin event leaking into App
   useEffect(() => {
     if (donePayload) {
       const t = setTimeout(() => onDone(donePayload.theme, donePayload.config), 50)
@@ -177,28 +135,27 @@ export function ApiKeySetup({ onDone }: Props) {
     }
   }, [donePayload])
 
-  useInput((char, key) => {
-    // Ctrl+C always exits during setup
-    if (key.ctrl && char === 'c') process.exit(0)
+  useKeyboard((key: KeyEvent) => {
+    if (key.ctrl && key.name === 'c') process.exit(0)
 
     if (step === 'theme') {
-      if (key.upArrow) { setThemeIdx((i) => (i - 1 + THEMES.length) % THEMES.length); return }
-      if (key.downArrow) { setThemeIdx((i) => (i + 1) % THEMES.length); return }
-      if (key.return) { setStep('provider'); return }
-      if (key.escape) process.exit(0)
+      if (key.name === 'up') { setThemeIdx((i) => (i - 1 + THEMES.length) % THEMES.length); return }
+      if (key.name === 'down') { setThemeIdx((i) => (i + 1) % THEMES.length); return }
+      if (key.name === 'return') { setStep('provider'); return }
+      if (key.name === 'escape') process.exit(0)
       return
     }
 
     if (step === 'provider') {
-      if (key.upArrow) { setProviderIdx((i) => (i - 1 + PROVIDERS.length) % PROVIDERS.length); return }
-      if (key.downArrow) { setProviderIdx((i) => (i + 1) % PROVIDERS.length); return }
-      if (key.return) { setFieldIdx(0); setCurrentInput(''); setStep('fields'); return }
-      if (key.escape) { setStep('theme'); return }
+      if (key.name === 'up') { setProviderIdx((i) => (i - 1 + PROVIDERS.length) % PROVIDERS.length); return }
+      if (key.name === 'down') { setProviderIdx((i) => (i + 1) % PROVIDERS.length); return }
+      if (key.name === 'return') { setFieldIdx(0); setCurrentInput(''); setStep('fields'); return }
+      if (key.name === 'escape') { setStep('theme'); return }
       return
     }
 
     if (step === 'fields') {
-      if (key.return) {
+      if (key.name === 'return') {
         const trimmed = currentInput.trim()
         if (!trimmed && !currentField.optional) { setError(`${currentField.label} cannot be empty.`); return }
         const updated = { ...fieldValues, [currentField.key]: trimmed }
@@ -208,10 +165,8 @@ export function ApiKeySetup({ onDone }: Props) {
           setFieldIdx((i) => i + 1)
           setCurrentInput('')
         } else {
-          // All fields collected — save and finish
           saveConfig({ ...updated, PROVIDER: selectedProvider, THEME: selectedTheme })
             .then(() => {
-              // Set env vars for immediate use
               for (const [k, v] of Object.entries(updated)) if (v) process.env[k] = v
               const providerConfig: ProviderConfig = {
                 provider: selectedProvider,
@@ -232,72 +187,71 @@ export function ApiKeySetup({ onDone }: Props) {
         }
         return
       }
-      if (key.backspace || key.delete) { setCurrentInput((s) => s.slice(0, -1)); setError(''); return }
-      if (key.escape) {
+      if (key.name === 'backspace') { setCurrentInput((s) => s.slice(0, -1)); setError(''); return }
+      if (key.name === 'escape') {
         if (fieldIdx > 0) { setFieldIdx((i) => i - 1); setCurrentInput(fieldValues[fields[fieldIdx - 1]!.key] ?? ''); setError('') }
         else { setStep('provider'); setCurrentInput(''); setError('') }
         return
       }
-      if (!key.ctrl && !key.meta && char) { setCurrentInput((s) => s + char); setError('') }
+      if (!key.ctrl && !key.meta && key.raw && key.raw.length === 1) { setCurrentInput((s) => s + key.raw); setError('') }
     }
   })
 
   if (step === 'done') {
-    return <Box marginTop={1}><Text color="green">✓ Saved! Starting DeepSeek Code…</Text></Box>
+    return <box marginTop={1}><text fg="green">{'✓ Saved! Starting DeepSeek Code…'}</text></box>
   }
 
   let content: React.ReactNode = null
 
   if (step === 'theme') {
     content = (
-      <Box flexDirection="column" gap={1} marginTop={1}>
-        <Text>Choose the text style that looks best with your terminal:</Text>
-        <Box flexDirection="column">
+      <box flexDirection="column" marginTop={1}>
+        <text>Choose the text style that looks best with your terminal:</text>
+        <box flexDirection="column" marginTop={1}>
           {THEMES.map((t, i) => (
-            <Box key={t.value}>
-              <Text color={i === themeIdx ? 'cyan' : undefined}>{i === themeIdx ? '❯ ' : '  '}{t.label}</Text>
-            </Box>
+            <box key={t.value}>
+              <text fg={i === themeIdx ? 'cyan' : undefined}>{i === themeIdx ? '❯ ' : '  '}{t.label}</text>
+            </box>
           ))}
-        </Box>
-        <DiffPreview theme={selectedTheme} />
-        <Text dimColor>↑↓ navigate · Enter select · Esc exit</Text>
-      </Box>
+        </box>
+        <text fg="#888888">{'↑↓ navigate · Enter select · Esc exit'}</text>
+      </box>
     )
   } else if (step === 'provider') {
     content = (
-      <Box flexDirection="column" gap={1} marginTop={1}>
-        <Text>Choose your AI provider:</Text>
-        <Box flexDirection="column">
+      <box flexDirection="column" marginTop={1}>
+        <text>Choose your AI provider:</text>
+        <box flexDirection="column" marginTop={1}>
           {PROVIDERS.map((p, i) => (
-            <Box key={p.value} gap={2}>
-              <Text color={i === providerIdx ? 'cyan' : undefined}>{i === providerIdx ? '❯ ' : '  '}{p.label}</Text>
-              <Text dimColor>{p.hint}</Text>
-            </Box>
+            <box key={p.value} flexDirection="row" gap={2}>
+              <text fg={i === providerIdx ? 'cyan' : undefined}>{i === providerIdx ? '❯ ' : '  '}{p.label}</text>
+              <text fg="#888888">{p.hint}</text>
+            </box>
           ))}
-        </Box>
-        <Text dimColor>↑↓ navigate · Enter select · Esc back</Text>
-      </Box>
+        </box>
+        <text fg="#888888">{'↑↓ navigate · Enter select · Esc back'}</text>
+      </box>
     )
   } else if (step === 'fields') {
     const progress = `(${fieldIdx + 1}/${fields.length})`
     content = (
-      <Box flexDirection="column" gap={1} marginTop={1}>
-        <Text bold>{PROVIDERS[providerIdx]!.label} setup {progress}</Text>
-        <Text bold>{currentField.label}</Text>
-        {currentField.hint ? <Text dimColor>{currentField.hint}</Text> : null}
-        <Box marginTop={1}>
-          <Text color="cyan">{'> '}</Text>
-          <Text>{currentField.secret ? '•'.repeat(currentInput.length) || <Text dimColor>…</Text> : currentInput || <Text dimColor>…</Text>}</Text>
-          <Text color="cyan">█</Text>
-        </Box>
-        {error ? <Text color="red">{error}</Text> : <Text dimColor>Enter to confirm · Esc back</Text>}
-      </Box>
+      <box flexDirection="column" marginTop={1}>
+        <text>{PROVIDERS[providerIdx]!.label + ' setup ' + progress}</text>
+        <text>{currentField.label}</text>
+        {currentField.hint ? <text fg="#888888">{currentField.hint}</text> : null}
+        <box marginTop={1}>
+          <text fg="cyan">{'> '}</text>
+          <text>{currentField.secret ? '•'.repeat(currentInput.length) || '…' : currentInput || '…'}</text>
+          <text fg="cyan">{'█'}</text>
+        </box>
+        {error ? <text fg="red">{error}</text> : <text fg="#888888">{'Enter to confirm · Esc back'}</text>}
+      </box>
     )
   }
 
   return (
-    <Box flexDirection="column" paddingX={2} paddingY={1}>
+    <box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
       <WelcomeScreen>{content}</WelcomeScreen>
-    </Box>
+    </box>
   )
 }

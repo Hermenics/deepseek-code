@@ -1,7 +1,7 @@
-import React, { useState } from 'react'
-import { Box, Text, useInput } from 'ink'
+import { useState } from 'react'
+import { useKeyboard } from '@opentui/react'
+import type { KeyEvent } from '@opentui/core'
 
-// Confirmation messages in each supported language
 const CONFIRMATIONS: Record<string, string> = {
   portuguese:  'Perfeito! Agora, por favor, execute novamente o comando que você usou para me iniciar!',
   português:   'Perfeito! Agora, por favor, execute novamente o comando que você usou para me iniciar!',
@@ -44,52 +44,52 @@ export function LanguageSetup({ onDone }: Props) {
   const [input, setInput] = useState('')
   const [confirmed, setConfirmed] = useState<string | null>(null)
 
-  useInput((char, key) => {
-    if (key.ctrl && char === 'c') process.exit(0)
+  useKeyboard((key: KeyEvent) => {
+    if (key.ctrl && key.name === 'c') process.exit(0)
     if (confirmed) return
 
-    if (key.return) {
+    if (key.name === 'return') {
       const lang = input.trim()
       if (!lang) return
       setConfirmed(lang)
       onDone(lang)
       return
     }
-    if (key.backspace || key.delete) { setInput((s) => s.slice(0, -1)); return }
-    if (!key.ctrl && !key.meta && char) setInput((s) => s + char)
+    if (key.name === 'backspace' || key.name === 'delete') { setInput((s) => s.slice(0, -1)); return }
+    if (!key.ctrl && !key.meta && key.raw && key.raw.length === 1) setInput((s) => s + key.raw)
   })
 
   if (confirmed) {
     return (
-      <Box flexDirection="column" marginY={1} paddingX={2}>
-        <Box borderStyle="round" borderColor="cyan" paddingX={2} paddingY={1} flexDirection="column">
-          <Text color="cyan" bold>◆ deepseek</Text>
-          <Box marginTop={1}>
-            <Text>{getConfirmation(confirmed)}</Text>
-          </Box>
-        </Box>
-      </Box>
+      <box flexDirection="column" marginTop={1} paddingLeft={2} paddingRight={2}>
+        <box border borderStyle="rounded" borderColor="cyan" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1} flexDirection="column">
+          <text fg="cyan">◆ deepseek</text>
+          <box marginTop={1}>
+            <text>{getConfirmation(confirmed)}</text>
+          </box>
+        </box>
+      </box>
     )
   }
 
   return (
-    <Box flexDirection="column" marginY={1} paddingX={2}>
-      <Box borderStyle="round" borderColor="cyan" paddingX={2} paddingY={1} flexDirection="column">
-        <Text color="cyan" bold>◆ deepseek</Text>
-        <Box marginTop={1}>
-          <Text>{"Hello! I'm new here. Can I just know.... What language do you want me to talk with you?"}</Text>
-        </Box>
-      </Box>
-      <Box marginTop={1}>
-        <Text dimColor>0%  </Text>
-        <Text color="cyan">{'> '}</Text>
-        <Text>{input}</Text>
-        <Text color="cyan">█</Text>
-        {!input && <Text dimColor> write your main language</Text>}
-      </Box>
-      <Box marginTop={1}>
-        <Text dimColor>Enter to confirm · Ctrl+C to exit</Text>
-      </Box>
-    </Box>
+    <box flexDirection="column" marginTop={1} paddingLeft={2} paddingRight={2}>
+      <box border borderStyle="rounded" borderColor="cyan" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1} flexDirection="column">
+        <text fg="cyan">◆ deepseek</text>
+        <box marginTop={1}>
+          <text>{"Hello! I'm new here. Can I just know.... What language do you want me to talk with you?"}</text>
+        </box>
+      </box>
+      <box marginTop={1}>
+        <text fg="#888888">0%  </text>
+        <text fg="cyan">{'> '}</text>
+        <text>{input}</text>
+        <text fg="cyan">█</text>
+        {!input && <text fg="#888888"> write your main language</text>}
+      </box>
+      <box marginTop={1}>
+        <text fg="#888888">Enter to confirm · Ctrl+C to exit</text>
+      </box>
+    </box>
   )
 }

@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // Pipe mode: only when --pipe flag is explicitly passed
-// (Bun returns undefined for isTTY so we can't auto-detect pipes reliably)
 if (process.argv.includes('--pipe')) {
   const { default: runPipe } = await import('./pipe.js')
   await runPipe()
   process.exit(0)
 }
 
-import React, { useState, useEffect } from 'react'
-import { render, Box, Text } from 'ink'
+import { useState, useEffect } from 'react'
+import { createCliRenderer } from '@opentui/core'
+import { createRoot } from '@opentui/react'
 import { App } from './ui/App.js'
 import { ApiKeySetup, loadSavedConfig, saveConfig, type ThemeName, type ProviderConfig } from './ui/setup/ApiKeySetup.js'
 import { migrateConfigIfNeeded, logout as doLogout } from './utils/credentials.js'
@@ -58,14 +58,6 @@ if (logout) {
   process.exit(0)
 }
 
-// Parse argv:
-//   deepseek                          → {}
-//   deepseek "msg"                    → { initialMessage: "msg" }
-//   deepseek agent <name>             → { agentName: "name" }
-//   deepseek agent <name> "msg"       → { agentName: "name", initialMessage: "msg" }
-//   deepseek --resume <id>            → { resumeId: "id" }
-//   deepseek update                   → check and install latest version
-//   deepseek logout                   → remove saved credentials and exit
 function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; update: boolean; logout: boolean } {
   const args = process.argv.slice(2).filter((a) => a !== '--pipe')
   if (args[0] === 'update') {
@@ -128,28 +120,25 @@ function Root() {
 
   if (!checked) return null
 
-  // Step 1: no provider configured → ApiKeySetup
   if (!ready) {
     return (
-      <Box flexDirection="column" paddingX={2} paddingY={1}>
+      <box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
         <ApiKeySetup onDone={(t, cfg) => { setTheme(t); setProviderConfig(cfg); setReady(true) }} />
-      </Box>
+      </box>
     )
   }
 
-  // Step 2: provider configured but no language → LanguageSetup
   if (languageChecked && language === null) {
     return (
-      <Box flexDirection="column" paddingX={2} paddingY={1}>
+      <box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
         <LanguageSetup onDone={(lang) => {
           setLanguage(lang)
           saveConfig({ LANGUAGE: lang })
         }} />
-      </Box>
+      </box>
     )
   }
 
-  // Step 3: everything configured → App
   return (
     <App
       initialAgent={initialAgent}
@@ -166,11 +155,18 @@ function Root() {
   )
 }
 
-// Clear the shell prompt before rendering
-process.stdout.write('\x1b[2J\x1b[H')
+const renderer = await createCliRenderer({
+  exitOnCtrlC: false,
+  clearOnShutdown: true,
+  useMouse: false,
+  enableMouseMovement: false,
+})
 
-const { waitUntilExit } = render(<Root />, { exitOnCtrlC: false })
-waitUntilExit().then(() => {
+const root = createRoot(renderer)
+root.render(<Root />)
+
+// Handle clean exit
+renderer.on('exit', () => {
   process.stdout.write(`\n  Resume this session:\n  deepseek --resume ${SESSION_ID}\n\n`)
   process.exit(0)
 })
