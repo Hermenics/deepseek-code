@@ -71,12 +71,27 @@ describe('appendInputHistory', () => {
     expect(history.length).toBeLessThanOrEqual(200)
   })
 
-  it('adiciona entrada ao final do histórico', async () => {
-    await fs.mkdir(path.dirname(HISTORY_PATH), { recursive: true })
-    await fs.writeFile(HISTORY_PATH, JSON.stringify(['antiga']), 'utf-8')
+  it('não salva comandos que começam com /', async () => {
     const { appendInputHistory, loadInputHistory } = await import('../src/agent/inputHistory.js')
-    await appendInputHistory('nova')
+    await appendInputHistory('/help')
+    await appendInputHistory('/clear')
+    await appendInputHistory('/stats')
     const history = await loadInputHistory()
-    expect(history[history.length - 1]).toBe('nova')
+    expect(history.filter(e => e.startsWith('/'))).toHaveLength(0)
+  })
+
+  it('não salva comandos shell que começam com !', async () => {
+    const { appendInputHistory, loadInputHistory } = await import('../src/agent/inputHistory.js')
+    await appendInputHistory('!ls -la')
+    await appendInputHistory('! git status')
+    const history = await loadInputHistory()
+    expect(history.filter(e => e.trimStart().startsWith('!'))).toHaveLength(0)
+  })
+
+  it('salva mensagens normais que não são comandos', async () => {
+    const { appendInputHistory, loadInputHistory } = await import('../src/agent/inputHistory.js')
+    await appendInputHistory('explica esse código')
+    const history = await loadInputHistory()
+    expect(history).toContain('explica esse código')
   })
 })

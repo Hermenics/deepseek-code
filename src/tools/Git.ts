@@ -112,7 +112,13 @@ Actions:
       }
       case 'push': {
         const gitArgs = ['push']
-        if (force) gitArgs.push('--force')
+        if (force) gitArgs.push('--force-with-lease')
+        // Auto set-upstream for new branches — check exit code, not output text
+        const { code: upstreamCode } = await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])
+        if (upstreamCode !== 0) {
+          const { out: currentBranch } = await git(['rev-parse', '--abbrev-ref', 'HEAD'])
+          gitArgs.push('--set-upstream', 'origin', currentBranch.trim())
+        }
         const { out, code } = await git(gitArgs)
         return code === 0 ? (out || 'Pushed successfully') : `Error: ${out}`
       }

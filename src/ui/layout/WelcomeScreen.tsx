@@ -66,7 +66,7 @@ export function WelcomeScreen({ children }: WelcomeScreenProps) {
   const [showChildren, setShowChildren] = useState(false)
 
   useEffect(() => {
-    const t = setTimeout(() => setShowChildren(true), 1000)
+    const t = setTimeout(() => setShowChildren(true), 50)
     return () => clearTimeout(t)
   }, [])
 

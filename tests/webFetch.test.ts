@@ -69,22 +69,22 @@ describe('WebFetch tool', () => {
   it('rejeita URL sem protocolo http/https', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch.js')
     const result = await WebFetch.execute({ url: 'ftp://example.com' })
-    expect(result).toContain('[Erro]')
-    expect(result).toContain('URL inválida')
+    expect(result).toContain('Error:')
+    expect(result).toContain('invalid URL')
   })
 
   it('rejeita URL completamente inválida', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch.js')
     const result = await WebFetch.execute({ url: 'não-é-url' })
-    expect(result).toContain('[Erro]')
-    expect(result).toContain('URL inválida')
+    expect(result).toContain('Error:')
+    expect(result).toContain('invalid URL')
   })
 
   it('aceita URL com http://', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch.js')
     global.fetch = mock(() => Promise.resolve(okResponse('ok'))) as any
     const result = await WebFetch.execute({ url: 'http://example.com' })
-    expect(result).not.toContain('[Erro]')
+    expect(result).not.toContain('Error:')
   })
 
   // --- Status HTTP não-2xx ---
@@ -95,7 +95,7 @@ describe('WebFetch tool', () => {
       Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve('Not Found') } as Response)
     ) as any
     const result = await WebFetch.execute({ url: 'https://example.com/nope' })
-    expect(result).toContain('[Erro]')
+    expect(result).toContain('Error:')
     expect(result).toContain('404')
   })
 
@@ -105,7 +105,7 @@ describe('WebFetch tool', () => {
       Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve('') } as Response)
     ) as any
     const result = await WebFetch.execute({ url: 'https://example.com/error' })
-    expect(result).toContain('[Erro]')
+    expect(result).toContain('Error:')
     expect(result).toContain('500')
   })
 
@@ -115,8 +115,8 @@ describe('WebFetch tool', () => {
     const { WebFetch } = await import('../src/tools/WebFetch.js')
     global.fetch = mock(() => Promise.reject(new TypeError('fetch failed'))) as any
     const result = await WebFetch.execute({ url: 'https://example.com' })
-    expect(result).toContain('[Erro]')
-    expect(result).toContain('Falha de rede')
+    expect(result).toContain('Error:')
+    expect(result).toContain('network failure')
   })
 
   // --- Timeout ---
@@ -126,8 +126,8 @@ describe('WebFetch tool', () => {
     const timeoutErr = new DOMException('The operation was aborted.', 'TimeoutError')
     global.fetch = mock(() => Promise.reject(timeoutErr)) as any
     const result = await WebFetch.execute({ url: 'https://example.com' })
-    expect(result).toContain('[Erro]')
-    expect(result).toContain('Timeout')
+    expect(result).toContain('Error:')
+    expect(result).toContain('timeout')
     expect(result).toContain('15s')
   })
 
@@ -137,7 +137,7 @@ describe('WebFetch tool', () => {
     const { WebFetch } = await import('../src/tools/WebFetch.js')
     global.fetch = mock(() => Promise.reject(new Error('algo inesperado'))) as any
     const result = await WebFetch.execute({ url: 'https://example.com' })
-    expect(result).toContain('[Erro]')
+    expect(result).toContain('Error:')
     expect(result).toContain('algo inesperado')
   })
 })

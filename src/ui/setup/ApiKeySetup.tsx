@@ -133,7 +133,7 @@ export function ApiKeySetup({ onDone }: Props) {
       const t = setTimeout(() => onDone(donePayload.theme, donePayload.config), 50)
       return () => clearTimeout(t)
     }
-  }, [donePayload])
+  }, [donePayload, onDone])
 
   useKeyboard((key: KeyEvent) => {
     if (key.ctrl && key.name === 'c') process.exit(0)

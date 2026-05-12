@@ -6,11 +6,16 @@ import type { ProviderConfig } from '../ui/setup/ApiKeySetup.js'
 import { createLLMClient, defaultModel } from '../agent/llmClient.js'
 import { SUBAGENT_MAX_ITERATIONS } from '../constants.js'
 
-// Provider config inherited from the parent Agent
+// Provider config and model inherited from the parent Agent
 let subAgentProvider: ProviderConfig = { provider: 'deepseek' }
+let subAgentModel: string | null = null
 
 export function setSubAgentProvider(cfg: ProviderConfig) {
   subAgentProvider = cfg
+}
+
+export function setSubAgentModel(model: string) {
+  subAgentModel = model
 }
 
 function buildSubAgentPrompt(task: string): string {
@@ -68,7 +73,7 @@ export const SubAgent: Tool = {
     }))
 
     const client = createLLMClient(subAgentProvider)
-    const model = modelOverride ?? defaultModel(subAgentProvider.provider)
+    const model = modelOverride ?? subAgentModel ?? defaultModel(subAgentProvider.provider)
 
     const messages: ChatCompletionMessageParam[] = [
       { role: 'system', content: buildSubAgentPrompt(task) },
@@ -76,8 +81,8 @@ export const SubAgent: Tool = {
     ]
 
     for (let i = 0; i < SUBAGENT_MAX_ITERATIONS; i++) {
-      // Passa mensagens como estão — reasoning_content deve ser preservado para todos os modelos
-      // DeepSeek-V4-Flash tem thinking mode embutido e a API exige o campo de volta quando presente
+      // Pass messages as-is — reasoning_content must be preserved for all models.
+      // DeepSeek-V4-Flash has built-in thinking mode and the API requires the field back when present.
       const response = await client.chat.completions.create({
         model,
         messages,
@@ -95,7 +100,7 @@ export const SubAgent: Tool = {
         content: msg.content ?? null,
         tool_calls: msg.tool_calls,
       }
-      // Preserva reasoning_content sempre — a API exige que seja passado de volta quando presente
+      // Preserves reasoning_content always — the API requires it to be passed back when present
       const msgReasoning = (msg as unknown as Record<string, unknown>).reasoning_content
       if (typeof msgReasoning === 'string' && msgReasoning) {
         assistantMsg.reasoning_content = msgReasoning

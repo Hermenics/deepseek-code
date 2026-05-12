@@ -21,8 +21,29 @@ import { loadAgentConfig, type LoadedAgent } from './agent/config.js'
 import { loadSession, newSessionId, type SessionData } from './agent/session.js'
 import pkg from '../package.json' with { type: 'json' }
 
+function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; update: boolean; logout: boolean } {
+  const args = process.argv.slice(2).filter((a) => a !== '--pipe')
+  if (args[0] === 'update') {
+    return { agentName: null, initialMessage: null, resumeId: null, update: true, logout: false }
+  }
+  if (args[0] === 'logout') {
+    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: true }
+  }
+  const resumeIdx = args.indexOf('--resume')
+  if (resumeIdx !== -1) {
+    return { agentName: null, initialMessage: null, resumeId: args[resumeIdx + 1] ?? null, update: false, logout: false }
+  }
+  if (args[0] === 'agent') {
+    return { agentName: args[1] ?? null, initialMessage: args[2] ?? null, resumeId: null, update: false, logout: false }
+  }
+  return { agentName: null, initialMessage: args[0] ?? null, resumeId: null, update: false, logout: false }
+}
+
+// Parse once at startup — reused by Root component
+const ARGV = parseArgv()
+
 // ── deepseek update ───────────────────────────────────────────────────────────
-const { update, logout } = parseArgv()
+const { update, logout } = ARGV
 if (update) {
   const name = pkg.name
   const current = pkg.version
@@ -37,7 +58,9 @@ if (update) {
     } else {
       process.stdout.write(`Updating ${current} → ${latest}...\n`)
       const { execa } = await import('execa')
-      const pm = process.env.npm_execpath?.includes('bun') ? 'bun' : 'npm'
+      // Detect package manager: prefer bun if running under bun, else npm
+      const isBun = typeof Bun !== 'undefined' || process.versions?.bun != null
+      const pm = isBun ? 'bun' : (process.env.npm_execpath?.includes('yarn') ? 'yarn' : 'npm')
       const { stdout, stderr } = await execa(pm, ['install', '-g', `${name}@${latest}`], { reject: false })
       if (stdout) process.stdout.write(stdout + '\n')
       if (stderr) process.stderr.write(stderr + '\n')
@@ -62,24 +85,6 @@ if (logout) {
   process.exit(0)
 }
 
-function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; update: boolean; logout: boolean } {
-  const args = process.argv.slice(2).filter((a) => a !== '--pipe')
-  if (args[0] === 'update') {
-    return { agentName: null, initialMessage: null, resumeId: null, update: true, logout: false }
-  }
-  if (args[0] === 'logout') {
-    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: true }
-  }
-  const resumeIdx = args.indexOf('--resume')
-  if (resumeIdx !== -1) {
-    return { agentName: null, initialMessage: null, resumeId: args[resumeIdx + 1] ?? null, update: false, logout: false }
-  }
-  if (args[0] === 'agent') {
-    return { agentName: args[1] ?? null, initialMessage: args[2] ?? null, resumeId: null, update: false, logout: false }
-  }
-  return { agentName: null, initialMessage: args[0] ?? null, resumeId: null, update: false, logout: false }
-}
-
 const SESSION_ID = newSessionId()
 
 function Root() {
@@ -92,9 +97,10 @@ function Root() {
   const [language, setLanguage] = useState<string | null>(null)
   const [languageChecked, setLanguageChecked] = useState(false)
   const [initialSession, setInitialSession] = useState<SessionData | null>(null)
+  const [resumeNotFound, setResumeNotFound] = useState(false)
 
   useEffect(() => {
-    const { agentName, initialMessage: msg, resumeId } = parseArgv()
+    const { agentName, initialMessage: msg, resumeId } = ARGV
     migrateConfigIfNeeded().then(() => loadSavedConfig()).then(async ({ providerConfig: saved, theme: savedTheme, language: savedLanguage }) => {
       setTheme(savedTheme)
       if (saved) {
@@ -112,6 +118,8 @@ function Root() {
         if (session) {
           setInitialSession(session)
           if (session.language) setLanguage(session.language)
+        } else {
+          setResumeNotFound(true)
         }
       }
       if (agentName) {
@@ -124,6 +132,15 @@ function Root() {
 
   if (!checked) return null
 
+  if (resumeNotFound) {
+    // Show error inline — don't crash, just start fresh
+    return (
+      <box flexDirection="column" paddingLeft={2} paddingTop={1}>
+        <text fg="yellow">{'⚠ Session not found. Starting a new session.'}</text>
+      </box>
+    )
+  }
+
   if (!ready) {
     return (
       <box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
@@ -132,7 +149,7 @@ function Root() {
     )
   }
 
-  if (languageChecked && language === null) {
+  if (languageChecked && language === null && !ARGV.resumeId) {
     return (
       <box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
         <LanguageSetup onDone={(lang) => {
@@ -162,7 +179,7 @@ function Root() {
 const renderer = await createCliRenderer({
   exitOnCtrlC: false,
   clearOnShutdown: true,
-  useMouse: false,
+  useMouse: true,
   enableMouseMovement: false,
 })
 

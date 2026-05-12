@@ -42,7 +42,8 @@ export const Shell: Tool = {
   },
   async execute(args) {
     const command = args.command as string
-    const timeout = ((args.timeout as number) || 0) * 1000 || SHELL_TIMEOUT_MS
+    const timeoutArg = args.timeout as number | undefined
+    const timeout = timeoutArg != null && Number.isFinite(timeoutArg) && timeoutArg > 0 ? timeoutArg * 1000 : SHELL_TIMEOUT_MS
 
     const warning = isDestructive(command)
     if (warning && globalConfirmHandler) {

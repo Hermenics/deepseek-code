@@ -1,21 +1,9 @@
-import { useMemo } from 'react'
-import { SyntaxStyle, RGBA } from '@opentui/core'
 import type { Message } from '../App.js'
 import { DiffView } from './DiffView.js'
 import type { ThemeName } from '../setup/ApiKeySetup.js'
 import { TOOL_DISPLAY } from './toolDisplay.js'
+import { MarkdownText } from './MarkdownText.js'
 import pkg from '../../../package.json' with { type: 'json' }
-
-const syntaxStyle = SyntaxStyle.fromStyles({
-  keyword: { fg: RGBA.fromHex('#c792ea'), bold: true },
-  string: { fg: RGBA.fromHex('#c3e88d') },
-  comment: { fg: RGBA.fromHex('#676e95'), italic: true },
-  number: { fg: RGBA.fromHex('#f78c6c') },
-  type: { fg: RGBA.fromHex('#ffcb6b') },
-  function: { fg: RGBA.fromHex('#82aaff') },
-  variable: { fg: RGBA.fromHex('#f07178') },
-  default: { fg: RGBA.fromHex('#a6accd') },
-})
 
 function formatToolLine(rawName: string, detail: string): { display: string; arg: string; output: string } {
   const display = TOOL_DISPLAY[rawName] ?? rawName
@@ -118,7 +106,7 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
       <box flexDirection="row" gap={1}>
         <text fg="white">{'●'}</text>
         <box flexDirection="column" flexShrink={1}>
-          <markdown content={m.content} syntaxStyle={syntaxStyle} />
+          <MarkdownText content={m.content} />
         </box>
       </box>
     </box>
@@ -204,7 +192,7 @@ export function MessageList({ messages, streamText, streamRole = 'assistant', th
             <box flexDirection="row" gap={1}>
               <text fg="white">{'●'}</text>
               <box flexDirection="column" flexShrink={1}>
-                <markdown content={streamText} syntaxStyle={syntaxStyle} streaming />
+                <MarkdownText content={streamText} streaming />
               </box>
             </box>
           )}

@@ -22,7 +22,7 @@ export default async function runPipe() {
   await migrateConfigIfNeeded()
 
   // Load saved provider config (respects user's configured provider)
-  const { providerConfig } = await loadSavedConfig()
+  const { providerConfig, language } = await loadSavedConfig()
 
   if (!providerConfig) {
     const apiKey = process.env.DEEPSEEK_API_KEY
@@ -49,6 +49,12 @@ export default async function runPipe() {
   }
 
   const agent = new Agent(providerConfig ?? { provider: 'deepseek' })
+
+  // Wait for async initialization (MCP tools, steering, DEEPSEEK.md) before running
+  await agent.readyPromise.catch(() => {})
+
+  // Apply language preference if configured
+  if (language) agent.setLanguage(language)
 
   let output = ''
 

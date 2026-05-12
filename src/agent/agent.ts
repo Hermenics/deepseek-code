@@ -4,7 +4,7 @@ import { join } from 'path'
 import DEFAULT_SYSTEM_PROMPT_MD from './system-prompt.md' with { type: 'text' }
 import { allTools } from '../tools/index.js'
 import { setShellConfirmHandler } from '../tools/Shell.js'
-import { setSubAgentProvider } from '../tools/SubAgent.js'
+import { setSubAgentProvider, setSubAgentModel } from '../tools/SubAgent.js'
 import { loadMcpTools } from './mcp.js'
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
 import type { Model } from '../commands.js'
@@ -73,9 +73,11 @@ export class Agent {
   private tokenUsage: TokenUsage = { promptTokens: 0, completionTokens: 0, cachedTokens: 0 }
   private lastUserMessage: string | null = null
   private abortController: AbortController | null = null
-  private readyPromise: Promise<void> = Promise.resolve()
+  public readyPromise: Promise<void> = Promise.resolve()
   public mcpErrors: string[] = []
   public initErrors: string[] = []
+  private sessionStartTime: number = Date.now()
+  private toolCallTotal: number = 0
 
   public tokenCount = 0
   public model: Model = 'deepseek-v4-flash'
@@ -109,6 +111,7 @@ export class Agent {
         : defaultModel(providerConfig.provider)) as Model
       // Propagate provider to SubAgent so it uses the same backend
       setSubAgentProvider(providerConfig)
+      setSubAgentModel(this.model)
     }
     this.contextLimit = getContextLimit(this.provider, this.model)
     // Initialize async — readyPromise is awaited in run() to prevent race conditions
@@ -227,6 +230,38 @@ export class Agent {
     ].join('\n')
   }
 
+  getStats(): string {
+    const elapsed = Date.now() - this.sessionStartTime
+    const minutes = Math.floor(elapsed / 60_000)
+    const seconds = Math.floor((elapsed % 60_000) / 1000)
+    const duration = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`
+    const cost = estimateCost(this.model, this.tokenUsage)
+    const userTurns = this.messages.filter((m) => !isBoundaryMarker(m) && (m as ChatCompletionMessageParam).role === 'user').length
+    const cacheHitPct = this.tokenUsage.promptTokens > 0
+      ? Math.round((this.tokenUsage.cachedTokens / this.tokenUsage.promptTokens) * 100)
+      : 0
+    return [
+      `**Session Statistics**`,
+      `Duration:       ${duration}`,
+      `Model:          ${this.model}`,
+      `Provider:       ${this.provider}`,
+      ``,
+      `**Tokens**`,
+      `Total:          ${this.tokenCount.toLocaleString()}`,
+      `Prompt:         ${this.tokenUsage.promptTokens.toLocaleString()} (${cacheHitPct}% cached)`,
+      `Completion:     ${this.tokenUsage.completionTokens.toLocaleString()}`,
+      ``,
+      `**Activity**`,
+      `User turns:     ${userTurns}`,
+      `Tool calls:     ${this.toolCallTotal}`,
+      `Files modified: ${this.filesModified.size}`,
+      `Context usage:  ${this.contextUsage > 0 ? Math.round((this.contextUsage / this.contextLimit) * 100) + '%' : 'n/a'}`,
+      ``,
+      `**Cost**`,
+      `Estimated:      ${formatCost(cost)}`,
+    ].join('\n')
+  }
+
   // ── Retry ──────────────────────────────────────────────────────────────────
 
   getLastUserMessage(): string | null {
@@ -287,6 +322,7 @@ export class Agent {
   setModel(m: Model) {
     this.model = m
     this.contextLimit = getContextLimit(this.provider, m)
+    setSubAgentModel(m)
   }
 
   setLanguage(language: string): void {
@@ -304,6 +340,17 @@ export class Agent {
     this.undoStack = []
     this.filesModified = new Set()
   }
+
+  /**
+   * Adds a background note that will be injected into the next agent turn
+   * as a system-level context hint, without interrupting ongoing work.
+   * Similar to /btw in Claude Code.
+   */
+  addNote(note: string): void {
+    this.pendingNotes.push(note)
+  }
+
+  private pendingNotes: string[] = []
 
   getMessages(): ChatCompletionMessageParam[] {
     // Backward compatible — external consumers get clean messages without boundary markers
@@ -328,7 +375,11 @@ export class Agent {
       if (injected) prompt += `\n\n${injected}`
     }
     this.systemPrompt = prompt
-    if (config.model) this.model = config.model
+    if (config.model) {
+      this.model = config.model
+      this.contextLimit = getContextLimit(this.provider, config.model)
+      setSubAgentModel(config.model)
+    }
     this.activeAgent = config.name
     this.allowedTools = config.allowedTools ?? null
     this.sessionApprovedTools = new Set()
@@ -348,6 +399,9 @@ export class Agent {
     // Wait for async initialization to complete before running
     await this.readyPromise
 
+    // Reset abort controller so a previous abort doesn't block the new run
+    this.abortController = null
+
     // Auto-compact when context is above threshold
     if (this.contextUsage > 0 && this.contextUsage / this.contextLimit > CONTEXT_COMPACT_THRESHOLD) {
       try {
@@ -363,8 +417,16 @@ export class Agent {
     const now = new Date().toLocaleString()
     this.lastUserMessage = userMessage
 
+    // Inject any pending /msg notes as a system-level context hint
+    let messageContent = `[${now}]\n${userMessage}`
+    if (this.pendingNotes.length > 0) {
+      const notes = this.pendingNotes.map((n) => `• ${n}`).join('\n')
+      messageContent += `\n\n[Background notes from user — context only, not a new task]\n${notes}`
+      this.pendingNotes = []
+    }
+
     cb.onPhaseChange?.('executing')
-    this.messages.push({ role: 'user', content: `[${now}]\n${userMessage}` })
+    this.messages.push({ role: 'user', content: messageContent })
     await this.loop(cb)
   }
 
@@ -582,9 +644,12 @@ export class Agent {
     }
 
     // ── Tool permission check ─────────────────────────────────────────────────
+    // allowedTools === '*'  → all tools require permission
+    // allowedTools = string[] → only listed tools require permission
+    // allowedTools === null  → no permission prompts (default)
     const needsPermission = this.allowedTools !== null && (
       this.allowedTools === '*' ||
-      this.allowedTools.includes(tc.function.name)
+      (Array.isArray(this.allowedTools) && this.allowedTools.includes(tc.function.name))
     )
     if (needsPermission && !this.sessionApprovedTools.has(tc.function.name) && this.toolPermissionHandler) {
       const decision = await this.toolPermissionHandler(tc.function.name, parsedArgs)
@@ -599,6 +664,7 @@ export class Agent {
 
     cb.onToolCall(tc.function.name, parsedArgs)
     auditLog({ type: 'tool_call', tool: tc.function.name, args: parsedArgs })
+    this.toolCallTotal++
     const t0 = Date.now()
     const result = await this.executeTool(tc.function.name, parsedArgs)
     auditLog({ type: 'tool_result', tool: tc.function.name, result: result.slice(0, 200), durationMs: Date.now() - t0 })

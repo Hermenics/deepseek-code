@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { SyntaxStyle, RGBA } from '@opentui/core'
 import type { ThemeName } from '../setup/ApiKeySetup.js'
+import { DIFF_MAX_LINES } from '../../constants.js'
 
 interface DiffLine { type: 'added' | 'removed' | 'context'; text: string; lineNo: number }
 
@@ -27,12 +28,9 @@ export function DiffView({ path, added, removed, firstChanged, lines, theme }: P
   const filename = path.split('/').pop() ?? path
 
   const diffText = useMemo(() => {
-    const MAX_LINES = 50
-    const visible = lines.slice(0, MAX_LINES)
-    return visible.map((l) => {
-      const prefix = l.type === 'added' ? '+' : l.type === 'removed' ? '-' : ' '
-      return `${prefix}${l.text}`
-    }).join('\n')
+    const visible = lines.slice(0, DIFF_MAX_LINES)
+    // l.text already contains the prefix (+/-/ ) from computeDiff
+    return visible.map((l) => l.text).join('\n')
   }, [lines])
 
   return (

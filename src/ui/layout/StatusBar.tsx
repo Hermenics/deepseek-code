@@ -34,7 +34,7 @@ export function StatusBar({ tokenCount, model, activeAgent, provider, contextPct
     }
   }, [])
 
-  if (tokenCount === 0 && !model) return null
+  if (tokenCount === 0 && !branch) return null
 
   return (
     <box flexDirection="column">

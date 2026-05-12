@@ -35,8 +35,8 @@ export async function loadEnvFile(envPath: string = ENV_PATH): Promise<Record<st
       if (!trimmed || trimmed.startsWith('#')) continue
       const eqIndex = trimmed.indexOf('=')
       if (eqIndex === -1) continue
-      const key = trimmed.slice(0, eqIndex)
-      const value = trimmed.slice(eqIndex + 1)
+      const key = trimmed.slice(0, eqIndex).trim()
+      const value = trimmed.slice(eqIndex + 1).trim()
       result[key] = value
     }
 

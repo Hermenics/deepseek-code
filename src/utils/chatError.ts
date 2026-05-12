@@ -1,11 +1,11 @@
 import type { ProviderName } from '../ui/setup/ApiKeySetup.js'
 
 /**
- * Formata a mensagem de erro de chat de acordo com o provider.
+ * Formats a chat error message based on the provider.
  *
- * Contexto: /models pode funcionar para Bedrock/Vertex (usa SDK nativo),
- * mas o endpoint de chat OpenAI-compatible pode falhar por falta de credenciais.
- * Esta função torna esse diagnóstico explícito para o usuário.
+ * Context: /models may work for Bedrock/Vertex (uses native SDK),
+ * but the OpenAI-compatible chat endpoint may fail due to missing credentials.
+ * This function makes that diagnosis explicit for the user.
  */
 export function formatChatError(error: Error, provider: ProviderName): string {
   const raw = error.message
@@ -20,16 +20,16 @@ export function formatChatError(error: Error, provider: ProviderName): string {
 
     if (isAuthError) {
       return (
-        `Erro de credenciais AWS ao chamar o chat (${raw}).\n` +
-        `Nota: /models pode funcionar (usa SDK nativo), mas o endpoint de chat OpenAI-compatible ` +
-        `requer credenciais AWS válidas no perfil configurado (~/.aws/credentials).`
+        `AWS credentials error calling chat (${raw}).\n` +
+        `Note: /models may work (uses native SDK), but the OpenAI-compatible chat endpoint ` +
+        `requires valid AWS credentials in the configured profile (~/.aws/credentials).`
       )
     }
 
     return (
-      `Erro no chat via Amazon Bedrock: ${raw}\n` +
-      `Nota: /models pode funcionar (usa SDK nativo), mas o endpoint de chat OpenAI-compatible ` +
-      `pode falhar por credenciais ou permissões insuficientes.`
+      `Chat error via Amazon Bedrock: ${raw}\n` +
+      `Note: /models may work (uses native SDK), but the OpenAI-compatible chat endpoint ` +
+      `may fail due to insufficient credentials or permissions.`
     )
   }
 
@@ -42,19 +42,19 @@ export function formatChatError(error: Error, provider: ProviderName): string {
 
     if (isMissingCredentials) {
       return (
-        `Erro de autenticação Google Vertex AI (${raw}).\n` +
-        `Nota: /models pode funcionar (usa SDK nativo), mas o endpoint de chat OpenAI-compatible ` +
-        `requer GCP_CREDENTIALS (caminho para o JSON da service account).`
+        `Google Vertex AI authentication error (${raw}).\n` +
+        `Note: /models may work (uses native SDK), but the OpenAI-compatible chat endpoint ` +
+        `requires GCP_CREDENTIALS (path to the service account JSON).`
       )
     }
 
     return (
-      `Erro no chat via Google Vertex AI: ${raw}\n` +
-      `Nota: /models pode funcionar (usa SDK nativo), mas o endpoint de chat OpenAI-compatible ` +
-      `pode falhar por credenciais ou permissões insuficientes.`
+      `Chat error via Google Vertex AI: ${raw}\n` +
+      `Note: /models may work (uses native SDK), but the OpenAI-compatible chat endpoint ` +
+      `may fail due to insufficient credentials or permissions.`
     )
   }
 
-  // deepseek, local — mensagem direta sem contexto adicional
+  // deepseek, local — direct message without additional context
   return raw
 }

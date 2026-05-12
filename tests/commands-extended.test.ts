@@ -97,6 +97,39 @@ describe('parseCommand — extended coverage', () => {
     })
   })
 
+  describe('msg/btw command', () => {
+    it('should parse /msg with note', () => {
+      expect(parseCommand('/msg fix the bug later')).toEqual({ type: 'msg', note: 'fix the bug later' })
+    })
+
+    it('should parse /btw as alias for /msg', () => {
+      expect(parseCommand('/btw use TypeScript strict mode')).toEqual({ type: 'msg', note: 'use TypeScript strict mode' })
+    })
+
+    it('should return unknown for /msg without note', () => {
+      const result = parseCommand('/msg')
+      expect(result?.type).toBe('unknown')
+    })
+  })
+
+  describe('vim command', () => {
+    it('should parse /vim', () => {
+      expect(parseCommand('/vim')).toEqual({ type: 'vim' })
+    })
+  })
+
+  describe('stats command', () => {
+    it('should parse /stats', () => {
+      expect(parseCommand('/stats')).toEqual({ type: 'stats' })
+    })
+  })
+
+  describe('permissions command', () => {
+    it('should parse /permissions', () => {
+      expect(parseCommand('/permissions')).toEqual({ type: 'permissions' })
+    })
+  })
+
   describe('edge cases', () => {
     it('should return null for empty string', () => {
       expect(parseCommand('')).toBeNull()

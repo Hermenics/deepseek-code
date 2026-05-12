@@ -257,10 +257,38 @@ describe('Agent class', () => {
     })
   })
 
-  describe('abort', () => {
-    it('should not throw when called without active request', () => {
+  describe('addNote', () => {
+    it('should not throw when adding a note', () => {
       const agent = new Agent()
-      expect(() => agent.abort()).not.toThrow()
+      expect(() => agent.addNote('fix the bug later')).not.toThrow()
+    })
+
+    it('should accept multiple notes', () => {
+      const agent = new Agent()
+      expect(() => {
+        agent.addNote('note 1')
+        agent.addNote('note 2')
+        agent.addNote('note 3')
+      }).not.toThrow()
+    })
+  })
+
+  describe('getStats', () => {
+    it('should return a string with session statistics', () => {
+      const agent = new Agent()
+      const stats = agent.getStats()
+      expect(typeof stats).toBe('string')
+      expect(stats).toContain('Duration')
+      expect(stats).toContain('Model')
+      expect(stats).toContain('Tokens')
+      expect(stats).toContain('Tool calls')
+      expect(stats).toContain('Cost')
+    })
+
+    it('should include provider info', () => {
+      const agent = new Agent({ provider: 'deepseek', apiKey: 'test' })
+      const stats = agent.getStats()
+      expect(stats).toContain('deepseek')
     })
   })
 

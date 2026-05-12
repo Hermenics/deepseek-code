@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useKeyboard } from '@opentui/react'
 import type { KeyEvent } from '@opentui/core'
 import { useClock } from '../clock.js'
@@ -32,6 +32,9 @@ const DESCRIPTIONS: Record<string, string> = {
   '/checkpoint list': 'List saved checkpoints',
   '/plan': 'Plan implementation of a task',
   '/review': 'Review code in the project',
+  '/msg': 'Add a note without interrupting the agent',
+  '/vim': 'Toggle vim keybindings (normal/insert mode)',
+  '/stats': 'Show session statistics',
 }
 
 const SPINNER = ['✻', '✼', '✽', '✾', '✿', '❀', '✿', '✾', '✽', '✼']
@@ -109,6 +112,7 @@ export function InputBox({
   interactionMode = 'chat',
   onModeChange,
   sessionId,
+  vimEnabled = false,
 }: {
   onSubmit: (text: string) => void
   isLoading: boolean
@@ -121,6 +125,7 @@ export function InputBox({
   interactionMode?: InteractionMode
   onModeChange?: () => void
   sessionId?: string
+  vimEnabled?: boolean
 }) {
   const [value, setValue] = useState('')
   const [cursorPos, setCursorPos] = useState(0)
@@ -130,6 +135,8 @@ export function InputBox({
   const [inputHistory, setInputHistory] = useState<string[]>([])
   const [historyIdx, setHistoryIdx] = useState<number>(-1)
   const [savedDraft, setSavedDraft] = useState('')
+  // Vim mode: 'insert' = normal typing, 'normal' = vim navigation
+  const [vimMode, setVimMode] = useState<'insert' | 'normal'>('insert')
 
   useEffect(() => {
     loadInputHistory().then(setInputHistory)
@@ -149,6 +156,7 @@ export function InputBox({
     value, cursorPos, pastedBlock,
     showDropdown, matches, selectedIdx,
     inputHistory, historyIdx, savedDraft, ctrlCAt,
+    vimEnabled, vimMode,
   })
   useEffect(() => {
     stateRef.current = {
@@ -156,11 +164,18 @@ export function InputBox({
       value, cursorPos, pastedBlock,
       showDropdown, matches, selectedIdx,
       inputHistory, historyIdx, savedDraft, ctrlCAt,
+      vimEnabled, vimMode,
     }
   })
 
   useKeyboard((key: KeyEvent) => {
     const s = stateRef.current
+
+    // Filter out mouse scroll events — they arrive as name:'up'/'down' with
+    // raw containing ANSI mouse escape sequences (\x1b[< for SGR, \x1b[M for X10)
+    if (key.raw && key.raw.length > 3 && key.raw.charCodeAt(0) === 0x1b && key.raw[1] === '[' && (key.raw[2] === '<' || key.raw[2] === 'M')) {
+      return
+    }
 
     // Ctrl+C handling
     if (key.ctrl && key.name === 'c') {
@@ -187,7 +202,7 @@ export function InputBox({
       return
     }
 
-    // When loading, only allow Enter (to queue)
+    // When loading, allow typing but Enter queues the message
     if (s.isLoading) {
       if (key.name === 'return') {
         const trimmed = s.value.trim()
@@ -197,7 +212,139 @@ export function InputBox({
           setCursorPos(0)
           setPastedBlock(null)
         }
+        return
       }
+      // Allow cursor movement and typing while loading
+      if (key.name === 'left') { setCursorPos((pos) => Math.max(0, pos - 1)); return }
+      if (key.name === 'right') { setCursorPos((pos) => Math.min(s.value.length, pos + 1)); return }
+      if (key.name === 'home') { setCursorPos(0); return }
+      if (key.name === 'end') { setCursorPos(s.value.length); return }
+      if (key.name === 'backspace') {
+        if (s.cursorPos > 0) {
+          setValue((v) => v.slice(0, s.cursorPos - 1) + v.slice(s.cursorPos))
+          setCursorPos((pos) => pos - 1)
+        } else if (s.pastedBlock) {
+          setPastedBlock(null)
+        }
+        return
+      }
+      if (key.name === 'delete') {
+        if (s.cursorPos < s.value.length) {
+          setValue((v) => v.slice(0, s.cursorPos) + v.slice(s.cursorPos + 1))
+        }
+        return
+      }
+      if (key.raw && key.raw.length === 1 && !key.ctrl && !key.meta) {
+        setValue((v) => v.slice(0, s.cursorPos) + key.raw + v.slice(s.cursorPos))
+        setCursorPos((pos) => pos + key.raw!.length)
+      }
+      return
+    }
+
+    // ── Vim normal mode keybindings ────────────────────────────────────────────
+    if (s.vimEnabled && s.vimMode === 'normal') {
+      // Enter insert mode
+      if (key.name === 'i') { setVimMode('insert'); return }
+      if (key.name === 'a') {
+        setCursorPos((pos) => Math.min(s.value.length, pos + 1))
+        setVimMode('insert')
+        return
+      }
+      if (key.name === 'I') { setCursorPos(0); setVimMode('insert'); return }
+      if (key.name === 'A') { setCursorPos(s.value.length); setVimMode('insert'); return }
+      // Submit in normal mode
+      if (key.name === 'return') {
+        const full = s.pastedBlock ? `${s.pastedBlock}\n${s.value}` : s.value
+        s.onSubmit(full)
+        setValue('')
+        setCursorPos(0)
+        setPastedBlock(null)
+        setHistoryIdx(-1)
+        setSavedDraft('')
+        setVimMode('insert')
+        return
+      }
+      // Navigation
+      if (key.name === 'h' || key.name === 'left') { setCursorPos((pos) => Math.max(0, pos - 1)); return }
+      if (key.name === 'l' || key.name === 'right') { setCursorPos((pos) => Math.min(s.value.length, pos + 1)); return }
+      if (key.name === '0' || key.name === 'home') { setCursorPos(0); return }
+      if (key.name === '$' || key.name === 'end') { setCursorPos(s.value.length); return }
+      // Word forward (w)
+      if (key.name === 'w') {
+        const rest = s.value.slice(s.cursorPos)
+        const match = rest.match(/\S+\s*/)
+        setCursorPos((pos) => pos + (match ? match[0].length : rest.length))
+        return
+      }
+      // Word backward (b)
+      if (key.name === 'b') {
+        const before = s.value.slice(0, s.cursorPos)
+        const match = before.match(/\S+\s*$/)
+        setCursorPos((pos) => pos - (match ? match[0].length : pos))
+        return
+      }
+      // Delete char under cursor (x)
+      if (key.name === 'x') {
+        if (s.cursorPos < s.value.length) {
+          setValue((v) => v.slice(0, s.cursorPos) + v.slice(s.cursorPos + 1))
+        }
+        return
+      }
+      // Delete to end of line (D)
+      if (key.name === 'D') {
+        setValue((v) => v.slice(0, s.cursorPos))
+        return
+      }
+      // Delete whole line (dd via ctrl+d shortcut)
+      if (key.ctrl && key.name === 'd') {
+        setValue('')
+        setCursorPos(0)
+        return
+      }
+      // History navigation in normal mode
+      if (key.name === 'k' || key.name === 'up') {
+        if (s.inputHistory.length === 0) return
+        const newIdx = s.historyIdx === -1
+          ? s.inputHistory.length - 1
+          : Math.max(0, s.historyIdx - 1)
+        if (s.historyIdx === -1) setSavedDraft(s.value)
+        setHistoryIdx(newIdx)
+        const entry = s.inputHistory[newIdx] ?? ''
+        setValue(entry)
+        setCursorPos(entry.length)
+        return
+      }
+      if (key.name === 'j' || key.name === 'down') {
+        if (s.historyIdx === -1) return
+        const newIdx = s.historyIdx + 1
+        if (newIdx >= s.inputHistory.length) {
+          setHistoryIdx(-1)
+          setValue(s.savedDraft)
+          setCursorPos(s.savedDraft.length)
+        } else {
+          setHistoryIdx(newIdx)
+          const entry = s.inputHistory[newIdx] ?? ''
+          setValue(entry)
+          setCursorPos(entry.length)
+        }
+        return
+      }
+      return // swallow unhandled keys in normal mode
+    }
+
+    // ── Escape: enter vim normal mode (if vim enabled) or clear input ──────────
+    if (key.name === 'escape') {
+      if (s.vimEnabled) {
+        setVimMode('normal')
+        // Clamp cursor: in normal mode cursor can't be past last char
+        setCursorPos((pos) => Math.max(0, Math.min(pos, s.value.length - 1)))
+        return
+      }
+      setValue('')
+      setCursorPos(0)
+      setPastedBlock(null)
+      setHistoryIdx(-1)
+      setSavedDraft('')
       return
     }
 
@@ -218,12 +365,8 @@ export function InputBox({
         setCursorPos(0)
         setSelectedIdx(0)
         setHistoryIdx(-1)
-        return
-      }
-      if (key.name === 'escape') {
-        setValue('')
-        setCursorPos(0)
-        setSelectedIdx(0)
+        setSavedDraft('')
+        setVimMode('insert')
         return
       }
     } else {
@@ -259,14 +402,6 @@ export function InputBox({
       if (key.name === 'return') {
         const full = s.pastedBlock ? `${s.pastedBlock}\n${s.value}` : s.value
         s.onSubmit(full)
-        setValue('')
-        setCursorPos(0)
-        setPastedBlock(null)
-        setHistoryIdx(-1)
-        setSavedDraft('')
-        return
-      }
-      if (key.name === 'escape') {
         setValue('')
         setCursorPos(0)
         setPastedBlock(null)
@@ -365,14 +500,16 @@ export function InputBox({
       {/* Top separator */}
       {(() => {
         const modeLabel = `[${MODE_LABELS[interactionMode]}]`
+        const vimLabel = vimEnabled ? (vimMode === 'normal' ? ' [N]' : ' [I]') : ''
         const label = ` ${agentLabel} `
-        const suffix = modeLabel + label + '────'
+        const suffix = modeLabel + vimLabel + label + '────'
         const leftDashes = Math.max(0, cols - 8 - suffix.length)
         const dashes = '─'.repeat(leftDashes)
         return (
           <box flexDirection="row">
             <text fg="#888888">{dashes}</text>
             <text fg={MODE_COLORS[interactionMode]}>{modeLabel}</text>
+            {vimEnabled && <text fg={vimMode === 'normal' ? 'yellow' : '#888888'}>{vimLabel}</text>}
             <text fg="#888888">{label + '────'}</text>
           </box>
         )

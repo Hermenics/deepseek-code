@@ -1,19 +1,19 @@
 import { GoogleAuth } from 'google-auth-library'
 
-// Cache interno — evita recriar GoogleAuth e refetch desnecessário de token
+// Internal cache — avoids recreating GoogleAuth and unnecessary token refetches
 let cachedAuth: { token: string; expiresAt: number; credentialsPath: string } | null = null
 let cachedGoogleAuth: { auth: GoogleAuth; credentialsPath: string } | null = null
 
-/** Buffer de 5 minutos antes da expiração real para refresh antecipado */
+/** 5-minute buffer before actual expiry for proactive refresh */
 const REFRESH_BUFFER_MS = 5 * 60 * 1000
 
-/** Duração padrão do token OAuth (1 hora) */
+/** Default OAuth token lifetime (1 hour) */
 const TOKEN_LIFETIME_MS = 3600 * 1000
 
 /**
- * Obtém um access token OAuth para Vertex AI.
- * Usa cache com refresh 5 minutos antes de expirar.
- * Invalida cache automaticamente se credentialsPath mudar.
+ * Gets an OAuth access token for Vertex AI.
+ * Uses cache with refresh 5 minutes before expiry.
+ * Automatically invalidates cache if credentialsPath changes.
  */
 export async function getVertexAccessToken(
   credentialsPath: string,
@@ -28,7 +28,7 @@ export async function getVertexAccessToken(
     return cachedAuth.token
   }
 
-  // Reutiliza GoogleAuth se o path nao mudou
+  // Reuse GoogleAuth if path hasn't changed
   if (!cachedGoogleAuth || cachedGoogleAuth.credentialsPath !== credentialsPath) {
     cachedGoogleAuth = {
       auth: new GoogleAuth({
@@ -43,7 +43,7 @@ export async function getVertexAccessToken(
   const { token } = await client.getAccessToken()
 
   if (!token) {
-    throw new Error('Falha ao obter access token do Vertex AI')
+    throw new Error('Failed to obtain Vertex AI access token')
   }
 
   cachedAuth = {
@@ -56,8 +56,8 @@ export async function getVertexAccessToken(
 }
 
 /**
- * Cria um fetch wrapper que injeta o Authorization header com Bearer token.
- * Substitui o header dummy que o OpenAI SDK seta (Bearer vertex).
+ * Creates a fetch wrapper that injects the Authorization header with a Bearer token.
+ * Replaces the dummy header set by the OpenAI SDK (Bearer vertex).
  */
 export function createVertexFetch(
   credentialsPath: string,
@@ -74,15 +74,15 @@ export function createVertexFetch(
     })
   }
 
-  // OpenAI SDK espera fetch com .preconnect — delegamos ao original
+  // OpenAI SDK expects fetch with .preconnect — delegate to original
   vertexFetch.preconnect = globalThis.fetch.preconnect?.bind(globalThis.fetch)
 
   return vertexFetch as typeof globalThis.fetch
 }
 
 /**
- * Lista apenas os modelos DeepSeek disponíveis no Vertex AI do projeto.
- * Usa a API REST do Model Garden filtrando por "deepseek" no nome.
+ * Lists only the DeepSeek models available in the Vertex AI project.
+ * Uses the Model Garden REST API filtering by "deepseek" in the name.
  */
 export async function listVertexDeepSeekModels(
   project: string,
@@ -99,8 +99,8 @@ export async function listVertexDeepSeekModels(
     const data = await res.json() as { publisherModels?: { name?: string }[] }
     return (data.publisherModels ?? [])
       .map((m) => {
-        // name é algo como "publishers/deepseek-ai/models/deepseek-r1"
-        // O ID que o endpoint OpenAI do Vertex espera é "deepseek-ai/deepseek-r1"
+        // name is something like "publishers/deepseek-ai/models/deepseek-r1"
+        // The ID the Vertex OpenAI endpoint expects is "deepseek-ai/deepseek-r1"
         const parts = m.name?.split('/') ?? []
         if (parts.length >= 4) return `${parts[1]}/${parts[3]}`
         return m.name ?? ''
@@ -113,7 +113,7 @@ export async function listVertexDeepSeekModels(
 }
 
 /**
- * Limpa o cache de token (útil para testes e rotação forçada).
+ * Clears the token cache (useful for tests and forced rotation).
  */
 export function clearTokenCache(): void {
   cachedAuth = null

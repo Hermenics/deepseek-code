@@ -1,6 +1,7 @@
 import { join } from 'path'
 import { homedir } from 'os'
 import { mkdir, readdir, unlink } from 'fs/promises'
+import { randomBytes } from 'crypto'
 import { readJson, writeJson } from '../utils/fs.js'
 import type { MessageOrBoundary } from './compactBoundary.js'
 import { CHECKPOINT_MAX } from '../constants.js'
@@ -21,7 +22,7 @@ export async function saveCheckpoint(
   label?: string,
 ): Promise<string> {
   await mkdir(DIR, { recursive: true })
-  const id = Date.now().toString()
+  const id = `${Date.now()}-${randomBytes(3).toString('hex')}`
   const cp: Checkpoint = {
     id,
     timestamp: new Date().toISOString(),

@@ -1,6 +1,7 @@
 import { join } from 'path'
 import { homedir } from 'os'
 import { mkdir, readdir, unlink } from 'fs/promises'
+import { randomBytes } from 'crypto'
 import { readJson, writeRaw } from '../utils/fs.js'
 import type { MessageOrBoundary } from './compactBoundary.js'
 import type { Message } from '../ui/App.js'
@@ -23,12 +24,7 @@ export interface SessionData {
 }
 
 export function newSessionId(): string {
-  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'
-  let id = ''
-  for (let i = 0; i < 12; i++) {
-    id += chars[Math.floor(Math.random() * chars.length)]
-  }
-  return id
+  return randomBytes(6).toString('hex')
 }
 
 export async function saveSession(data: SessionData): Promise<void> {

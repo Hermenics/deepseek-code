@@ -278,7 +278,7 @@ describe('formatChatError — mensagem de erro específica por provider', () => 
     const formatChatError = await importFormatChatError()
     const msg = formatChatError(new Error('UnrecognizedClientException'), 'bedrock')
     expect(msg).toContain('AWS')
-    expect(msg).toContain('credenciais')
+    expect(msg).toContain('credentials')
   })
 
   it('deve retornar mensagem específica para Vertex sem credenciais', async () => {

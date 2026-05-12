@@ -13,10 +13,12 @@ export function ToolUseDisplay({ tool }: { tool: ToolStatus }) {
   const tick = useClock()
   const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
+    // Reset elapsed when a new tool starts
+    setElapsed(0)
     if (tool.done) return
     const t = setInterval(() => setElapsed((s) => s + 1), 1000)
     return () => clearInterval(t)
-  }, [tool.done])
+  }, [tool.name, tool.done])
 
   const icon = tool.done ? '●' : SPINNER_CW[tick % SPINNER_CW.length]
   const iconColor = tool.done ? 'white' : 'cyan'

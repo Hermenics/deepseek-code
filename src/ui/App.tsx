@@ -60,6 +60,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   headerAgent?: string | null
 }) {
   const initialSessionRef = useRef(initialSession)
+  const handleSubmitRef = useRef<((text: string) => Promise<void>) | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [streamText, setStreamText] = useState('')
   const [streamRole, setStreamRole] = useState<'assistant' | 'terminal'>('assistant')
@@ -80,6 +81,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [showLanguageInput, setShowLanguageInput] = useState(false)
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   const [toolPermissionState, setToolPermissionState] = useState<ToolPermissionState | null>(null)
+  const [vimEnabled, setVimEnabled] = useState(false)
 
   useEffect(() => {
     agent.interactionMode = interactionMode
@@ -121,13 +123,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   useEffect(() => {
     const init = async () => {
-      await new Promise<void>((resolve) => {
-        const check = () => {
-          if (agent.mcpErrors !== undefined) resolve()
-          else setTimeout(check, 50)
-        }
-        check()
-      })
+      // Wait for async initialization (MCP tools, steering, DEEPSEEK.md) to complete
+      await agent.readyPromise.catch(() => {})
       if (language) {
         agent.setLanguage(language)
       }
@@ -150,7 +147,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         setMessages((m) => [...m, { role: 'assistant', content: `Agent '${config.name}' loaded from ${sourceMsg}.` }])
       }
       if (initialMessage) {
-        await handleSubmit(initialMessage)
+        await handleSubmitRef.current?.(initialMessage)
       }
     }
     init()
@@ -214,13 +211,21 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
         },
         onToolResult(name, result, args) {
-          setToolStatus(null)
+          // Mark tool as done (shows checkmark briefly) then clear
+          setToolStatus((prev) => prev?.name === name ? { ...prev, done: true, result: result.slice(0, 200) } : null)
+          setTimeout(() => setToolStatus(null), 800)
           if (name === 'shell') {
             const cmd = args?.command ?? ''
             const payload = JSON.stringify({ arg: String(cmd), output: result ?? '' })
             setMessages((m) => [...m, { role: 'tool', content: `✓ shell → ${payload}` }])
           } else if (name === 'write_file' || name === 'patch_file') {
             setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${result}` }])
+          } else if (name === 'read_file' || name === 'read_folder' || name === 'glob' || name === 'grep') {
+            const argPreview = args?.path ?? args?.pattern ?? ''
+            setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${String(argPreview)}` }])
+          } else if (!name.includes('__')) {
+            // Show other built-in tools too
+            setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${result.slice(0, 100)}` }])
           }
         },
         onDone() {
@@ -469,6 +474,24 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setMessages((m) => [...m, { role: 'assistant', content: lines.join('\n') }])
           return
         }
+        case 'msg': {
+          agent.addNote(cmd.note)
+          setMessages((m) => [...m, { role: 'assistant', content: `📝 Note queued: "${cmd.note}"\nIt will be included as context in the next agent turn.` }])
+          return
+        }
+        case 'vim': {
+          setVimEnabled((v) => {
+            const next = !v
+            setMessages((m) => [...m, { role: 'assistant', content: `Vim mode ${next ? 'enabled' : 'disabled'}. ${next ? 'Esc = NORMAL, i/a/I/A = INSERT, h/j/k/l/w/b/0/$/x/D to navigate.' : ''}` }])
+            return next
+          })
+          return
+        }
+        case 'stats': {
+          const stats = agent.getStats()
+          setMessages((m) => [...m, { role: 'assistant', content: stats }])
+          return
+        }
         case 'unknown':
           setMessages((m) => [...m, { role: 'assistant', content: cmd.input }])
           return
@@ -515,6 +538,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     setStreamText('')
     await runAgent(text)
   }, [agent, isLoading, runWithPrompt, runAgent])
+
+  // Keep ref in sync so the init effect always calls the latest handleSubmit
+  handleSubmitRef.current = handleSubmit
 
   return (
     <box flexDirection="column" width="100%" height="100%">
@@ -583,6 +609,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             interactionMode={interactionMode}
             onModeChange={handleModeChange}
             sessionId={sessionId}
+            vimEnabled={vimEnabled}
           />
         )}
         <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} />

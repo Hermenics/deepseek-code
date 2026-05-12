@@ -103,7 +103,7 @@ describe('vertex provider', () => {
       )
 
       expect(getVertexAccessToken('/path/to/sa.json')).rejects.toThrow(
-        'Falha ao obter access token do Vertex AI',
+        'Failed to obtain Vertex AI access token',
       )
     })
   })

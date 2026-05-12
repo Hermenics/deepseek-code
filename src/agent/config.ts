@@ -27,7 +27,10 @@ const GLOBAL_DIR = join(homedir(), '.deepseek', 'agents')
 
 async function tryLoad(path: string): Promise<AgentConfig | null> {
   try {
-    return await readJson<AgentConfig>(path)
+    const cfg = await readJson<AgentConfig>(path)
+    // Validate required fields
+    if (!cfg || typeof cfg.name !== 'string' || typeof cfg.systemPrompt !== 'string') return null
+    return cfg
   } catch {
     return null
   }

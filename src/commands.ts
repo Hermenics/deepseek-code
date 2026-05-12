@@ -24,6 +24,9 @@ export type CommandResult =
   | { type: 'plan'; task: string }
   | { type: 'review'; target: string }
   | { type: 'permissions' }
+  | { type: 'msg'; note: string }
+  | { type: 'vim' }
+  | { type: 'stats' }
   | { type: 'unknown'; input: string }
 
 
@@ -81,6 +84,14 @@ export function parseCommand(input: string): CommandResult | null {
       return { type: 'review', target }
     }
     case 'permissions': return { type: 'permissions' }
+    case 'msg':
+    case 'btw': {
+      const note = args.join(' ')
+      if (!note) return { type: 'unknown', input: 'Usage: /msg <note> — add a note without interrupting the agent' }
+      return { type: 'msg', note }
+    }
+    case 'vim': return { type: 'vim' }
+    case 'stats': return { type: 'stats' }
     default: return { type: 'unknown', input: `Unknown command: /${cmd}. Use /help to see available commands.` }
   }
 }
@@ -108,6 +119,9 @@ export const COMMAND_SUGGESTIONS = [
   '/plan',
   '/review',
   '/permissions',
+  '/msg',
+  '/vim',
+  '/stats',
 ]
 
 export const HELP_TEXT = `Commands:
@@ -131,6 +145,9 @@ export const HELP_TEXT = `Commands:
   /plan <task>           plan implementation of a task
   /review [file]         review project code or a specific file
   /permissions           show current tool permission settings
+  /msg <note>            add a note for the agent without interrupting it
+  /vim                   toggle vim keybindings (normal/insert mode)
+  /stats                 show session statistics
   /quit  /q              exit`
 
 export const PLAN_PROMPT = (task: string) => `You are a senior software architect. Analyze the current codebase and create a detailed implementation plan for the following task:

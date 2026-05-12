@@ -1,8 +1,9 @@
 import { join } from 'path'
 import { mkdir, appendFile } from 'fs/promises'
+import { randomBytes } from 'crypto'
 
 const LOG_DIR = join(process.cwd(), '.deepseek', 'logs')
-const SESSION_ID = Date.now().toString()
+const SESSION_ID = `${Date.now()}-${randomBytes(3).toString('hex')}`
 const LOG_FILE = join(LOG_DIR, `session-${SESSION_ID}.jsonl`)
 
 export type AuditEvent =

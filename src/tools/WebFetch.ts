@@ -41,29 +41,29 @@ export const WebFetch: Tool = {
     const url = args.url as string
 
     if (!isValidUrl(url)) {
-      return `[Erro] URL inválida: "${url}". A URL deve começar com http:// ou https://`
+      return `Error: invalid URL "${url}". Must start with http:// or https://`
     }
 
     try {
       const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) })
 
       if (!res.ok) {
-        return `[Erro] HTTP ${res.status}: falha ao acessar ${url}`
+        return `Error: HTTP ${res.status} fetching ${url}`
       }
 
       const text = await res.text()
       const clean = stripHtml(text)
       return clean.slice(0, MAX_CHARS)
     } catch (err: unknown) {
-      if (err instanceof DOMException && err.name === 'TimeoutError') {
-        return `[Erro] Timeout: a requisição para ${url} excedeu ${TIMEOUT_MS / 1000}s`
+      if (err instanceof Error && err.name === 'TimeoutError') {
+        return `Error: timeout fetching ${url} (limit: ${TIMEOUT_MS / 1000}s)`
       }
       if (err instanceof TypeError) {
         // fetch throws TypeError for network failures (DNS, connection refused, etc.)
-        return `[Erro] Falha de rede ao acessar ${url}: ${err.message}`
+        return `Error: network failure fetching ${url}: ${err.message}`
       }
       const message = err instanceof Error ? err.message : String(err)
-      return `[Erro] Falha ao buscar ${url}: ${message}`
+      return `Error: failed to fetch ${url}: ${message}`
     }
   },
 }

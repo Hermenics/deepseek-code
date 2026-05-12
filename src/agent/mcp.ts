@@ -5,6 +5,7 @@ import { join } from 'path'
 import type { Tool } from '../tools/types.js'
 import { readJson } from '../utils/fs.js'
 import { auditLog, type AuditEvent } from './auditLog.js'
+import pkg from '../../package.json' with { type: 'json' }
 
 // Environment variables that cannot be overwritten by MCP servers
 const CRITICAL_ENV_VARS = new Set([
@@ -106,7 +107,7 @@ export async function loadMcpTools(): Promise<{ tools: Tool[]; errors: string[] 
         validateMcpCommand(serverConfig.command)
       }
 
-      const client = new Client({ name: 'deepseek-code', version: '0.4.4' })
+      const client = new Client({ name: 'deepseek-code', version: pkg.version })
 
       const transport = serverConfig.transport === 'stdio'
         ? new StdioClientTransport({

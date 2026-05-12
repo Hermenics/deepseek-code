@@ -38,7 +38,7 @@ interface Props {
 }
 
 export function ThemeSelector({ currentTheme, onSelect, onCancel }: Props) {
-  const [idx, setIdx] = useState(() => THEMES.findIndex((t) => t.value === currentTheme) || 0)
+  const [idx, setIdx] = useState(() => Math.max(0, THEMES.findIndex((t) => t.value === currentTheme)))
   const preview = THEMES[idx]!.value
   const c = DIFF_COLORS[preview]
 
