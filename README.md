@@ -37,7 +37,7 @@ On first run you'll be asked for your [DeepSeek API key](https://platform.deepse
 
 DeepSeek Code is an agentic coding tool with a beautiful terminal UI. It understands your codebase and helps you code faster through natural language — reading and writing files, running shell commands, searching code, fetching URLs, managing git, and more.
 
-It supports two models: **DeepSeek-V3** (`deepseek-chat`) for fast general use and **DeepSeek-R1** (`deepseek-reasoner`) for complex chain-of-thought reasoning. Switch between them at any time with `/model`.
+It supports two models: **DeepSeek-V4-Flash** (`deepseek-v4-flash`) for fast general use, **DeepSeek-V4-Pro (`deepseek-v4-pro`) for complext tasks, and **DeepSeek-R1** (`deepseek-reasoner`) for complex chain-of-thought reasoning. Switch between them at any time with `/model`.
 
 ## Reporting bugs
 
