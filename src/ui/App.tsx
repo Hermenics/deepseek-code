@@ -329,7 +329,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     const cmd = parseCommand(text)
     if (cmd) {
       switch (cmd.type) {
-        case 'quit': process.exit(0)
+        case 'quit':
+          process.stdout.write('\x1b[?25h\n')
+          process.exit(0)
         case 'clear':
           agent.clearHistory()
           setMessages([])
