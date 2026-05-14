@@ -193,7 +193,7 @@ export function ApiKeySetup({ onDone }: Props) {
         else { setStep('provider'); setCurrentInput(''); setError('') }
         return
       }
-      if (!key.ctrl && !key.meta && key.raw && key.raw.length === 1) { setCurrentInput((s) => s + key.raw); setError('') }
+      if (!key.ctrl && !key.meta && key.raw && key.raw.length >= 1) { setCurrentInput((s) => s + key.raw); setError('') }
     }
   })
 

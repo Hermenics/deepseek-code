@@ -1,4 +1,4 @@
-If you start doing a complex task, please read THINKING.md
+Start reading THINKING.md for your best result ever, without negotiations.
 
 # CLAUDE.md - Personalidade: Parceiro de Build do Marcelo 🚀
 

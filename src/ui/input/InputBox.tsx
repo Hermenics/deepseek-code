@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { useKeyboard } from '@opentui/react'
+import { useKeyboard, usePaste } from '@opentui/react'
 import type { KeyEvent } from '@opentui/core'
+import { execSync } from 'child_process'
 import { useClock } from '../clock.js'
 import { loadInputHistory } from '../../agent/inputHistory.js'
 import type { AgentPhase } from '../App.js'
@@ -131,7 +132,6 @@ export function InputBox({
   const [cursorPos, setCursorPos] = useState(0)
   const [pastedBlock, setPastedBlock] = useState<string | null>(null)
   const [selectedIdx, setSelectedIdx] = useState(0)
-  const [ctrlCAt, setCtrlCAt] = useState<number | null>(null)
   const [inputHistory, setInputHistory] = useState<string[]>([])
   const [historyIdx, setHistoryIdx] = useState<number>(-1)
   const [savedDraft, setSavedDraft] = useState('')
@@ -142,11 +142,24 @@ export function InputBox({
     loadInputHistory().then(setInputHistory)
   }, [])
 
-  useEffect(() => {
-    if (ctrlCAt === null) return
-    const t = setTimeout(() => setCtrlCAt(null), 2000)
-    return () => clearTimeout(t)
-  }, [ctrlCAt])
+  // Handle bracketed paste via OpenTUI — truncate long pastes (>3 lines)
+  usePaste((event) => {
+    const text = event.text
+    if (!text) return
+    const lines = text.replace(/\r\n/g, '\n').split('\n')
+    if (lines.length > 3 || text.length > 200) {
+      setPastedBlock(text)
+      setValue('')
+      setCursorPos(0)
+    } else if (lines.length > 1) {
+      const joined = lines.join(' ')
+      setValue((v) => v.slice(0, cursorPos) + joined + v.slice(cursorPos))
+      setCursorPos((pos) => pos + joined.length)
+    } else {
+      setValue((v) => v.slice(0, cursorPos) + text + v.slice(cursorPos))
+      setCursorPos((pos) => pos + text.length)
+    }
+  })
 
   const matches = getMatches(value)
   const showDropdown = matches.length > 0
@@ -155,7 +168,7 @@ export function InputBox({
     isLoading, onAbort, onSubmit, onQueue, onModeChange,
     value, cursorPos, pastedBlock,
     showDropdown, matches, selectedIdx,
-    inputHistory, historyIdx, savedDraft, ctrlCAt,
+    inputHistory, historyIdx, savedDraft,
     vimEnabled, vimMode,
   })
   useEffect(() => {
@@ -163,7 +176,7 @@ export function InputBox({
       isLoading, onAbort, onSubmit, onQueue, onModeChange,
       value, cursorPos, pastedBlock,
       showDropdown, matches, selectedIdx,
-      inputHistory, historyIdx, savedDraft, ctrlCAt,
+      inputHistory, historyIdx, savedDraft,
       vimEnabled, vimMode,
     }
   })
@@ -172,28 +185,43 @@ export function InputBox({
     const s = stateRef.current
 
     // Filter out mouse scroll events — they arrive as name:'up'/'down' with
-    // raw containing ANSI mouse escape sequences (\x1b[< for SGR, \x1b[M for X10)
-    if (key.raw && key.raw.length > 3 && key.raw.charCodeAt(0) === 0x1b && key.raw[1] === '[' && (key.raw[2] === '<' || key.raw[2] === 'M')) {
+    // raw containing ANSI mouse escape sequences longer than a real arrow key (3 bytes).
+    // Real arrow keys: \x1b[A (up), \x1b[B (down) = exactly 3 bytes.
+    if ((key.name === 'up' || key.name === 'down') && key.raw && key.raw.length > 3) {
       return
     }
 
-    // Ctrl+C handling
+    // Ctrl+C: abort when loading only (do NOT capture in idle — allows terminal copy)
     if (key.ctrl && key.name === 'c') {
       if (s.isLoading) {
         s.onAbort?.()
-      } else {
-        const now = Date.now()
-        if (s.ctrlCAt !== null && now - s.ctrlCAt < 2000) {
-          process.exit(0)
-        } else {
-          setCtrlCAt(now)
-        }
+        return
       }
+      // In idle state, simply ignore Ctrl+C so the terminal can handle copy
       return
     }
 
-    if (s.ctrlCAt !== null) {
-      setCtrlCAt(null)
+    // Ctrl+V: paste from system clipboard
+    if (key.ctrl && key.name === 'v') {
+      try {
+        const text = execSync('xclip -selection clipboard -o 2>/dev/null || xsel --clipboard --output 2>/dev/null || wl-paste 2>/dev/null', { encoding: 'utf-8', timeout: 2000 })
+        if (text) {
+          const lines = text.replace(/\r\n/g, '\n').split('\n')
+          if (lines.length > 3 || text.length > 200) {
+            setPastedBlock(text)
+            setValue('')
+            setCursorPos(0)
+          } else if (lines.length > 1) {
+            const joined = lines.join(' ')
+            setValue((v) => v.slice(0, s.cursorPos) + joined + v.slice(s.cursorPos))
+            setCursorPos((pos) => pos + joined.length)
+          } else {
+            setValue((v) => v.slice(0, s.cursorPos) + text + v.slice(s.cursorPos))
+            setCursorPos((pos) => pos + text.length)
+          }
+        }
+      } catch { /* clipboard not available */ }
+      return
     }
 
     // Shift+Tab: toggle interaction mode
@@ -234,9 +262,10 @@ export function InputBox({
         }
         return
       }
-      if (key.raw && key.raw.length === 1 && !key.ctrl && !key.meta) {
-        setValue((v) => v.slice(0, s.cursorPos) + key.raw + v.slice(s.cursorPos))
-        setCursorPos((pos) => pos + key.raw!.length)
+      if (key.raw && key.raw.length >= 1 && !key.ctrl && !key.meta) {
+        const text = key.raw
+        setValue((v) => v.slice(0, s.cursorPos) + text + v.slice(s.cursorPos))
+        setCursorPos((pos) => pos + text.length)
       }
       return
     }
@@ -400,6 +429,12 @@ export function InputBox({
       }
 
       if (key.name === 'return') {
+        // Shift+Enter: insert newline
+        if (key.shift) {
+          setValue((v) => v.slice(0, s.cursorPos) + '\n' + v.slice(s.cursorPos))
+          setCursorPos((pos) => pos + 1)
+          return
+        }
         const full = s.pastedBlock ? `${s.pastedBlock}\n${s.value}` : s.value
         s.onSubmit(full)
         setValue('')
@@ -438,10 +473,24 @@ export function InputBox({
       return
     }
 
-    // Regular character input
-    if (key.raw && key.raw.length === 1 && !key.ctrl && !key.meta) {
-      setValue((v) => v.slice(0, s.cursorPos) + key.raw + v.slice(s.cursorPos))
-      setCursorPos((pos) => pos + key.raw!.length)
+    // Regular character input OR paste (key.raw.length > 1)
+    if (key.raw && key.raw.length >= 1 && !key.ctrl && !key.meta) {
+      const text = key.raw
+      // Detect paste: multiline text with more than 3 lines
+      const lines = text.replace(/\r\n/g, '\n').split('\n')
+      if (lines.length > 3 || text.length > 200) {
+        setPastedBlock(text)
+        setValue('')
+        setCursorPos(0)
+      } else if (lines.length > 1) {
+        // Short multiline paste — join with spaces
+        const joined = lines.join(' ')
+        setValue((v) => v.slice(0, s.cursorPos) + joined + v.slice(s.cursorPos))
+        setCursorPos((pos) => pos + joined.length)
+      } else {
+        setValue((v) => v.slice(0, s.cursorPos) + text + v.slice(s.cursorPos))
+        setCursorPos((pos) => pos + text.length)
+      }
       setSelectedIdx(0)
       setHistoryIdx(-1)
     }
@@ -456,6 +505,36 @@ export function InputBox({
           <text fg="white" bg="white">{' '}</text>
           {!pastedBlock && <text fg="#888888">{'What do you want me to do? ↵'}</text>}
         </>
+      )
+    }
+    // Multiline: render each line separately
+    if (value.includes('\n')) {
+      const lines = value.split('\n')
+      let offset = 0
+      return (
+        <box flexDirection="column">
+          {lines.map((line, li) => {
+            const lineStart = offset
+            const lineEnd = offset + line.length
+            offset += line.length + 1 // +1 for \n
+            const cursorInLine = cursorPos >= lineStart && cursorPos <= lineEnd
+            if (!cursorInLine) {
+              return <text key={li}>{li > 0 ? '  ' : ''}{line || ' '}</text>
+            }
+            const localPos = cursorPos - lineStart
+            const before = line.slice(0, localPos)
+            const at = line.slice(localPos, localPos + 1) || ' '
+            const after = line.slice(localPos + 1)
+            return (
+              <box key={li} flexDirection="row">
+                {li > 0 && <text>{'  '}</text>}
+                <text>{before}</text>
+                <text fg="black" bg="white">{at}</text>
+                <text>{after}</text>
+              </box>
+            )
+          })}
+        </box>
       )
     }
     const maxVisible = Math.max(20, cols - 10)
@@ -516,33 +595,26 @@ export function InputBox({
       })()}
 
       {/* Input area */}
-      {ctrlCAt !== null ? (
-        <box flexDirection="column" paddingLeft={1}>
-          <text fg="yellow">Press Ctrl+C again to exit.</text>
-          {sessionId && <text fg="#888888">{'  deepseek --resume ' + sessionId}</text>}
-        </box>
-      ) : (
-        <box flexDirection="row">
-          {contextPct > 0 && (() => {
-            const color = contextPct >= 90 ? 'red' : contextPct >= 70 ? 'yellow' : 'cyan'
-            return <text fg={color}>{contextPct + '% '}</text>
-          })()}
-          <text fg={value.trimStart().startsWith('!') ? 'magenta' : 'cyan'}>{value.trimStart().startsWith('!') ? '!' : '❯'}</text>
-          <text>{' '}</text>
-          {pastedBlock && (
-            <box border borderStyle="rounded" borderColor="#888888" paddingLeft={1} paddingRight={1} marginRight={1}>
-              <text fg="#888888">{pastedBlock.split('\n').length + ' lines'}</text>
-            </box>
-          )}
-          {renderInputLine()}
-        </box>
-      )}
+      <box flexDirection="row">
+        {contextPct > 0 && (() => {
+          const color = contextPct >= 90 ? 'red' : contextPct >= 70 ? 'yellow' : 'cyan'
+          return <text fg={color}>{contextPct + '% '}</text>
+        })()}
+        <text fg={value.trimStart().startsWith('!') ? 'magenta' : 'cyan'}>{value.trimStart().startsWith('!') ? '!' : '❯'}</text>
+        <text>{' '}</text>
+        {pastedBlock && (
+          <box border borderStyle="rounded" borderColor="#888888" paddingLeft={1} paddingRight={1} marginRight={1}>
+            <text fg="#888888">{'[Pasted text | ' + pastedBlock.split('\n').length + ' lines]'}</text>
+          </box>
+        )}
+        {renderInputLine()}
+      </box>
 
       {/* Bottom separator */}
       <text fg="#888888">{'─'.repeat(cols - 8)}</text>
 
       {/* Command dropdown */}
-      {!isLoading && ctrlCAt === null && showDropdown && (() => {
+      {!isLoading && showDropdown && (() => {
         const MAX_VISIBLE = 6
         const total = matches.length
         const CMD_WIDTH = 22

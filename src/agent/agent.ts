@@ -36,6 +36,51 @@ const PARALLEL_SAFE = new Set(['subagent', 'shell', 'grep', 'glob', 'read_file',
 
 const DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT_MD
 
+// ── Bedrock prompt-based tool calling ─────────────────────────────────────────
+// DeepSeek R1 on Bedrock does not support native tool calling.
+// We inject tool definitions into the system prompt and parse XML-style calls.
+
+function buildBedrockToolsPrompt(tools: Tool[]): string {
+  const defs = tools.map((t) => {
+    const props = Object.entries((t.parameters as any)?.properties ?? {})
+      .map(([k, v]: [string, any]) => `    - ${k} (${v.type ?? 'string'}): ${v.description ?? ''}`)
+      .join('\n')
+    const required = ((t.parameters as any)?.required ?? []).join(', ')
+    return `<tool name="${t.name}">\n  <description>${t.description}</description>\n  <parameters>\n${props}\n  </parameters>\n  <required>${required}</required>\n</tool>`
+  }).join('\n')
+
+  return `\n\nYou have access to the following tools. To use a tool, respond with a <tool_call> block:\n\n<tool_call>\n<name>tool_name</name>\n<args>{"param": "value"}</args>\n</tool_call>\n\nAfter the tool runs, you will receive a <tool_result> block. You can call multiple tools sequentially. When you have the final answer, respond normally without a <tool_call> block.\n\nAvailable tools:\n${defs}`
+}
+
+interface ParsedToolCall {
+  name: string
+  args: Record<string, unknown>
+  raw: string
+}
+
+function parseBedrockToolCalls(text: string): ParsedToolCall[] {
+  const calls: ParsedToolCall[] = []
+  const regex = /<tool_call>([\s\S]*?)<\/tool_call>/g
+  let match
+  while ((match = regex.exec(text)) !== null) {
+    const inner = match[1]!
+    const nameMatch = /<name>([\s\S]*?)<\/name>/.exec(inner)
+    const argsMatch = /<args>([\s\S]*?)<\/args>/.exec(inner)
+    if (!nameMatch) continue
+    const name = nameMatch[1]!.trim()
+    let args: Record<string, unknown> = {}
+    if (argsMatch) {
+      try { args = JSON.parse(argsMatch[1]!.trim()) } catch { }
+    }
+    calls.push({ name, args, raw: match[0] })
+  }
+  return calls
+}
+
+function stripToolCalls(text: string): string {
+  return text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '').trim()
+}
+
 function toOpenAITools(tools: Tool[]): ChatCompletionTool[] {
   return tools.map((t) => ({
     type: 'function' as const,
@@ -131,6 +176,10 @@ export class Agent {
       if (deepseekMd) parts.push(`--- DEEPSEEK.md ---\n${deepseekMd.trim()}`)
       if (parts.length) {
         this.systemPrompt = `${DEFAULT_SYSTEM_PROMPT}\n\n${parts.join('\n\n')}`
+      }
+      // Bedrock: inject tool definitions into system prompt (no native tool calling)
+      if (this.provider === 'bedrock') {
+        this.systemPrompt += buildBedrockToolsPrompt(this.tools)
       }
       this.messages = [{ role: 'system', content: this.systemPrompt }]
       if (mcpTools.length) {
@@ -466,6 +515,11 @@ export class Agent {
     }
   }
 
+  private get useStreaming(): boolean {
+    // Bedrock and Vertex OpenAI-compatible endpoints may not support streaming reliably
+    return this.provider !== 'bedrock' && this.provider !== 'vertex'
+  }
+
   private async runLoop(cb: AgentCallbacks) {
     while (true) {
       this.abortController = new AbortController()
@@ -474,6 +528,140 @@ export class Agent {
       const rawMessages = getMessagesAfterBoundary(this.messages)
       const apiMessages = this.sanitizeMessagesForApi(rawMessages)
 
+      // ── Non-streaming path for Bedrock/Vertex ──────────────────────────────
+      if (!this.useStreaming) {
+        let response: Awaited<ReturnType<typeof this.client.chat.completions.create>>
+        try {
+          response = await this.withRetry(() =>
+            this.client.chat.completions.create(
+              {
+                model: this.model,
+                messages: apiMessages,
+                tools: this.openaiTools,
+                stream: false,
+              },
+              { signal: this.abortController!.signal },
+            )
+          )
+        } catch (e: unknown) {
+          if (this.abortController?.signal.aborted) { cb.onDone(); return }
+          throw e
+        }
+
+        const choice = (response as any).choices?.[0]
+        if (!choice) { cb.onDone(); return }
+
+        const msg = choice.message
+        const rawText = msg?.content ?? ''
+        const reasoningText = (msg as any)?.reasoning_content ?? ''
+
+        // Track usage
+        const usage = (response as any).usage
+        if (usage) {
+          this.tokenCount += usage.total_tokens ?? 0
+          this.tokenUsage.promptTokens += usage.prompt_tokens ?? 0
+          this.tokenUsage.completionTokens += usage.completion_tokens ?? 0
+          this.tokenUsage.cachedTokens += usage.prompt_cache_hit_tokens ?? 0
+          this.contextUsage = usage.prompt_tokens ?? 0
+        }
+
+        // ── Bedrock: prompt-based tool calling ──────────────────────────────
+        if (this.provider === 'bedrock') {
+          const toolCalls = parseBedrockToolCalls(rawText)
+          if (toolCalls.length > 0) {
+            const visibleText = stripToolCalls(rawText)
+            if (visibleText) cb.onToken(visibleText)
+            // Store assistant message with raw text (includes tool_call blocks)
+            const assistantMsg: AssistantMessageWithReasoning = { role: 'assistant', content: rawText }
+            if (reasoningText) assistantMsg.reasoning_content = reasoningText
+            this.messages.push(assistantMsg)
+
+            // Execute each tool and append results as user messages
+            for (const tc of toolCalls) {
+              const fakeTc = { id: `bedrock-${Date.now()}`, type: 'function' as const, function: { name: tc.name, arguments: JSON.stringify(tc.args) } }
+              if ((tc.name === 'write_file' || tc.name === 'patch_file') && tc.args.path) {
+                const filePath = tc.args.path as string
+                this.filesModified.add(filePath)
+                try {
+                  const oldContent = await readFile(filePath, 'utf-8')
+                  this.undoStack.push({ path: filePath, content: oldContent })
+                } catch {
+                  this.undoStack.push({ path: filePath, content: '' })
+                }
+                if (this.undoStack.length > UNDO_STACK_MAX) this.undoStack.shift()
+              }
+              const { result } = await this.checkAndExecuteTool(fakeTc, tc.args, cb)
+              this.messages.push({ role: 'user', content: `<tool_result>\n<name>${tc.name}</name>\n<result>${result}</result>\n</tool_result>` })
+            }
+            continue // next iteration — model will process tool results
+          }
+          // No tool calls — final response
+          const assistantText = stripToolCalls(rawText)
+          if (assistantText) cb.onToken(assistantText)
+          const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: rawText }
+          if (reasoningText) finalMsg.reasoning_content = reasoningText
+          this.messages.push(finalMsg)
+          await saveHistory(this.messages)
+          cb.onDone()
+          return
+        }
+
+        // ── Native tool calling (non-Bedrock) ───────────────────────────────
+        const assistantText = rawText
+        if (assistantText) cb.onToken(assistantText)
+
+        if (!msg?.tool_calls?.length) {
+          const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText }
+          if (reasoningText) finalMsg.reasoning_content = reasoningText
+          this.messages.push(finalMsg)
+          await saveHistory(this.messages)
+          cb.onDone()
+          return
+        }
+
+        // Has tool calls
+        const tcArray = msg.tool_calls.map((tc: any) => ({
+          id: tc.id,
+          type: 'function' as const,
+          function: { name: tc.function.name, arguments: tc.function.arguments },
+        }))
+        const assistantMsg: AssistantMessageWithReasoning = {
+          role: 'assistant',
+          content: assistantText || null,
+          tool_calls: tcArray,
+        }
+        if (reasoningText) assistantMsg.reasoning_content = reasoningText
+        this.messages.push(assistantMsg)
+
+        // Execute tools
+        const parsedList = tcArray.map((tc: any) => {
+          let parsedArgs: Record<string, unknown> = {}
+          try { parsedArgs = JSON.parse(tc.function.arguments) } catch { }
+          return { tc, parsedArgs }
+        })
+
+        for (const { tc, parsedArgs } of parsedList) {
+          if ((tc.function.name === 'write_file' || tc.function.name === 'patch_file') && parsedArgs.path) {
+            const filePath = parsedArgs.path as string
+            this.filesModified.add(filePath)
+            try {
+              const oldContent = await readFile(filePath, 'utf-8')
+              this.undoStack.push({ path: filePath, content: oldContent })
+            } catch {
+              this.undoStack.push({ path: filePath, content: '' })
+            }
+            if (this.undoStack.length > UNDO_STACK_MAX) this.undoStack.shift()
+          }
+        }
+
+        for (const { tc, parsedArgs } of parsedList) {
+          const { result } = await this.checkAndExecuteTool(tc, parsedArgs, cb)
+          this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
+        }
+        continue // next iteration of the agent loop
+      }
+
+      // ── Streaming path (default for DeepSeek/local) ────────────────────────
       let stream: Awaited<ReturnType<typeof this.client.chat.completions.create>>
       try {
         stream = await this.withRetry(() =>

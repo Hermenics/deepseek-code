@@ -19,7 +19,7 @@ export function LanguageInput({ currentLanguage, onDone, onCancel }: Props) {
       return
     }
     if (key.name === 'backspace' || key.name === 'delete') { setInput((s) => s.slice(0, -1)); return }
-    if (!key.ctrl && !key.meta && key.raw && key.raw.length === 1) setInput((s) => s + key.raw)
+    if (!key.ctrl && !key.meta && key.raw && key.raw.length >= 1) setInput((s) => s + key.raw)
   })
 
   return (

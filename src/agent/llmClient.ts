@@ -55,7 +55,7 @@ export function createLLMClient(cfg: ProviderConfig): OpenAI {
 /** Default model name per provider */
 export function defaultModel(provider: ProviderConfig['provider']): string {
   switch (provider) {
-    case 'bedrock': return 'deepseek.deepseek-r1-v1:0'
+    case 'bedrock': return 'us.deepseek.r1-v1:0'
     case 'vertex':  return 'deepseek-ai/deepseek-r1'
     case 'local':   return 'llama3'
     default:        return 'deepseek-v4-flash'

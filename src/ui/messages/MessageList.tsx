@@ -13,13 +13,13 @@ function formatToolLine(rawName: string, detail: string): { display: string; arg
     const parsed = JSON.parse(detail)
     if (parsed && typeof parsed === 'object' && 'arg' in parsed) {
       const plainArg = String(parsed.arg ?? '')
-      arg = plainArg.length > 60 ? plainArg.slice(0, 60) + '…' : plainArg
+      arg = plainArg.length > 60 ? plainArg.slice(0, 60) + '...' : plainArg
       output = String(parsed.output ?? '')
     } else {
-      arg = detail.length > 60 ? detail.slice(0, 60) + '…' : detail
+      arg = detail.length > 60 ? detail.slice(0, 60) + '...' : detail
     }
   } catch {
-    arg = detail.length > 60 ? detail.slice(0, 60) + '…' : detail
+    arg = detail.length > 60 ? detail.slice(0, 60) + '...' : detail
   }
   return { display, arg, output }
 }
@@ -47,12 +47,12 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
     if (m.content.startsWith('✓ subagent →') || m.content.startsWith('⚙ subagent')) {
       const isDone = m.content.startsWith('✓')
       const label = isDone ? m.content.slice('✓ subagent → '.length) : m.content.slice('⚙ subagent('.length, -1)
-      const labelTrunc = label.length > 60 ? label.slice(0, 60) + '…' : label
+      const labelTrunc = label.length > 60 ? label.slice(0, 60) + '...' : label
       return (
         <box flexDirection="row" paddingLeft={2} gap={1}>
           <text fg={isDone ? 'green' : 'yellow'}>{'⎿ '}</text>
           <text fg={isDone ? '#888888' : 'yellow'}>
-            {labelTrunc || 'Agent'}{!isDone ? ' working…' : ''}
+            {labelTrunc || 'Agent'}{!isDone ? ' working...' : ''}
           </text>
         </box>
       )
@@ -81,7 +81,7 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
         ))}
         {hasMore && (
           <box paddingLeft={2}>
-            <text fg="#888888">{'⎿ … ' + (outputLines.length - MAX_OUTPUT_LINES) + ' more lines'}</text>
+            <text fg="#888888">{'⎿ ... ' + (outputLines.length - MAX_OUTPUT_LINES) + ' more lines'}</text>
           </box>
         )}
       </box>
@@ -125,7 +125,7 @@ function Header({ provider, agentName }: { provider: string; agentName: string |
           <text fg="#888888">{'v' + pkg.version}</text>
         </box>
         {agentName && <text fg="cyan">{'[' + agentName + ']'}</text>}
-        <text fg="#888888">{'/help  ·  Ctrl+C×2 to exit'}</text>
+        <text fg="#888888">{'/help  ·  /quit to exit'}</text>
       </box>
     )
   }
@@ -153,7 +153,7 @@ function Header({ provider, agentName }: { provider: string; agentName: string |
           <text fg="#888888">cwd:</text>
           <text fg="#5599ff">{process.cwd()}</text>
         </box>
-        <text fg="#888888">{'/help for commands  ·  Ctrl+C twice to exit'}</text>
+        <text fg="#888888">{'/help for commands  ·  /quit to exit'}</text>
       </box>
     </box>
   )

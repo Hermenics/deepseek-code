@@ -6,6 +6,25 @@ if (process.argv.includes('--pipe')) {
   process.exit(0)
 }
 
+// Dev logging: redirect stderr + uncaught errors to ~/.deepseek/logs/dev.log
+if (process.env.NODE_ENV === 'development') {
+  const { createWriteStream } = await import('fs')
+  const { mkdirSync } = await import('fs')
+  const { join } = await import('path')
+  const { homedir } = await import('os')
+  const logDir = join(homedir(), '.deepseek', 'logs')
+  mkdirSync(logDir, { recursive: true })
+  const logStream = createWriteStream(join(logDir, 'dev.log'), { flags: 'w' })
+  const write = (data: unknown) => logStream.write(`[${new Date().toISOString()}] ${String(data)}\n`)
+  const origStderr = process.stderr.write.bind(process.stderr)
+  process.stderr.write = (data: unknown, ...args: unknown[]) => {
+    write(data)
+    return (origStderr as Function)(data, ...args)
+  }
+  process.on('uncaughtException', (err) => write(`uncaughtException: ${err.stack ?? err}`))
+  process.on('unhandledRejection', (reason) => write(`unhandledRejection: ${reason}`))
+}
+
 // Set terminal title
 process.title = 'deepseek'
 process.stdout.write('\x1b]0;DeepSeek\x07')
@@ -179,7 +198,7 @@ function Root() {
 const renderer = await createCliRenderer({
   exitOnCtrlC: false,
   clearOnShutdown: true,
-  useMouse: true,
+  useMouse: false,
   enableMouseMovement: false,
 })
 

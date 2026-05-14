@@ -1,58 +1,58 @@
 /**
- * Simple markdown renderer using plain <text> components with OpenTUI attributes.
- * Replaces the broken <markdown> OpenTUI component.
- *
- * TextAttributes: BOLD = 1 << 0 = 1, ITALIC = 1 << 2 = 4
+ * Markdown renderer using native OpenTUI components for inline formatting.
+ * Uses <b>, <i>, <span fg={color}> instead of ANSI escape codes to avoid
+ * layout and wrapping issues.
  */
 
-const ATTR_BOLD = 1
-const ATTR_ITALIC = 4
-const ATTR_BOLD_ITALIC = ATTR_BOLD | ATTR_ITALIC
+import { Fragment } from 'react'
 
-interface Segment {
-  text: string
-  bold?: boolean
-  italic?: boolean
-  code?: boolean
-}
+const CODE_FG = '#c3e88d'
+const H1_FG = '#82aaff'
+const H2_FG = '#89ddff'
+const H3_FG = '#c792ea'
+const BULLET_FG = '#00cccc'
+const DIM_FG = '#888888'
+const RULE_FG = '#444444'
 
-function parseInline(line: string): Segment[] {
-  const segments: Segment[] = []
+function parseInline(line: string): React.ReactNode {
+  const parts: React.ReactNode[] = []
   let i = 0
+  let buf = ''
+
+  const flush = () => {
+    if (buf) {
+      parts.push(buf)
+      buf = ''
+    }
+  }
 
   while (i < line.length) {
-    // Bold+italic: ***text*** or ___text___
-    if (
-      (line[i] === '*' && line[i + 1] === '*' && line[i + 2] === '*') ||
-      (line[i] === '_' && line[i + 1] === '_' && line[i + 2] === '_')
-    ) {
-      const marker = line[i]!.repeat(3)
-      const end = line.indexOf(marker, i + 3)
+    // Bold+italic: ***text***
+    if (line.startsWith('***', i)) {
+      const end = line.indexOf('***', i + 3)
       if (end !== -1) {
-        segments.push({ text: line.slice(i + 3, end), bold: true, italic: true })
+        flush()
+        parts.push(<b key={`bi-${i}`}><i>{line.slice(i + 3, end)}</i></b>)
         i = end + 3
         continue
       }
     }
-    // Bold: **text** or __text__
-    if (
-      (line[i] === '*' && line[i + 1] === '*') ||
-      (line[i] === '_' && line[i + 1] === '_')
-    ) {
-      const marker = line[i]!.repeat(2)
-      const end = line.indexOf(marker, i + 2)
+    // Bold: **text**
+    if (line.startsWith('**', i)) {
+      const end = line.indexOf('**', i + 2)
       if (end !== -1) {
-        segments.push({ text: line.slice(i + 2, end), bold: true })
+        flush()
+        parts.push(<b key={`b-${i}`}>{line.slice(i + 2, end)}</b>)
         i = end + 2
         continue
       }
     }
-    // Italic: *text* or _text_ (only single, not double)
-    if ((line[i] === '*' && line[i + 1] !== '*') || (line[i] === '_' && line[i + 1] !== '_')) {
-      const marker = line[i]!
-      const end = line.indexOf(marker, i + 1)
+    // Italic: *text* (mas não **)
+    if (line[i] === '*' && line[i + 1] !== '*') {
+      const end = line.indexOf('*', i + 1)
       if (end !== -1 && end > i + 1) {
-        segments.push({ text: line.slice(i + 1, end), italic: true })
+        flush()
+        parts.push(<i key={`i-${i}`}>{line.slice(i + 1, end)}</i>)
         i = end + 1
         continue
       }
@@ -61,127 +61,77 @@ function parseInline(line: string): Segment[] {
     if (line[i] === '`') {
       const end = line.indexOf('`', i + 1)
       if (end !== -1) {
-        segments.push({ text: line.slice(i + 1, end), code: true })
+        flush()
+        parts.push(<span key={`c-${i}`} fg={CODE_FG}>{line.slice(i + 1, end)}</span>)
         i = end + 1
         continue
       }
     }
-    // Regular character — accumulate into last plain segment
-    const last = segments[segments.length - 1]
-    if (last && !last.bold && !last.italic && !last.code) {
-      last.text += line[i]
-    } else {
-      segments.push({ text: line[i]! })
-    }
+    buf += line[i]
     i++
   }
+  flush()
 
-  return segments.filter((s) => s.text.length > 0)
+  if (parts.length === 1) return parts[0]
+  return parts
 }
 
-function InlineSegments({ segments }: { segments: Segment[] }) {
-  return (
-    <>
-      {segments.map((seg, i) => {
-        if (seg.code) {
-          return <text key={i} fg="#c3e88d">{seg.text}</text>
-        }
-        if (seg.bold && seg.italic) {
-          return <text key={i} attributes={ATTR_BOLD_ITALIC}>{seg.text}</text>
-        }
-        if (seg.bold) {
-          return <text key={i} attributes={ATTR_BOLD}>{seg.text}</text>
-        }
-        if (seg.italic) {
-          return <text key={i} attributes={ATTR_ITALIC}>{seg.text}</text>
-        }
-        return <text key={i}>{seg.text}</text>
-      })}
-    </>
-  )
-}
-
-function MarkdownLine({ line }: { line: string }) {
+function formatLine(line: string, lineIdx: number): React.ReactNode {
   // Heading
-  const headingMatch = line.match(/^(#{1,6})\s+(.*)$/)
-  if (headingMatch) {
-    const level = headingMatch[1]!.length
-    const text = headingMatch[2]!
-    const headingFg = level === 1 ? '#82aaff' : level === 2 ? '#89ddff' : '#c792ea'
+  const hMatch = line.match(/^(#{1,6})\s+(.*)$/)
+  if (hMatch) {
+    const level = hMatch[1]!.length
+    const fg = level === 1 ? H1_FG : level === 2 ? H2_FG : H3_FG
     return (
-      <box flexDirection="row">
-        <text fg={headingFg} attributes={ATTR_BOLD}>{text}</text>
-      </box>
+      <text key={`h-${lineIdx}`} fg={fg}>
+        <b>{hMatch[2]!}</b>
+      </text>
     )
   }
 
   // Horizontal rule
   if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
-    return <text fg="#444444">{'─'.repeat(60)}</text>
+    return <text key={`hr-${lineIdx}`} fg={RULE_FG}>{'─'.repeat(60)}</text>
   }
 
   // Blockquote
   if (line.startsWith('> ')) {
-    const segs = parseInline(line.slice(2))
     return (
-      <box flexDirection="row" gap={1}>
-        <text fg="#555555">{'│'}</text>
-        <box flexDirection="row" flexShrink={1}>
-          {segs.map((seg, i) => (
-            <text key={i} fg="#888888">{seg.text}</text>
-          ))}
-        </box>
-      </box>
+      <text key={`q-${lineIdx}`} fg={DIM_FG}>
+        <span fg={DIM_FG}>{'│ '}</span>
+        {parseInline(line.slice(2))}
+      </text>
     )
   }
 
   // Bullet list
-  const bulletMatch = line.match(/^(\s*)([-*+])\s+(.*)$/)
-  if (bulletMatch) {
-    const indent = Math.floor((bulletMatch[1]?.length ?? 0) / 2)
-    const content = bulletMatch[3]!
-    const segs = parseInline(content)
+  const ulMatch = line.match(/^(\s*)([-*+])\s+(.*)$/)
+  if (ulMatch) {
+    const indent = ' '.repeat(Math.floor((ulMatch[1]?.length ?? 0) / 2) * 2)
     return (
-      <box flexDirection="row">
-        {indent > 0 && <text>{' '.repeat(indent * 2)}</text>}
-        <text fg="cyan">{'• '}</text>
-        <box flexDirection="row" flexShrink={1}>
-          <InlineSegments segments={segs} />
-        </box>
-      </box>
+      <text key={`ul-${lineIdx}`}>
+        {indent}
+        <span fg={BULLET_FG}>{'• '}</span>
+        {parseInline(ulMatch[3]!)}
+      </text>
     )
   }
 
-  // Numbered list
-  const numberedMatch = line.match(/^(\s*)(\d+)\.\s+(.*)$/)
-  if (numberedMatch) {
-    const indent = Math.floor((numberedMatch[1]?.length ?? 0) / 2)
-    const num = numberedMatch[2]!
-    const content = numberedMatch[3]!
-    const segs = parseInline(content)
+  // Ordered list
+  const olMatch = line.match(/^(\s*)(\d+)\.\s+(.*)$/)
+  if (olMatch) {
+    const indent = ' '.repeat(Math.floor((olMatch[1]?.length ?? 0) / 2) * 2)
     return (
-      <box flexDirection="row">
-        {indent > 0 && <text>{' '.repeat(indent * 2)}</text>}
-        <text fg="cyan">{num + '. '}</text>
-        <box flexDirection="row" flexShrink={1}>
-          <InlineSegments segments={segs} />
-        </box>
-      </box>
+      <text key={`ol-${lineIdx}`}>
+        {indent}
+        <span fg={BULLET_FG}>{olMatch[2]!}.{' '}</span>
+        {parseInline(olMatch[3]!)}
+      </text>
     )
   }
 
-  // Empty line
-  if (line.trim() === '') {
-    return <text>{' '}</text>
-  }
-
-  // Regular paragraph line with inline formatting
-  const segs = parseInline(line)
-  return (
-    <box flexDirection="row" flexShrink={1}>
-      <InlineSegments segments={segs} />
-    </box>
-  )
+  // Regular paragraph
+  return <text key={`p-${lineIdx}`}>{parseInline(line)}</text>
 }
 
 interface Props {
@@ -206,21 +156,25 @@ export function MarkdownText({ content }: Props) {
         codeLines.push(lines[i]!)
         i++
       }
-      result.push(
-        <box key={`code-${i}`} flexDirection="column" marginTop={1} marginBottom={1}>
-          {lang && <text fg="#888888">{lang}</text>}
-          <box flexDirection="column" paddingLeft={1}>
-            {codeLines.map((cl, ci) => (
-              <text key={ci} fg="#c3e88d">{cl || ' '}</text>
-            ))}
-          </box>
-        </box>
-      )
+      if (lang) {
+        result.push(<text key={`lang-${i}`} fg={DIM_FG}>{lang}</text>)
+      }
+      for (let ci = 0; ci < codeLines.length; ci++) {
+        result.push(<text key={`code-${i}-${ci}`} fg={CODE_FG}>{'  ' + (codeLines[ci] || ' ')}</text>)
+      }
       i++ // skip closing ```
       continue
     }
 
-    result.push(<MarkdownLine key={`line-${i}`} line={line} />)
+    // Empty line
+    if (line.trim() === '') {
+      result.push(<text key={`empty-${i}`}>{' '}</text>)
+      i++
+      continue
+    }
+
+    // Regular formatted line
+    result.push(formatLine(line, i))
     i++
   }
 
