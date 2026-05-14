@@ -144,7 +144,7 @@ export function InputBox({
 
   // Handle bracketed paste via OpenTUI — truncate long pastes (>3 lines)
   usePaste((event) => {
-    const text = event.text
+    const text = new TextDecoder().decode(event.bytes)
     if (!text) return
     const lines = text.replace(/\r\n/g, '\n').split('\n')
     if (lines.length > 3 || text.length > 200) {
