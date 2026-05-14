@@ -1,21 +1,33 @@
 import OpenAI from 'openai'
 import type { ProviderConfig } from '../ui/setup/ApiKeySetup.js'
-import { createBedrockFetch } from './providers/bedrock.js'
+import { createBedrockFetch, createBedrockMantleFetch, modelSupportsChatCompletions } from './providers/bedrock.js'
 import { createVertexFetch } from './providers/vertex.js'
 
 /**
  * Returns an OpenAI-compatible client configured for the given provider.
  *
  * - deepseek  → api.deepseek.com (native)
- * - bedrock   → AWS Bedrock OpenAI-compatible endpoint
+ * - bedrock   → AWS Bedrock (mantle for V3.2/V3.1, InvokeModel for R1)
  * - vertex    → Google Vertex AI OpenAI-compatible endpoint
  * - local     → any OpenAI-compatible local endpoint (Ollama, LM Studio, etc.)
  */
-export function createLLMClient(cfg: ProviderConfig): OpenAI {
+export function createLLMClient(cfg: ProviderConfig, model?: string): OpenAI {
   switch (cfg.provider) {
     case 'bedrock': {
       const region = cfg.awsRegion ?? 'us-east-1'
       const profile = cfg.awsProfile ?? 'default'
+      const resolvedModel = model ?? defaultModel('bedrock')
+
+      // V3.2/V3.1: use bedrock-mantle (OpenAI Chat Completions with native tool calling)
+      if (modelSupportsChatCompletions(resolvedModel)) {
+        return new OpenAI({
+          apiKey: 'bedrock',
+          baseURL: `https://bedrock-mantle.${region}.api.aws/v1`,
+          fetch: createBedrockMantleFetch(region, profile),
+        })
+      }
+
+      // R1: use native InvokeModel (no tool calling support)
       return new OpenAI({
         apiKey: 'bedrock',
         baseURL: `https://bedrock-runtime.${region}.amazonaws.com/v1`,

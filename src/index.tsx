@@ -198,7 +198,7 @@ function Root() {
 const renderer = await createCliRenderer({
   exitOnCtrlC: false,
   clearOnShutdown: true,
-  useMouse: false,
+  useMouse: true,
   enableMouseMovement: false,
 })
 

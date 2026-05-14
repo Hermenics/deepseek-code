@@ -13,7 +13,7 @@ import type { Tool } from '../tools/types.js'
 import { resolveAgentFiles } from './files.js'
 import { loadSteering } from './steering.js'
 import { createLLMClient, defaultModel } from './llmClient.js'
-import { listBedrockDeepSeekModels } from './providers/bedrock.js'
+import { listBedrockDeepSeekModels, modelSupportsChatCompletions } from './providers/bedrock.js'
 import { listVertexDeepSeekModels } from './providers/vertex.js'
 import { saveHistory } from './history.js'
 import { saveCheckpoint, listCheckpoints, loadCheckpoint } from './checkpoint.js'
@@ -78,7 +78,24 @@ function parseBedrockToolCalls(text: string): ParsedToolCall[] {
 }
 
 function stripToolCalls(text: string): string {
-  return text.replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '').trim()
+  return text
+    .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+    .replace(/<tool_result>[\s\S]*?<\/tool_result>/g, '')
+    .replace(/<step>[\s\S]*?<\/step>/g, '')
+    .replace(/<think>[\s\S]*?<\/think>/g, '')
+    .replace(/<thinking>[\s\S]*?<\/thinking>/g, '')
+    .replace(/<response>([\s\S]*?)<\/response>/g, '$1')
+    .trim()
+}
+
+function extractThinking(text: string): string {
+  const parts: string[] = []
+  const regexes = [/<step>([\s\S]*?)<\/step>/g, /<think>([\s\S]*?)<\/think>/g, /<thinking>([\s\S]*?)<\/thinking>/g]
+  for (const regex of regexes) {
+    let match
+    while ((match = regex.exec(text)) !== null) parts.push(match[1]!.trim())
+  }
+  return parts.join('\n')
 }
 
 function toOpenAITools(tools: Tool[]): ChatCompletionTool[] {
@@ -93,6 +110,7 @@ export type ToolPermissionHandler = (toolName: string, args: object) => Promise<
 
 export interface AgentCallbacks {
   onToken(text: string): void
+  onThinking?(text: string): void
   onToolCall(name: string, args: object): void
   onToolResult(name: string, result: string, args: Record<string, unknown>): void
   onDone(): void
@@ -177,8 +195,9 @@ export class Agent {
       if (parts.length) {
         this.systemPrompt = `${DEFAULT_SYSTEM_PROMPT}\n\n${parts.join('\n\n')}`
       }
-      // Bedrock: inject tool definitions into system prompt (no native tool calling)
-      if (this.provider === 'bedrock') {
+      // Bedrock R1: inject tool definitions into system prompt (no native tool calling)
+      // V3.2/V3.1 use bedrock-mantle which supports tools natively via Chat Completions
+      if (this.provider === 'bedrock' && !modelSupportsChatCompletions(this.model)) {
         this.systemPrompt += buildBedrockToolsPrompt(this.tools)
       }
       this.messages = [{ role: 'system', content: this.systemPrompt }]
@@ -516,8 +535,10 @@ export class Agent {
   }
 
   private get useStreaming(): boolean {
-    // Bedrock and Vertex OpenAI-compatible endpoints may not support streaming reliably
-    return this.provider !== 'bedrock' && this.provider !== 'vertex'
+    // Bedrock R1 (InvokeModel) and Vertex don't support streaming reliably
+    // Bedrock V3.2/V3.1 via bedrock-mantle supports streaming
+    if (this.provider === 'bedrock') return modelSupportsChatCompletions(this.model)
+    return this.provider !== 'vertex'
   }
 
   private async runLoop(cb: AgentCallbacks) {
@@ -538,6 +559,7 @@ export class Agent {
                 model: this.model,
                 messages: apiMessages,
                 tools: this.openaiTools,
+                max_tokens: 32768,
                 stream: false,
               },
               { signal: this.abortController!.signal },
@@ -565,8 +587,13 @@ export class Agent {
           this.contextUsage = usage.prompt_tokens ?? 0
         }
 
-        // ── Bedrock: prompt-based tool calling ──────────────────────────────
-        if (this.provider === 'bedrock') {
+        // ── Bedrock R1: prompt-based tool calling ────────────────────────────
+        // V3.2/V3.1 use native tool calling via bedrock-mantle (falls through to native path below)
+        if (this.provider === 'bedrock' && !modelSupportsChatCompletions(this.model)) {
+          // Emit reasoning/thinking content
+          const thinkingContent = reasoningText || extractThinking(rawText)
+          if (thinkingContent) cb.onThinking?.(thinkingContent)
+
           const toolCalls = parseBedrockToolCalls(rawText)
           if (toolCalls.length > 0) {
             const visibleText = stripToolCalls(rawText)
@@ -706,6 +733,7 @@ export class Agent {
           const deltaReasoning = (delta as Record<string, unknown>).reasoning_content
           if (typeof deltaReasoning === 'string' && deltaReasoning) {
             reasoningText += deltaReasoning
+            cb.onThinking?.(deltaReasoning)
           }
 
           if (delta.content) {

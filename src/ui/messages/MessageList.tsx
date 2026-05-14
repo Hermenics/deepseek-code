@@ -159,9 +159,10 @@ function Header({ provider, agentName }: { provider: string; agentName: string |
   )
 }
 
-export function MessageList({ messages, streamText, streamRole = 'assistant', theme, activeAgent, headerProvider, headerAgent }: {
+export function MessageList({ messages, streamText, thinkingText, streamRole = 'assistant', theme, activeAgent, headerProvider, headerAgent }: {
   messages: Message[]
   streamText: string
+  thinkingText?: string
   streamRole?: 'assistant' | 'terminal'
   theme: ThemeName
   activeAgent?: string | null
@@ -176,6 +177,11 @@ export function MessageList({ messages, streamText, streamRole = 'assistant', th
       {messages.map((message, index) => (
         <MessageItem key={`${message.role}-${index}`} message={message} theme={theme} agentLabel={agentLabel} />
       ))}
+      {thinkingText ? (
+        <box flexDirection="column" marginTop={1} marginLeft={2}>
+          <text fg="#666666"><i>{'Thinking: '}{thinkingText.length > 200 ? thinkingText.slice(-200) : thinkingText}</i></text>
+        </box>
+      ) : null}
       {streamText ? (
         <box flexDirection="column" marginTop={1}>
           {streamRole === 'terminal' ? (

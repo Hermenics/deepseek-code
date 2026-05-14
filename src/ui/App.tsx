@@ -24,6 +24,20 @@ import { DEFAULT_MODE, nextMode, isAutoAccept, type InteractionMode } from './in
 
 export type AgentPhase = 'idle' | 'refining' | 'executing'
 
+/** Extracts thinking content and cleans response tags from streamed text */
+function processStreamedText(text: string): { thinking: string; content: string } {
+  let thinking = ''
+  const thinkMatch = text.match(/<thinking>([\s\S]*?)<\/thinking>/)
+  if (thinkMatch) thinking = thinkMatch[1]!.trim()
+  const content = text
+    .replace(/<thinking>[\s\S]*?<\/thinking>/g, '')
+    .replace(/<think>[\s\S]*?<\/think>/g, '')
+    .replace(/<step>[\s\S]*?<\/step>/g, '')
+    .replace(/<response>([\s\S]*?)<\/response>/g, '$1')
+    .trim()
+  return { thinking, content }
+}
+
 export interface Message {
   role: 'user' | 'assistant' | 'tool' | 'terminal'
   content: string
@@ -63,6 +77,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const handleSubmitRef = useRef<((text: string) => Promise<void>) | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [streamText, setStreamText] = useState('')
+  const [thinkingText, setThinkingText] = useState('')
   const [streamRole, setStreamRole] = useState<'assistant' | 'terminal'>('assistant')
   const [isLoading, setIsLoading] = useState(false)
   const [toolStatus, setToolStatus] = useState<ToolStatus | null>(null)
@@ -192,7 +207,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         const buf = tokenBuffer
         tokenBuffer = ''
         streamTextAccum += buf
-        setStreamText((s) => s + buf)
+        // Live-process: separate thinking from visible content
+        const { thinking, content } = processStreamedText(streamTextAccum)
+        if (thinking) setThinkingText(thinking)
+        setStreamText(content)
       }
     }, 50)
 
@@ -200,13 +218,19 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       await agent.run(prompt, {
         onPhaseChange(phase) { setAgentPhase(phase) },
         onToken(token) { tokenBuffer += token },
+        onThinking(text) { setThinkingText((t) => t + text) },
         onToolCall(name, args) {
           clearInterval(flushInterval)
           const pending = (streamTextAccum + tokenBuffer).trim()
           tokenBuffer = ''
           streamTextAccum = ''
           setStreamText('')
-          if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
+          setThinkingText('')
+          if (pending) {
+            const { thinking, content } = processStreamedText(pending)
+            if (thinking) setThinkingText(thinking)
+            if (content) setMessages((m) => [...m, { role: 'assistant', content }])
+          }
           setToolCallCount((c) => c + 1)
           setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
         },
@@ -235,7 +259,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           streamTextAccum = ''
           setToolStatus(null)
           setStreamText('')
-          if (pending) setMessages((m) => [...m, { role: 'assistant', content: pending }])
+          setThinkingText('')
+          if (pending) setMessages((m) => [...m, { role: 'assistant', content: processStreamedText(pending).content }])
           setIsLoading(false)
           setAgentPhase('idle')
           setTokenCount(agent.tokenCount)
@@ -545,9 +570,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   return (
     <box flexDirection="column" width="100%" height="100%">
       {/* Messages area */}
-      <scrollbox flexGrow={1} stickyScroll stickyStart="bottom" focused={!showThemeSelector && !showModelSelector && !showLanguageInput && !confirmState && !toolPermissionState}>
+      <scrollbox flexGrow={1} stickyScroll stickyStart="bottom" scrollbarOptions={{ visible: false }} focused={!showThemeSelector && !showModelSelector && !showLanguageInput && !confirmState && !toolPermissionState}>
         <box flexDirection="column">
-          <MessageList messages={messages} streamText={streamText} streamRole={streamRole} theme={theme} activeAgent={activeAgent} headerProvider={headerProvider} headerAgent={headerAgent} />
+          <MessageList messages={messages} streamText={streamText} thinkingText={thinkingText} streamRole={streamRole} theme={theme} activeAgent={activeAgent} headerProvider={headerProvider} headerAgent={headerAgent} />
           {toolStatus && <ToolUseDisplay tool={toolStatus} />}
           <TodoPanel />
           {isLoading && <LoadingSpinner toolCallCount={toolCallCount} phase={agentPhase} />}
