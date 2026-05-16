@@ -105,7 +105,7 @@ describe('createBedrockFetch', () => {
     expect(authHeader).toContain('bedrock')
   })
 
-  it('preserva o body original no request assinado', async () => {
+  it('remove campos não suportados pelo Bedrock nativo (model, stream, tools) do body', async () => {
     const bedrockFetch = createBedrockFetch('us-east-1', 'default')
     const body = JSON.stringify({ model: 'deepseek', messages: [{ role: 'user', content: 'hi' }] })
 
@@ -116,7 +116,10 @@ describe('createBedrockFetch', () => {
     })
 
     const receivedBody = await capturedRequest!.text()
-    expect(receivedBody).toBe(body)
+    const parsed = JSON.parse(receivedBody)
+    // model é removido (vai na URL) e messages é preservado
+    expect(parsed.model).toBeUndefined()
+    expect(parsed.messages).toEqual([{ role: 'user', content: 'hi' }])
   })
 
   it('sobrescreve header Authorization existente (ex: Bearer bedrock do OpenAI SDK)', async () => {

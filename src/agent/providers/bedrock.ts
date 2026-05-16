@@ -2,7 +2,7 @@ import { fromIni } from '@aws-sdk/credential-providers'
 import { SignatureV4 } from '@smithy/signature-v4'
 import { HttpRequest } from '@smithy/protocol-http'
 import { Sha256 } from '@aws-crypto/sha256-js'
-import { BedrockClient, ListInferenceProfilesCommand } from '@aws-sdk/client-bedrock'
+import { BedrockClient, ListFoundationModelsCommand } from '@aws-sdk/client-bedrock'
 
 export async function listBedrockDeepSeekModels(region: string, profile: string): Promise<string[]> {
   const client = new BedrockClient({
@@ -11,11 +11,11 @@ export async function listBedrockDeepSeekModels(region: string, profile: string)
   })
 
   try {
-    const response = await client.send(new ListInferenceProfilesCommand({}))
-    const profiles = response.inferenceProfileSummaries ?? []
-    return profiles
-      .filter((p) => p.status === 'ACTIVE' && p.inferenceProfileId?.toLowerCase().includes('deepseek'))
-      .map((p) => p.inferenceProfileId ?? '')
+    const response = await client.send(new ListFoundationModelsCommand({}))
+    const models = response.modelSummaries ?? []
+    return models
+      .filter((m) => m.modelId?.toLowerCase().includes('deepseek'))
+      .map((m) => m.modelId ?? '')
       .filter(Boolean)
       .sort()
   } catch (err) {
@@ -133,7 +133,7 @@ export function createBedrockFetch(region: string, profile: string): typeof glob
     let parsed: Record<string, unknown> = {}
     try { parsed = JSON.parse(body ?? '{}') } catch { }
 
-    const modelId = (parsed.model as string) ?? 'us.deepseek.r1-v1:0'
+    const modelId = (parsed.model as string) ?? 'deepseek.deepseek-r1-v1:0'
     const isStream = parsed.stream === true
 
     const operation = isStream ? 'invoke-with-response-stream' : 'invoke'
