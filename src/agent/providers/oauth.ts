@@ -36,8 +36,9 @@ export function runOAuthLogin(): Promise<void> {
 }
 
 export function startProxy(): ChildProcess {
-  const isDev = process.env.NODE_ENV === 'development'
-  const logFile = isDev ? join(process.cwd(), 'logs.txt') : '/dev/null'
+  const logDir = join(homedir(), '.deepseek', 'logs')
+  const logFile = join(logDir, 'proxy.log')
+  mkdirSync(logDir, { recursive: true })
   const logFd = openSync(logFile, 'a')
 
   const child = spawn('npx', ['tsx', join(DEEPSPROXY_DIR, 'src', 'index.ts')], {
@@ -51,6 +52,7 @@ export function startProxy(): ChildProcess {
       PORT: '3000',
       HOST: '127.0.0.1',
       LOG_LEVEL: isDev ? 'debug' : 'info',
+      DEEPSEEK_VERSION: pkg.version,
     },
   })
 

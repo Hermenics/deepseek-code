@@ -174,9 +174,19 @@ function Root() {
         setProviderConfig(saved)
         if (saved.provider === 'deepseek' && saved.apiKey) process.env.DEEPSEEK_API_KEY = saved.apiKey
         if (saved.provider === 'oauth' && isOAuthReady()) {
-          // Only start proxy if not already running
           const alreadyUp = await fetch('http://127.0.0.1:3000/health').then(r => r.ok).catch(() => false)
-          if (!alreadyUp) {
+          const proxyVersion = alreadyUp
+            ? await fetch('http://127.0.0.1:3000/health').then(r => r.json()).then((d: any) => d.deepseekVersion ?? '').catch(() => '')
+            : ''
+          const needsRestart = alreadyUp && proxyVersion !== pkg.version
+          if (needsRestart) {
+            // Kill old proxy so startProxy can bring up the new one
+            await fetch('http://127.0.0.1:3000/shutdown').catch(() => {})
+            const { execSync } = await import('child_process')
+            try { execSync('lsof -ti:3000 | xargs -r kill -9', { stdio: 'ignore' }) } catch {}
+            await new Promise(r => setTimeout(r, 600))
+          }
+          if (!alreadyUp || needsRestart) {
             proxyChild = startProxy()
             const ok = await waitForProxy(150000)
             if (!ok) console.error('Warning: proxy failed to start within 15s')

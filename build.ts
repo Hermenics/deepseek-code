@@ -33,7 +33,7 @@ DIR="$(cd "$(dirname "$SELF")" && pwd -P)"
 # Restore terminal on exit (handles SIGKILL where Node cleanup can't run)
 _restore_terminal() { printf '\\033[?1000l\\033[?1002l\\033[?1003l\\033[?25h' > /dev/tty 2>/dev/null; }
 trap _restore_terminal EXIT
-bun -a deepseek "$DIR/cli.mjs" "$@"
+bun "$DIR/cli.mjs" "$@"
 `
 writeFileSync('dist/deepseek', wrapper)
 chmodSync('dist/deepseek', 0o755)
