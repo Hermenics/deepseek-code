@@ -34,6 +34,9 @@ export function createOpenAIRouter(pool: PagePool, config: ProxyConfig) {
         try {
           let accumulated = ''
           let suppressAll = false
+          let flushed = false
+          const pendingChunks: string[] = []
+
           for await (const event of orchestrate(request, pool, config)) {
             if (event.error) {
               await s.write(`data: ${JSON.stringify({ error: { message: event.error } })}\n\n`)
@@ -43,16 +46,31 @@ export function createOpenAIRouter(pool: PagePool, config: ProxyConfig) {
               const toolCall = openai.parseToolCall(accumulated)
               if (toolCall) {
                 await s.write(openai.formatStreamToolCall(toolCall, request.model))
+              } else if (!flushed && pendingChunks.length > 0) {
+                for (const chunk of pendingChunks) {
+                  await s.write(openai.formatStreamChunk(chunk, request.model))
+                }
               }
               await s.write(openai.formatStreamEnd())
             } else {
               accumulated += event.token
-              const looksLikeTool = accumulated.includes('tool_use') || accumulated.includes('DSML') || accumulated.includes('<tool_call>')
+              const looksLikeTool = accumulated.includes('tool_use') || accumulated.includes('DSML') || accumulated.includes('<tool_call>') || accumulated.trimStart().startsWith('```') || accumulated.trimStart().startsWith('{"')
               if (looksLikeTool) {
                 suppressAll = true
               }
               if (!suppressAll) {
-                await s.write(openai.formatStreamChunk(event.token, request.model))
+                if (accumulated.length < 50) {
+                  pendingChunks.push(event.token)
+                } else {
+                  if (!flushed) {
+                    for (const chunk of pendingChunks) {
+                      await s.write(openai.formatStreamChunk(chunk, request.model))
+                    }
+                    pendingChunks.length = 0
+                    flushed = true
+                  }
+                  await s.write(openai.formatStreamChunk(event.token, request.model))
+                }
               }
             }
           }

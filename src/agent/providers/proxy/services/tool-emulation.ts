@@ -6,13 +6,16 @@ export interface ToolDef {
   input_schema?: any
 }
 
-const TOOL_PROMPT = `You have access to tools. When you need to use a tool, respond ONLY with a JSON block in this exact format (no other text before or after):
+const TOOL_PROMPT = `You have access to tools. To call a tool, you MUST respond with ONLY a raw JSON object — no markdown, no code fences, no backticks, no explanation. Just the JSON:
 
-\`\`\`json
 {"tool_use": {"name": "tool_name", "arguments": {"param": "value"}}}
-\`\`\`
 
-If you don't need a tool, respond normally with text.
+CRITICAL RULES:
+- Do NOT wrap in \`\`\`json or \`\`\`text or any code block
+- Do NOT add any text before or after the JSON
+- Do NOT explain what you're doing — just output the raw JSON
+- If you don't need a tool, respond normally with text
+
 Available tools:
 `
 
