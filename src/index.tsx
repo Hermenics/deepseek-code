@@ -38,24 +38,32 @@ import { migrateConfigIfNeeded, logout as doLogout } from './utils/credentials.j
 import { LanguageSetup } from './ui/setup/LanguageSetup.js'
 import { loadAgentConfig, type LoadedAgent } from './agent/config.js'
 import { loadSession, newSessionId, type SessionData } from './agent/session.js'
+import { startProxy, waitForProxy, isOAuthReady } from './agent/providers/oauth.js'
+import type { ChildProcess } from 'child_process'
 import pkg from '../package.json' with { type: 'json' }
 
-function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; update: boolean; logout: boolean } {
+function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; update: boolean; logout: boolean; help: boolean; version: boolean } {
   const args = process.argv.slice(2).filter((a) => a !== '--pipe')
   if (args[0] === 'update') {
-    return { agentName: null, initialMessage: null, resumeId: null, update: true, logout: false }
+    return { agentName: null, initialMessage: null, resumeId: null, update: true, logout: false, help: false, version: false }
   }
   if (args[0] === 'logout') {
-    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: true }
+    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: true, help: false, version: false }
+  }
+  if (args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
+    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: false, help: true, version: false }
+  }
+  if (args[0] === 'version' || args[0] === 'v' || args[0] === '--version' || args[0] === '-v') {
+    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: false, help: false, version: true }
   }
   const resumeIdx = args.indexOf('--resume')
   if (resumeIdx !== -1) {
-    return { agentName: null, initialMessage: null, resumeId: args[resumeIdx + 1] ?? null, update: false, logout: false }
+    return { agentName: null, initialMessage: null, resumeId: args[resumeIdx + 1] ?? null, update: false, logout: false, help: false, version: false }
   }
   if (args[0] === 'agent') {
-    return { agentName: args[1] ?? null, initialMessage: args[2] ?? null, resumeId: null, update: false, logout: false }
+    return { agentName: args[1] ?? null, initialMessage: args[2] ?? null, resumeId: null, update: false, logout: false, help: false, version: false }
   }
-  return { agentName: null, initialMessage: args[0] ?? null, resumeId: null, update: false, logout: false }
+  return { agentName: null, initialMessage: args[0] ?? null, resumeId: null, update: false, logout: false, help: false, version: false }
 }
 
 // Parse once at startup — reused by Root component
@@ -63,6 +71,45 @@ const ARGV = parseArgv()
 
 // ── deepseek update ───────────────────────────────────────────────────────────
 const { update, logout } = ARGV
+
+if (ARGV.version) {
+  process.stdout.write(`${pkg.version}\n`)
+  process.exit(0)
+}
+
+
+if (ARGV.help) {
+  process.stdout.write(`
+DeepSeek Code v${pkg.version} — AI coding agent for the terminal
+
+Usage:
+  deepseek                          Start interactive session
+  deepseek "fix the bug in app.ts"  Start with an initial message
+  deepseek agent <name>             Load a custom agent
+  deepseek agent <name> "message"   Load agent with initial message
+  deepseek --resume <session-id>    Resume a previous session
+  deepseek update                   Update to latest version
+  deepseek logout                   Remove saved credentials
+  deepseek help                     Show this help
+
+Pipe mode:
+  echo "task" | deepseek            Run headlessly from stdin
+  cat file.ts | deepseek "explain"  Pipe file content with prompt
+
+In-app commands (type / to see all):
+  /help        Show all slash commands
+  /model       Switch AI model
+  /agent       Load a custom agent
+  /clear       Clear conversation history
+  /compact     Summarize history to save context
+  /plan        Plan implementation of a task
+  /review      Review project code
+  /quit        Exit
+
+`)
+  process.exit(0)
+}
+
 if (update) {
   const name = pkg.name
   const current = pkg.version
@@ -105,6 +152,7 @@ if (logout) {
 }
 
 const SESSION_ID = newSessionId()
+let proxyChild: ChildProcess | null = null
 
 function Root() {
   const [ready, setReady] = useState(false)
@@ -125,6 +173,15 @@ function Root() {
       if (saved) {
         setProviderConfig(saved)
         if (saved.provider === 'deepseek' && saved.apiKey) process.env.DEEPSEEK_API_KEY = saved.apiKey
+        if (saved.provider === 'oauth' && isOAuthReady()) {
+          // Only start proxy if not already running
+          const alreadyUp = await fetch('http://127.0.0.1:3000/health').then(r => r.ok).catch(() => false)
+          if (!alreadyUp) {
+            proxyChild = startProxy()
+            const ok = await waitForProxy(150000)
+            if (!ok) console.error('Warning: proxy failed to start within 15s')
+          }
+        }
         setReady(true)
       } else if (process.env.DEEPSEEK_API_KEY) {
         setProviderConfig({ provider: 'deepseek', apiKey: process.env.DEEPSEEK_API_KEY })
@@ -198,15 +255,23 @@ function Root() {
 const renderer = await createCliRenderer({
   exitOnCtrlC: false,
   clearOnShutdown: true,
-  useMouse: true,
+  useMouse: false,
   enableMouseMovement: false,
 })
 
 const root = createRoot(renderer)
 root.render(<Root />)
 
-// Handle clean exit
-renderer.on('exit', () => {
+function cleanExit(code = 0): never {
+  // Disable mouse tracking and restore cursor before exit
+  process.stdout.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?25h')
+  // Do NOT kill the proxy — keep it alive for the next session
   process.stdout.write(`\n  Resume this session:\n  deepseek --resume ${SESSION_ID}\n\n`)
-  process.exit(0)
-})
+  process.exit(code)
+}
+
+// Handle clean exit
+renderer.on('exit', () => cleanExit(0))
+
+process.on('SIGINT', () => cleanExit(0))
+process.on('SIGTERM', () => cleanExit(0))

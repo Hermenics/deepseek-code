@@ -2,6 +2,7 @@ import OpenAI from 'openai'
 import { readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
 import DEFAULT_SYSTEM_PROMPT_MD from './system-prompt.md' with { type: 'text' }
+import OAUTH_SYSTEM_PROMPT_MD from './system-prompt-oauth.md' with { type: 'text' }
 import { allTools } from '../tools/index.js'
 import { setShellConfirmHandler } from '../tools/Shell.js'
 import { setSubAgentProvider, setSubAgentModel } from '../tools/SubAgent.js'
@@ -35,6 +36,7 @@ class DenyAbortError extends Error {
 const PARALLEL_SAFE = new Set(['subagent', 'shell', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect'])
 
 const DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT_MD
+const OAUTH_SYSTEM_PROMPT = OAUTH_SYSTEM_PROMPT_MD
 
 // ── Bedrock prompt-based tool calling ─────────────────────────────────────────
 // DeepSeek R1 on Bedrock does not support native tool calling.
@@ -177,6 +179,11 @@ export class Agent {
       setSubAgentModel(this.model)
     }
     this.contextLimit = getContextLimit(this.provider, this.model)
+    // Use OAuth-specific system prompt when running via OAuth proxy
+    if (this.provider === 'oauth') {
+      this.systemPrompt = OAUTH_SYSTEM_PROMPT
+      this.messages = [{ role: 'system', content: OAUTH_SYSTEM_PROMPT }]
+    }
     // Initialize async — readyPromise is awaited in run() to prevent race conditions
     this.readyPromise = this.initialize()
   }

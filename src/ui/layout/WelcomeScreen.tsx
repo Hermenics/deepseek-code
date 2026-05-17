@@ -41,18 +41,25 @@ export function WelcomeArt() {
         <text fg="#888888">{'v' + pkg.version}</text>
       </box>
       <box marginTop={1} flexDirection="column">
-        <box>
+        <text fg="#888888">{'  *          .        *             .       *          .*          .   '}</text>
+        <text fg="#888888">{'       .          *         .              *               .              *'}</text>
+        <text fg="#888888">{'  .       *              .        *               .       *               . '}</text>
+        <text fg="#888888">{'        .       *                    .        *       .    '}</text>
+        <text fg="#888888">{'  *          .        *             .       *          .   '}</text>
+        <box flexDirection="row">
           <text fg="cyan">{'          ▄▄███▄▄'}</text>
+          <text fg="#888888">{'    .        *       .      *        .  *       .      *        .  '}</text>
         </box>
-        <box>
+        <box flexDirection="row">
           <text fg="cyan">{'        ▄█ ◉    ██▄'}</text>
+          <text fg="#888888">{'  *          .        *              .  *       .      *        .  '}</text>
         </box>
-        <box>
+        <box flexDirection="row">
           <text fg="cyan">{'        █          ~~█'}</text>
+          <text fg="#888888">{'       *          .        *       .    *       .      *        .  '}</text>
         </box>
-        <box>
-          <text fg="cyan">{'        ▀▄▄█▄▄▄▄█▀'}</text>
-        </box>
+        <text fg="#888888">{'~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~'}</text>
+        <text fg="#888888">{'~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~ '}</text>
       </box>
     </box>
   )

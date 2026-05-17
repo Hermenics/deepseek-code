@@ -1,0 +1,652 @@
+  13:52:42 📋 Loaded storage state (cookies + localStorage)
+  13:52:42 📋 Browser initialized (headless Chromium)
+  13:52:42 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  13:52:42 ❌ Uncaught exception: listen EADDRINUSE: address already in use 127.0.0.1:3000
+  13:52:42 📋 uncaughtException received, shutting down gracefully...
+  13:52:42 📋 Pages pre-loaded ✓
+  13:52:42 📋 Cleanup complete
+  13:53:17 📋 Loaded storage state (cookies + localStorage)
+  13:53:17 📋 Browser initialized (headless Chromium)
+  13:53:17 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  13:53:17 📋 GET /health 200 1ms
+  13:53:19 📋 Pages pre-loaded ✓
+  13:53:20 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=3
+  13:53:20 🔍 Page acquired: 7814c6ca-9978-424d-b4a7-65bb5d15d2bb
+  13:53:20 📋 New session → new chat
+  13:53:20 📋 POST /v1/chat/completions 200 25ms
+  13:53:20 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-before-new-chat.png
+  13:53:21 🔍 New chat via getByText
+  13:53:21 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-after-new-chat.png
+  13:53:21 🔍 Model "Instant" already selected
+  13:53:21 🔍 Sending full history (613 chars, 3/3 msgs after filter)
+  13:53:21 🔍 Submitted via DOM fallback
+  13:53:21 🔍 Waiting for response (baseline: 0 elements)
+  13:53:21 🔍 Model is thinking...
+  13:53:23 🔍 New response element appeared (1 total)
+  13:54:02 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=5
+  13:54:02 🔍 Page acquired: 7814c6ca-9978-424d-b4a7-65bb5d15d2bb
+  13:54:02 🔍 Continuing chat, sending last message (43 chars)
+  13:54:02 📋 POST /v1/chat/completions 200 5ms
+  13:54:02 🔍 Submitted via DOM fallback
+  13:54:02 🔍 Waiting for response (baseline: 1 elements)
+  13:54:02 🔍 Model is thinking...
+  13:54:04 🔍 New response element appeared (2 total)
+  13:55:37 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=7
+  13:55:37 🔍 Page acquired: 7814c6ca-9978-424d-b4a7-65bb5d15d2bb
+  13:55:37 🔍 Continuing chat, sending last message (2526 chars)
+  13:55:37 📋 POST /v1/chat/completions 200 4ms
+  13:55:37 🔍 Submitted via DOM fallback
+  13:55:37 🔍 Waiting for response (baseline: 2 elements)
+  13:55:37 🔍 Model is thinking...
+  13:56:20 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=1
+  13:56:20 🔍 Page acquired: 7814c6ca-9978-424d-b4a7-65bb5d15d2bb
+  13:56:20 🔍 Continuing chat, sending last message (22 chars)
+  13:56:20 📋 POST /v1/chat/completions 200 6ms
+  13:56:20 🔍 Submitted via DOM fallback
+  13:56:20 🔍 Waiting for response (baseline: 2 elements)
+  13:56:20 🔍 Model is thinking...
+  13:57:01 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=1
+  13:57:01 🔍 Page acquired: 7814c6ca-9978-424d-b4a7-65bb5d15d2bb
+  13:57:01 🔍 Continuing chat, sending last message (22 chars)
+  13:57:01 📋 POST /v1/chat/completions 200 2ms
+  13:57:01 🔍 Submitted via DOM fallback
+  13:57:01 🔍 Waiting for response (baseline: 2 elements)
+  13:57:01 🔍 Model is thinking...
+  13:57:04 🔍 New response element appeared (3 total)
+  13:57:14 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=1
+  13:57:14 🔍 Page acquired: 7814c6ca-9978-424d-b4a7-65bb5d15d2bb
+  13:57:14 🔍 Continuing chat, sending last message (59 chars)
+  13:57:14 📋 POST /v1/chat/completions 200 3ms
+  13:57:14 🔍 Submitted via DOM fallback
+  13:57:14 🔍 Waiting for response (baseline: 3 elements)
+  13:57:14 🔍 Model is thinking...
+  13:57:17 🔍 New response element appeared (4 total)
+  13:58:46 📋 GET /health 200 0ms
+  13:58:48 📋 GET /v1/models 200 0ms
+  13:58:51 📋 Loaded storage state (cookies + localStorage)
+  13:58:51 📋 Browser initialized (headless Chromium)
+  13:58:51 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  13:58:51 ❌ Uncaught exception: listen EADDRINUSE: address already in use 127.0.0.1:3000
+  13:58:51 📋 uncaughtException received, shutting down gracefully...
+  13:58:51 📋 Pages pre-loaded ✓
+  13:58:51 📋 Cleanup complete
+  14:01:30 📋 Loaded storage state (cookies + localStorage)
+  14:01:30 📋 Browser initialized (headless Chromium)
+  14:01:30 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  14:01:30 📋 GET /health 200 2ms
+  14:01:31 📋 Pages pre-loaded ✓
+  14:01:35 📋 GET /v1/models 200 1ms
+  14:01:37 📋 OpenAI request: model=deepseek-v4-pro stream=true messages=3
+  14:01:37 🔍 Page acquired: b512359b-50ec-460c-abf8-63f4407253ed
+  14:01:37 📋 New session → new chat
+  14:01:37 📋 POST /v1/chat/completions 200 30ms
+  14:01:37 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-before-new-chat.png
+  14:01:38 🔍 New chat via getByText
+  14:01:38 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-after-new-chat.png
+  14:01:39 🔍 Model selected: "Expert"
+  14:01:39 🔍 Sending full history (22763 chars, 3/3 msgs after filter)
+  14:01:39 🔍 Submitted via DOM fallback
+  14:01:49 🔍 Waiting for response (baseline: 0 elements)
+  14:01:49 🔍 New response element appeared (1 total)
+  14:02:02 📋 OpenAI request: model=deepseek-v4-pro stream=true messages=5
+  14:02:02 🔍 Page acquired: b512359b-50ec-460c-abf8-63f4407253ed
+  14:02:02 🔍 Continuing chat, sending last message (55 chars)
+  14:02:02 📋 POST /v1/chat/completions 200 3ms
+  14:02:03 🔍 Submitted via DOM fallback
+  14:02:13 🔍 Waiting for response (baseline: 1 elements)
+  14:02:13 🔍 New response element appeared (2 total)
+  14:04:51 📋 GET /health 200 1ms
+  14:04:58 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=1
+  14:04:58 🔍 Page acquired: b512359b-50ec-460c-abf8-63f4407253ed
+  14:04:58 📋 Model changed (deepseek-v4-pro → deepseek-v4-flash) → new chat
+  14:04:58 📋 POST /v1/chat/completions 200 5ms
+  14:04:58 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-before-new-chat.png
+  14:04:58 🔍 New chat via getByText
+  14:04:59 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-after-new-chat.png
+  14:04:59 🔍 Model "Instant" already selected
+  14:04:59 🔍 Sending full history (19 chars, 1/1 msgs after filter)
+  14:04:59 🔍 Submitted via DOM fallback
+  14:04:59 🔍 Waiting for response (baseline: 0 elements)
+  14:04:59 🔍 Model is thinking...
+  14:05:00 🔍 New response element appeared (1 total)
+  14:05:21 📋 OpenAI request: model=deepseek-v4-flash stream=false messages=1
+  14:05:21 🔍 Page acquired: b512359b-50ec-460c-abf8-63f4407253ed
+  14:05:21 🔍 Continuing chat, sending last message (2 chars)
+  14:05:22 🔍 Submitted via DOM fallback
+  14:05:22 🔍 Waiting for response (baseline: 1 elements)
+  14:05:22 🔍 Model is thinking...
+  14:05:24 🔍 New response element appeared (2 total)
+  14:05:27 📋 POST /v1/chat/completions 200 5430ms
+  14:05:36 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=1
+  14:05:36 🔍 Page acquired: b512359b-50ec-460c-abf8-63f4407253ed
+  14:05:36 🔍 Continuing chat, sending last message (2 chars)
+  14:05:36 📋 POST /v1/chat/completions 200 3ms
+  14:05:36 🔍 Submitted via DOM fallback
+  14:05:36 🔍 Waiting for response (baseline: 2 elements)
+  14:05:36 🔍 Model is thinking...
+  14:05:38 🔍 New response element appeared (3 total)
+  14:08:35 📋 GET /health 200 1ms
+  14:08:37 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=3
+  14:08:37 🔍 Page acquired: b512359b-50ec-460c-abf8-63f4407253ed
+  14:08:37 🔍 Continuing chat, sending last message (27 chars)
+  14:08:37 📋 POST /v1/chat/completions 200 5ms
+  14:08:37 🔍 Submitted via DOM fallback
+  14:08:37 🔍 Waiting for response (baseline: 3 elements)
+  14:08:37 🔍 Model is thinking...
+  14:08:39 🔍 New response element appeared (4 total)
+  14:08:40 📋 Loaded storage state (cookies + localStorage)
+  14:08:40 📋 Browser initialized (headless Chromium)
+  14:08:41 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  14:08:41 ❌ Uncaught exception: listen EADDRINUSE: address already in use 127.0.0.1:3000
+  14:08:41 📋 uncaughtException received, shutting down gracefully...
+  14:08:41 📋 Pages pre-loaded ✓
+  14:08:41 📋 Cleanup complete
+  14:10:54 📋 Loaded storage state (cookies + localStorage)
+  14:10:54 📋 Browser initialized (headless Chromium)
+  14:10:54 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  14:10:54 📋 GET /health 200 1ms
+  14:10:55 📋 Pages pre-loaded ✓
+  14:11:06 📋 OpenAI request: model=deepseek-v4-pro stream=true messages=3
+  14:11:06 🔍 Page acquired: 6e28f091-a3dd-451e-afe3-f08ec63242e4
+  14:11:06 📋 New session → new chat
+  14:11:06 📋 POST /v1/chat/completions 200 20ms
+  14:11:06 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-before-new-chat.png
+  14:11:06 🔍 New chat via getByText
+  14:11:07 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-after-new-chat.png
+  14:11:07 🔍 Model selected: "Expert"
+  14:11:07 🔍 Sending full history (22763 chars, 3/3 msgs after filter)
+  14:11:08 🔍 Submitted via DOM fallback
+  14:11:08 🔍 Waiting for response (baseline: 0 elements)
+  14:11:08 🔍 Model is thinking...
+  14:11:10 🔍 New response element appeared (1 total)
+  14:11:20 📋 OpenAI request: model=deepseek-v4-pro stream=true messages=5
+  14:11:20 🔍 Page acquired: 6e28f091-a3dd-451e-afe3-f08ec63242e4
+  14:11:20 🔍 Continuing chat, sending last message (60 chars)
+  14:11:20 📋 POST /v1/chat/completions 200 4ms
+  14:11:20 🔍 Submitted via DOM fallback
+  14:11:20 🔍 Waiting for response (baseline: 1 elements)
+  14:11:20 🔍 Model is thinking...
+  14:11:23 🔍 New response element appeared (2 total)
+  14:14:02 📋 GET /health 200 0ms
+  14:14:13 📋 Loaded storage state (cookies + localStorage)
+  14:14:13 📋 Browser initialized (headless Chromium)
+  14:14:13 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  14:14:13 ❌ Uncaught exception: listen EADDRINUSE: address already in use 127.0.0.1:3000
+  14:14:13 📋 uncaughtException received, shutting down gracefully...
+  14:14:13 📋 Pages pre-loaded ✓
+  14:14:13 📋 Cleanup complete
+  14:15:34 📋 Loaded storage state (cookies + localStorage)
+  14:15:34 📋 Browser initialized (headless Chromium)
+  14:15:34 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  14:15:34 📋 GET /health 200 2ms
+  14:15:36 📋 Pages pre-loaded ✓
+  14:15:42 📋 OpenAI request: model=deepseek-v4-pro stream=true messages=3
+  14:15:42 🔍 Page acquired: d043f533-5b87-4b8e-9ba8-f06a55ef7441
+  14:15:42 📋 New session → new chat
+  14:15:42 📋 POST /v1/chat/completions 200 16ms
+  14:15:42 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-before-new-chat.png
+  14:15:43 🔍 New chat via getByText
+  14:15:43 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-after-new-chat.png
+  14:15:43 🔍 Model selected: "Expert"
+  14:15:43 🔍 Sending full history (22808 chars, 3/3 msgs after filter)
+  14:15:44 🔍 Submitted via DOM fallback
+  14:15:44 🔍 Waiting for response (baseline: 0 elements)
+  14:15:44 🔍 Model is thinking...
+  14:15:45 🔍 New response element appeared (1 total)
+  14:16:40 ❌ Orchestration failed: page.waitForTimeout: Target page, context or browser has been closed
+  14:16:40 ⚠️ Replacing crashed page: d043f533-5b87-4b8e-9ba8-f06a55ef7441
+  14:16:40 ❌ Stream error: browserContext.newPage: Protocol error (Target.createTarget): Not supported
+  14:21:15 📋 GET /health 200 0ms
+  14:21:20 📋 Loaded storage state (cookies + localStorage)
+  14:21:20 📋 Browser initialized (headless Chromium)
+  14:21:20 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  14:21:21 📋 Pages pre-loaded ✓
+  14:22:12 📋 GET /health 200 2ms
+  14:22:16 📋 Loaded storage state (cookies + localStorage)
+  14:22:16 📋 Browser initialized (headless Chromium)
+  14:22:16 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  14:22:18 📋 Pages pre-loaded ✓
+  14:23:29 📋 GET /health 200 2ms
+  14:23:33 📋 Loaded storage state (cookies + localStorage)
+  14:23:33 📋 Browser initialized (headless Chromium)
+  14:23:33 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  14:23:35 📋 Pages pre-loaded ✓
+  14:24:25 📋 GET /health 200 2ms
+  14:24:29 📋 Loaded storage state (cookies + localStorage)
+  14:24:29 📋 Browser initialized (headless Chromium)
+  14:24:29 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  14:24:31 📋 Pages pre-loaded ✓
+  14:24:49 📋 GET /health 200 1ms
+  14:24:51 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=3
+  14:24:51 🔍 Page acquired: 03cb3fbf-51d1-4ddf-abfb-3f5283285b5c
+  14:24:51 📋 New session → new chat
+  14:24:51 📋 POST /v1/chat/completions 200 37ms
+  14:24:51 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-before-new-chat.png
+  14:24:51 🔍 New chat via getByText
+  14:24:52 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-after-new-chat.png
+  14:24:52 🔍 Model "Instant" already selected
+  14:24:52 🔍 Sending full history (22761 chars, 3/3 msgs after filter)
+  14:24:53 🔍 Submitted via DOM fallback
+  14:24:53 🔍 Waiting for response (baseline: 0 elements)
+  14:24:53 🔍 Model is thinking...
+  14:24:55 🔍 New response element appeared (1 total)
+  14:24:56 📋 Loaded storage state (cookies + localStorage)
+  14:24:56 📋 Browser initialized (headless Chromium)
+  14:24:56 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  14:24:58 📋 Pages pre-loaded ✓
+  14:32:08 📋 GET /health 200 2ms
+  14:32:12 📋 Loaded storage state (cookies + localStorage)
+  14:32:12 📋 Browser initialized (headless Chromium)
+  14:32:12 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  14:32:14 📋 Pages pre-loaded ✓
+  21:19:01 📋 GET /health 200 1ms
+  21:19:03 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=3
+  21:19:03 🔍 Page acquired: 3cee5412-4d0f-402d-acde-22bf95001ec4
+  21:19:03 📋 New session → new chat
+  21:19:03 📋 POST /v1/chat/completions 200 36ms
+  21:19:04 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-before-new-chat.png
+  21:19:04 🔍 New chat via getByText
+  21:19:05 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-after-new-chat.png
+  21:19:05 🔍 Model "Instant" already selected
+  21:19:05 🔍 Sending full history (22760 chars, 3/3 msgs after filter)
+  21:19:05 🔍 Submitted via DOM fallback
+  21:19:05 🔍 Waiting for response (baseline: 0 elements)
+  21:19:06 🔍 Model is thinking...
+  21:19:07 📋 Loaded storage state (cookies + localStorage)
+  21:19:07 📋 Browser initialized (headless Chromium)
+  21:19:07 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  21:19:08 📋 Pages pre-loaded ✓
+  21:28:59 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=3
+  21:28:59 🔍 Page acquired: b7231896-6e21-4f09-a9dc-99b8f6c8e7ab
+  21:28:59 📋 New session → new chat
+  21:28:59 📋 POST /v1/chat/completions 200 21ms
+  21:28:59 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-before-new-chat.png
+  21:28:59 🔍 New chat via getByText
+  21:29:00 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-after-new-chat.png
+  21:29:00 🔍 Model "Instant" already selected
+  21:29:00 🔍 Sending full history (22762 chars, 3/3 msgs after filter)
+  21:29:00 🔍 Submitted via DOM fallback
+  21:29:00 🔍 Waiting for response (baseline: 0 elements)
+  21:29:00 🔍 Model is thinking...
+  21:29:02 🔍 New response element appeared (1 total)
+  21:29:05 ❌ Stream error: openai.formatStreamEnd is not a function
+  21:30:10 📋 GET /health 200 1ms
+  21:30:12 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=3
+  21:30:12 🔍 Page acquired: b7231896-6e21-4f09-a9dc-99b8f6c8e7ab
+  21:30:12 📋 New session → new chat
+  21:30:12 📋 POST /v1/chat/completions 200 6ms
+  21:30:12 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-before-new-chat.png
+  21:30:13 🔍 New chat via getByText
+  21:30:13 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-after-new-chat.png
+  21:30:13 🔍 Model "Instant" already selected
+  21:30:13 🔍 Sending full history (22762 chars, 3/3 msgs after filter)
+  21:30:14 🔍 Submitted via DOM fallback
+  21:30:14 🔍 Waiting for response (baseline: 0 elements)
+  21:30:14 🔍 Model is thinking...
+  21:30:16 🔍 New response element appeared (1 total)
+  21:30:18 ❌ Stream error: openai.formatStreamEnd is not a function
+  21:31:56 📋 GET /health 200 0ms
+  21:31:58 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=3
+  21:31:58 🔍 Page acquired: b7231896-6e21-4f09-a9dc-99b8f6c8e7ab
+  21:31:58 📋 New session → new chat
+  21:31:58 📋 POST /v1/chat/completions 200 11ms
+  21:31:58 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-before-new-chat.png
+  21:31:59 🔍 New chat via getByText
+  21:31:59 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-after-new-chat.png
+  21:31:59 🔍 Model "Instant" already selected
+  21:31:59 🔍 Sending full history (22761 chars, 3/3 msgs after filter)
+  21:32:00 🔍 Submitted via DOM fallback
+  21:32:00 🔍 Waiting for response (baseline: 0 elements)
+  21:32:00 🔍 Model is thinking...
+  21:32:02 🔍 New response element appeared (1 total)
+  21:32:05 ❌ Stream error: openai.formatStreamEnd is not a function
+  21:32:14 📋 Loaded storage state (cookies + localStorage)
+  21:32:14 📋 Browser initialized (headless Chromium)
+  21:32:14 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  21:32:15 📋 GET /health 200 2ms
+  21:32:16 📋 Pages pre-loaded ✓
+  21:32:17 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=3
+  21:32:17 🔍 Page acquired: 30db1689-0db9-43c6-beca-884763733fb8
+  21:32:17 📋 New session → new chat
+  21:32:17 📋 POST /v1/chat/completions 200 29ms
+  21:32:17 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-before-new-chat.png
+  21:32:18 🔍 New chat via getByText
+  21:32:18 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-after-new-chat.png
+  21:32:18 🔍 Model "Instant" already selected
+  21:32:18 🔍 Sending full history (22762 chars, 3/3 msgs after filter)
+  21:32:19 🔍 Submitted via DOM fallback
+  21:32:19 🔍 Waiting for response (baseline: 0 elements)
+  21:32:19 🔍 Model is thinking...
+  21:32:20 🔍 New response element appeared (1 total)
+  21:32:32 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=5
+  21:32:32 🔍 Page acquired: 30db1689-0db9-43c6-beca-884763733fb8
+  21:32:32 🔍 Continuing chat, sending last message (75 chars)
+  21:32:32 📋 POST /v1/chat/completions 200 5ms
+  21:32:33 🔍 Submitted via DOM fallback
+  21:32:33 🔍 Waiting for response (baseline: 1 elements)
+  21:32:33 🔍 Model is thinking...
+  21:32:35 🔍 New response element appeared (2 total)
+  21:37:55 📋 Loaded storage state (cookies + localStorage)
+  21:37:55 📋 Browser initialized (headless Chromium)
+  21:37:55 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  21:37:56 📋 GET /health 200 1ms
+  21:37:56 📋 Pages pre-loaded ✓
+  21:38:00 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=3
+  21:38:00 🔍 Page acquired: b687097e-fd47-4d4e-a196-a4c7d84227fd
+  21:38:00 📋 New session → new chat
+  21:38:00 📋 POST /v1/chat/completions 200 28ms
+  21:38:00 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-before-new-chat.png
+  21:38:00 🔍 New chat via getByText
+  21:38:01 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-after-new-chat.png
+  21:38:01 🔍 Model "Instant" already selected
+  21:38:01 🔍 Sending full history (22809 chars, 3/3 msgs after filter)
+  21:38:01 🔍 Submitted via DOM fallback
+  21:38:01 🔍 Waiting for response (baseline: 0 elements)
+  21:38:01 🔍 Model is thinking...
+  21:38:03 🔍 New response element appeared (1 total)
+  21:40:09 📋 Loaded storage state (cookies + localStorage)
+  21:40:09 📋 Browser initialized (headless Chromium)
+  21:40:10 📋 Page pool ready (2 pages), warming up...
+
+  [97m[1m🧠 DeepSproxy v1.0.0[0m
+
+  [97mServer running at:[0m
+  [92m[1m➜  http://127.0.0.1:3000[0m
+
+  [2mOpenAI:    POST http://127.0.0.1:3000/v1/chat/completions[0m
+  [2mAnthropic: POST http://127.0.0.1:3000/v1/messages[0m
+  [2mModels:    GET  http://127.0.0.1:3000/v1/models[0m
+  [2mHealth:    GET  http://127.0.0.1:3000/health[0m
+
+  [2m────────────────────────────────────────────────[0m
+  [97mPool: 2 pages | Rate: 1000 req/min | Cache: 300s[0m
+  [97mAuth: disabled (open)[0m
+  [2m────────────────────────────────────────────────[0m
+
+  21:40:10 📋 GET /health 200 1ms
+  21:40:11 📋 Pages pre-loaded ✓
+  21:40:12 📋 OpenAI request: model=deepseek-v4-flash stream=true messages=3
+  21:40:12 🔍 Page acquired: 615190be-ac3f-49a1-9f3d-32e1bfb954bd
+  21:40:12 📋 New session → new chat
+  21:40:12 📋 POST /v1/chat/completions 200 52ms
+  21:40:13 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-before-new-chat.png
+  21:40:13 🔍 New chat via getByText
+  21:40:14 🔍 Screenshot saved: /home/marcelo/.deepsproxy/debug-after-new-chat.png
+  21:40:14 🔍 Model "Instant" already selected
+  21:40:14 🔍 Sending full history (22809 chars, 3/3 msgs after filter)
+  21:40:14 🔍 Submitted via DOM fallback
+  21:40:14 🔍 Waiting for response (baseline: 0 elements)
+  21:40:14 🔍 Model is thinking...
+  21:40:16 🔍 New response element appeared (1 total)

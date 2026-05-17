@@ -56,6 +56,12 @@ export function createLLMClient(cfg: ProviderConfig, model?: string): OpenAI {
         baseURL,
       })
     }
+    case 'oauth': {
+      return new OpenAI({
+        apiKey: 'oauth',
+        baseURL: 'http://127.0.0.1:3000/v1',
+      })
+    }
     default: // deepseek
       return new OpenAI({
         apiKey: cfg.apiKey ?? process.env.DEEPSEEK_API_KEY,
@@ -70,6 +76,7 @@ export function defaultModel(provider: ProviderConfig['provider']): string {
     case 'bedrock': return 'deepseek.deepseek-r1-v1:0'
     case 'vertex':  return 'deepseek-ai/deepseek-r1'
     case 'local':   return 'llama3'
+    case 'oauth':   return 'deepseek-v4-flash'
     default:        return 'deepseek-v4-flash'
   }
 }

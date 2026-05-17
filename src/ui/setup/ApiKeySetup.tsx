@@ -1,18 +1,21 @@
 import { useState, useEffect } from 'react'
 import { useKeyboard } from '@opentui/react'
 import type { KeyEvent } from '@opentui/core'
+import { execSync } from 'child_process'
 import { homedir } from 'os'
 import { join } from 'path'
 import { mkdir } from 'fs/promises'
+import { existsSync } from 'fs'
 import { readJson, writeRaw } from '../../utils/fs.js'
 import { saveFullConfig, loadFullConfig, migrateConfigIfNeeded } from '../../utils/credentials.js'
 import { WelcomeScreen } from '../layout/WelcomeScreen.js'
+import { installPlaywright, runOAuthLogin, OAUTH_STORAGE_PATH } from '../../agent/providers/oauth.js'
 
 const CONFIG_PATH = join(homedir(), '.deepseek', 'config.json')
 
 export type ThemeName = 'dark' | 'light' | 'dark-daltonized' | 'light-daltonized' | 'dark-ansi' | 'light-ansi'
 
-export type ProviderName = 'deepseek' | 'bedrock' | 'vertex' | 'local'
+export type ProviderName = 'deepseek' | 'bedrock' | 'vertex' | 'local' | 'oauth'
 
 export interface ProviderConfig {
   provider: ProviderName
@@ -32,6 +35,7 @@ export const PROVIDERS: { label: string; value: ProviderName; hint: string }[] =
   { value: 'bedrock',  label: 'Amazon Bedrock',         hint: 'AWS profile from ~/.aws/credentials' },
   { value: 'vertex',   label: 'Google Vertex AI',       hint: 'GCP project + service account JSON' },
   { value: 'local',    label: 'Local model (Ollama / LM Studio)', hint: 'Any OpenAI-compatible endpoint' },
+  { value: 'oauth',    label: 'OAuth (Beta, unofficial)',            hint: 'Log in via browser — no API key needed' },
 ]
 
 const THEMES: { label: string; value: ThemeName }[] = [
@@ -76,7 +80,8 @@ export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfi
       (provider === 'deepseek' && !!providerConfig.apiKey) ||
       (provider === 'bedrock' && !!providerConfig.awsRegion) ||
       (provider === 'vertex' && !!providerConfig.gcpProject && !!providerConfig.gcpCredentials) ||
-      (provider === 'local' && !!providerConfig.localBaseUrl)
+      (provider === 'local' && !!providerConfig.localBaseUrl) ||
+      (provider === 'oauth' && existsSync(OAUTH_STORAGE_PATH))
     return {
       providerConfig: isReady ? providerConfig : null,
       theme: (cfg.THEME ?? 'dark') as ThemeName,
@@ -105,9 +110,10 @@ const PROVIDER_FIELDS: Record<ProviderName, { key: string; label: string; hint: 
     { key: 'LOCAL_BASE_URL', label: 'Base URL', hint: 'e.g. http://localhost:11434/v1' },
     { key: 'LOCAL_MODEL',    label: 'Model name', hint: 'e.g. deepseek-r1:8b, llama3, mistral' },
   ],
+  oauth: [],
 }
 
-type Step = 'theme' | 'provider' | 'fields' | 'done'
+type Step = 'theme' | 'provider' | 'fields' | 'oauth-setup' | 'done'
 
 interface Props {
   onDone(theme: ThemeName, providerConfig: ProviderConfig): void
@@ -122,11 +128,12 @@ export function ApiKeySetup({ onDone }: Props) {
   const [currentInput, setCurrentInput] = useState('')
   const [error, setError] = useState('')
   const [donePayload, setDonePayload] = useState<{ theme: ThemeName; config: ProviderConfig } | null>(null)
+  const [oauthStatus, setOauthStatus] = useState('')
 
   const selectedTheme = THEMES[themeIdx]!.value
   const selectedProvider = PROVIDERS[providerIdx]!.value
   const fields = PROVIDER_FIELDS[selectedProvider]
-  const currentField = fields[fieldIdx]!
+  const currentField = fields[fieldIdx]
 
   useEffect(() => {
     if (donePayload) {
@@ -134,6 +141,28 @@ export function ApiKeySetup({ onDone }: Props) {
       return () => clearTimeout(t)
     }
   }, [donePayload, onDone])
+
+  useEffect(() => {
+    if (step !== 'oauth-setup') return
+    let cancelled = false
+    const run = async () => {
+      try {
+        setOauthStatus('Installing Playwright...')
+        await installPlaywright()
+        if (cancelled) return
+        setOauthStatus('Opening browser for login...')
+        await runOAuthLogin()
+        if (cancelled) return
+        await saveConfig({ PROVIDER: 'oauth', THEME: selectedTheme })
+        setStep('done')
+        setDonePayload({ theme: selectedTheme, config: { provider: 'oauth' } })
+      } catch (e: unknown) {
+        if (!cancelled) setError((e as Error).message)
+      }
+    }
+    run()
+    return () => { cancelled = true }
+  }, [step])
 
   useKeyboard((key: KeyEvent) => {
     if (key.ctrl && key.name === 'c') process.exit(0)
@@ -149,16 +178,25 @@ export function ApiKeySetup({ onDone }: Props) {
     if (step === 'provider') {
       if (key.name === 'up') { setProviderIdx((i) => (i - 1 + PROVIDERS.length) % PROVIDERS.length); return }
       if (key.name === 'down') { setProviderIdx((i) => (i + 1) % PROVIDERS.length); return }
-      if (key.name === 'return') { setFieldIdx(0); setCurrentInput(''); setStep('fields'); return }
+      if (key.name === 'return') {
+        if (selectedProvider === 'oauth') { setStep('oauth-setup'); return }
+        setFieldIdx(0); setCurrentInput(''); setStep('fields')
+        return
+      }
       if (key.name === 'escape') { setStep('theme'); return }
+      return
+    }
+
+    if (step === 'oauth-setup') {
+      if (key.name === 'escape' && error) { setError(''); setStep('provider') }
       return
     }
 
     if (step === 'fields') {
       if (key.name === 'return') {
         const trimmed = currentInput.trim()
-        if (!trimmed && !currentField.optional) { setError(`${currentField.label} cannot be empty.`); return }
-        const updated = { ...fieldValues, [currentField.key]: trimmed }
+        if (!trimmed && !currentField!.optional) { setError(`${currentField!.label} cannot be empty.`); return }
+        const updated = { ...fieldValues, [currentField!.key]: trimmed }
         setFieldValues(updated)
         setError('')
         if (fieldIdx < fields.length - 1) {
@@ -193,12 +231,42 @@ export function ApiKeySetup({ onDone }: Props) {
         else { setStep('provider'); setCurrentInput(''); setError('') }
         return
       }
+      // Ctrl+Shift+V: paste from clipboard
+      if (key.ctrl && key.shift && key.name === 'v') {
+        try {
+          const text = execSync('xclip -selection clipboard -o 2>/dev/null || xsel --clipboard --output 2>/dev/null || wl-paste 2>/dev/null', { encoding: 'utf-8', timeout: 2000 }).trim()
+          if (text) { setCurrentInput((s) => s + text); setError('') }
+        } catch { /* clipboard not available */ }
+        return
+      }
       if (!key.ctrl && !key.meta && key.raw && key.raw.length >= 1) { setCurrentInput((s) => s + key.raw); setError('') }
     }
   })
 
   if (step === 'done') {
     return <box marginTop={1}><text fg="green">{'✓ Saved! Starting DeepSeek Code…'}</text></box>
+  }
+
+  if (step === 'oauth-setup') {
+    return (
+      <box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
+        <WelcomeScreen>
+          <box flexDirection="column" marginTop={1}>
+            {error ? (
+              <>
+                <text fg="red">{'✗ ' + error}</text>
+                <text fg="#888888">{'Press Esc to go back and try again.'}</text>
+              </>
+            ) : (
+              <>
+                <text fg="cyan">{'⟳ ' + oauthStatus}</text>
+                <text fg="#888888">{'Please wait...'}</text>
+              </>
+            )}
+          </box>
+        </WelcomeScreen>
+      </box>
+    )
   }
 
   let content: React.ReactNode = null
@@ -237,11 +305,11 @@ export function ApiKeySetup({ onDone }: Props) {
     content = (
       <box flexDirection="column" marginTop={1}>
         <text>{PROVIDERS[providerIdx]!.label + ' setup ' + progress}</text>
-        <text>{currentField.label}</text>
-        {currentField.hint ? <text fg="#888888">{currentField.hint}</text> : null}
+        <text>{currentField!.label}</text>
+        {currentField!.hint ? <text fg="#888888">{currentField!.hint}</text> : null}
         <box marginTop={1}>
           <text fg="cyan">{'> '}</text>
-          <text>{currentField.secret ? '•'.repeat(currentInput.length) || '…' : currentInput || '…'}</text>
+          <text>{currentField!.secret ? '•'.repeat(currentInput.length) || '…' : currentInput || '…'}</text>
           <text fg="cyan">{'█'}</text>
         </box>
         {error ? <text fg="red">{error}</text> : <text fg="#888888">{'Enter to confirm · Esc back'}</text>}
