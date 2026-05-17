@@ -1,6 +1,7 @@
 import { homedir } from 'os'
 import { join, dirname } from 'path'
 import { mkdir, rm } from 'fs/promises'
+import { randomBytes } from 'crypto'
 import { readJson, writeRaw } from './fs'
 
 // ─── Paths ──────────────────────────────────────────────────────
@@ -41,6 +42,7 @@ export async function saveFullConfig(
 
 export async function migrateConfigIfNeeded(
   configPath: string = CONFIG_PATH,
+  envPath: string = LEGACY_ENV_PATH,
 ): Promise<void> {
   let config: Record<string, string>
   try {
@@ -53,7 +55,7 @@ export async function migrateConfigIfNeeded(
   let changed = false
   try {
     const { readFile } = await import('fs/promises')
-    const envText = await readFile(LEGACY_ENV_PATH, 'utf-8')
+    const envText = await readFile(envPath, 'utf-8')
     for (const line of envText.split('\n')) {
       const trimmed = line.trim()
       if (!trimmed || trimmed.startsWith('#')) continue
@@ -67,7 +69,7 @@ export async function migrateConfigIfNeeded(
       }
     }
     // Delete the old .env after migrating
-    await rm(LEGACY_ENV_PATH).catch(() => {})
+    await rm(envPath).catch(() => {})
   } catch {
     // .env doesn't exist — nothing to migrate from it
   }
@@ -83,6 +85,22 @@ export async function migrateConfigIfNeeded(
   if (changed) {
     await saveFullConfig(config, configPath)
   }
+}
+
+// ─── Proxy API Key ──────────────────────────────────────────────
+
+export function generateProxyApiKey(): string {
+  return randomBytes(32).toString('hex')
+}
+
+export async function getOrCreateProxyApiKey(
+  configPath: string = CONFIG_PATH,
+): Promise<string> {
+  const config = await loadFullConfig(configPath)
+  if (config.PROXY_API_KEY) return config.PROXY_API_KEY
+  const key = generateProxyApiKey()
+  await saveFullConfig({ ...config, PROXY_API_KEY: key }, configPath)
+  return key
 }
 
 // ─── Logout ─────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 {
   "name": "@aethelics/deepseek-code",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
@@ -23,6 +23,7 @@
     "@aws-crypto/sha256-js": "^5.2.0",
     "@aws-sdk/client-bedrock": "^3.1048.0",
     "@aws-sdk/credential-providers": "^3.1048.0",
+    "@hono/node-server": "^1.14.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentui/core": "0.2.6",
     "@opentui/react": "0.2.6",
@@ -34,7 +35,9 @@
     "execa": "^9.6.1",
     "fast-glob": "^3.3.3",
     "google-auth-library": "^10.6.2",
+    "hono": "^4.7.0",
     "openai": "^6.34.0",
+    "playwright": "^1.50.0",
     "react": "^19.2.0"
   },
   "devDependencies": {

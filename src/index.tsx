@@ -39,7 +39,6 @@ import { LanguageSetup } from './ui/setup/LanguageSetup.js'
 import { loadAgentConfig, type LoadedAgent } from './agent/config.js'
 import { loadSession, newSessionId, type SessionData } from './agent/session.js'
 import { startProxy, waitForProxy, isOAuthReady } from './agent/providers/oauth.js'
-import type { ChildProcess } from 'child_process'
 import pkg from '../package.json' with { type: 'json' }
 
 function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; update: boolean; logout: boolean; help: boolean; version: boolean } {
@@ -152,7 +151,6 @@ if (logout) {
 }
 
 const SESSION_ID = newSessionId()
-let proxyChild: ChildProcess | null = null
 
 function Root() {
   const [ready, setReady] = useState(false)
@@ -173,24 +171,29 @@ function Root() {
       if (saved) {
         setProviderConfig(saved)
         if (saved.provider === 'deepseek' && saved.apiKey) process.env.DEEPSEEK_API_KEY = saved.apiKey
-        if (saved.provider === 'oauth' && isOAuthReady()) {
+        if (saved.provider === 'oauth' && isOAuthReady() && saved.proxyApiKey) {
           const alreadyUp = await fetch('http://127.0.0.1:3000/health').then(r => r.ok).catch(() => false)
           const proxyVersion = alreadyUp
             ? await fetch('http://127.0.0.1:3000/health').then(r => r.json()).then((d: any) => d.deepseekVersion ?? '').catch(() => '')
             : ''
           const needsRestart = alreadyUp && proxyVersion !== pkg.version
           if (needsRestart) {
-            // Kill old proxy so startProxy can bring up the new one
             await fetch('http://127.0.0.1:3000/shutdown').catch(() => {})
             const { execSync } = await import('child_process')
             try { execSync('lsof -ti:3000 | xargs -r kill -9', { stdio: 'ignore' }) } catch {}
             await new Promise(r => setTimeout(r, 600))
           }
           if (!alreadyUp || needsRestart) {
-            proxyChild = startProxy()
+            await startProxy(saved.proxyApiKey)
             const ok = await waitForProxy(150000)
             if (!ok) console.error('Warning: proxy failed to start within 15s')
           }
+        } else if (saved.provider === 'oauth' && (!isOAuthReady() || !saved.proxyApiKey)) {
+          // OAuth session or key missing — force re-setup
+          setReady(false)
+          setProviderConfig(null)
+          setChecked(true)
+          return
         }
         setReady(true)
       } else if (process.env.DEEPSEEK_API_KEY) {

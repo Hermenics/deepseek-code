@@ -57,8 +57,9 @@ export function createLLMClient(cfg: ProviderConfig, model?: string): OpenAI {
       })
     }
     case 'oauth': {
+      if (!cfg.proxyApiKey) throw new Error('OAuth mode requires a proxy API key. Run deepseek logout and log in again.')
       return new OpenAI({
-        apiKey: 'oauth',
+        apiKey: cfg.proxyApiKey,
         baseURL: 'http://127.0.0.1:3000/v1',
       })
     }

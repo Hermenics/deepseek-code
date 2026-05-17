@@ -7,7 +7,7 @@ import { join } from 'path'
 import { mkdir } from 'fs/promises'
 import { existsSync } from 'fs'
 import { readJson, writeRaw } from '../../utils/fs.js'
-import { saveFullConfig, loadFullConfig, migrateConfigIfNeeded } from '../../utils/credentials.js'
+import { saveFullConfig, loadFullConfig, migrateConfigIfNeeded, getOrCreateProxyApiKey } from '../../utils/credentials.js'
 import { WelcomeScreen } from '../layout/WelcomeScreen.js'
 import { installPlaywright, runOAuthLogin, OAUTH_STORAGE_PATH } from '../../agent/providers/oauth.js'
 
@@ -28,6 +28,7 @@ export interface ProviderConfig {
   gcpCredentials?: string
   localBaseUrl?: string
   localModel?: string
+  proxyApiKey?: string
 }
 
 export const PROVIDERS: { label: string; value: ProviderName; hint: string }[] = [
@@ -76,12 +77,15 @@ export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfi
       providerConfig.localBaseUrl = cfg.LOCAL_BASE_URL
       providerConfig.localModel = cfg.LOCAL_MODEL
     }
+    if (provider === 'oauth') {
+      providerConfig.proxyApiKey = cfg.PROXY_API_KEY
+    }
     const isReady =
       (provider === 'deepseek' && !!providerConfig.apiKey) ||
       (provider === 'bedrock' && !!providerConfig.awsRegion) ||
       (provider === 'vertex' && !!providerConfig.gcpProject && !!providerConfig.gcpCredentials) ||
       (provider === 'local' && !!providerConfig.localBaseUrl) ||
-      (provider === 'oauth' && existsSync(OAUTH_STORAGE_PATH))
+      (provider === 'oauth' && existsSync(OAUTH_STORAGE_PATH) && !!cfg.PROXY_API_KEY)
     return {
       providerConfig: isReady ? providerConfig : null,
       theme: (cfg.THEME ?? 'dark') as ThemeName,
@@ -153,9 +157,11 @@ export function ApiKeySetup({ onDone }: Props) {
         setOauthStatus('Opening browser for login...')
         await runOAuthLogin()
         if (cancelled) return
+        setOauthStatus('Generating secure proxy key...')
+        const proxyApiKey = await getOrCreateProxyApiKey()
         await saveConfig({ PROVIDER: 'oauth', THEME: selectedTheme })
         setStep('done')
-        setDonePayload({ theme: selectedTheme, config: { provider: 'oauth' } })
+        setDonePayload({ theme: selectedTheme, config: { provider: 'oauth', proxyApiKey } })
       } catch (e: unknown) {
         if (!cancelled) setError((e as Error).message)
       }

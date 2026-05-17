@@ -85,7 +85,7 @@ describe('migrateConfigIfNeeded', () => {
     await Bun.write(configPath, JSON.stringify({ PROVIDER: 'deepseek', THEME: 'dark' }))
     await Bun.write(envPath, 'DEEPSEEK_API_KEY=sk-migrate\nDEEPSEEK_BASE_URL=https://proxy.com/v1\n')
 
-    await migrateConfigIfNeeded(configPath)
+    await migrateConfigIfNeeded(configPath, envPath)
 
     const config = JSON.parse(await readFile(configPath, 'utf-8'))
     expect(config.DEEPSEEK_API_KEY).toBe('sk-migrate')

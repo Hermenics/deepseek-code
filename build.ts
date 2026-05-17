@@ -7,6 +7,7 @@ const result = await Bun.build({
   naming: 'cli.mjs',
   target: 'bun',
   minify: true,
+  external: ['playwright', 'playwright-core', '@hono/node-server'],
   alias: {
     'react-devtools-core': resolve('./src/stubs/react-devtools-core.ts'),
   },
