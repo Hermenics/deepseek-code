@@ -26,7 +26,7 @@ export function WelcomeArt() {
               <text fg="cyan">{'◆ DeepSeek Code'}</text>
               <text fg="#888888">{'v' + pkg.version}</text>
             </box>
-            <text fg="#5599ff">Deep reasoning.</text>
+            <text fg="#5599ff">Deep reasoning, hello world.</text>
             <text fg="#888888">Elite code.</text>
           </box>
         </box>

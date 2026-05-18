@@ -49,7 +49,7 @@ export async function startProxy(proxyApiKey: string): Promise<void> {
   process.env.PROXY_API_KEY = proxyApiKey
   process.env.PORT = '3000'
   process.env.HOST = '127.0.0.1'
-  process.env.LOG_LEVEL = process.env.NODE_ENV === 'development' ? 'debug' : 'info'
+  process.env.LOG_LEVEL = 'debug'
 
   const { startProxyServer } = await import('./proxy/index.js')
   await startProxyServer()

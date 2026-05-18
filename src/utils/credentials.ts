@@ -109,8 +109,11 @@ export async function logout(
   configPath: string = CONFIG_PATH,
 ): Promise<string[]> {
   const deleted: string[] = []
+  const configDir = dirname(configPath)
+  const legacyEnvPath = join(configDir, '.env')
+  const oauthStoragePath = join(configDir, 'oauth-storage.json')
 
-  for (const filePath of [configPath, LEGACY_ENV_PATH, OAUTH_STORAGE]) {
+  for (const filePath of [configPath, legacyEnvPath, oauthStoragePath]) {
     try {
       await rm(filePath)
       deleted.push(filePath)

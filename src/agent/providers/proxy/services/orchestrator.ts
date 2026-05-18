@@ -41,7 +41,10 @@ export async function* orchestrate(
     currentSession.model !== request.model ||
     clientMsgCount < currentSession.messageCount
 
-  const pooled = await pool.acquire()
+  // Always acquire the page that has the active session, if one exists
+  const pooled = currentSession
+    ? await pool.acquireById(currentSession.pageId) ?? await pool.acquire()
+    : await pool.acquire()
   log('debug', `Page acquired: ${pooled.id}`)
 
   try {
@@ -81,8 +84,20 @@ export async function* orchestrate(
       const useThinking = isThinkingModel(request.model)
       const effectiveTimeout = useThinking ? Math.max(config.responseTimeout, 120000) : config.responseTimeout
 
+      // For thinking models: capture thinking first, then get baseline AFTER thinking ends
+      // (the response element may already exist by the time thinking finishes)
+      let responseBaseline = 0
+      if (useThinking) {
+        // Get baseline BEFORE thinking starts (no response elements yet)
+        responseBaseline = await pooled.page.locator('.ds-markdown').count()
+        const thinking = await captureThinking(pooled.page, effectiveTimeout)
+        if (thinking) {
+          yield { token: '', done: false, thinking }
+        }
+      }
+
       let fullResponse = ''
-      for await (const event of observeResponse(pooled.page, effectiveTimeout, 0)) {
+      for await (const event of observeResponse(pooled.page, effectiveTimeout, responseBaseline)) {
         fullResponse += event.token
         yield event
         if (event.done) break
@@ -95,13 +110,33 @@ export async function* orchestrate(
         logHistory(request.model, conversationId, request.messages, fullResponse)
       }
     } else {
-      const lastUserMsg = [...request.messages].reverse().find((m) => m.role === 'user')
-      if (!lastUserMsg) {
+      // Find the last message to send — could be 'user' (normal) or 'tool' (tool result)
+      const lastMsg = [...request.messages].reverse().find((m) => m.role === 'user' || m.role === 'tool')
+      if (!lastMsg) {
         yield { token: '', done: true, error: 'No user message found' }
         return
       }
 
-      log('debug', `Continuing chat, sending last message (${lastUserMsg.content.length} chars)`)
+      // Format tool results so DeepSeek understands the context
+      let messageToSend: string
+      if (lastMsg.role === 'tool') {
+        // Collect the assistant's tool call + all tool results since last user message
+        const msgs = request.messages
+        const lastUserIdx = msgs.map((m, i) => ({ m, i })).filter(({ m }) => m.role === 'user').pop()?.i ?? 0
+        const toolContext = msgs.slice(lastUserIdx + 1)
+        messageToSend = toolContext.map((m) => {
+          if (m.role === 'assistant') {
+            // Try to extract tool name from the assistant message (it may have tool_calls)
+            return `[You called a tool]`
+          }
+          if (m.role === 'tool') return `[Tool Result]\n${m.content}`
+          return m.content
+        }).join('\n\n') + '\n\n[The tool has been executed. Now analyze the result above and continue. If you need another tool, call it. If you have enough information, respond to the user with text.]'
+      } else {
+        messageToSend = lastMsg.content
+      }
+
+      log('debug', `Continuing chat, sending message (${messageToSend.length} chars, role: ${lastMsg.role})`)
 
       try {
         await pooled.page.waitForSelector('textarea', { timeout: 5000 })
@@ -114,11 +149,19 @@ export async function* orchestrate(
 
       const baselineCount = await pooled.page.locator('.ds-markdown').count()
 
-      await typeMessage(pooled.page, lastUserMsg.content)
+      await typeMessage(pooled.page, messageToSend)
       await submitMessage(pooled.page)
 
       const useThinkingCont = isThinkingModel(request.model)
       const effectiveTimeoutCont = useThinkingCont ? Math.max(config.responseTimeout, 120000) : config.responseTimeout
+
+      // Capture thinking phase for thinking models (deepseek-v4-pro)
+      if (useThinkingCont) {
+        const thinking = await captureThinking(pooled.page, effectiveTimeoutCont)
+        if (thinking) {
+          yield { token: '', done: false, thinking }
+        }
+      }
 
       let fullResponse = ''
       for await (const event of observeResponse(pooled.page, effectiveTimeoutCont, baselineCount)) {
@@ -156,6 +199,7 @@ function formatFullHistory(messages: { role: string; content: string }[]): strin
     .map((m) => {
       if (m.role === 'system') return `[System] ${m.content}`
       if (m.role === 'assistant') return `[Assistant] ${m.content}`
+      if (m.role === 'tool') return `[Tool Result] ${m.content}`
       return m.content
     })
     .join('\n\n')

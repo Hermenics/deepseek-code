@@ -10,7 +10,8 @@ export function parseRequest(body: any): ProxyRequest {
       ? m.content
       : Array.isArray(m.content)
         ? m.content.map((b: any) => b.text || b.content || '').join('')
-        : String(m.content),
+        : m.content === null ? '' : String(m.content),
+    ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
   }))
 
   const tools: ToolDef[] = (body.tools || body.functions || []).map((t: any) => ({
@@ -38,6 +39,17 @@ export function formatStreamChunk(token: string, model: string): string {
     created: Math.floor(Date.now() / 1000),
     model,
     choices: [{ index: 0, delta: { content: token }, finish_reason: null }],
+  }
+  return `data: ${JSON.stringify(chunk)}\n\n`
+}
+
+export function formatStreamReasoning(reasoning: string, model: string): string {
+  const chunk = {
+    id: `chatcmpl-${randomUUID()}`,
+    object: 'chat.completion.chunk',
+    created: Math.floor(Date.now() / 1000),
+    model,
+    choices: [{ index: 0, delta: { reasoning_content: reasoning }, finish_reason: null }],
   }
   return `data: ${JSON.stringify(chunk)}\n\n`
 }
@@ -72,7 +84,7 @@ export function formatStreamToolCall(toolCall: { name: string; id: string; argum
   return `data: ${JSON.stringify(chunk)}\n\n`
 }
 
-export function formatResponse(model: string, content: string) {
+export function formatResponse(model: string, content: string, thinking?: string) {
   const toolCall = parseToolResponse(content)
   if (toolCall) {
     return {
@@ -90,6 +102,7 @@ export function formatResponse(model: string, content: string) {
             type: 'function',
             function: { name: toolCall.name, arguments: JSON.stringify(toolCall.arguments) },
           }],
+          ...(thinking ? { reasoning_content: thinking } : {}),
         },
         finish_reason: 'tool_calls',
       }],
@@ -102,7 +115,15 @@ export function formatResponse(model: string, content: string) {
     object: 'chat.completion',
     created: Math.floor(Date.now() / 1000),
     model,
-    choices: [{ index: 0, message: { role: 'assistant', content }, finish_reason: 'stop' }],
+    choices: [{
+      index: 0,
+      message: {
+        role: 'assistant',
+        content,
+        ...(thinking ? { reasoning_content: thinking } : {}),
+      },
+      finish_reason: 'stop',
+    }],
     usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
   }
 }

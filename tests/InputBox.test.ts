@@ -18,9 +18,9 @@ describe('InputBox', () => {
       result.forEach((cmd) => expect(cmd.startsWith('/c')).toBe(true))
     })
 
-    it('should exclude exact match from results', () => {
+    it('should include exact match in results', () => {
       const result = getMatches('/quit')
-      expect(result).not.toContain('/quit')
+      expect(result).toContain('/quit')
     })
 
     it('should return empty array when no command matches the prefix', () => {

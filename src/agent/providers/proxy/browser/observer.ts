@@ -3,6 +3,13 @@ import type { TokenEvent } from '../types/index.js'
 import { log } from '../config.js'
 
 const RESPONSE_SELECTOR = '.ds-markdown'
+const RESPONSE_SELECTOR_FALLBACKS = [
+  '.ds-markdown',
+  '[class*="markdown"]',
+  '[class*="message-content"]',
+  '[class*="chat-message"]',
+  '[class*="response"]',
+]
 const THINKING_SELECTORS = [
   '.ds-thinking-content',
   '[class*="thinking"]',
@@ -73,17 +80,39 @@ export async function captureThinking(page: Page, timeout: number): Promise<stri
 export async function* observeResponse(page: Page, timeout: number, knownCount?: number): AsyncGenerator<TokenEvent> {
   const deadline = Date.now() + timeout
 
+  // Try to find which selector is active on this page
+  let activeSelector = RESPONSE_SELECTOR
   const initialCount = knownCount ?? await page.locator(RESPONSE_SELECTOR).count()
-  log('debug', `Waiting for response (baseline: ${initialCount} elements)`)
+  log('debug', `Waiting for response (baseline: ${initialCount} elements, selector: ${activeSelector})`)
 
-  let newElementAppeared = false
-  for (let i = 0; i < 120 && Date.now() < deadline; i++) {
-    const currentCount = await page.locator(RESPONSE_SELECTOR).count()
+  // Check immediately before entering the wait loop — response may already be there
+  let newElementAppeared = (await page.locator(activeSelector).count()) > initialCount
+  if (newElementAppeared) {
+    log('debug', `Response already present before loop (selector: ${activeSelector})`)
+  }
+
+  for (let i = 0; !newElementAppeared && i < 180 && Date.now() < deadline; i++) {
+    // Try primary selector first
+    const currentCount = await page.locator(activeSelector).count()
     if (currentCount > initialCount) {
       newElementAppeared = true
-      log('debug', `New response element appeared (${currentCount} total)`)
+      log('debug', `New response element appeared (${currentCount} total, selector: ${activeSelector})`)
       break
     }
+
+    // Every 10 iterations, try fallback selectors if primary has 0 elements
+    if (i > 0 && i % 10 === 0 && initialCount === 0) {
+      for (const sel of RESPONSE_SELECTOR_FALLBACKS) {
+        if (sel === activeSelector) continue
+        const count = await page.locator(sel).count()
+        if (count > 0) {
+          log('debug', `Switching to fallback selector: ${sel} (found ${count} elements)`)
+          activeSelector = sel
+          break
+        }
+      }
+    }
+
     const isThinking = await page.evaluate(() => {
       return !!document.querySelector('[class*="thinking"]') ||
              !!document.querySelector('[class*="loading"]') ||
@@ -115,7 +144,7 @@ export async function* observeResponse(page: Page, timeout: number, knownCount?:
   const BT = '`'
   const injectedScript = [
     '(function() {',
-    '  var sel = ' + JSON.stringify(RESPONSE_SELECTOR) + ';',
+    '  var sel = ' + JSON.stringify(activeSelector) + ';',
     '  var cb = ' + JSON.stringify(callbackName) + ';',
     '  var baseCount = ' + initialCount + ';',
     '  var target = document.querySelectorAll(sel)[baseCount];',
@@ -158,31 +187,47 @@ export async function* observeResponse(page: Page, timeout: number, knownCount?:
     '      window[cb](delta);',
     '    }',
     '  };',
+    // Expose flush so we can call it immediately after attaching
+    '  window[cb + "_flush"] = flush;',
     '  var observer = new MutationObserver(function() { flush(); });',
     '  observer.observe(target, { childList: true, subtree: true, characterData: true });',
     '  var idleStreak = 0;',
+    '  var lastMutationTime = Date.now();',
     '  var startTime = Date.now();',
+    '  observer.disconnect();',
+    '  var trackedObserver = new MutationObserver(function() { flush(); lastMutationTime = Date.now(); idleStreak = 0; });',
+    '  trackedObserver.observe(target, { childList: true, subtree: true, characterData: true });',
     '  var checkDone = setInterval(function() {',
     '    var hasStop = !!document.querySelector("[class*=stop]") ||',
     '                  !!document.querySelector("[class*=loading]") ||',
     '                  !!document.querySelector("[class*=typing]");',
-    '    if (hasStop) { idleStreak = 0; return; }',
+    '    if (hasStop) { idleStreak = 0; lastMutationTime = Date.now(); return; }',
     '    if (Date.now() - startTime < 2000) return;',
+    // Only count idle if no mutations for at least 1500ms (5 * 300ms)
+    '    if (Date.now() - lastMutationTime < 1500) return;',
     '    idleStreak++;',
-    '    if (idleStreak >= 3) {',
+    '    if (idleStreak >= 6) {',
     '      flush();',
     '      clearInterval(checkDone);',
-    '      observer.disconnect();',
+    '      trackedObserver.disconnect();',
     '      window[cb]("__DONE__");',
     '    }',
     '  }, 300);',
     '  window.__dsProxyCleanup = function() {',
     '    clearInterval(checkDone);',
-    '    observer.disconnect();',
+    '    trackedObserver.disconnect();',
     '  };',
     '})();',
   ].join('\n')
   await page.addScriptTag({ content: injectedScript })
+
+  // Do an immediate flush in case the response was already fully rendered
+  // before the MutationObserver was attached
+  await page.evaluate((cbName) => {
+    if ((window as any)[cbName + '_flush']) {
+      (window as any)[cbName + '_flush']()
+    }
+  }, callbackName).catch(() => {})
 
   while (Date.now() < deadline) {
     if (queue.length > 0) {

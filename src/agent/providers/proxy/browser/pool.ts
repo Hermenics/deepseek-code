@@ -30,6 +30,13 @@ export class PagePool {
     }))
   }
 
+  async acquireById(pageId: string): Promise<PooledPage | null> {
+    const pooled = this.pages.find((p) => p.id === pageId && !p.busy)
+    if (!pooled) return null
+    pooled.busy = true
+    return pooled
+  }
+
   async acquire(): Promise<PooledPage> {
     const free = this.pages.find((p) => !p.busy)
     if (free) {

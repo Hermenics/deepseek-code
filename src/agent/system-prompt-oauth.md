@@ -203,7 +203,7 @@ You are running via the OAuth proxy (DeepSproxy), which has specific limitations
 
 **CRITICAL: Call only ONE tool per response. Never call multiple tools in the same response.**
 
-The proxy can only process one tool call per response. If you call multiple tools at once, only the first will be executed and the rest will be lost.
+The proxy enforces this constraint at the code level: if you call multiple tools, only the FIRST tool will be executed. All others will be discarded and you will be notified which ones were skipped. You will then need to call them again one at a time.
 
 Instead of:
 - Calling read_folder + read_file + read_file in one response ❌
@@ -211,4 +211,103 @@ Instead of:
 Do this:
 - Call read_folder first, wait for result, then call read_file, wait, then call the next read_file ✓
 
-This is a hard constraint of the current OAuth proxy architecture. Always call tools one at a time, sequentially.
+This is a hard constraint. Always call tools one at a time, sequentially.
+
+
+TOOL CALLING FORMAT — ABSOLUTE RULES
+
+When you decide to use a tool, your ENTIRE response must be ONLY the raw JSON object below. Nothing else. No text. No markdown. No explanation.
+
+{"tool_use": {"name": "TOOL_NAME", "arguments": {"param": "value"}}}
+
+RULES YOU MUST NEVER BREAK:
+1. Your response is EITHER a tool call OR text. NEVER both in the same response.
+2. When calling a tool: the ONLY content in your response is the JSON. Zero other characters.
+3. When responding with text: NEVER include the JSON format anywhere.
+4. NEVER wrap in ```json or ``` or any code fence.
+5. NEVER prefix with "I'll...", "Let me...", "Sure,...", or ANY text.
+6. NEVER add text after the JSON.
+7. After receiving a tool result, you may call another tool (same format) or respond with text.
+
+
+TOOL CALLING — COMPLETE WORKFLOW EXAMPLES
+
+Example workflow — user asks to read a file:
+
+User: "Show me src/index.ts"
+Your response (ENTIRE response):
+{"tool_use": {"name": "read_file", "arguments": {"path": "src/index.ts"}}}
+
+[You receive the tool result with file contents]
+
+Your next response (now you respond with text):
+Here's the content of src/index.ts: [you explain what's in the file]
+
+
+Example workflow — user asks to run tests:
+
+User: "Run the tests"
+Your response (ENTIRE response):
+{"tool_use": {"name": "shell", "arguments": {"command": "bun test"}}}
+
+[You receive the tool result with test output]
+
+Your next response (text):
+All 15 tests passed successfully.
+
+
+Example workflow — multi-step investigation:
+
+User: "Find where handleSubmit is defined and show me that file"
+Your response (ENTIRE response — first tool):
+{"tool_use": {"name": "grep", "arguments": {"pattern": "function handleSubmit", "path": "src", "include": "*.ts"}}}
+
+[You receive grep results showing src/components/Form.tsx:42]
+
+Your next response (ENTIRE response — second tool):
+{"tool_use": {"name": "read_file", "arguments": {"path": "src/components/Form.tsx"}}}
+
+[You receive file contents]
+
+Your next response (text):
+The handleSubmit function is defined at line 42 of src/components/Form.tsx. It handles...
+
+
+Example workflow — writing code:
+
+User: "Create a hello world file"
+Your response (ENTIRE response):
+{"tool_use": {"name": "write_file", "arguments": {"path": "src/hello.ts", "content": "console.log('hello world')"}}}
+
+[You receive confirmation]
+
+Your next response (text):
+Created src/hello.ts with a simple hello world script.
+
+
+Example — patching a file:
+{"tool_use": {"name": "patch_file", "arguments": {"path": "src/app.ts", "old_content": "const x = 1", "new_content": "const x = 2"}}}
+
+Example — git status:
+{"tool_use": {"name": "git", "arguments": {"action": "status"}}}
+
+Example — exploring a directory:
+{"tool_use": {"name": "read_folder", "arguments": {"path": "src"}}}
+
+Example — fetching a URL:
+{"tool_use": {"name": "web_fetch", "arguments": {"url": "https://example.com"}}}
+
+
+WRONG — NEVER DO THIS:
+
+❌ "I'll read that file for you.\n{"tool_use": ...}"
+❌ "```json\n{"tool_use": ...}\n```"
+❌ "Let me check.\n{"tool_use": ...}\nThis will show the contents."
+❌ "Sure! {"tool_use": ...}"
+❌ Calling two tools in one response
+❌ Adding ANY text before or after the JSON when calling a tool
+
+RIGHT — ALWAYS DO THIS:
+
+✓ {"tool_use": {"name": "read_file", "arguments": {"path": "src/index.ts"}}}
+(That's it. Nothing else. The entire response is just that one line.)

@@ -451,4 +451,150 @@ describe('Agent streaming callbacks', () => {
       expect(cb.doneCount).toBe(1)
     })
   })
+
+  // ── OAuth: truncate multiple tool calls to single ───────────────────────────
+  describe('OAuth tool truncation', () => {
+    it('should execute only the first tool call when provider is oauth and multiple tools are returned', async () => {
+      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' })
+      resolveReady(agent)
+
+      const chunks = [
+        {
+          choices: [{
+            delta: {
+              tool_calls: [
+                { index: 0, id: 'call_first', function: { name: 'read_file', arguments: JSON.stringify({ path: '/a.txt' }) } },
+                { index: 1, id: 'call_second', function: { name: 'read_folder', arguments: JSON.stringify({ path: '/src' }) } },
+                { index: 2, id: 'call_third', function: { name: 'grep', arguments: JSON.stringify({ pattern: 'foo' }) } },
+              ],
+            },
+          }],
+        },
+      ]
+
+      const readFileMock = makeToolMock('read_file', 'file content')
+      const readFolderMock = makeToolMock('read_folder', 'folder listing')
+      const grepMock = makeToolMock('grep', 'grep results')
+      injectTool(agent, readFileMock)
+      injectTool(agent, readFolderMock)
+      injectTool(agent, grepMock)
+
+      let callCount = 0
+      injectMockClient(agent, {
+        chat: {
+          completions: {
+            create: () => {
+              callCount++
+              if (callCount === 1) return makeStream(chunks)
+              return makeStream([{ choices: [{ delta: { content: 'Done.' } }] }])
+            },
+          },
+        },
+      })
+
+      const cb = makeTrackedCallbacks()
+
+      await agent.run('read everything', cb)
+
+      // Only the first tool should have been executed
+      expect(readFileMock.execute).toHaveBeenCalledTimes(1)
+      expect(readFolderMock.execute).not.toHaveBeenCalled()
+      expect(grepMock.execute).not.toHaveBeenCalled()
+
+      // onToolCall should only fire once
+      expect(cb.toolCalls).toHaveLength(1)
+      expect(cb.toolCalls[0]!.name).toBe('read_file')
+    })
+
+    it('should append skipped tools notification to tool result message', async () => {
+      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' })
+      // Wait for real initialization to complete (prevents race with messages reset)
+      await (agent as any).readyPromise
+
+      const chunks = [
+        {
+          choices: [{
+            delta: {
+              tool_calls: [
+                { index: 0, id: 'call_a', function: { name: 'read_file', arguments: JSON.stringify({ path: '/x.ts' }) } },
+                { index: 1, id: 'call_b', function: { name: 'glob', arguments: JSON.stringify({ pattern: '*.ts' }) } },
+              ],
+            },
+          }],
+        },
+      ]
+
+      const readFileMock = makeToolMock('read_file', 'content of x.ts')
+      const globMock = makeToolMock('glob', 'glob results')
+      injectTool(agent, readFileMock)
+      injectTool(agent, globMock)
+
+      let callCount = 0
+      injectMockClient(agent, {
+        chat: {
+          completions: {
+            create: () => {
+              callCount++
+              if (callCount === 1) return makeStream(chunks)
+              return makeStream([{ choices: [{ delta: { content: 'OK.' } }] }])
+            },
+          },
+        },
+      })
+
+      const cb = makeTrackedCallbacks()
+      await agent.run('find files', cb)
+
+      // Check that the tool result contains the skipped notification
+      const messages = (agent as any).messages
+      const toolMsg = messages.find((m: any) => m.role === 'tool' && m.tool_call_id === 'call_a')
+      expect(toolMsg).toBeDefined()
+      expect(toolMsg.content).toContain('[System: You called 2 tools at once')
+      expect(toolMsg.content).toContain('glob')
+    })
+
+    it('should NOT truncate when provider is not oauth', async () => {
+      const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
+      resolveReady(agent)
+
+      const chunks = [
+        {
+          choices: [{
+            delta: {
+              tool_calls: [
+                { index: 0, id: 'call_1', function: { name: 'read_file', arguments: JSON.stringify({ path: '/a.txt' }) } },
+                { index: 1, id: 'call_2', function: { name: 'read_folder', arguments: JSON.stringify({ path: '/src' }) } },
+              ],
+            },
+          }],
+        },
+      ]
+
+      const readFileMock = makeToolMock('read_file', 'file a')
+      const readFolderMock = makeToolMock('read_folder', 'folder src')
+      injectTool(agent, readFileMock)
+      injectTool(agent, readFolderMock)
+
+      let callCount = 0
+      injectMockClient(agent, {
+        chat: {
+          completions: {
+            create: () => {
+              callCount++
+              if (callCount === 1) return makeStream(chunks)
+              return makeStream([{ choices: [{ delta: { content: 'Both done.' } }] }])
+            },
+          },
+        },
+      })
+
+      const cb = makeTrackedCallbacks()
+      await agent.run('read both', cb)
+
+      // Both tools should execute (parallel safe)
+      expect(readFileMock.execute).toHaveBeenCalledTimes(1)
+      expect(readFolderMock.execute).toHaveBeenCalledTimes(1)
+      expect(cb.toolCalls).toHaveLength(2)
+    })
+  })
 })

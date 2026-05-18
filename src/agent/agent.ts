@@ -200,7 +200,8 @@ export class Agent {
       if (steering) parts.push(steering)
       if (deepseekMd) parts.push(`--- DEEPSEEK.md ---\n${deepseekMd.trim()}`)
       if (parts.length) {
-        this.systemPrompt = `${DEFAULT_SYSTEM_PROMPT}\n\n${parts.join('\n\n')}`
+        const basePrompt = this.provider === 'oauth' ? OAUTH_SYSTEM_PROMPT : DEFAULT_SYSTEM_PROMPT
+        this.systemPrompt = `${basePrompt}\n\n${parts.join('\n\n')}`
       }
       // Bedrock R1: inject tool definitions into system prompt (no native tool calling)
       // V3.2/V3.1 use bedrock-mantle which supports tools natively via Chat Completions
@@ -724,6 +725,18 @@ export class Agent {
 
       try {
         for await (const chunk of stream) {
+          // Proxy error chunk: { error: { message: '...' } } — treat as recoverable, surface to user
+          const chunkAny = chunk as any
+          if (chunkAny.error?.message) {
+            const errMsg = chunkAny.error.message as string
+            cb.onToken(`⚠ Proxy error: ${errMsg}`)
+            const errMsgObj: AssistantMessageWithReasoning = { role: 'assistant', content: `⚠ Proxy error: ${errMsg}` }
+            this.messages.push(errMsgObj)
+            await saveHistory(this.messages)
+            cb.onDone()
+            return
+          }
+
           // Always capture usage when present — may arrive with empty choices OR alongside a delta
           if (chunk.usage) {
             this.tokenCount += chunk.usage.total_tokens
@@ -787,11 +800,20 @@ export class Agent {
         return
       }
 
-      const tcArray = [...toolCalls.values()].map((tc) => ({
+      let tcArray = [...toolCalls.values()].map((tc) => ({
         id: tc.id,
         type: 'function' as const,
         function: { name: tc.name, arguments: tc.args },
       }))
+
+      // ── OAuth: enforce single tool per response ────────────────────────────
+      let oauthSkipped: string[] = []
+      if (this.provider === 'oauth' && tcArray.length > 1) {
+        oauthSkipped = tcArray.slice(1).map((tc) => tc.function.name)
+        tcArray = [tcArray[0]!]
+        auditLog({ type: 'oauth_tool_truncate', skipped: oauthSkipped })
+      }
+
       const assistantMsg: AssistantMessageWithReasoning = {
         role: 'assistant',
         content: assistantText || null,
@@ -846,6 +868,14 @@ export class Agent {
         for (const { tc, parsedArgs } of parsedList) {
           const { result } = await this.checkAndExecuteTool(tc, parsedArgs, cb)
           this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
+        }
+      }
+
+      // ── OAuth: notify model about skipped tools ────────────────────────────
+      if (oauthSkipped.length > 0) {
+        const lastMsg = this.messages[this.messages.length - 1]
+        if (lastMsg && lastMsg.role === 'tool') {
+          (lastMsg as any).content += `\n\n[System: You called ${oauthSkipped.length + 1} tools at once, but only the first was executed. Skipped: ${oauthSkipped.join(', ')}. Call them one at a time in your next responses.]`
         }
       }
     }

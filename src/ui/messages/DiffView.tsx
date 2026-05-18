@@ -43,7 +43,7 @@ export function DiffView({ path, added, removed, firstChanged, lines, theme }: P
       <box marginLeft={2}>
         <text fg={c.addedSign}>{'✓ ' + added + (added === 1 ? ' line' : ' lines')}</text>
         <text fg="#888888">{'  '}</text>
-        <text fg={c.removedSign}>{'✗ ' + removed + (removed === 1 ? ' line' : ' lines')}</text>
+        <text fg={c.removedSign}>{'✘ ' + removed + (removed === 1 ? ' line' : ' lines')}</text>
         <text fg="#888888">{' at L' + firstChanged + ' in ' + filename}</text>
       </box>
       <box flexDirection="column" marginLeft={2} marginTop={1}>

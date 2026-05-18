@@ -260,7 +260,7 @@ export function ApiKeySetup({ onDone }: Props) {
           <box flexDirection="column" marginTop={1}>
             {error ? (
               <>
-                <text fg="red">{'✗ ' + error}</text>
+                <text fg="red">{'✘ ' + error}</text>
                 <text fg="#888888">{'Press Esc to go back and try again.'}</text>
               </>
             ) : (

@@ -1,8 +1,6 @@
 const MODEL_MAP: Record<string, string> = {
   'deepseek-v4-flash': 'Instant',
   'deepseek-v4-pro': 'Expert',
-  'deepseek-thinking': 'Expert',
-  'deepseek-reasoner': 'Expert',
 }
 
 export function resolveModel(modelId: string): string {
@@ -21,5 +19,5 @@ export function getAvailableModels() {
 }
 
 export function isThinkingModel(modelId: string): boolean {
-  return modelId.includes('pro') || modelId.includes('thinking') || modelId.includes('reasoner')
+  return modelId.includes('pro')
 }
