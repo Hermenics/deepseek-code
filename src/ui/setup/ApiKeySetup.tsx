@@ -36,7 +36,7 @@ export const PROVIDERS: { label: string; value: ProviderName; hint: string }[] =
   { value: 'bedrock',  label: 'Amazon Bedrock',         hint: 'AWS profile from ~/.aws/credentials' },
   { value: 'vertex',   label: 'Google Vertex AI',       hint: 'GCP project + service account JSON' },
   { value: 'local',    label: 'Local model (Ollama / LM Studio)', hint: 'Any OpenAI-compatible endpoint' },
-  { value: 'oauth',    label: 'OAuth (Beta [tools do not work yet], unofficial)',            hint: 'Log in via browser — no API key needed' },
+  { value: 'oauth',    label: 'OAuth (Beta, unofficial)',            hint: 'Log in via browser — no API key needed' },
 ]
 
 const THEMES: { label: string; value: ThemeName }[] = [

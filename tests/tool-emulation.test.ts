@@ -36,21 +36,30 @@ describe('parseToolResponse', () => {
     })
   })
 
-  // ── 2. Wrapped in markdown code fences (não suportado) ─────────────────────
+  // ── 2. Wrapped in markdown code fences (agora suportado após fix) ───────────
   describe('markdown code fence wrapper', () => {
-    it('should return null for ```json fence', () => {
+    it('should parse tool_use inside ```json fence', () => {
       const input = '```json\n{"tool_use": {"name": "shell", "arguments": {"command": "bun test"}}}\n```'
-      expect(parseToolResponse(input)).toBeNull()
+      const result = parseToolResponse(input)
+      expect(result).not.toBeNull()
+      expect(result!.name).toBe('shell')
+      expect(result!.arguments).toEqual({ command: 'bun test' })
     })
 
-    it('should return null for plain ``` fence', () => {
+    it('should parse tool_use inside plain ``` fence', () => {
       const input = '```\n{"tool_use": {"name": "grep", "arguments": {"pattern": "TODO", "path": "src"}}}\n```'
-      expect(parseToolResponse(input)).toBeNull()
+      const result = parseToolResponse(input)
+      expect(result).not.toBeNull()
+      expect(result!.name).toBe('grep')
+      expect(result!.arguments).toEqual({ pattern: 'TODO', path: 'src' })
     })
 
-    it('should return null for ```text fence', () => {
+    it('should parse tool_use inside ```text fence', () => {
       const input = '```text\n{"tool_use": {"name": "read_folder", "arguments": {"path": "."}}}\n```'
-      expect(parseToolResponse(input)).toBeNull()
+      const result = parseToolResponse(input)
+      expect(result).not.toBeNull()
+      expect(result!.name).toBe('read_folder')
+      expect(result!.arguments).toEqual({ path: '.' })
     })
   })
 

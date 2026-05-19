@@ -16,6 +16,7 @@ export type AuditEvent =
   | { type: 'session_end'; totalTokens: number }
   | { type: 'mcp_server_load'; serverName: string; transport: string }
   | { type: 'oauth_tool_truncate'; skipped: string[] }
+  | { type: 'oauth_text_tool_fallback'; tool: string }
 
 let initialized = false
 

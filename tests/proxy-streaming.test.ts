@@ -209,10 +209,12 @@ describe('parseToolCall (openai formatter)', () => {
       expect(result!.id).toMatch(/^toolu_/)
     })
 
-    it('should return null for tool_use wrapped in ```json code fence (strict parser rejects fences)', () => {
+    it('should parse tool_use wrapped in ```json code fence (parser now supports fences)', () => {
       const input = '```json\n{"tool_use": {"name": "grep", "arguments": {"pattern": "TODO"}}}\n```'
       const result = parseToolCall(input)
-      expect(result).toBeNull()
+      expect(result).not.toBeNull()
+      expect(result!.name).toBe('grep')
+      expect(result!.arguments).toEqual({ pattern: 'TODO' })
     })
 
     it('should parse tool_use inside <tool_call> XML tags', () => {

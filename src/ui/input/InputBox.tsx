@@ -38,7 +38,7 @@ const DESCRIPTIONS: Record<string, string> = {
   '/stats': 'Show session statistics',
 }
 
-const SPINNER = ['✻', '✼', '✼', '✽', '✽', '✾', '✾', '✿', '✿', '❀', '❀', '✿', '✿', '✾', '✾', '✽', '✽', '✼']
+const SPINNER = ['✻', '✼', '✽', '✾', '✿', '❀', '✿', '✾', '✽', '✽', '✼']
 
 const REFINING_MSGS = [
   'Prompt-engineering your prompt...',

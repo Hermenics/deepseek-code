@@ -100,7 +100,6 @@ export function parseToolResponse(
 
   const trimmed = text.trim()
   if (!trimmed) return null
-  if (trimmed.startsWith('```')) return null
 
   const makeResult = (parsed: unknown): { name: string; id: string; arguments: any } | null => {
     const validated = validateToolCall(parsed)
@@ -111,6 +110,25 @@ export function parseToolResponse(
       id: `toolu_${Date.now().toString(36)}`,
       arguments: validated.arguments,
     }
+  }
+
+  // Strip code fences that DOM observer may have added around JSON
+  if (trimmed.startsWith('```')) {
+    const stripped = trimmed
+      .replace(/^```(?:json|text|typescript|js)?\s*\n?/, '')
+      .replace(/\n?```\s*$/, '')
+      .trim()
+    if (stripped.startsWith('{')) {
+      try {
+        return makeResult(JSON.parse(stripped))
+      } catch {
+        const extracted = extractBalancedJson(stripped)
+        if (extracted) {
+          try { return makeResult(JSON.parse(extracted)) } catch { /* fall through */ }
+        }
+      }
+    }
+    return null
   }
 
   const dsmlInvoke = trimmed.match(/<\|{2}DSML\|{2}invoke\s+name="([^"]+)">/)
@@ -143,6 +161,13 @@ export function parseToolResponse(
     try {
       return makeResult(JSON.parse(trimmed))
     } catch {
+      // Try completing truncated JSON (missing 1-2 closing braces)
+      for (let i = 1; i <= 2; i++) {
+        try {
+          const completed = trimmed + '}'.repeat(i)
+          return makeResult(JSON.parse(completed))
+        } catch { /* continue */ }
+      }
       return null
     }
   }
@@ -150,10 +175,11 @@ export function parseToolResponse(
   const jsonStartIdx = trimmed.indexOf('{"tool_use"')
   if (jsonStartIdx >= 0) {
     // Reject if there's too much text before the JSON (likely an explanation, not a prefix)
-    // Short prefixes like "Let me check.\n" are ok (< 200 chars)
-    // Long text before means the model is explaining, not calling a tool
+    // DeepSeek-v4-flash often adds 1-3 sentences before the JSON despite instructions not to.
+    // Allow up to 500 chars of prefix to be tolerant of this behavior.
+    // Long text before (> 500) means the model is explaining, not calling a tool
     const prefix = trimmed.slice(0, jsonStartIdx)
-    if (prefix.length > 200) return null
+    if (prefix.length > 500) return null
     // Also reject if the prefix contains code fence markers (model is showing an example)
     if (prefix.includes('```')) return null
 
@@ -199,5 +225,17 @@ function extractBalancedJson(text: string): string | null {
       if (depth === 0) return text.slice(start, i + 1)
     }
   }
+
+  // Tolerate truncated JSON — if only 1-2 closing braces are missing, try to complete
+  if (depth > 0 && depth <= 2 && !inString) {
+    const completed = text.slice(start) + '}'.repeat(depth)
+    try {
+      JSON.parse(completed)
+      return completed
+    } catch {
+      return null
+    }
+  }
+
   return null
 }

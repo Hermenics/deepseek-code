@@ -60,25 +60,26 @@ export function createOpenAIRouter(pool: PagePool, config: ProxyConfig) {
             } else {
               accumulated += event.token
 
-              // Determine if this could be a tool call based on content patterns.
-              // Tool calls: start with { or ```, contain "tool_use", DSML, or <tool_call>
-              // Text responses: start with a letter, word, or markdown heading
+              // Streaming strategy: prioritize responsiveness while still detecting tool calls.
+              // The Agent has a fallback parser, so even if we flush a tool call as text,
+              // it will still be detected and executed. This lets us be aggressive with streaming.
               const trimmedStart = accumulated.trimStart()
-              const startsLikeJson = trimmedStart.startsWith('{') || trimmedStart.startsWith('```')
-              const containsToolMarker = accumulated.includes('"tool_use"') ||
+              const hasToolMarker = accumulated.includes('"tool_use"') ||
                 accumulated.includes('DSML') ||
                 accumulated.includes('<tool_call>')
 
-              const couldBeTool = accumulated.length < 2000 && (startsLikeJson || containsToolMarker)
-
-              if (!couldBeTool) {
-                // Definitely not a tool call — stream immediately for responsiveness
-                await s.write(openai.formatStreamChunk(accumulated, request.model))
-                accumulated = ''
-              }
-              // If it could be a tool call, keep buffering until done or > 2000 chars
-              // (at which point it's too long to be a tool call, so flush)
-              else if (accumulated.length >= 2000) {
+              if (hasToolMarker) {
+                // Strong tool signal — buffer until done (handled above)
+              } else if (trimmedStart.startsWith('{') || trimmedStart.startsWith('```')) {
+                // Could be a tool call — buffer briefly to check for markers
+                // Tool calls are typically < 200 chars, so if we exceed that without
+                // seeing a marker, it's likely not a tool call
+                if (accumulated.length >= 200) {
+                  await s.write(openai.formatStreamChunk(accumulated, request.model))
+                  accumulated = ''
+                }
+              } else {
+                // Starts with text — definitely not a tool call, stream immediately
                 await s.write(openai.formatStreamChunk(accumulated, request.model))
                 accumulated = ''
               }

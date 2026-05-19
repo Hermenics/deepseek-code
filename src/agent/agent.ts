@@ -14,6 +14,7 @@ import type { Tool } from '../tools/types.js'
 import { resolveAgentFiles } from './files.js'
 import { loadSteering } from './steering.js'
 import { createLLMClient, defaultModel } from './llmClient.js'
+import { parseToolResponse } from './providers/proxy/services/tool-emulation.js'
 import { listBedrockDeepSeekModels, modelSupportsChatCompletions } from './providers/bedrock.js'
 import { listVertexDeepSeekModels } from './providers/vertex.js'
 import { saveHistory } from './history.js'
@@ -58,6 +59,48 @@ interface ParsedToolCall {
   name: string
   args: Record<string, unknown>
   raw: string
+}
+
+interface ToolValidationResult {
+  valid: boolean
+  error?: string
+}
+
+function validateToolArguments(tool: Tool, args: Record<string, unknown>): ToolValidationResult {
+  const params = (tool.parameters as {
+    properties?: Record<string, unknown>
+    required?: string[]
+  }) ?? {}
+
+  const properties = params.properties ?? {}
+  const validKeys = new Set(Object.keys(properties))
+  const required = params.required ?? []
+
+  // If no properties are defined, skip extra-key validation (schema is open)
+  const extra = validKeys.size > 0
+    ? Object.keys(args).filter((key) => !validKeys.has(key))
+    : []
+  const missing = required.filter((key) => args[key] === undefined)
+
+  if (extra.length === 0 && missing.length === 0) return { valid: true }
+
+  const lines: string[] = [`[Tool Error: ${tool.name}]`, 'Invalid arguments:']
+
+  for (const key of extra) {
+    lines.push(`- "${key}" is not a valid parameter for this tool`)
+  }
+
+  for (const key of missing) {
+    lines.push(`- missing required parameter "${key}"`)
+  }
+
+  const validParams = Object.keys(properties)
+    .map((key) => `${key}${required.includes(key) ? ' (required)' : ''}`)
+    .join(', ')
+
+  lines.push(`Valid parameters: ${validParams || '(none)'}`)
+
+  return { valid: false, error: lines.join('\n') }
 }
 
 function parseBedrockToolCalls(text: string): ParsedToolCall[] {
@@ -790,6 +833,54 @@ export class Agent {
         throw e
       }
 
+      // ── OAuth fallback: parse textual tool_use when proxy didn't convert ──
+      if (this.provider === 'oauth' && toolCalls.size === 0 && assistantText.trim()) {
+        // Strip code fences that the DOM observer may have added
+        let textToParse = assistantText.trim()
+        if (textToParse.startsWith('```')) {
+          textToParse = textToParse
+            .replace(/^```(?:json|text|typescript|js)?\s*\n?/, '')
+            .replace(/\n?```\s*$/, '')
+            .trim()
+        }
+        const toolNames = new Set(this.tools.map((t) => t.name))
+        const parsed = parseToolResponse(textToParse, toolNames)
+        if (parsed) {
+          const tc = {
+            id: parsed.id,
+            type: 'function' as const,
+            function: { name: parsed.name, arguments: JSON.stringify(parsed.arguments) },
+          }
+          const assistantMsg: AssistantMessageWithReasoning = {
+            role: 'assistant',
+            content: null,
+            tool_calls: [tc],
+          }
+          if (reasoningText) assistantMsg.reasoning_content = reasoningText
+          this.messages.push(assistantMsg)
+
+          let parsedArgs: Record<string, unknown> = {}
+          try { parsedArgs = JSON.parse(tc.function.arguments) } catch { }
+
+          if ((tc.function.name === 'write_file' || tc.function.name === 'patch_file') && parsedArgs.path) {
+            const filePath = parsedArgs.path as string
+            this.filesModified.add(filePath)
+            try {
+              const oldContent = await readFile(filePath, 'utf-8')
+              this.undoStack.push({ path: filePath, content: oldContent })
+            } catch {
+              this.undoStack.push({ path: filePath, content: '' })
+            }
+            if (this.undoStack.length > UNDO_STACK_MAX) this.undoStack.shift()
+          }
+
+          const { result } = await this.checkAndExecuteTool(tc, parsedArgs, cb)
+          this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
+          auditLog({ type: 'oauth_text_tool_fallback', tool: parsed.name })
+          continue // next iteration — model processes tool result
+        }
+      }
+
       if (toolCalls.size === 0) {
         const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText }
         // Always preserve reasoning_content — DeepSeek-V4-Flash has built-in thinking mode
@@ -935,13 +1026,42 @@ export class Agent {
   private sanitizeMessagesForApi(
     messages: ChatCompletionMessageParam[]
   ): ChatCompletionMessageParam[] {
-    // Pass everything as-is — reasoning_content must be preserved for all models
-    return messages
+    // OAuth proxy uses tool_use JSON flow (not native tool calling).
+    // DeepSeek API expects plain chat roles and does not accept role:'tool'.
+    const usesJsonToolUse = this.provider === 'oauth'
+    if (!usesJsonToolUse) {
+      // Preserve full native tool-calling payloads for providers that support it.
+      return messages
+    }
+
+    return messages.map((msg) => {
+      if (msg.role === 'tool') {
+        const toolMsg = msg as ChatCompletionMessageParam & { tool_call_id?: string }
+        return {
+          role: 'user' as const,
+          content: `[Tool Result: ${toolMsg.tool_call_id || 'unknown'}]\n${typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)}`,
+        }
+      }
+
+      if (msg.role === 'assistant' && 'tool_calls' in msg) {
+        const assistantMsg = msg as unknown as { role: 'assistant'; content?: unknown; name?: string; reasoning_content?: string; tool_calls?: unknown }
+        const { tool_calls: _toolCalls, ...rest } = assistantMsg
+        return rest as unknown as ChatCompletionMessageParam
+      }
+
+      return msg
+    })
   }
 
   private async executeTool(name: string, args: Record<string, unknown>): Promise<string> {
     const tool = this.toolMap.get(name)
     if (!tool) return `Unknown tool: ${name}`
+
+    const validation = validateToolArguments(tool, args)
+    if (!validation.valid) {
+      return validation.error || `[Tool Error: ${name}] Invalid arguments`
+    }
+
     try {
       return await tool.execute(args)
     } catch (e: unknown) {
