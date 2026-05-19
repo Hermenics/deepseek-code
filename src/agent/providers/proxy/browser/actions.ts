@@ -49,7 +49,7 @@ export async function submitMessage(page: Page): Promise<void> {
     for (let i = 0; i < 5; i++) {
       container = container?.parentElement ?? null
       if (!container) break
-      const btns = [...container.querySelectorAll('[role="button"]')]
+      const btns = Array.from(container.querySelectorAll('[role="button"]'))
       const sendable = btns.filter((b) => {
         const text = (b.textContent || '').trim().toLowerCase()
         return !text.includes('deepthink') && !text.includes('search') &&
@@ -96,7 +96,7 @@ export async function startNewChat(page: Page): Promise<void> {
   }
 
   const found = await page.evaluate(() => {
-    const candidates = document.querySelectorAll('a[href="/"], [role="button"], button')
+    const candidates = Array.from(document.querySelectorAll('a[href="/"], [role="button"], button'))
     for (const el of candidates) {
       const rect = (el as HTMLElement).getBoundingClientRect()
       if (rect.width === 0 || rect.height === 0 || rect.left > 300) continue
