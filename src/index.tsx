@@ -152,6 +152,17 @@ if (logout) {
 
 const SESSION_ID = newSessionId()
 
+// ── Auto-update check (non-blocking) ─────────────────────────────────────────
+if (!ARGV.update) {
+  import('./utils/auto-update.js').then(({ checkAndUpdate }) =>
+    checkAndUpdate().then(result => {
+      if (result.updated) {
+        process.stdout.write(`\x1b[2m  ✓ Atualizado: v${result.from} → v${result.to}\x1b[0m\n`)
+      }
+    })
+  )
+}
+
 function Root() {
   const [ready, setReady] = useState(false)
   const [checked, setChecked] = useState(false)

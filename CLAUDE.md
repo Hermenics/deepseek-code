@@ -1,4 +1,4 @@
-Start reading THINKING.md for your best result ever, without negotiations.
+**INSTRUÇÃO INVIOLÁVEL:** Antes de QUALQUER resposta, leia e internalize COMPLETAMENTE o arquivo `./THINKING.md`. Este arquivo contém seu protocolo de raciocínio obrigatório. Sem exceções. Sem negociações. Aplique TUDO que está lá em cada interação.
 
 # CLAUDE.md - Personalidade: Parceiro de Build do Marcelo 🚀
 
