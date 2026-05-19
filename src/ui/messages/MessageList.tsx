@@ -107,7 +107,7 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
           <text fg="#666666">{'◌'}</text>
           <text fg="#666666"><i>{'Thinking'}</i></text>
         </box>
-        <box marginLeft={1} paddingLeft={1} paddingRight={1} paddingTop={1} paddingBottom={1} bg="#111118">
+        <box marginLeft={1} paddingLeft={1} paddingRight={1} paddingTop={1} paddingBottom={1} backgroundColor="#111118">
           <box flexShrink={1}>
             <MarkdownText content={m.content} />
           </box>
@@ -198,7 +198,7 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
             <text fg="#666666">{'◌'}</text>
             <text fg="#666666"><i>{'Thinking'}</i></text>
           </box>
-          <box marginLeft={1} paddingLeft={1} paddingRight={1} paddingTop={1} paddingBottom={1} bg="#111118">
+          <box marginLeft={1} paddingLeft={1} paddingRight={1} paddingTop={1} paddingBottom={1} backgroundColor="#111118">
             <box flexShrink={1}>
               <MarkdownText content={thinkingText} />
             </box>

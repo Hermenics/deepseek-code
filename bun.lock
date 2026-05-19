@@ -15,12 +15,11 @@
         "@smithy/protocol-http": "^5.3.14",
         "@smithy/signature-v4": "^5.3.14",
         "bignumber.js": "^11.1.0",
-        "diff": "^9.0.0",
         "ecdsa-sig-formatter": "^1.0.11",
         "execa": "^9.6.1",
         "fast-glob": "^3.3.3",
         "google-auth-library": "^10.6.2",
-        "hono": "^4.7.0",
+        "hono": "^4.12.21",
         "openai": "^6.34.0",
         "playwright": "^1.50.0",
         "react": "^19.2.0",
@@ -373,7 +372,7 @@
 
     "hasown": ["hasown@2.0.2", "", { "dependencies": { "function-bind": "^1.1.2" } }, ""],
 
-    "hono": ["hono@4.12.12", "", {}, ""],
+    "hono": ["hono@4.12.21", "", {}, "sha512-uV63apnb0kyPtAUwoWgaGh9HyIFcv8lgmzPZSiTBQAFOFGIzka5EZ1dZocmGnn0XdX0+XTqJ6Tqv7selMuGLRQ=="],
 
     "http-errors": ["http-errors@2.0.1", "", { "dependencies": { "depd": "~2.0.0", "inherits": "~2.0.4", "setprototypeof": "~1.2.0", "statuses": "~2.0.2", "toidentifier": "~1.0.1" } }, ""],
 
@@ -668,6 +667,8 @@
     "@aws-sdk/token-providers/@smithy/types": ["@smithy/types@4.14.2", "", { "dependencies": { "tslib": "^2.6.2" } }, "sha512-P+otAxbV4CqBybp7EkcJCrig63yE2E7PuNVOmilVMRcx/O+QDzGULTrKsq4DV13gSfak9ObPrWaHl/9bL5YcWw=="],
 
     "@aws-sdk/xml-builder/@smithy/types": ["@smithy/types@4.14.2", "", { "dependencies": { "tslib": "^2.6.2" } }, "sha512-P+otAxbV4CqBybp7EkcJCrig63yE2E7PuNVOmilVMRcx/O+QDzGULTrKsq4DV13gSfak9ObPrWaHl/9bL5YcWw=="],
+
+    "@modelcontextprotocol/sdk/hono": ["hono@4.12.12", "", {}, ""],
 
     "@opentui/react/ws": ["ws@8.20.0", "", { "peerDependencies": { "bufferutil": "^4.0.1", "utf-8-validate": ">=5.0.2" }, "optionalPeers": ["bufferutil", "utf-8-validate"] }, ""],
 
