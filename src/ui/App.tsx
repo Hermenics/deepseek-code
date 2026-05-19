@@ -39,7 +39,7 @@ function processStreamedText(text: string): { thinking: string; content: string 
 }
 
 export interface Message {
-  role: 'user' | 'assistant' | 'tool' | 'terminal'
+  role: 'user' | 'assistant' | 'tool' | 'terminal' | 'thinking'
   content: string
 }
 
@@ -202,6 +202,31 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const runAgent = useCallback(async (prompt: string) => {
     let tokenBuffer = ''
     let streamTextAccum = ''
+    let thinkingAccum = ''
+
+    const mergeThinking = (next: string) => {
+      const trimmed = next.trim()
+      if (!trimmed) return
+      if (!thinkingAccum) {
+        thinkingAccum = trimmed
+        return
+      }
+      if (trimmed.includes(thinkingAccum)) {
+        thinkingAccum = trimmed
+        return
+      }
+      if (!thinkingAccum.includes(trimmed)) {
+        thinkingAccum = `${thinkingAccum}\n${trimmed}`
+      }
+    }
+
+    const flushThinkingMessage = () => {
+      const finalThinking = thinkingAccum.trim()
+      if (!finalThinking) return
+      setMessages((m) => [...m, { role: 'thinking', content: finalThinking }])
+      thinkingAccum = ''
+    }
+
     const flushInterval = setInterval(() => {
       if (tokenBuffer) {
         const buf = tokenBuffer
@@ -209,7 +234,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         streamTextAccum += buf
         // Live-process: separate thinking from visible content
         const { thinking, content } = processStreamedText(streamTextAccum)
-        if (thinking) setThinkingText(thinking)
+        if (thinking) {
+          mergeThinking(thinking)
+          setThinkingText(thinkingAccum)
+        }
         setStreamText(content)
       }
     }, 50)
@@ -218,18 +246,25 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       await agent.run(prompt, {
         onPhaseChange(phase) { setAgentPhase(phase) },
         onToken(token) { tokenBuffer += token },
-        onThinking(text) { setThinkingText((t) => t + text) },
+        onThinking(text) {
+          mergeThinking(`${thinkingAccum}${text}`)
+          setThinkingText(thinkingAccum)
+        },
         onToolCall(name, args) {
           clearInterval(flushInterval)
           const pending = (streamTextAccum + tokenBuffer).trim()
           tokenBuffer = ''
           streamTextAccum = ''
           setStreamText('')
-          setThinkingText('')
           if (pending) {
             const { thinking, content } = processStreamedText(pending)
-            if (thinking) setThinkingText(thinking)
+            if (thinking) mergeThinking(thinking)
+            flushThinkingMessage()
+            setThinkingText('')
             if (content) setMessages((m) => [...m, { role: 'assistant', content }])
+          } else {
+            flushThinkingMessage()
+            setThinkingText('')
           }
           setToolCallCount((c) => c + 1)
           setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
@@ -259,8 +294,16 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           streamTextAccum = ''
           setToolStatus(null)
           setStreamText('')
-          setThinkingText('')
-          if (pending) setMessages((m) => [...m, { role: 'assistant', content: processStreamedText(pending).content }])
+          if (pending) {
+            const { thinking, content } = processStreamedText(pending)
+            if (thinking) mergeThinking(thinking)
+            flushThinkingMessage()
+            setThinkingText('')
+            if (content) setMessages((m) => [...m, { role: 'assistant', content }])
+          } else {
+            flushThinkingMessage()
+            setThinkingText('')
+          }
           setIsLoading(false)
           setAgentPhase('idle')
           setTokenCount(agent.tokenCount)
@@ -303,6 +346,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     } catch (e: unknown) {
       clearInterval(flushInterval)
       setStreamText('')
+      setThinkingText('')
       setToolStatus(null)
       setIsLoading(false)
       setAgentPhase('idle')
@@ -572,7 +616,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   return (
     <box flexDirection="column" width="100%" height="100%">
       {/* Messages area */}
-      <scrollbox flexGrow={1} stickyScroll stickyStart="bottom" scrollbarOptions={{ visible: false }} focused={!showThemeSelector && !showModelSelector && !showLanguageInput && !confirmState && !toolPermissionState}>
+      <scrollbox flexGrow={1} stickyScroll stickyStart="bottom" viewportCulling={false} scrollbarOptions={{ visible: false }} focused={!showThemeSelector && !showModelSelector && !showLanguageInput && !confirmState && !toolPermissionState}>
         <box flexDirection="column">
           <MessageList messages={messages} streamText={streamText} thinkingText={thinkingText} streamRole={streamRole} theme={theme} activeAgent={activeAgent} headerProvider={headerProvider} headerAgent={headerAgent} />
           {toolStatus && <ToolUseDisplay tool={toolStatus} />}

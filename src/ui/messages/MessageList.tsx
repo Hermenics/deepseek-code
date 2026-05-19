@@ -100,6 +100,21 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
       </box>
     )
   }
+  if (m.role === 'thinking') {
+    return (
+      <box flexDirection="column" marginTop={1} marginLeft={2}>
+        <box flexDirection="row" gap={1}>
+          <text fg="#666666">{'◌'}</text>
+          <text fg="#666666"><i>{'Thinking'}</i></text>
+        </box>
+        <box marginLeft={1} paddingLeft={1} paddingRight={1} paddingTop={1} paddingBottom={1} bg="#111118">
+          <box flexShrink={1}>
+            <MarkdownText content={m.content} />
+          </box>
+        </box>
+      </box>
+    )
+  }
   // assistant
   return (
     <box flexDirection="column" marginTop={1}>
@@ -179,7 +194,15 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
       ))}
       {thinkingText ? (
         <box flexDirection="column" marginTop={1} marginLeft={2}>
-          <text fg="#666666"><i>{'Thinking: '}{thinkingText.length > 200 ? thinkingText.slice(-200) : thinkingText}</i></text>
+          <box flexDirection="row" gap={1}>
+            <text fg="#666666">{'◌'}</text>
+            <text fg="#666666"><i>{'Thinking'}</i></text>
+          </box>
+          <box marginLeft={1} paddingLeft={1} paddingRight={1} paddingTop={1} paddingBottom={1} bg="#111118">
+            <box flexShrink={1}>
+              <MarkdownText content={thinkingText} />
+            </box>
+          </box>
         </box>
       ) : null}
       {streamText ? (

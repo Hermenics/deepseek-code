@@ -279,6 +279,7 @@ function Root() {
 const renderer = await createCliRenderer({
   exitOnCtrlC: false,
   clearOnShutdown: true,
+  screenMode: 'alternate-screen',
   useMouse: false,
   enableMouseMovement: false,
 })
