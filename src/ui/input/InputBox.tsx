@@ -191,6 +191,25 @@ export function InputBox({
       return
     }
 
+    // Filter out any raw input that looks like an unrecognized ANSI escape sequence.
+    // These leak through when the terminal sends mouse tracking, scroll, or focus events
+    // that @opentui/core doesn't fully parse. They appear as key.name === undefined
+    // with key.raw containing ESC sequences or single control characters.
+    if (!key.name && key.raw) {
+      // If raw starts with ESC (\x1b) it's an unrecognized escape sequence — discard
+      if (key.raw.startsWith('\x1b')) return
+      // Single-byte control chars (except common ones) — discard
+      if (key.raw.length === 1 && key.raw.charCodeAt(0) < 32) return
+    }
+
+    // Filter ANSI suffix ghosts: when partial escape sequences leak through,
+    // they arrive as key events with sequence field containing raw ANSI bytes.
+    // Real user typing has sequence === raw for printable chars.
+    // Ghost events from mouse/cursor have sequence containing escape chars.
+    if (key.sequence && key.sequence.includes('\x1b')) {
+      return
+    }
+
     // Ctrl+C: abort when loading only (do NOT capture in idle — allows terminal copy)
     if (key.ctrl && key.name === 'c') {
       if (s.isLoading) {
@@ -614,7 +633,7 @@ export function InputBox({
       <text fg="#888888">{'─'.repeat(cols - 8)}</text>
 
       {/* Command dropdown */}
-      {!isLoading && showDropdown && (() => {
+      {showDropdown && (() => {
         const MAX_VISIBLE = 6
         const total = matches.length
         const CMD_WIDTH = 22

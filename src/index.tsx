@@ -284,6 +284,16 @@ const renderer = await createCliRenderer({
   enableMouseMovement: false,
 })
 
+// Explicitly disable mouse tracking to prevent escape sequence leaks
+process.stdout.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l')
+
+// Periodically re-disable mouse tracking in case something re-enables it
+// (e.g. Playwright browser, terminal multiplexer, or OpenTUI internals)
+const mouseDisableInterval = setInterval(() => {
+  process.stdout.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l')
+}, 5000)
+mouseDisableInterval.unref() // Don't prevent process exit
+
 const root = createRoot(renderer)
 root.render(<Root />)
 

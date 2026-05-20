@@ -7,6 +7,19 @@ import { log } from '../config.js'
 import type { PagePool } from '../browser/pool.js'
 import type { ProxyConfig } from '../types/index.js'
 
+export function doubleMarkdown(text: string): string {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '****$1****')
+    .replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '__$1__')
+    .replace(/^(#{1,6})\s/gm, (_, hashes: string) => `${hashes}# `)
+}
+
+function hasCompleteMarkdown(text: string): boolean {
+  const boldCount = (text.match(/\*\*/g) || []).length
+  const italicSingles = (text.match(/(?<!\*)\*(?!\*)/g) || []).length
+  return boldCount % 2 === 0 && italicSingles % 2 === 0
+}
+
 export function createOpenAIRouter(pool: PagePool, config: ProxyConfig) {
   const router = new Hono()
 
@@ -54,7 +67,7 @@ export function createOpenAIRouter(pool: PagePool, config: ProxyConfig) {
                 await s.write(openai.formatStreamToolCall(toolCall, request.model))
               } else if (accumulated) {
                 // Normal text response — flush remaining buffered text
-                await s.write(openai.formatStreamChunk(accumulated, request.model))
+                await s.write(openai.formatStreamChunk(doubleMarkdown(accumulated), request.model))
               }
               await s.write(openai.formatStreamEnd())
             } else {
@@ -79,9 +92,15 @@ export function createOpenAIRouter(pool: PagePool, config: ProxyConfig) {
                   accumulated = ''
                 }
               } else {
-                // Starts with text — definitely not a tool call, stream immediately
-                await s.write(openai.formatStreamChunk(accumulated, request.model))
-                accumulated = ''
+                // Text content — flush only when markdown markers are balanced
+                if (hasCompleteMarkdown(accumulated)) {
+                  await s.write(openai.formatStreamChunk(doubleMarkdown(accumulated), request.model))
+                  accumulated = ''
+                } else if (accumulated.length > 500) {
+                  // Safety valve: don't buffer forever
+                  await s.write(openai.formatStreamChunk(doubleMarkdown(accumulated), request.model))
+                  accumulated = ''
+                }
               }
             }
           }
@@ -105,7 +124,7 @@ export function createOpenAIRouter(pool: PagePool, config: ProxyConfig) {
           content += event.token
         }
       }
-      return c.json(openai.formatResponse(request.model, content, thinking))
+      return c.json(openai.formatResponse(request.model, doubleMarkdown(content), thinking))
     } catch (err: any) {
       log('error', `Request failed: ${err.message}`)
       return c.json({ error: { message: 'Backend error: ' + err.message, type: 'server_error' } }, 502)

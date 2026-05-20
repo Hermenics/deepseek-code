@@ -152,6 +152,10 @@ export async function* orchestrate(
       await typeMessage(pooled.page, messageToSend)
       await submitMessage(pooled.page)
 
+      // Wait for user message to render, then re-capture baseline
+      await pooled.page.waitForTimeout(500)
+      const adjustedBaseline = await pooled.page.locator('.ds-markdown').count()
+
       const useThinkingCont = isThinkingModel(request.model)
       const effectiveTimeoutCont = useThinkingCont ? Math.max(config.responseTimeout, 120000) : config.responseTimeout
 
@@ -164,7 +168,7 @@ export async function* orchestrate(
       }
 
       let fullResponse = ''
-      for await (const event of observeResponse(pooled.page, effectiveTimeoutCont, baselineCount)) {
+      for await (const event of observeResponse(pooled.page, effectiveTimeoutCont, adjustedBaseline)) {
         fullResponse += event.token
         yield event
         if (event.done) break

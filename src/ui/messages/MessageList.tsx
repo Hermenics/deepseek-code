@@ -1,7 +1,7 @@
 import type { Message } from '../App.js'
 import { DiffView } from './DiffView.js'
 import type { ThemeName } from '../setup/ApiKeySetup.js'
-import { TOOL_DISPLAY } from './toolDisplay.js'
+import { TOOL_DISPLAY, TOOL_STYLE } from './toolDisplay.js'
 import { MarkdownText } from './MarkdownText.js'
 import pkg from '../../../package.json' with { type: 'json' }
 
@@ -66,22 +66,22 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
     const MAX_OUTPUT_LINES = 5
     const trimmed = outputLines.slice(0, MAX_OUTPUT_LINES)
     const hasMore = outputLines.length > MAX_OUTPUT_LINES
+    const style = TOOL_STYLE[display] || { icon: '▸', color: '#888888' }
     return (
       <box flexDirection="column" paddingLeft={2}>
         <box flexDirection="row" gap={1}>
-          <text fg="white">{'●'}</text>
-          <text fg="white">{display}</text>
-          {arg ? <text fg="#888888">{'(' + arg + ')'}</text> : null}
+          <text fg={style.color}>{style.icon}</text>
+          <text fg={style.color}>{display}</text>
+          {arg ? <text fg="#666666">{arg}</text> : null}
         </box>
         {trimmed.map((line, i) => (
-          <box key={i} paddingLeft={2}>
-            <text fg="#666666">{'⎿ '}</text>
-            <text fg="#888888">{line}</text>
+          <box key={i} paddingLeft={3}>
+            <text fg="#555555">{line}</text>
           </box>
         ))}
         {hasMore && (
-          <box paddingLeft={2}>
-            <text fg="#888888">{'⎿ ... ' + (outputLines.length - MAX_OUTPUT_LINES) + ' more lines'}</text>
+          <box paddingLeft={3}>
+            <text fg="#555555">{'… ' + (outputLines.length - MAX_OUTPUT_LINES) + ' more lines'}</text>
           </box>
         )}
       </box>

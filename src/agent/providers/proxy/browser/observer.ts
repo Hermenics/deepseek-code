@@ -1,6 +1,9 @@
 import type { Page } from 'playwright'
 import type { TokenEvent } from '../types/index.js'
 import { log } from '../config.js'
+import { join } from 'node:path'
+import { homedir } from 'node:os'
+import { existsSync, mkdirSync } from 'node:fs'
 
 const RESPONSE_SELECTOR = '.ds-markdown'
 const RESPONSE_SELECTOR_FALLBACKS = [
@@ -9,6 +12,12 @@ const RESPONSE_SELECTOR_FALLBACKS = [
   '[class*="message-content"]',
   '[class*="chat-message"]',
   '[class*="response"]',
+  '[class*="artifact"]',
+  '[class*="result-content"]',
+  '[class*="code-result"]',
+  '[class*="assistant-message"]',
+  '[class*="chat-content"]',
+  '.dad65929',
 ]
 const THINKING_SELECTORS = [
   '.ds-thinking-content',
@@ -83,6 +92,13 @@ export async function* observeResponse(page: Page, timeout: number, knownCount?:
   // Try to find which selector is active on this page
   let activeSelector = RESPONSE_SELECTOR
   const initialCount = knownCount ?? await page.locator(RESPONSE_SELECTOR).count()
+
+  // Capture baselines for ALL selectors to enable proper fallback detection
+  const selectorBaselines = new Map<string, number>()
+  for (const sel of RESPONSE_SELECTOR_FALLBACKS) {
+    selectorBaselines.set(sel, await page.locator(sel).count())
+  }
+
   log('debug', `Waiting for response (baseline: ${initialCount} elements, selector: ${activeSelector})`)
 
   // Check immediately before entering the wait loop — response may already be there
@@ -91,7 +107,7 @@ export async function* observeResponse(page: Page, timeout: number, knownCount?:
     log('debug', `Response already present before loop (selector: ${activeSelector})`)
   }
 
-  for (let i = 0; !newElementAppeared && i < 180 && Date.now() < deadline; i++) {
+  for (let i = 0; !newElementAppeared && i < 240 && Date.now() < deadline; i++) {
     // Try primary selector first
     const currentCount = await page.locator(activeSelector).count()
     if (currentCount > initialCount) {
@@ -100,16 +116,68 @@ export async function* observeResponse(page: Page, timeout: number, knownCount?:
       break
     }
 
-    // Every 10 iterations, try fallback selectors if primary has 0 elements
-    if (i > 0 && i % 10 === 0 && initialCount === 0) {
+    // Every 10 iterations, try fallback selectors against their own baselines
+    if (i > 0 && i % 10 === 0) {
       for (const sel of RESPONSE_SELECTOR_FALLBACKS) {
         if (sel === activeSelector) continue
+        const baseline = selectorBaselines.get(sel) || 0
         const count = await page.locator(sel).count()
-        if (count > 0) {
-          log('debug', `Switching to fallback selector: ${sel} (found ${count} elements)`)
+        if (count > baseline) {
+          log('debug', `Fallback selector matched: ${sel} (was ${baseline}, now ${count})`)
           activeSelector = sel
+          newElementAppeared = true
           break
         }
+      }
+      if (newElementAppeared) break
+    }
+
+    // Every 20 iterations, check for auth redirect
+    if (i > 0 && i % 20 === 0) {
+      const currentUrl = page.url()
+      if (currentUrl.includes('sign_in') || currentUrl.includes('login')) {
+        log('error', 'Auth redirect detected during response wait')
+        yield { token: '', done: true, error: 'Session expired. Run "deepseek logout" then log in again.' }
+        return
+      }
+    }
+
+    // After 30 iterations (15s), try position-based detection as last resort
+    if (i === 30 || i === 60 || i === 120) {
+      const positionDetected = await page.evaluate((baseline) => {
+        const containers = document.querySelectorAll('[class*="conversation"], [class*="chat-messages"], [class*="message-list"], main [class*="overflow"]')
+        for (const container of Array.from(containers)) {
+          const messages = container.querySelectorAll(':scope > div')
+          if (messages.length > baseline) {
+            const lastMsg = messages[messages.length - 1]
+            if (lastMsg && lastMsg.textContent && lastMsg.textContent.trim().length > 10) {
+              return { found: true, className: lastMsg.className || 'unknown' }
+            }
+          }
+        }
+
+        const articles = document.querySelectorAll('[role="article"], [data-testid*="message"], [class*="bubble"]')
+        if (articles.length > baseline) {
+          return { found: true, className: (articles[articles.length - 1] as HTMLElement).className || 'unknown' }
+        }
+
+        return { found: false, className: '' }
+      }, initialCount).catch(() => ({ found: false, className: '' }))
+
+      if (positionDetected.found) {
+        log('debug', `Position-based detection found response (class: ${positionDetected.className})`)
+        if (positionDetected.className && positionDetected.className !== 'unknown') {
+          const firstClass = positionDetected.className.split(' ')[0]
+          if (firstClass) {
+            activeSelector = '.' + firstClass
+            newElementAppeared = true
+            break
+          }
+        }
+
+        activeSelector = '[class*="markdown"], [class*="message-content"], [class*="chat-content"]'
+        newElementAppeared = true
+        break
       }
     }
 
@@ -123,7 +191,57 @@ export async function* observeResponse(page: Page, timeout: number, knownCount?:
   }
 
   if (!newElementAppeared) {
-    yield { token: '', done: true, error: 'No new response appeared from DeepSeek' }
+    // Capture diagnostics before reporting failure
+    const selectorCounts: Record<string, number> = {}
+    for (const sel of RESPONSE_SELECTOR_FALLBACKS) {
+      selectorCounts[sel] = await page.locator(sel).count().catch(() => -1)
+    }
+
+    const diagnostics = await page.evaluate(() => {
+      const url = window.location.href
+      const isLogin = url.includes('sign_in') || url.includes('login')
+      const errorText = (() => {
+        const candidates = document.querySelectorAll('[class*="error"], [class*="retry"], [class*="warning"], [class*="toast"], [class*="limit"]')
+        for (const el of Array.from(candidates)) {
+          const text = el.textContent || ''
+          const lower = text.toLowerCase()
+          if (lower.includes('network') || lower.includes('retry') || lower.includes('limit')) {
+            return text.slice(0, 200)
+          }
+        }
+        return null
+      })()
+      const bodyClasses = document.body?.className || ''
+      return { url, isLogin, errorText, bodyClasses }
+    }).catch(() => ({ url: 'unknown', isLogin: false, errorText: null, bodyClasses: '' }))
+
+    // Save failure screenshot for debugging
+    const isDev = process.env.NODE_ENV === 'development'
+    const debugDir = join(homedir(), '.deepsproxy')
+    if (!existsSync(debugDir)) mkdirSync(debugDir, { recursive: true })
+    const screenshotPath = join(debugDir, `failure-${Date.now()}.png`)
+    await page.screenshot({ path: screenshotPath, fullPage: true }).catch(() => {})
+
+    log('error', 'Response detection failed', { ...diagnostics, selectorCounts, screenshotPath })
+
+    if (diagnostics.isLogin) {
+      yield { token: '', done: true, error: 'Session expired. Run "deepseek logout" then log in again.' }
+    } else if (diagnostics.errorText) {
+      const lower = diagnostics.errorText.toLowerCase()
+      if (lower.includes('network') || lower.includes('retry')) {
+        yield { token: '', done: true, error: 'Oscilação de rede no DeepSeek. Tente novamente.' }
+      } else if (lower.includes('limit') || lower.includes('rate')) {
+        yield { token: '', done: true, error: 'Rate limit do DeepSeek atingido. Aguarde um momento e tente novamente.' }
+      } else {
+        const msg = isDev ? `DeepSeek error: ${diagnostics.errorText}` : 'Erro inesperado do DeepSeek. Tente novamente.'
+        yield { token: '', done: true, error: msg }
+      }
+    } else {
+      const msg = isDev
+        ? `Sem resposta do DeepSeek (timeout). Screenshot: ${screenshotPath}`
+        : 'Sem resposta do DeepSeek (timeout). Tente novamente.'
+      yield { token: '', done: true, error: msg }
+    }
     return
   }
 
@@ -202,11 +320,11 @@ export async function* observeResponse(page: Page, timeout: number, knownCount?:
     '                  !!document.querySelector("[class*=loading]") ||',
     '                  !!document.querySelector("[class*=typing]");',
     '    if (hasStop) { idleStreak = 0; lastMutationTime = Date.now(); return; }',
-    '    if (Date.now() - startTime < 2000) return;',
+    '    if (Date.now() - startTime < 4000) return;',
     // Only count idle if no mutations for at least 1500ms (5 * 300ms)
-    '    if (Date.now() - lastMutationTime < 1500) return;',
+    '    if (Date.now() - lastMutationTime < 3000) return;',
     '    idleStreak++;',
-    '    if (idleStreak >= 6) {',
+    '    if (idleStreak >= 12) {',
     '      flush();',
     '      clearInterval(checkDone);',
     '      trackedObserver.disconnect();',

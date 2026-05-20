@@ -180,8 +180,15 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [agent])
 
   const handleQueue = useCallback((msg: string) => {
+    // /msg should work immediately even during loading — it just adds a note
+    const msgMatch = msg.match(/^\/msg\s+(.+)/)
+    if (msgMatch) {
+      agent.addNote(msgMatch[1])
+      setMessages((m) => [...m, { role: 'assistant', content: `📝 Note queued: "${msgMatch[1]}"\nIt will be included as context in the next agent turn.` }])
+      return
+    }
     setQueuedMessages((q) => enqueue(q, msg))
-  }, [])
+  }, [agent])
 
   const handleModeChange = useCallback(() => {
     setInteractionMode((current) => nextMode(current))
