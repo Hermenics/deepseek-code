@@ -2,7 +2,7 @@ import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
 import { execSync } from 'node:child_process'
 import { loadConfig, setLogLevel, log } from './config.js'
-import { initBrowser, closeBrowser } from './browser/manager.js'
+import { initPlaywright, closePlaywright, BROWSER_PROFILE_PATH } from './browser/playwright.js'
 import { PagePool } from './browser/pool.js'
 import { authMiddleware } from './middleware/auth.js'
 import { rateLimitMiddleware } from './middleware/rate-limit.js'
@@ -11,7 +11,6 @@ import { errorHandler } from './middleware/error-handler.js'
 import { requestLogger } from './middleware/request-logger.js'
 import { createOpenAIRouter } from './routes/openai.js'
 import { createAnthropicRouter } from './routes/anthropic.js'
-import { COOKIES_PATH } from './browser/cookie-store.js'
 import { existsSync } from 'node:fs'
 
 const VERSION = '1.0.0'
@@ -20,12 +19,12 @@ export async function startProxyServer(): Promise<void> {
   const config = loadConfig()
   setLogLevel(config.logLevel)
 
-  if (!existsSync(COOKIES_PATH)) {
-    log('warn', 'No cookies found. OAuth login may be required.')
+  if (!existsSync(BROWSER_PROFILE_PATH)) {
+    log('warn', 'No browser profile found. OAuth login may be required.')
   }
 
   try {
-    await initBrowser()
+    await initPlaywright()
     log('info', 'Browser initialized (headless Chromium)')
   } catch (e: any) {
     log('error', `Failed to initialize browser: ${e.message}`)
@@ -81,7 +80,7 @@ export async function startProxyServer(): Promise<void> {
     log('info', `${signal} received, shutting down gracefully...`)
     try {
       await pool.destroy()
-      await closeBrowser()
+      await closePlaywright()
       log('info', 'Cleanup complete')
     } catch (e: any) {
       log('error', `Cleanup error: ${e.message}`)

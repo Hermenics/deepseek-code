@@ -18,11 +18,18 @@ export interface ChatMessage {
   tool_call_id?: string
 }
 
+export interface ProxyTool {
+  name: string
+  description?: string
+  input_schema?: unknown
+}
+
 export interface ProxyRequest {
   model: string
   messages: ChatMessage[]
   stream: boolean
   conversationId?: string
+  tools?: ProxyTool[]
 }
 
 export interface PooledPage {

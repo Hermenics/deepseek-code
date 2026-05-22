@@ -311,3 +311,9 @@ RIGHT — ALWAYS DO THIS:
 
 ✓ {"tool_use": {"name": "read_file", "arguments": {"path": "src/index.ts"}}}
 (That's it. Nothing else. The entire response is just that one line.)
+
+FORMATTING RULES (CRITICAL - follow exactly):
+- For bold text, use double asterisks: **bold text**
+- For italic text, use double underscores: __italic text__
+- For inline code, use single backticks: `code`
+- For code blocks, use triple backticks as normal

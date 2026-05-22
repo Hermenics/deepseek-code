@@ -1,10 +1,10 @@
 import { join } from 'path'
 import { homedir } from 'os'
 import { spawn } from 'child_process'
-import { existsSync, writeFileSync, mkdirSync } from 'fs'
-import { chromium } from 'playwright'
+import { existsSync } from 'fs'
+import { initPlaywright, closePlaywright, getActivePage } from './proxy/browser/playwright.js'
 
-export const OAUTH_STORAGE_PATH = join(homedir(), '.deepseek', 'oauth-storage.json')
+export const OAUTH_STORAGE_PATH = join(homedir(), '.deepseek', 'browser-profile')
 
 export function installPlaywright(): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -18,30 +18,27 @@ export function installPlaywright(): Promise<void> {
 }
 
 export async function runOAuthLogin(): Promise<void> {
-  const browser = await chromium.launch({ headless: false })
-  const context = await browser.newContext()
-  const page = await context.newPage()
+  await initPlaywright(false)
 
-  await page.goto('https://chat.deepseek.com')
+  const page = getActivePage()
+  if (!page) {
+    await closePlaywright()
+    throw new Error('Failed to initialize browser page')
+  }
+
+  await page.goto('https://chat.deepseek.com/', { waitUntil: 'domcontentloaded' })
 
   try {
     await page.waitForFunction(
       () => !window.location.pathname.includes('sign_in') && !!document.querySelector('textarea'),
       { timeout: 300_000 }
     )
+    await page.waitForTimeout(3000)
   } catch {
-    await browser.close()
     throw new Error('Login timeout — please try again')
+  } finally {
+    await closePlaywright()
   }
-
-  await page.waitForTimeout(3000)
-
-  const storageDir = join(homedir(), '.deepseek')
-  if (!existsSync(storageDir)) mkdirSync(storageDir, { recursive: true })
-  const storageState = await context.storageState()
-  writeFileSync(OAUTH_STORAGE_PATH, JSON.stringify(storageState, null, 2))
-
-  await browser.close()
 }
 
 export async function startProxy(proxyApiKey: string): Promise<void> {

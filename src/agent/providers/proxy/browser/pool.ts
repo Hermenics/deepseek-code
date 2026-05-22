@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { Page } from 'playwright'
 import type { PooledPage } from '../types/index.js'
-import { getBrowserContext } from './manager.js'
+import { getContext } from './playwright.js'
 
 type Resolver = (page: PooledPage) => void
 
@@ -15,7 +15,8 @@ export class PagePool {
   }
 
   async init(): Promise<void> {
-    const ctx = getBrowserContext()
+    const ctx = getContext()
+    if (!ctx) throw new Error('Browser not initialized. Call initPlaywright() first.')
     for (let i = 0; i < this.maxSize; i++) {
       const page = await ctx.newPage()
       this.pages.push({ id: randomUUID(), busy: false, page, createdAt: Date.now() })
@@ -61,7 +62,9 @@ export class PagePool {
     const idx = this.pages.findIndex((p) => p.id === pageId)
     if (idx === -1) return
     try { await this.pages[idx].page.close() } catch {}
-    const ctx = getBrowserContext()
+    const ctx = getContext()
+    if (!ctx) throw new Error('Browser not initialized. Call initPlaywright() first.')
+    if (!ctx) throw new Error('Browser not initialized. Call initPlaywright() first.')
     const page = await ctx.newPage()
     this.pages[idx] = { id: randomUUID(), busy: false, page, createdAt: Date.now() }
   }

@@ -112,7 +112,6 @@ export function parseToolResponse(
     }
   }
 
-  // Strip code fences that DOM observer may have added around JSON
   if (trimmed.startsWith('```')) {
     const stripped = trimmed
       .replace(/^```(?:json|text|typescript|js)?\s*\n?/, '')
@@ -124,7 +123,7 @@ export function parseToolResponse(
       } catch {
         const extracted = extractBalancedJson(stripped)
         if (extracted) {
-          try { return makeResult(JSON.parse(extracted)) } catch { /* fall through */ }
+          try { return makeResult(JSON.parse(extracted)) } catch { }
         }
       }
     }
@@ -161,12 +160,11 @@ export function parseToolResponse(
     try {
       return makeResult(JSON.parse(trimmed))
     } catch {
-      // Try completing truncated JSON (missing 1-2 closing braces)
       for (let i = 1; i <= 2; i++) {
         try {
           const completed = trimmed + '}'.repeat(i)
           return makeResult(JSON.parse(completed))
-        } catch { /* continue */ }
+        } catch { }
       }
       return null
     }
@@ -174,13 +172,8 @@ export function parseToolResponse(
 
   const jsonStartIdx = trimmed.indexOf('{"tool_use"')
   if (jsonStartIdx >= 0) {
-    // Reject if there's too much text before the JSON (likely an explanation, not a prefix)
-    // DeepSeek-v4-flash often adds 1-3 sentences before the JSON despite instructions not to.
-    // Allow up to 500 chars of prefix to be tolerant of this behavior.
-    // Long text before (> 500) means the model is explaining, not calling a tool
     const prefix = trimmed.slice(0, jsonStartIdx)
     if (prefix.length > 500) return null
-    // Also reject if the prefix contains code fence markers (model is showing an example)
     if (prefix.includes('```')) return null
 
     const extracted = extractBalancedJson(trimmed.slice(jsonStartIdx))
@@ -204,7 +197,6 @@ function validateToolCall(parsed: any): { name: string; arguments: Record<string
   return { name: toolUse.name, arguments: toolUse.arguments || {} }
 }
 
-/** Extract a balanced JSON object from text starting at the first { */
 function extractBalancedJson(text: string): string | null {
   const start = text.indexOf('{')
   if (start === -1) return null
@@ -226,7 +218,6 @@ function extractBalancedJson(text: string): string | null {
     }
   }
 
-  // Tolerate truncated JSON — if only 1-2 closing braces are missing, try to complete
   if (depth > 0 && depth <= 2 && !inString) {
     const completed = text.slice(start) + '}'.repeat(depth)
     try {

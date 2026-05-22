@@ -43,7 +43,7 @@ const LOADING_MSGS = [
 
 interface LoadingSpinnerProps {
   toolCallCount: number
-  phase: 'idle' | 'thinking' | 'refining' | 'tool_calling'
+  phase: 'idle' | 'thinking' | 'refining' | 'tool_calling' | 'executing'
 }
 
 export function LoadingSpinner({ toolCallCount, phase }: LoadingSpinnerProps) {

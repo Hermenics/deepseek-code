@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ProxyRequest, ChatMessage } from '../types/index.js'
 import { getAvailableModels } from '../services/model-resolver.js'
-import { injectToolPrompt, parseToolResponse, type ToolDef } from '../services/tool-emulation.js'
+import { injectToolPrompt, parseToolResponse, type ToolDef } from '../tools/prompt-emulation.js'
 
 export function parseRequest(body: any): ProxyRequest {
   let messages: ChatMessage[] = (body.messages || []).map((m: any) => ({
@@ -29,6 +29,7 @@ export function parseRequest(body: any): ProxyRequest {
     messages,
     stream: body.stream ?? false,
     conversationId: body.user,
+    tools,
   }
 }
 

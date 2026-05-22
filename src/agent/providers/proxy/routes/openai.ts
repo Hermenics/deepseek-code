@@ -50,6 +50,7 @@ export function createOpenAIRouter(pool: PagePool, config: ProxyConfig) {
           for await (const event of orchestrate(request, pool, config)) {
             if (event.error) {
               await s.write(`data: ${JSON.stringify({ error: { message: event.error } })}\n\n`)
+              await s.write(openai.formatStreamEnd())
               break
             }
 

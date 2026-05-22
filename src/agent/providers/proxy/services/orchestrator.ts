@@ -1,210 +1,315 @@
-import { randomUUID } from 'node:crypto'
-import type { ProxyRequest, TokenEvent } from '../types/index.js'
+import type { ProxyRequest, TokenEvent, ChatMessage } from '../types/index.js'
 import type { ProxyConfig } from '../types/index.js'
 import { PagePool } from '../browser/pool.js'
-import { resolveModel, isThinkingModel } from './model-resolver.js'
-import { selectModel, typeMessage, submitMessage, startNewChat, saveDebugScreenshot } from '../browser/actions.js'
-import { observeResponse, captureThinking } from '../browser/observer.js'
-import { getCached, setCache } from './cache.js'
-import { logHistory } from './history.js'
-import { withRetry } from './retry.js'
-import { log } from '../config.js'
+import { createDeepSeekStream } from './deepseek-api.js'
 import { filterMessages } from './message-filter.js'
+import { parseToolResponse, type ToolDef } from '../tools/prompt-emulation.js'
+import { executeToolCalls, type ParsedToolCall } from '../tools/executor.js'
+import { updateSessionParent } from '../browser/headers.js'
 
-interface ActiveSession {
-  pageId: string
-  model: string
-  messageCount: number
-}
-
-let currentSession: ActiveSession | null = null
+const MAX_TOOL_TURNS = 5
 
 export async function* orchestrate(
   request: ProxyRequest,
-  pool: PagePool,
-  config: ProxyConfig
+  _pool: PagePool,
+  _config: ProxyConfig,
 ): AsyncGenerator<TokenEvent> {
-  const conversationId = request.conversationId || randomUUID()
-
-  if (!request.stream) {
-    const cached = getCached(request.model, request.messages, config.cacheTtl)
-    if (cached) {
-      log('debug', 'Cache hit', { model: request.model })
-      yield { token: cached, done: true }
-      return
-    }
-  }
-
-  const uiModel = resolveModel(request.model)
-  const clientMsgCount = request.messages.length
-  const needsNewChat = !currentSession ||
-    currentSession.model !== request.model ||
-    clientMsgCount < currentSession.messageCount
-
-  // Always acquire the page that has the active session, if one exists
-  const pooled = currentSession
-    ? await pool.acquireById(currentSession.pageId) ?? await pool.acquire()
-    : await pool.acquire()
-  log('debug', `Page acquired: ${pooled.id}`)
-
   try {
-    if (needsNewChat) {
-      log('info', currentSession ? `Model changed (${currentSession.model} → ${request.model}) → new chat` : 'New session → new chat')
+    const requestWithTools = request as ProxyRequest & { tools?: ToolDef[] }
+    const tools = requestWithTools.tools ?? []
 
-      const currentUrl = pooled.page.url()
-      const alreadyOnDeepSeek = currentUrl.includes('chat.deepseek.com') && !currentUrl.includes('sign_in')
+    const filteredMessages = filterMessages(request.messages)
 
-      if (!alreadyOnDeepSeek) {
-        await withRetry(async () => {
-          await pooled.page.goto('https://chat.deepseek.com/', {
-            waitUntil: 'domcontentloaded',
-            timeout: 20000,
-          })
-        })
-        const url = pooled.page.url()
-        if (url.includes('sign_in') || url.includes('login')) {
-          yield { token: '', done: true, error: 'Session expired. Run "deepseek logout" then log in again.' }
-          return
-        }
-      }
+    for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+      const { systemPrompt, prompt } = buildPrompt(filteredMessages, tools)
+      const finalPrompt = systemPrompt ? `${systemPrompt}\n${prompt}` : prompt
 
-      await saveDebugScreenshot(pooled.page, 'before-new-chat', config.logLevel)
-      await startNewChat(pooled.page)
-      await saveDebugScreenshot(pooled.page, 'after-new-chat', config.logLevel)
-      await pooled.page.waitForSelector('textarea', { timeout: 20000 })
-      await selectModel(pooled.page, uiModel)
+      const isProModel = request.model.includes('pro')
 
-      const cleanMessages = filterMessages(request.messages)
-      const prompt = formatFullHistory(cleanMessages)
-      log('debug', `Sending full history (${prompt.length} chars, ${cleanMessages.length}/${request.messages.length} msgs after filter)`)
+      // New session if no assistant messages yet
+      const isNewSession = !filteredMessages.some((m) => m.role === 'assistant')
 
-      await typeMessage(pooled.page, prompt)
-      await submitMessage(pooled.page)
+      const { stream, chatSessionId } = await createDeepSeekStream({
+        prompt: finalPrompt,
+        enableThinking: true,
+        isProModel,
+        forcedParentId: isNewSession ? null : undefined,
+      })
 
-      const useThinking = isThinkingModel(request.model)
-      const effectiveTimeout = useThinking ? Math.max(config.responseTimeout, 120000) : config.responseTimeout
+      const reader = stream.getReader()
+      const decoder = new TextDecoder()
 
-      // For thinking models: capture thinking first, then get baseline AFTER thinking ends
-      // (the response element may already exist by the time thinking finishes)
-      let responseBaseline = 0
-      if (useThinking) {
-        // Get baseline BEFORE thinking starts (no response elements yet)
-        responseBaseline = await pooled.page.locator('.ds-markdown').count()
-        const thinking = await captureThinking(pooled.page, effectiveTimeout)
-        if (thinking) {
-          yield { token: '', done: false, thinking }
-        }
-      }
+      let sseBuffer = ''
+      let assistantText = ''
+      let finished = false
+      let currentAppendPath = ''
+      let currentFragmentType = ''
+      // Buffer to hold trailing tokens so we can strip DeepSeek's AI disclaimer
+      let trailingBuffer = ''
+      const TRAILING_HOLD = 200 // chars to hold back before flushing
 
-      let fullResponse = ''
-      for await (const event of observeResponse(pooled.page, effectiveTimeout, responseBaseline)) {
-        fullResponse += event.token
-        yield event
-        if (event.done) break
-      }
+      while (!finished) {
+        const { done, value } = await reader.read()
+        if (done) break
 
-      currentSession = { pageId: pooled.id, model: request.model, messageCount: request.messages.length }
+        sseBuffer += decoder.decode(value, { stream: true })
+        const lines = sseBuffer.split('\n')
+        sseBuffer = lines.pop() || ''
 
-      if (fullResponse) {
-        setCache(request.model, request.messages, fullResponse)
-        logHistory(request.model, conversationId, request.messages, fullResponse)
-      }
-    } else {
-      // Find the last message to send — could be 'user' (normal) or 'tool' (tool result)
-      const lastMsg = [...request.messages].reverse().find((m) => m.role === 'user' || m.role === 'tool')
-      if (!lastMsg) {
-        yield { token: '', done: true, error: 'No user message found' }
-        return
-      }
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed || !trimmed.startsWith('data: ')) continue
 
-      // Format tool results so DeepSeek understands the context
-      let messageToSend: string
-      if (lastMsg.role === 'tool') {
-        // Collect the assistant's tool call + all tool results since last user message
-        const msgs = request.messages
-        const lastUserIdx = msgs.map((m, i) => ({ m, i })).filter(({ m }) => m.role === 'user').pop()?.i ?? 0
-        const toolContext = msgs.slice(lastUserIdx + 1)
-        messageToSend = toolContext.map((m) => {
-          if (m.role === 'assistant') {
-            // Try to extract tool name from the assistant message (it may have tool_calls)
-            return `[You called a tool]`
+          const data = trimmed.slice(6)
+          if (data === '[DONE]') {
+            finished = true
+            break
           }
-          if (m.role === 'tool') return `[Tool Result]\n${m.content}`
-          return m.content
-        }).join('\n\n') + '\n\n[The tool has been executed. Now analyze the result above and continue. If you need another tool, call it. If you have enough information, respond to the user with text.]'
-      } else {
-        messageToSend = lastMsg.content
-      }
 
-      log('debug', `Continuing chat, sending message (${messageToSend.length} chars, role: ${lastMsg.role})`)
+          try {
+            const chunk = JSON.parse(data) as DeepSeekChunk
+            const messageId = extractMessageId(chunk)
+            if (messageId) updateSessionParent(chatSessionId, messageId)
 
-      try {
-        await pooled.page.waitForSelector('textarea', { timeout: 5000 })
-      } catch {
-        log('warn', 'Textarea not found in existing session, creating new chat')
-        currentSession = null
-        yield* orchestrate(request, pool, config)
-        return
-      }
+            const extracted = extractDeepSeekText(chunk, currentAppendPath, currentFragmentType)
+            currentAppendPath = extracted.appendPath
+            currentFragmentType = extracted.fragmentType
 
-      const baselineCount = await pooled.page.locator('.ds-markdown').count()
+            if (!extracted.text || extracted.text === 'FINISHED') continue
 
-      await typeMessage(pooled.page, messageToSend)
-      await submitMessage(pooled.page)
+            if (extracted.isThinking) {
+              yield { token: '', thinking: extracted.text, done: false }
+            } else {
+              trailingBuffer += extracted.text
+              assistantText += extracted.text
 
-      // Wait for user message to render, then re-capture baseline
-      await pooled.page.waitForTimeout(500)
-      const adjustedBaseline = await pooled.page.locator('.ds-markdown').count()
-
-      const useThinkingCont = isThinkingModel(request.model)
-      const effectiveTimeoutCont = useThinkingCont ? Math.max(config.responseTimeout, 120000) : config.responseTimeout
-
-      // Capture thinking phase for thinking models (deepseek-v4-pro)
-      if (useThinkingCont) {
-        const thinking = await captureThinking(pooled.page, effectiveTimeoutCont)
-        if (thinking) {
-          yield { token: '', done: false, thinking }
+              // Flush everything except the last TRAILING_HOLD chars
+              if (trailingBuffer.length > TRAILING_HOLD) {
+                const flushUpTo = trailingBuffer.length - TRAILING_HOLD
+                const toFlush = trailingBuffer.slice(0, flushUpTo)
+                trailingBuffer = trailingBuffer.slice(flushUpTo)
+                yield { token: toFlush, done: false }
+              }
+            }
+          } catch {
+            // ignore malformed partial chunks
+          }
         }
       }
 
-      let fullResponse = ''
-      for await (const event of observeResponse(pooled.page, effectiveTimeoutCont, adjustedBaseline)) {
-        fullResponse += event.token
-        yield event
-        if (event.done) break
+      // Flush remaining buffer, stripping any AI disclaimer suffix
+      if (trailingBuffer) {
+        const cleaned = stripAiDisclaimer(trailingBuffer)
+        // Also strip from assistantText for tool call detection
+        if (cleaned.length < assistantText.length) {
+          assistantText = assistantText.slice(0, assistantText.length - (trailingBuffer.length - cleaned.length))
+        }
+        if (cleaned) yield { token: cleaned, done: false }
       }
 
-      currentSession!.messageCount = request.messages.length
+      // Check for tool call in response
+      if (tools.length > 0) {
+        const allowedTools = new Set(tools.map((t) => t.name))
+        const parsed = parseToolResponse(assistantText, allowedTools)
 
-      if (fullResponse) {
-        setCache(request.model, request.messages, fullResponse)
-        logHistory(request.model, conversationId, request.messages, fullResponse)
+        if (parsed) {
+          const toolCalls: ParsedToolCall[] = [{
+            id: parsed.id,
+            name: parsed.name,
+            arguments: parsed.arguments,
+          }]
+
+          const toolResults = await executeToolCalls(toolCalls)
+
+          // Add assistant message and tool results to history
+          filteredMessages.push({ role: 'assistant', content: assistantText })
+          for (const result of toolResults) {
+            filteredMessages.push({
+              role: 'tool',
+              content: result.result,
+              tool_call_id: result.toolCallId,
+            })
+          }
+
+          // Continue loop for next turn
+          continue
+        }
       }
-    }
-  } catch (err: any) {
-    log('error', `Orchestration failed: ${err.message}`)
-    currentSession = null
 
-    if (err.message.includes('crash') || err.message.includes('closed') || err.message.includes('Target')) {
-      log('warn', `Replacing crashed page: ${pooled.id}`)
-      await pool.replacePage(pooled.id)
-      yield { token: '', done: true, error: `Browser page crashed: ${err.message}` }
+      // No tool call — we're done
+      yield { token: '', done: true }
       return
     }
 
-    yield { token: '', done: true, error: err.message }
-  } finally {
-    pool.release(pooled.id)
+    yield { token: '', done: true, error: 'Max tool-call iterations reached' }
+  } catch (error: unknown) {
+    yield {
+      token: '',
+      done: true,
+      error: error instanceof Error ? error.message : String(error),
+    }
   }
 }
 
-function formatFullHistory(messages: { role: string; content: string }[]): string {
-  return messages
-    .map((m) => {
-      if (m.role === 'system') return `[System] ${m.content}`
-      if (m.role === 'assistant') return `[Assistant] ${m.content}`
-      if (m.role === 'tool') return `[Tool Result] ${m.content}`
-      return m.content
+// ─── Prompt Builder (mirrors deepsproxy/src/routes/chat.ts) ──────────────────
+
+function buildPrompt(
+  messages: ChatMessage[],
+  tools: ToolDef[],
+): { systemPrompt: string; prompt: string } {
+  let systemPrompt = ''
+  let prompt = ''
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]!
+    const contentStr = extractContent(msg)
+
+    if (msg.role === 'system') {
+      systemPrompt += contentStr + '\n\n'
+    } else if (msg.role === 'user') {
+      prompt += `User: ${contentStr}\n\n`
+    } else if (msg.role === 'assistant') {
+      let assistantContent = contentStr
+      // Include tool calls in assistant turn if present
+      const msgAny = msg as any
+      if (msgAny.tool_calls && Array.isArray(msgAny.tool_calls)) {
+        for (const tc of msgAny.tool_calls) {
+          let args = tc.function?.arguments || '{}'
+          if (typeof args !== 'string') args = JSON.stringify(args)
+          assistantContent += `\n<tool_call>{"name": "${tc.function?.name}", "arguments": ${args}}</tool_call>`
+        }
+      }
+      prompt += `Assistant: ${assistantContent.trim()}\n\n`
+    } else if (msg.role === 'tool') {
+      prompt += `Tool Response (${(msg as any).name || 'tool'}): ${contentStr}\n\n`
+    }
+  }
+
+  // Inject tools into system prompt
+  if (tools.length > 0) {
+    const formattedTools = tools.map((t: any) => {
+      if (t.type === 'function') {
+        return {
+          name: t.function.name,
+          description: t.function.description || '',
+          parameters: t.function.parameters,
+        }
+      }
+      return { name: t.name, description: t.description || '', parameters: t.input_schema }
     })
-    .join('\n\n')
+
+    const toolsJson = JSON.stringify(formattedTools, null, 2)
+    systemPrompt += `\n\n# TOOLS AVAILABLE\nYou have access to the following tools:\n${toolsJson}\n\nTo use a tool, you MUST output a JSON object wrapped EXACTLY in these tags:\n<tool_call>\n{"name": "tool_name", "arguments": {"param_name": "value"}}\n</tool_call>\n\nRULES:\n1. You can call multiple tools by outputting multiple <tool_call> blocks consecutively.\n2. Do NOT output any other text after your <tool_call> blocks. Wait for the user to provide the tool response.\n3. The JSON must be valid and accurately follow the tool's parameters.\n\n`
+
+    const toolChoiceAny = (messages as any).tool_choice
+    if (toolChoiceAny && typeof toolChoiceAny === 'object' && toolChoiceAny.function) {
+      systemPrompt += `CRITICAL: You MUST call the tool "${toolChoiceAny.function.name}" in this response.\n\n`
+    }
+  }
+
+  return { systemPrompt, prompt }
+}
+
+function extractContent(msg: ChatMessage): string {
+  const content = (msg as any).content
+  if (Array.isArray(content)) {
+    return content.map((c: any) => c.text || JSON.stringify(c)).join('\n')
+  }
+  if (typeof content === 'object' && content !== null) {
+    return JSON.stringify(content)
+  }
+  return content || ''
+}
+
+// ─── SSE Chunk Parsing ────────────────────────────────────────────────────────
+
+type DeepSeekChunk = {
+  p?: string
+  v?: unknown
+  response_message_id?: number
+  message_id?: number
+}
+
+function extractMessageId(chunk: DeepSeekChunk): number | null {
+  if (typeof chunk.response_message_id === 'number') return chunk.response_message_id
+  if (typeof chunk.message_id === 'number') return chunk.message_id
+
+  const value = chunk.v
+  if (value && typeof value === 'object') {
+    const obj = value as { message_id?: unknown; response?: { message_id?: unknown } }
+    if (typeof obj.response?.message_id === 'number') return obj.response.message_id
+    if (typeof obj.message_id === 'number') return obj.message_id
+  }
+
+  return null
+}
+
+function extractDeepSeekText(
+  chunk: DeepSeekChunk,
+  previousAppendPath: string,
+  previousFragmentType: string,
+): { text: string; isThinking: boolean; appendPath: string; fragmentType: string } {
+  let appendPath = previousAppendPath
+  let fragmentType = previousFragmentType
+  let text = ''
+
+  if (typeof chunk.p === 'string') {
+    appendPath = chunk.p
+  }
+
+  if (chunk.p === 'response/fragments' && Array.isArray(chunk.v)) {
+    const lastFrag = chunk.v[chunk.v.length - 1] as { type?: unknown } | undefined
+    if (typeof lastFrag?.type === 'string') fragmentType = lastFrag.type
+  }
+
+  if (typeof chunk.v === 'string') {
+    text = chunk.v
+  } else if (chunk.v && typeof chunk.v === 'object') {
+    const value = chunk.v as {
+      response?: { fragments?: Array<{ content?: unknown; type?: unknown }> }
+      content?: unknown
+      type?: unknown
+    }
+
+    const responseFragment = value.response?.fragments?.[0]
+    if (typeof responseFragment?.content === 'string') {
+      text = responseFragment.content
+      fragmentType = typeof responseFragment.type === 'string' ? responseFragment.type : fragmentType
+      appendPath = fragmentType === 'THINK' ? 'response/thinking_content' : 'response/content'
+    } else if (Array.isArray(chunk.v)) {
+      const first = chunk.v[0] as { content?: unknown; type?: unknown } | undefined
+      if (typeof first?.content === 'string') {
+        text = first.content
+        fragmentType = typeof first.type === 'string' ? first.type : fragmentType
+        appendPath = fragmentType === 'THINK' ? 'response/thinking_content' : 'response/content'
+      }
+    }
+  }
+
+  const isThinking =
+    appendPath.includes('thinking_content') ||
+    appendPath.includes('THINK') ||
+    (appendPath.includes('fragments/-1/content') && fragmentType === 'THINK')
+
+  return { text, isThinking, appendPath, fragmentType }
+}
+
+// ─── AI Disclaimer Stripper ───────────────────────────────────────────────────
+
+const AI_DISCLAIMER_PATTERNS = [
+  /\n*\*?\s*Esta resposta é gerada por IA[^]*$/i,
+  /\n*\*?\s*This response is generated by AI[^]*$/i,
+  /\n*\*?\s*Gerado por IA[^]*$/i,
+  /\n*\*?\s*Generated by AI[^]*$/i,
+  /\n*---\s*\n\*?Esta resposta[^]*$/i,
+]
+
+function stripAiDisclaimer(text: string): string {
+  for (const pattern of AI_DISCLAIMER_PATTERNS) {
+    const match = text.match(pattern)
+    if (match && match.index !== undefined) {
+      return text.slice(0, match.index).trimEnd()
+    }
+  }
+  return text
 }

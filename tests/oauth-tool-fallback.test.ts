@@ -1,7 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test'
 import { Agent } from '../src/agent/agent.js'
 import type { AgentCallbacks } from '../src/agent/agent.js'
-import { parseToolResponse } from '../src/agent/providers/proxy/services/tool-emulation.js'
+import { parseToolResponse } from '../src/agent/providers/proxy/tools/prompt-emulation.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers (mesmo padrão de streaming.test.ts)
