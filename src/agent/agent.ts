@@ -1012,31 +1012,12 @@ export class Agent {
   private sanitizeMessagesForApi(
     messages: ChatCompletionMessageParam[]
   ): ChatCompletionMessageParam[] {
-    // OAuth proxy uses tool_use JSON flow (not native tool calling).
-    // DeepSeek API expects plain chat roles and does not accept role:'tool'.
-    const usesJsonToolUse = this.provider === 'oauth'
-    if (!usesJsonToolUse) {
-      // Preserve full native tool-calling payloads for providers that support it.
-      return messages
-    }
-
-    return messages.map((msg) => {
-      if (msg.role === 'tool') {
-        const toolMsg = msg as ChatCompletionMessageParam & { tool_call_id?: string }
-        return {
-          role: 'user' as const,
-          content: `[Tool Result: ${toolMsg.tool_call_id || 'unknown'}]\n${typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)}`,
-        }
-      }
-
-      if (msg.role === 'assistant' && 'tool_calls' in msg) {
-        const assistantMsg = msg as unknown as { role: 'assistant'; content?: unknown; name?: string; reasoning_content?: string; tool_calls?: unknown }
-        const { tool_calls: _toolCalls, ...rest } = assistantMsg
-        return rest as unknown as ChatCompletionMessageParam
-      }
-
-      return msg
-    })
+    // OAuth provider uses the orchestrator which converts everything to plain text
+    // via buildPrompt(). The orchestrator already handles role:'tool' (formats as
+    // "Tool Response (name): ...") and tool_calls on assistant messages (formats as
+    // <tool_call> blocks). No sanitization needed — the raw roles never reach the
+    // DeepSeek API directly; they are consumed as metadata by buildPrompt().
+    return messages
   }
 
   private async executeTool(name: string, args: Record<string, unknown>): Promise<string> {

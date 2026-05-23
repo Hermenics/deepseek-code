@@ -24,10 +24,39 @@ function buildTestHeaders(): DeepSeekHeaders {
   }
 }
 
+const CACHE_TTL_MS = 45_000
+
+let cachedHeaders: { headers: Record<string, string>; chatSessionId: string; timestamp: number } | null = null
+let pendingRequest: Promise<DeepSeekHeaders> | null = null
+
 export async function getDeepSeekHeaders(forceNew = false): Promise<DeepSeekHeaders> {
   // Test environment: return mock headers
   if (process.env.NODE_ENV === 'test') return buildTestHeaders()
 
+  // Return cached headers if still fresh (and not forcing new session)
+  if (!forceNew && cachedHeaders && (Date.now() - cachedHeaders.timestamp) < CACHE_TTL_MS) {
+    return {
+      headers: cachedHeaders.headers,
+      chatSessionId: cachedHeaders.chatSessionId,
+      parentMessageId: getSessionParent(cachedHeaders.chatSessionId),
+    }
+  }
+
+  // Mutex: if another request is already fetching headers, wait for it
+  if (pendingRequest) {
+    return pendingRequest
+  }
+
+  pendingRequest = fetchHeadersFromBrowser(forceNew)
+  try {
+    const result = await pendingRequest
+    return result
+  } finally {
+    pendingRequest = null
+  }
+}
+
+async function fetchHeadersFromBrowser(forceNew: boolean): Promise<DeepSeekHeaders> {
   const page = getActivePage()
   if (!page) {
     throw new Error('Playwright not initialized. Start the OAuth proxy before sending requests.')
@@ -86,6 +115,8 @@ export async function getDeepSeekHeaders(forceNew = false): Promise<DeepSeekHead
       // Abort to avoid polluting chat history
       await route.abort('aborted').catch(() => {})
       await page.unroute('**/api/v0/chat/completion', routeHandler).catch(() => {})
+
+      cachedHeaders = { headers, chatSessionId, timestamp: Date.now() }
 
       resolve({ headers, chatSessionId, parentMessageId })
     }

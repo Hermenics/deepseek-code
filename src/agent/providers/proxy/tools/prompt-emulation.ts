@@ -178,11 +178,22 @@ export function parseToolResponse(
 
 function validateToolCall(parsed: any): { name: string; arguments: Record<string, unknown> } | null {
   if (!parsed || typeof parsed !== 'object') return null
+
+  // Format 1: {"tool_use": {"name": "...", "arguments": {...}}}
   const toolUse = parsed.tool_use
-  if (!toolUse || typeof toolUse !== 'object' || Array.isArray(toolUse)) return null
-  if (typeof toolUse.name !== 'string' || toolUse.name.length === 0) return null
-  if (toolUse.arguments !== undefined && (typeof toolUse.arguments !== 'object' || toolUse.arguments === null || Array.isArray(toolUse.arguments))) return null
-  return { name: toolUse.name, arguments: toolUse.arguments || {} }
+  if (toolUse && typeof toolUse === 'object' && !Array.isArray(toolUse)) {
+    if (typeof toolUse.name !== 'string' || toolUse.name.length === 0) return null
+    if (toolUse.arguments !== undefined && (typeof toolUse.arguments !== 'object' || toolUse.arguments === null || Array.isArray(toolUse.arguments))) return null
+    return { name: toolUse.name, arguments: toolUse.arguments || {} }
+  }
+
+  // Format 2: {"name": "...", "arguments": {...}} (direct format from <tool_call> tags)
+  if (typeof parsed.name === 'string' && parsed.name.length > 0) {
+    if (parsed.arguments !== undefined && (typeof parsed.arguments !== 'object' || parsed.arguments === null || Array.isArray(parsed.arguments))) return null
+    return { name: parsed.name, arguments: parsed.arguments || {} }
+  }
+
+  return null
 }
 
 function extractBalancedJson(text: string): string | null {

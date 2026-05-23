@@ -12,6 +12,7 @@ export function parseRequest(body: any): ProxyRequest {
         ? m.content.map((b: any) => b.text || b.content || '').join('')
         : m.content === null ? '' : String(m.content),
     ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
+    ...(m.tool_calls ? { tool_calls: m.tool_calls } : {}),
   }))
 
   const tools: ToolDef[] = (body.tools || body.functions || []).map((t: any) => ({
