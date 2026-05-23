@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useKeyboard } from '@opentui/react'
-import type { KeyEvent } from '@opentui/core'
+import useInput from '../../ink/hooks/use-input.js'
+import type { Key } from '../../ink/events/input-event.js'
 import { execSync } from 'child_process'
 import { homedir } from 'os'
 import { join } from 'path'
@@ -10,6 +10,8 @@ import { readJson, writeRaw } from '../../utils/fs.js'
 import { saveFullConfig, loadFullConfig, migrateConfigIfNeeded, getOrCreateProxyApiKey } from '../../utils/credentials.js'
 import { WelcomeScreen } from '../layout/WelcomeScreen.js'
 import { installPlaywright, runOAuthLogin, OAUTH_STORAGE_PATH } from '../../agent/providers/oauth.js'
+import Box from '../../ink/components/Box.js'
+import Text from '../../ink/components/Text.js'
 
 const CONFIG_PATH = join(homedir(), '.deepseek', 'config.json')
 
@@ -170,36 +172,36 @@ export function ApiKeySetup({ onDone }: Props) {
     return () => { cancelled = true }
   }, [step])
 
-  useKeyboard((key: KeyEvent) => {
-    if (key.ctrl && key.name === 'c') process.exit(0)
+  useInput((input: string, key: Key) => {
+    if (key.ctrl && input === 'c') process.exit(0)
 
     if (step === 'theme') {
-      if (key.name === 'up') { setThemeIdx((i) => (i - 1 + THEMES.length) % THEMES.length); return }
-      if (key.name === 'down') { setThemeIdx((i) => (i + 1) % THEMES.length); return }
-      if (key.name === 'return') { setStep('provider'); return }
-      if (key.name === 'escape') process.exit(0)
+      if (key.upArrow) { setThemeIdx((i) => (i - 1 + THEMES.length) % THEMES.length); return }
+      if (key.downArrow) { setThemeIdx((i) => (i + 1) % THEMES.length); return }
+      if (key.return) { setStep('provider'); return }
+      if (key.escape) process.exit(0)
       return
     }
 
     if (step === 'provider') {
-      if (key.name === 'up') { setProviderIdx((i) => (i - 1 + PROVIDERS.length) % PROVIDERS.length); return }
-      if (key.name === 'down') { setProviderIdx((i) => (i + 1) % PROVIDERS.length); return }
-      if (key.name === 'return') {
+      if (key.upArrow) { setProviderIdx((i) => (i - 1 + PROVIDERS.length) % PROVIDERS.length); return }
+      if (key.downArrow) { setProviderIdx((i) => (i + 1) % PROVIDERS.length); return }
+      if (key.return) {
         if (selectedProvider === 'oauth') { setStep('oauth-setup'); return }
         setFieldIdx(0); setCurrentInput(''); setStep('fields')
         return
       }
-      if (key.name === 'escape') { setStep('theme'); return }
+      if (key.escape) { setStep('theme'); return }
       return
     }
 
     if (step === 'oauth-setup') {
-      if (key.name === 'escape' && error) { setError(''); setStep('provider') }
+      if (key.escape && error) { setError(''); setStep('provider') }
       return
     }
 
     if (step === 'fields') {
-      if (key.name === 'return') {
+      if (key.return) {
         const trimmed = currentInput.trim()
         if (!trimmed && !currentField!.optional) { setError(`${currentField!.label} cannot be empty.`); return }
         const updated = { ...fieldValues, [currentField!.key]: trimmed }
@@ -231,47 +233,47 @@ export function ApiKeySetup({ onDone }: Props) {
         }
         return
       }
-      if (key.name === 'backspace') { setCurrentInput((s) => s.slice(0, -1)); setError(''); return }
-      if (key.name === 'escape') {
+      if (key.backspace) { setCurrentInput((s) => s.slice(0, -1)); setError(''); return }
+      if (key.escape) {
         if (fieldIdx > 0) { setFieldIdx((i) => i - 1); setCurrentInput(fieldValues[fields[fieldIdx - 1]!.key] ?? ''); setError('') }
         else { setStep('provider'); setCurrentInput(''); setError('') }
         return
       }
       // Ctrl+Shift+V: paste from clipboard
-      if (key.ctrl && key.shift && key.name === 'v') {
+      if (key.ctrl && key.shift && input === 'v') {
         try {
           const text = execSync('xclip -selection clipboard -o 2>/dev/null || xsel --clipboard --output 2>/dev/null || wl-paste 2>/dev/null', { encoding: 'utf-8', timeout: 2000 }).trim()
           if (text) { setCurrentInput((s) => s + text); setError('') }
         } catch { /* clipboard not available */ }
         return
       }
-      if (!key.ctrl && !key.meta && key.raw && key.raw.length >= 1) { setCurrentInput((s) => s + key.raw); setError('') }
+      if (!key.ctrl && !key.meta && input && input.length >= 1) { setCurrentInput((s) => s + input); setError('') }
     }
   })
 
   if (step === 'done') {
-    return <box marginTop={1}><text fg="green">{'✓ Saved! Starting DeepSeek Code…'}</text></box>
+    return <Box marginTop={1}><Text color="green">{'✓ Saved! Starting DeepSeek Code…'}</Text></Box>
   }
 
   if (step === 'oauth-setup') {
     return (
-      <box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
+      <Box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
         <WelcomeScreen>
-          <box flexDirection="column" marginTop={1}>
+          <Box flexDirection="column" marginTop={1}>
             {error ? (
               <>
-                <text fg="red">{'✘ ' + error}</text>
-                <text fg="#888888">{'Press Esc to go back and try again.'}</text>
+                <Text color="red">{'✘ ' + error}</Text>
+                <Text color="#888888">{'Press Esc to go back and try again.'}</Text>
               </>
             ) : (
               <>
-                <text fg="cyan">{'⟳ ' + oauthStatus}</text>
-                <text fg="#888888">{'Please wait...'}</text>
+                <Text color="cyan">{'⟳ ' + oauthStatus}</Text>
+                <Text color="#888888">{'Please wait...'}</Text>
               </>
             )}
-          </box>
+          </Box>
         </WelcomeScreen>
-      </box>
+      </Box>
     )
   }
 
@@ -279,53 +281,53 @@ export function ApiKeySetup({ onDone }: Props) {
 
   if (step === 'theme') {
     content = (
-      <box flexDirection="column" marginTop={1}>
-        <text>Choose the text style that looks best with your terminal:</text>
-        <box flexDirection="column" marginTop={1}>
+      <Box flexDirection="column" marginTop={1}>
+        <Text>Choose the text style that looks best with your terminal:</Text>
+        <Box flexDirection="column" marginTop={1}>
           {THEMES.map((t, i) => (
-            <box key={t.value}>
-              <text fg={i === themeIdx ? 'cyan' : undefined}>{i === themeIdx ? '❯ ' : '  '}{t.label}</text>
-            </box>
+            <Box key={t.value}>
+              <Text color={i === themeIdx ? 'cyan' : undefined}>{i === themeIdx ? '❯ ' : '  '}{t.label}</Text>
+            </Box>
           ))}
-        </box>
-        <text fg="#888888">{'↑↓ navigate · Enter select · Esc exit'}</text>
-      </box>
+        </Box>
+        <Text color="#888888">{'↑↓ navigate · Enter select · Esc exit'}</Text>
+      </Box>
     )
   } else if (step === 'provider') {
     content = (
-      <box flexDirection="column" marginTop={1}>
-        <text>Choose your AI provider:</text>
-        <box flexDirection="column" marginTop={1}>
+      <Box flexDirection="column" marginTop={1}>
+        <Text>Choose your AI provider:</Text>
+        <Box flexDirection="column" marginTop={1}>
           {PROVIDERS.map((p, i) => (
-            <box key={p.value} flexDirection="row" gap={2}>
-              <text fg={i === providerIdx ? 'cyan' : undefined}>{i === providerIdx ? '❯ ' : '  '}{p.label}</text>
-              <text fg="#888888">{p.hint}</text>
-            </box>
+            <Box key={p.value} flexDirection="row" gap={2}>
+              <Text color={i === providerIdx ? 'cyan' : undefined}>{i === providerIdx ? '❯ ' : '  '}{p.label}</Text>
+              <Text color="#888888">{p.hint}</Text>
+            </Box>
           ))}
-        </box>
-        <text fg="#888888">{'↑↓ navigate · Enter select · Esc back'}</text>
-      </box>
+        </Box>
+        <Text color="#888888">{'↑↓ navigate · Enter select · Esc back'}</Text>
+      </Box>
     )
   } else if (step === 'fields') {
     const progress = `(${fieldIdx + 1}/${fields.length})`
     content = (
-      <box flexDirection="column" marginTop={1}>
-        <text>{PROVIDERS[providerIdx]!.label + ' setup ' + progress}</text>
-        <text>{currentField!.label}</text>
-        {currentField!.hint ? <text fg="#888888">{currentField!.hint}</text> : null}
-        <box marginTop={1}>
-          <text fg="cyan">{'> '}</text>
-          <text>{currentField!.secret ? '•'.repeat(currentInput.length) || '…' : currentInput || '…'}</text>
-          <text fg="cyan">{'█'}</text>
-        </box>
-        {error ? <text fg="red">{error}</text> : <text fg="#888888">{'Enter to confirm · Esc back'}</text>}
-      </box>
+      <Box flexDirection="column" marginTop={1}>
+        <Text>{PROVIDERS[providerIdx]!.label + ' setup ' + progress}</Text>
+        <Text>{currentField!.label}</Text>
+        {currentField!.hint ? <Text color="#888888">{currentField!.hint}</Text> : null}
+        <Box marginTop={1}>
+          <Text color="cyan">{'> '}</Text>
+          <Text>{currentField!.secret ? '•'.repeat(currentInput.length) || '…' : currentInput || '…'}</Text>
+          <Text color="cyan">{'█'}</Text>
+        </Box>
+        {error ? <Text color="red">{error}</Text> : <Text color="#888888">{'Enter to confirm · Esc back'}</Text>}
+      </Box>
     )
   }
 
   return (
-    <box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
+    <Box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
       <WelcomeScreen>{content}</WelcomeScreen>
-    </box>
+    </Box>
   )
 }

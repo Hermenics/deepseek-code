@@ -1,6 +1,8 @@
 import { useState } from 'react'
-import { useKeyboard } from '@opentui/react'
-import type { KeyEvent } from '@opentui/core'
+import useInput from '../../ink/hooks/use-input.js'
+import type { Key } from '../../ink/events/input-event.js'
+import Box from '../../ink/components/Box.js'
+import Text from '../../ink/components/Text.js'
 
 const CONFIRMATIONS: Record<string, string> = {
   portuguese:  'Perfeito! Agora, por favor, execute novamente o comando que você usou para me iniciar!',
@@ -44,52 +46,52 @@ export function LanguageSetup({ onDone }: Props) {
   const [input, setInput] = useState('')
   const [confirmed, setConfirmed] = useState<string | null>(null)
 
-  useKeyboard((key: KeyEvent) => {
-    if (key.ctrl && key.name === 'c') process.exit(0)
+  useInput((input: string, key: Key) => {
+    if (key.ctrl && input === 'c') process.exit(0)
     if (confirmed) return
 
-    if (key.name === 'return') {
+    if (key.return) {
       const lang = input.trim()
       if (!lang) return
       setConfirmed(lang)
       onDone(lang)
       return
     }
-    if (key.name === 'backspace' || key.name === 'delete') { setInput((s) => s.slice(0, -1)); return }
-    if (!key.ctrl && !key.meta && key.raw && key.raw.length >= 1) setInput((s) => s + key.raw)
+    if (key.backspace || key.delete) { setInput((s) => s.slice(0, -1)); return }
+    if (!key.ctrl && !key.meta && input && input.length >= 1) setInput((s) => s + input)
   })
 
   if (confirmed) {
     return (
-      <box flexDirection="column" marginTop={1} paddingLeft={2} paddingRight={2}>
-        <box border borderStyle="rounded" borderColor="cyan" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1} flexDirection="column">
-          <text fg="cyan">◆ deepseek</text>
-          <box marginTop={1}>
-            <text>{getConfirmation(confirmed)}</text>
-          </box>
-        </box>
-      </box>
+      <Box flexDirection="column" marginTop={1} paddingLeft={2} paddingRight={2}>
+        <Box border borderStyle="rounded" borderColor="cyan" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1} flexDirection="column">
+          <Text color="cyan">◆ deepseek</Text>
+          <Box marginTop={1}>
+            <Text>{getConfirmation(confirmed)}</Text>
+          </Box>
+        </Box>
+      </Box>
     )
   }
 
   return (
-    <box flexDirection="column" marginTop={1} paddingLeft={2} paddingRight={2}>
-      <box border borderStyle="rounded" borderColor="cyan" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1} flexDirection="column">
-        <text fg="cyan">◆ deepseek</text>
-        <box marginTop={1}>
-          <text>{"Hello! I'm new here. Can I just know.... What language do you want me to talk with you?"}</text>
-        </box>
-      </box>
-      <box marginTop={1}>
-        <text fg="#888888">0%  </text>
-        <text fg="cyan">{'> '}</text>
-        <text>{input}</text>
-        <text fg="cyan">█</text>
-        {!input && <text fg="#888888"> write your main language</text>}
-      </box>
-      <box marginTop={1}>
-        <text fg="#888888">Enter to confirm · Ctrl+C to exit</text>
-      </box>
-    </box>
+    <Box flexDirection="column" marginTop={1} paddingLeft={2} paddingRight={2}>
+      <Box border borderStyle="rounded" borderColor="cyan" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1} flexDirection="column">
+        <Text color="cyan">◆ deepseek</Text>
+        <Box marginTop={1}>
+          <Text>{"Hello! I'm new here. Can I just know.... What language do you want me to talk with you?"}</Text>
+        </Box>
+      </Box>
+      <Box marginTop={1}>
+        <Text color="#888888">0%  </Text>
+        <Text color="cyan">{'> '}</Text>
+        <Text>{input}</Text>
+        <Text color="cyan">█</Text>
+        {!input && <Text color="#888888"> write your main language</Text>}
+      </Box>
+      <Box marginTop={1}>
+        <Text color="#888888">Enter to confirm · Ctrl+C to exit</Text>
+      </Box>
+    </Box>
   )
 }

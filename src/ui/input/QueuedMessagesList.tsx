@@ -1,3 +1,5 @@
+import Box from '../../ink/components/Box.js'
+import Text from '../../ink/components/Text.js'
 export const MAX_MSG_LEN = 60
 
 export function truncateMessage(msg: string): string {
@@ -19,13 +21,13 @@ export function QueuedMessagesList({ messages }: Props) {
   const items = buildQueueItems(messages)
 
   return (
-    <box flexDirection="column" paddingLeft={1}>
+    <Box flexDirection="column" paddingLeft={1}>
       {items.map((item, i) => (
-        <box key={i} flexDirection="row" gap={1}>
-          <text fg="cyan">{'⏎'}</text>
-          <text fg="#888888">{item.text}</text>
-        </box>
+        <Box key={i} flexDirection="row" gap={1}>
+          <Text color="cyan">{'⏎'}</Text>
+          <Text color="#888888">{item.text}</Text>
+        </Box>
       ))}
-    </box>
+    </Box>
   )
 }

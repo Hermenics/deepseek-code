@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import { execa } from 'execa'
 import type { Model } from '../../commands.js'
 import { MODE_COLORS, MODE_LABELS, type InteractionMode } from '../interactionMode.js'
+import Box from '../../ink/components/Box.js'
+import Text from '../../ink/components/Text.js'
 
 async function getGitBranch(): Promise<string> {
   try {
@@ -37,22 +39,22 @@ export function StatusBar({ tokenCount, model, activeAgent, provider, contextPct
   if (tokenCount === 0 && !branch) return null
 
   return (
-    <box flexDirection="column">
-      <box flexDirection="row" paddingLeft={2} paddingRight={2}>
-        {tokenCount > 0 && <text fg="#888888">{'• ' + tokenCount.toLocaleString() + ' tokens  '}</text>}
-        {branch && <text fg="#888888">{'→ ' + branch + '  '}</text>}
-        <text fg="#888888">{'◆ ' + model}</text>
+    <Box flexDirection="column">
+      <Box flexDirection="row" paddingLeft={2} paddingRight={2}>
+        {tokenCount > 0 && <Text color="#888888">{'• ' + tokenCount.toLocaleString() + ' tokens  '}</Text>}
+        {branch && <Text color="#888888">{'→ ' + branch + '  '}</Text>}
+        <Text color="#888888">{'◆ ' + model}</Text>
         {contextPct > 0 && (
           <>
-            <text fg="#888888">{'  │ ctx '}</text>
-            <text fg={contextPct >= 90 ? 'red' : contextPct >= 70 ? 'yellow' : 'cyan'}>
+            <Text color="#888888">{'  │ ctx '}</Text>
+            <Text color={contextPct >= 90 ? 'red' : contextPct >= 70 ? 'yellow' : 'cyan'}>
               {contextPct + '%'}
-            </text>
+            </Text>
           </>
         )}
-        <text fg="#888888">{'  │ '}</text>
-        <text fg={MODE_COLORS[interactionMode]}>{MODE_LABELS[interactionMode]}</text>
-      </box>
-    </box>
+        <Text color="#888888">{'  │ '}</Text>
+        <Text color={MODE_COLORS[interactionMode]}>{MODE_LABELS[interactionMode]}</Text>
+      </Box>
+    </Box>
   )
 }

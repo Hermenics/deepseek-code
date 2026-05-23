@@ -1,7 +1,9 @@
 import { useMemo } from 'react'
-import { SyntaxStyle, RGBA } from '@opentui/core'
+
 import type { ThemeName } from '../setup/ApiKeySetup.js'
 import { DIFF_MAX_LINES } from '../../constants.js'
+import Box from '../../ink/components/Box.js'
+import Text from '../../ink/components/Text.js'
 
 interface DiffLine { type: 'added' | 'removed' | 'context'; text: string; lineNo: number }
 
@@ -34,32 +36,33 @@ export function DiffView({ path, added, removed, firstChanged, lines, theme }: P
   }, [lines])
 
   return (
-    <box flexDirection="column">
-      <box flexDirection="row" gap={1}>
-        <text fg="green">{'●'}</text>
-        <text>{'Write '}</text>
-        <text fg="cyan">{path}</text>
-      </box>
-      <box marginLeft={2}>
-        <text fg={c.addedSign}>{'✓ ' + added + (added === 1 ? ' line' : ' lines')}</text>
-        <text fg="#888888">{'  '}</text>
-        <text fg={c.removedSign}>{'✘ ' + removed + (removed === 1 ? ' line' : ' lines')}</text>
-        <text fg="#888888">{' at L' + firstChanged + ' in ' + filename}</text>
-      </box>
-      <box flexDirection="column" marginLeft={2} marginTop={1}>
-        <diff
-          diff={diffText}
-          view="unified"
-          showLineNumbers
-          addedBg={c.addedBg}
-          removedBg={c.removedBg}
-          addedSignColor={c.addedSign}
-          removedSignColor={c.removedSign}
-          syntaxStyle={SyntaxStyle.fromStyles({
-            default: { fg: RGBA.fromHex('#a6accd') },
-          })}
-        />
-      </box>
-    </box>
+    <Box flexDirection="column">
+      <Box flexDirection="row" gap={1}>
+        <Text color="green">{'●'}</Text>
+        <Text>{'Write '}</Text>
+        <Text color="cyan">{path}</Text>
+      </Box>
+      <Box marginLeft={2}>
+        <Text color={c.addedSign}>{'✓ ' + added + (added === 1 ? ' line' : ' lines')}</Text>
+        <Text color="#888888">{'  '}</Text>
+        <Text color={c.removedSign}>{'✘ ' + removed + (removed === 1 ? ' line' : ' lines')}</Text>
+        <Text color="#888888">{' at L' + firstChanged + ' in ' + filename}</Text>
+      </Box>
+      <Box flexDirection="column" marginLeft={2} marginTop={1}>
+        {diffText.split('\n').map((line, i) => {
+          const isAdd = line.startsWith('+')
+          const isDel = line.startsWith('-')
+          return (
+            <Text
+              key={i}
+              backgroundColor={isAdd ? c.addedBg : isDel ? c.removedBg : undefined}
+              color={isAdd ? c.addedSign : isDel ? c.removedSign : '#a6accd'}
+            >
+              {line}
+            </Text>
+          )
+        })}
+      </Box>
+    </Box>
   )
 }

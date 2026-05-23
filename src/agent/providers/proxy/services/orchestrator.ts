@@ -3,11 +3,9 @@ import type { ProxyConfig } from '../types/index.js'
 import { PagePool } from '../browser/pool.js'
 import { createDeepSeekStream } from './deepseek-api.js'
 import { filterMessages } from './message-filter.js'
-import { parseToolResponse, type ToolDef } from '../tools/prompt-emulation.js'
-import { executeToolCalls, type ParsedToolCall } from '../tools/executor.js'
+import { type ToolDef } from '../tools/prompt-emulation.js'
 import { updateSessionParent } from '../browser/headers.js'
 
-const MAX_TOOL_TURNS = 5
 
 export async function* orchestrate(
   request: ProxyRequest,
@@ -20,128 +18,88 @@ export async function* orchestrate(
 
     const filteredMessages = filterMessages(request.messages)
 
-    for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
-      const { systemPrompt, prompt } = buildPrompt(filteredMessages, tools)
-      const finalPrompt = systemPrompt ? `${systemPrompt}\n${prompt}` : prompt
+    const { systemPrompt, prompt } = buildPrompt(filteredMessages, tools)
+    const finalPrompt = systemPrompt ? `${systemPrompt}\n${prompt}` : prompt
 
-      const isProModel = request.model.includes('pro')
+    const isProModel = request.model.includes('pro')
 
-      // New session if no assistant messages yet
-      const isNewSession = !filteredMessages.some((m) => m.role === 'assistant')
+    // New session if no assistant messages yet
+    const isNewSession = !filteredMessages.some((m) => m.role === 'assistant')
 
-      const { stream, chatSessionId } = await createDeepSeekStream({
-        prompt: finalPrompt,
-        enableThinking: true,
-        isProModel,
-        forcedParentId: isNewSession ? null : undefined,
-      })
+    const { stream, chatSessionId } = await createDeepSeekStream({
+      prompt: finalPrompt,
+      enableThinking: true,
+      isProModel,
+      forcedParentId: isNewSession ? null : undefined,
+    })
 
-      const reader = stream.getReader()
-      const decoder = new TextDecoder()
+    const reader = stream.getReader()
+    const decoder = new TextDecoder()
 
-      let sseBuffer = ''
-      let assistantText = ''
-      let finished = false
-      let currentAppendPath = ''
-      let currentFragmentType = ''
-      // Buffer to hold trailing tokens so we can strip DeepSeek's AI disclaimer
-      let trailingBuffer = ''
-      const TRAILING_HOLD = 200 // chars to hold back before flushing
+    let sseBuffer = ''
+    let finished = false
+    let currentAppendPath = ''
+    let currentFragmentType = ''
+    // Buffer to hold trailing tokens so we can strip DeepSeek's AI disclaimer
+    let trailingBuffer = ''
+    const TRAILING_HOLD = 200 // chars to hold back before flushing
 
-      while (!finished) {
-        const { done, value } = await reader.read()
-        if (done) break
+    while (!finished) {
+      const { done, value } = await reader.read()
+      if (done) break
 
-        sseBuffer += decoder.decode(value, { stream: true })
-        const lines = sseBuffer.split('\n')
-        sseBuffer = lines.pop() || ''
+      sseBuffer += decoder.decode(value, { stream: true })
+      const lines = sseBuffer.split('\n')
+      sseBuffer = lines.pop() || ''
 
-        for (const line of lines) {
-          const trimmed = line.trim()
-          if (!trimmed || !trimmed.startsWith('data: ')) continue
+      for (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed || !trimmed.startsWith('data: ')) continue
 
-          const data = trimmed.slice(6)
-          if (data === '[DONE]') {
-            finished = true
-            break
-          }
+        const data = trimmed.slice(6)
+        if (data === '[DONE]') {
+          finished = true
+          break
+        }
 
-          try {
-            const chunk = JSON.parse(data) as DeepSeekChunk
-            const messageId = extractMessageId(chunk)
-            if (messageId) updateSessionParent(chatSessionId, messageId)
+        try {
+          const chunk = JSON.parse(data) as DeepSeekChunk
+          const messageId = extractMessageId(chunk)
+          if (messageId) updateSessionParent(chatSessionId, messageId)
 
-            const extracted = extractDeepSeekText(chunk, currentAppendPath, currentFragmentType)
-            currentAppendPath = extracted.appendPath
-            currentFragmentType = extracted.fragmentType
+          const extracted = extractDeepSeekText(chunk, currentAppendPath, currentFragmentType)
+          currentAppendPath = extracted.appendPath
+          currentFragmentType = extracted.fragmentType
 
-            if (!extracted.text || extracted.text === 'FINISHED') continue
+          if (!extracted.text || extracted.text === 'FINISHED') continue
 
-            if (extracted.isThinking) {
-              yield { token: '', thinking: extracted.text, done: false }
-            } else {
-              trailingBuffer += extracted.text
-              assistantText += extracted.text
+          if (extracted.isThinking) {
+            yield { token: '', thinking: extracted.text, done: false }
+          } else {
+            trailingBuffer += extracted.text
 
-              // Flush everything except the last TRAILING_HOLD chars
-              if (trailingBuffer.length > TRAILING_HOLD) {
-                const flushUpTo = trailingBuffer.length - TRAILING_HOLD
-                const toFlush = trailingBuffer.slice(0, flushUpTo)
-                trailingBuffer = trailingBuffer.slice(flushUpTo)
-                yield { token: toFlush, done: false }
-              }
+            // Flush everything except the last TRAILING_HOLD chars
+            if (trailingBuffer.length > TRAILING_HOLD) {
+              const flushUpTo = trailingBuffer.length - TRAILING_HOLD
+              const toFlush = trailingBuffer.slice(0, flushUpTo)
+              trailingBuffer = trailingBuffer.slice(flushUpTo)
+              yield { token: toFlush, done: false }
             }
-          } catch {
-            // ignore malformed partial chunks
           }
+        } catch {
+          // ignore malformed partial chunks
         }
       }
-
-      // Flush remaining buffer, stripping any AI disclaimer suffix
-      if (trailingBuffer) {
-        const cleaned = stripAiDisclaimer(trailingBuffer)
-        // Also strip from assistantText for tool call detection
-        if (cleaned.length < assistantText.length) {
-          assistantText = assistantText.slice(0, assistantText.length - (trailingBuffer.length - cleaned.length))
-        }
-        if (cleaned) yield { token: cleaned, done: false }
-      }
-
-      // Check for tool call in response
-      if (tools.length > 0) {
-        const allowedTools = new Set(tools.map((t) => t.name))
-        const parsed = parseToolResponse(assistantText, allowedTools)
-
-        if (parsed) {
-          const toolCalls: ParsedToolCall[] = [{
-            id: parsed.id,
-            name: parsed.name,
-            arguments: parsed.arguments,
-          }]
-
-          const toolResults = await executeToolCalls(toolCalls)
-
-          // Add assistant message and tool results to history
-          filteredMessages.push({ role: 'assistant', content: assistantText })
-          for (const result of toolResults) {
-            filteredMessages.push({
-              role: 'tool',
-              content: result.result,
-              tool_call_id: result.toolCallId,
-            })
-          }
-
-          // Continue loop for next turn
-          continue
-        }
-      }
-
-      // No tool call — we're done
-      yield { token: '', done: true }
-      return
     }
 
-    yield { token: '', done: true, error: 'Max tool-call iterations reached' }
+    // Flush remaining buffer, stripping any AI disclaimer suffix
+    if (trailingBuffer) {
+      const cleaned = stripAiDisclaimer(trailingBuffer)
+      if (cleaned) yield { token: cleaned, done: false }
+    }
+
+    yield { token: '', done: true }
+    return
   } catch (error: unknown) {
     yield {
       token: '',

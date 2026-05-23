@@ -64,7 +64,7 @@ export async function startProxyServer(): Promise<void> {
   }, 404))
 
   try {
-    execSync(`lsof -ti:${config.port} | xargs -r kill -9`, { stdio: 'ignore' })
+    execSync(`lsof -ti:${config.port} | grep -v "^${process.pid}$" | xargs -r kill -9`, { stdio: 'ignore' })
     await new Promise((r) => setTimeout(r, 500))
   } catch {}
 

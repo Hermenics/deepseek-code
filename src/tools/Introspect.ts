@@ -150,7 +150,7 @@ Create \`.deepseek/mcp.json\` in the project directory:
     },
     "my-api": {
       "transport": "http",
-      "url": "http://localhost:3000/mcp"
+      "url": "http://localhost:29483/mcp"
     }
   }
 }

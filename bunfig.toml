@@ -3,3 +3,9 @@ peer = false
 
 [bundle.alias]
 "react-devtools-core" = "./src/stubs/react-devtools-core.ts"
+
+[resolve.alias]
+"src/utils/debug.js" = "./src/utils/debug.ts"
+"src/utils/log.js" = "./src/utils/log.ts"
+"src/bootstrap/state.js" = "./src/bootstrap/state.ts"
+"src/native-ts/yoga-layout/index.js" = "./src/native-ts/yoga-layout/index.ts"

@@ -1,9 +1,12 @@
+import React from 'react'
 import type { Message } from '../App.js'
 import { DiffView } from './DiffView.js'
 import type { ThemeName } from '../setup/ApiKeySetup.js'
 import { TOOL_DISPLAY, TOOL_STYLE } from './toolDisplay.js'
 import { MarkdownText } from './MarkdownText.js'
 import pkg from '../../../package.json' with { type: 'json' }
+import Box from '../../ink/components/Box.js'
+import Text from '../../ink/components/Text.js'
 
 function formatToolLine(rawName: string, detail: string): { display: string; arg: string; output: string } {
   const display = TOOL_DISPLAY[rawName] ?? rawName
@@ -24,15 +27,15 @@ function formatToolLine(rawName: string, detail: string): { display: string; arg
   return { display, arg, output }
 }
 
-function MessageItem({ message: m, theme, agentLabel }: { message: Message; theme: ThemeName; agentLabel: string }) {
+function MessageItem({ message: m, theme, agentLabel }: { message: Message; theme: ThemeName; agentLabel: string; key?: React.Key }) {
   if (m.role === 'user') {
     return (
-      <box flexDirection="column" marginTop={1}>
-        <box flexDirection="row" gap={1}>
-          <text fg="cyan">{'❯'}</text>
-          <text>{m.content}</text>
-        </box>
-      </box>
+      <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="row" gap={1}>
+          <Text color="cyan">{'❯'}</Text>
+          <Text>{m.content}</Text>
+        </Box>
+      </Box>
     )
   }
   if (m.role === 'tool') {
@@ -49,12 +52,12 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
       const label = isDone ? m.content.slice('✓ subagent → '.length) : m.content.slice('⚙ subagent('.length, -1)
       const labelTrunc = label.length > 60 ? label.slice(0, 60) + '...' : label
       return (
-        <box flexDirection="row" paddingLeft={2} gap={1}>
-          <text fg={isDone ? 'green' : 'yellow'}>{'⎿ '}</text>
-          <text fg={isDone ? '#888888' : 'yellow'}>
+        <Box flexDirection="row" paddingLeft={2} gap={1}>
+          <Text color={isDone ? 'green' : 'yellow'}>{'⎿ '}</Text>
+          <Text color={isDone ? '#888888' : 'yellow'}>
             {labelTrunc || 'Agent'}{!isDone ? ' working...' : ''}
-          </text>
-        </box>
+          </Text>
+        </Box>
       )
     }
     const raw = m.content.slice(2)
@@ -68,63 +71,63 @@ function MessageItem({ message: m, theme, agentLabel }: { message: Message; them
     const hasMore = outputLines.length > MAX_OUTPUT_LINES
     const style = TOOL_STYLE[display] || { icon: '▸', color: '#888888' }
     return (
-      <box flexDirection="column" paddingLeft={2}>
-        <box flexDirection="row" gap={1}>
-          <text fg={style.color}>{style.icon}</text>
-          <text fg={style.color}>{display}</text>
-          {arg ? <text fg="#666666">{arg}</text> : null}
-        </box>
+      <Box flexDirection="column" paddingLeft={2}>
+        <Box flexDirection="row" gap={1}>
+          <Text color={style.color}>{style.icon}</Text>
+          <Text color={style.color}>{display}</Text>
+          {arg ? <Text color="#666666">{arg}</Text> : null}
+        </Box>
         {trimmed.map((line, i) => (
-          <box key={i} paddingLeft={3}>
-            <text fg="#555555">{line}</text>
-          </box>
+          <Box key={i} paddingLeft={3}>
+            <Text color="#555555">{line}</Text>
+          </Box>
         ))}
         {hasMore && (
-          <box paddingLeft={3}>
-            <text fg="#555555">{'… ' + (outputLines.length - MAX_OUTPUT_LINES) + ' more lines'}</text>
-          </box>
+          <Box paddingLeft={3}>
+            <Text color="#555555">{'… ' + (outputLines.length - MAX_OUTPUT_LINES) + ' more lines'}</Text>
+          </Box>
         )}
-      </box>
+      </Box>
     )
   }
   if (m.role === 'terminal') {
     return (
-      <box flexDirection="column" marginTop={1}>
-        <box flexDirection="row" gap={1}>
-          <text fg="magenta">{'$'}</text>
-          <text fg="#aa55aa">terminal</text>
-        </box>
-        <box marginLeft={2}>
-          <text>{m.content}</text>
-        </box>
-      </box>
+      <Box flexDirection="column" marginTop={1}>
+        <Box flexDirection="row" gap={1}>
+          <Text color="magenta">{'$'}</Text>
+          <Text color="#aa55aa">terminal</Text>
+        </Box>
+        <Box marginLeft={2}>
+          <Text>{m.content}</Text>
+        </Box>
+      </Box>
     )
   }
   if (m.role === 'thinking') {
     return (
-      <box flexDirection="column" marginTop={1} marginLeft={2}>
-        <box flexDirection="row" gap={1}>
-          <text fg="#666666">{'◌'}</text>
-          <text fg="#666666"><i>{'Thinking'}</i></text>
-        </box>
-        <box marginLeft={1} paddingLeft={1} paddingRight={1} paddingTop={1} paddingBottom={1} backgroundColor="#111118">
-          <box flexShrink={1}>
+      <Box flexDirection="column" marginTop={1} marginLeft={2}>
+        <Box flexDirection="row" gap={1}>
+          <Text color="#666666">{'◌'}</Text>
+          <Text color="#666666" italic>{'Thinking'}</Text>
+        </Box>
+        <Box marginLeft={1} paddingLeft={1} paddingRight={1} paddingTop={1} paddingBottom={1} backgroundColor="#111118">
+          <Box flexShrink={1}>
             <MarkdownText content={m.content} dimmed />
-          </box>
-        </box>
-      </box>
+          </Box>
+        </Box>
+      </Box>
     )
   }
   // assistant
   return (
-    <box flexDirection="column" marginTop={1}>
-      <box flexDirection="row" gap={1}>
-        <text fg="white">{'●'}</text>
-        <box flexDirection="column" flexShrink={1}>
+    <Box flexDirection="column" marginTop={1}>
+      <Box flexDirection="row" gap={1}>
+        <Text color="white">{'●'}</Text>
+        <Box flexDirection="column" flexShrink={1}>
           <MarkdownText content={m.content} />
-        </box>
-      </box>
-    </box>
+        </Box>
+      </Box>
+    </Box>
   )
 }
 
@@ -134,43 +137,43 @@ function Header({ provider, agentName }: { provider: string; agentName: string |
 
   if (isNarrow) {
     return (
-      <box flexDirection="column" marginLeft={1} marginTop={1}>
-        <box flexDirection="row" gap={1}>
-          <text fg="cyan">{'◆ DeepSeek Code'}</text>
-          <text fg="#888888">{'v' + pkg.version}</text>
-        </box>
-        {agentName && <text fg="cyan">{'[' + agentName + ']'}</text>}
-        <text fg="#888888">{'/help  ·  /quit to exit'}</text>
-      </box>
+      <Box flexDirection="column" marginLeft={1} marginTop={1}>
+        <Box flexDirection="row" gap={1}>
+          <Text color="cyan">{'◆ DeepSeek Code'}</Text>
+          <Text color="#888888">{'v' + pkg.version}</Text>
+        </Box>
+        {agentName && <Text color="cyan">{'[' + agentName + ']'}</Text>}
+        <Text color="#888888">{'/help  ·  /quit to exit'}</Text>
+      </Box>
     )
   }
 
   return (
-    <box flexDirection="row" gap={2} marginLeft={1} marginTop={1}>
-      <box flexDirection="column">
-        <text fg="cyan">{'  ▄▄███▄▄'}</text>
-        <text fg="cyan">{' ▄█ ◉    ██▄'}</text>
-        <text fg="cyan">{'█          ~~█'}</text>
-        <text fg="cyan">{' ▀▄▄█▄▄▄▄█▀'}</text>
-      </box>
-      <box flexDirection="column">
-        <box flexDirection="row" gap={1}>
-          <text fg="cyan">{'◆ DeepSeek Code'}</text>
-          <text fg="#888888">{'v' + pkg.version}</text>
-          <text fg="#888888">{'·'}</text>
-          <text fg="#888888">{provider}</text>
+    <Box flexDirection="row" gap={2} marginLeft={1} marginTop={1}>
+      <Box flexDirection="column">
+        <Text color="cyan">{'  ▄▄███▄▄'}</Text>
+        <Text color="cyan">{' ▄█ ◉    ██▄'}</Text>
+        <Text color="cyan">{'█          ~~█'}</Text>
+        <Text color="cyan">{' ▀▄▄█▄▄▄▄█▀'}</Text>
+      </Box>
+      <Box flexDirection="column">
+        <Box flexDirection="row" gap={1}>
+          <Text color="cyan">{'◆ DeepSeek Code'}</Text>
+          <Text color="#888888">{'v' + pkg.version}</Text>
+          <Text color="#888888">{'·'}</Text>
+          <Text color="#888888">{provider}</Text>
           {agentName && <>
-            <text fg="#888888">{'·'}</text>
-            <text fg="cyan">{'[' + agentName + ']'}</text>
+            <Text color="#888888">{'·'}</Text>
+            <Text color="cyan">{'[' + agentName + ']'}</Text>
           </>}
-        </box>
-        <box flexDirection="row" gap={1}>
-          <text fg="#888888">cwd:</text>
-          <text fg="#5599ff">{process.cwd()}</text>
-        </box>
-        <text fg="#888888">{'/help for commands  ·  /quit to exit'}</text>
-      </box>
-    </box>
+        </Box>
+        <Box flexDirection="row" gap={1}>
+          <Text color="#888888">cwd:</Text>
+          <Text color="#5599ff">{process.cwd()}</Text>
+        </Box>
+        <Text color="#888888">{'/help for commands  ·  /quit to exit'}</Text>
+      </Box>
+    </Box>
   )
 }
 
@@ -187,46 +190,46 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
   const agentLabel = activeAgent ?? 'deepseek'
 
   return (
-    <box flexDirection="column" marginBottom={1}>
+    <Box flexDirection="column" marginBottom={1}>
       <Header provider={headerProvider ?? 'deepseek'} agentName={headerAgent ?? null} />
       {messages.map((message, index) => (
         <MessageItem key={`${message.role}-${index}`} message={message} theme={theme} agentLabel={agentLabel} />
       ))}
       {thinkingText ? (
-        <box flexDirection="column" marginTop={1} marginLeft={2}>
-          <box flexDirection="row" gap={1}>
-            <text fg="#666666">{'◌'}</text>
-            <text fg="#666666"><i>{'Thinking'}</i></text>
-          </box>
-          <box marginLeft={1} paddingLeft={1} paddingRight={1} paddingTop={1} paddingBottom={1} backgroundColor="#111118">
-            <box flexShrink={1}>
+        <Box flexDirection="column" marginTop={1} marginLeft={2}>
+          <Box flexDirection="row" gap={1}>
+            <Text color="#666666">{'◌'}</Text>
+            <Text color="#666666" italic>{'Thinking'}</Text>
+          </Box>
+          <Box marginLeft={1} paddingLeft={1} paddingRight={1} paddingTop={1} paddingBottom={1} backgroundColor="#111118">
+            <Box flexShrink={1}>
               <MarkdownText content={thinkingText} dimmed />
-            </box>
-          </box>
-        </box>
+            </Box>
+          </Box>
+        </Box>
       ) : null}
       {streamText ? (
-        <box flexDirection="column" marginTop={1}>
+        <Box flexDirection="column" marginTop={1}>
           {streamRole === 'terminal' ? (
             <>
-              <box flexDirection="row" gap={1}>
-                <text fg="magenta">{'$'}</text>
-                <text fg="#aa55aa">terminal</text>
-              </box>
-              <box marginLeft={2}>
-                <text>{streamText}</text>
-              </box>
+              <Box flexDirection="row" gap={1}>
+                <Text color="magenta">{'$'}</Text>
+                <Text color="#aa55aa">terminal</Text>
+              </Box>
+              <Box marginLeft={2}>
+                <Text>{streamText}</Text>
+              </Box>
             </>
           ) : (
-            <box flexDirection="row" gap={1}>
-              <text fg="white">{'●'}</text>
-              <box flexDirection="column" flexShrink={1}>
+            <Box flexDirection="row" gap={1}>
+              <Text color="white">{'●'}</Text>
+              <Box flexDirection="column" flexShrink={1}>
                 <MarkdownText content={streamText} streaming />
-              </box>
-            </box>
+              </Box>
+            </Box>
           )}
-        </box>
+        </Box>
       ) : null}
-    </box>
+    </Box>
   )
 }

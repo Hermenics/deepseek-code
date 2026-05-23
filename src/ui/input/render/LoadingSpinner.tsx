@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useClock } from '../../clock.js'
+import Box from '../../../ink/components/Box.js'
+import Text from '../../../ink/components/Text.js'
 
 const SPINNER = ['✻', '✼', '✽', '✾', '✿', '❀', '✿', '✾', '✽', '✽', '✼']
 
@@ -59,10 +61,10 @@ export function LoadingSpinner({ toolCallCount, phase }: LoadingSpinnerProps) {
   const msg = isRefining ? REFINING_MSGS[refineIdx % REFINING_MSGS.length] : LOADING_MSGS[msgIdx]
 
   return (
-    <box flexDirection="row" gap={1} paddingLeft={1}>
-      <text fg={isRefining ? 'magenta' : 'cyan'}>{SPINNER[tick % SPINNER.length]}</text>
-      <text fg="#888888">{msg}</text>
-      <text fg="#888888">{' ·  Ctrl+C to cancel'}</text>
-    </box>
+    <Box flexDirection="row" gap={1} paddingLeft={1}>
+      <Text color={isRefining ? 'magenta' : 'cyan'}>{SPINNER[tick % SPINNER.length]}</Text>
+      <Text color="#888888">{msg}</Text>
+      <Text color="#888888">{' ·  Ctrl+C to cancel'}</Text>
+    </Box>
   )
 }

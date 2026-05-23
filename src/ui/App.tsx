@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { useKeyboard } from '@opentui/react'
+import useInput from '../ink/hooks/use-input.js'
 import { execa } from 'execa'
-import type { KeyEvent } from '@opentui/core'
+import type { Key } from '../ink/events/input-event.js'
 import { Agent, type ToolPermissionResult } from '../agent/agent.js'
 import { MessageList } from './messages/MessageList.js'
 import { TodoPanel } from './messages/TodoPanel.js'
@@ -21,6 +21,8 @@ import { saveConfig } from './setup/ApiKeySetup.js'
 import { formatChatError } from '../utils/chatError.js'
 import { saveSession, type SessionData } from '../agent/session.js'
 import { DEFAULT_MODE, nextMode, isAutoAccept, type InteractionMode } from './interactionMode.js'
+import Box from '../ink/components/Box.js'
+import Text from '../ink/components/Text.js'
 
 export type AgentPhase = 'idle' | 'refining' | 'executing'
 
@@ -276,7 +278,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         onPhaseChange(phase) { setAgentPhase(phase) },
         onToken(token) { tokenBuffer += token },
         onThinking(text) {
-          mergeThinking(text)
+          thinkingAccum += text
           setThinkingText(thinkingAccum)
         },
         onToolCall(name, args) {
@@ -659,20 +661,20 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   handleSubmitRef.current = handleSubmit
 
   return (
-    <box flexDirection="column" width="100%" height="100%">
+    <Box flexDirection="column" width="100%" height="100%">
       {/* Messages area */}
-      <scrollbox flexGrow={1} stickyScroll stickyStart="bottom" viewportCulling={false} scrollbarOptions={{ visible: false }} focused={!showThemeSelector && !showModelSelector && !showLanguageInput && !confirmState && !toolPermissionState}>
-        <box flexDirection="column">
+      <Box flexGrow={1}>
+        <Box flexDirection="column">
           <MessageList messages={messages} streamText={streamText} thinkingText={thinkingText} streamRole={streamRole} theme={theme} activeAgent={activeAgent} headerProvider={headerProvider} headerAgent={headerAgent} />
           {toolStatus && <ToolUseDisplay tool={toolStatus} />}
           <TodoPanel />
           {isLoading && <LoadingSpinner toolCallCount={toolCallCount} phase={agentPhase} />}
           {queuedMessages.length > 0 && <QueuedMessagesList messages={queuedMessages} />}
-        </box>
-      </scrollbox>
+        </Box>
+      </Box>
 
       {/* Footer */}
-      <box flexDirection="column" flexShrink={0}>
+      <Box flexDirection="column" flexShrink={0}>
         {showThemeSelector ? (
           <ThemeSelector
             currentTheme={theme}
@@ -729,25 +731,25 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           />
         )}
         <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} />
-      </box>
-    </box>
+      </Box>
+    </Box>
   )
 }
 
 function ConfirmPrompt({ message, onConfirm }: { message: string; onConfirm: (yes: boolean) => void }) {
-  useKeyboard((key: KeyEvent) => {
-    if (key.ctrl && key.name === 'c') { onConfirm(false); return }
-    if (key.name === 'y') onConfirm(true)
-    else if (key.name === 'n' || key.name === 'escape') onConfirm(false)
+  useInput((input: string, key: Key) => {
+    if (key.ctrl && input === 'c') { onConfirm(false); return }
+    if (input === 'y') onConfirm(true)
+    else if (input === 'n' || key.escape) onConfirm(false)
   })
 
   return (
-    <box flexDirection="column" marginTop={1} marginBottom={1}>
-      <box border borderStyle="rounded" borderColor="yellow" paddingLeft={1} paddingRight={1}>
-        <text fg="yellow">{'⚠ ' + message}</text>
-      </box>
-      <text fg="#888888">{'  [y] confirm  [n/Esc] cancel'}</text>
-    </box>
+    <Box flexDirection="column" marginTop={1} marginBottom={1}>
+      <Box border borderStyle="rounded" borderColor="yellow" paddingLeft={1} paddingRight={1}>
+        <Text color="yellow">{'⚠ ' + message}</Text>
+      </Box>
+      <Text color="#888888">{'  [y] confirm  [n/Esc] cancel'}</Text>
+    </Box>
   )
 }
 
@@ -768,15 +770,15 @@ function ToolPermissionPrompt({
 }) {
   const [selected, setSelected] = useState(0)
 
-  useKeyboard((key: KeyEvent) => {
-    if (key.ctrl && key.name === 'c') { onDecide('deny'); return }
-    if (key.name === '1') { onDecide('once'); return }
-    if (key.name === '2') { onDecide('session'); return }
-    if (key.name === '3') { onDecide('deny'); return }
-    if (key.name === 'up') { setSelected((i) => (i - 1 + PERMISSION_OPTIONS.length) % PERMISSION_OPTIONS.length); return }
-    if (key.name === 'down') { setSelected((i) => (i + 1) % PERMISSION_OPTIONS.length); return }
-    if (key.name === 'return') { onDecide(PERMISSION_OPTIONS[selected]!.result); return }
-    if (key.name === 'escape') { onDecide('deny'); return }
+  useInput((input: string, key: Key) => {
+    if (key.ctrl && input === 'c') { onDecide('deny'); return }
+    if (input === '1') { onDecide('once'); return }
+    if (input === '2') { onDecide('session'); return }
+    if (input === '3') { onDecide('deny'); return }
+    if (key.upArrow) { setSelected((i) => (i - 1 + PERMISSION_OPTIONS.length) % PERMISSION_OPTIONS.length); return }
+    if (key.downArrow) { setSelected((i) => (i + 1) % PERMISSION_OPTIONS.length); return }
+    if (key.return) { onDecide(PERMISSION_OPTIONS[selected]!.result); return }
+    if (key.escape) { onDecide('deny'); return }
   })
 
   const argsPreview = JSON.stringify(args, null, 0)
@@ -784,33 +786,33 @@ function ToolPermissionPrompt({
   const preview = argsPreview.length > cols ? argsPreview.slice(0, cols) + '…' : argsPreview
 
   return (
-    <box flexDirection="column" marginTop={1} marginBottom={1}>
-      <box border borderStyle="rounded" borderColor="cyan" paddingLeft={2} paddingRight={2} flexDirection="column">
-        <text fg="cyan">{'◆ Tool permission'}</text>
-        <box marginTop={1} flexDirection="row" gap={1}>
-          <text fg="#888888">tool:</text>
-          <text fg="yellow">{toolName}</text>
-        </box>
-        <box flexDirection="row" gap={1}>
-          <text fg="#888888">args:</text>
-          <text fg="#888888">{preview}</text>
-        </box>
-      </box>
-      <box flexDirection="column" marginTop={1} marginLeft={2}>
+    <Box flexDirection="column" marginTop={1} marginBottom={1}>
+      <Box border borderStyle="rounded" borderColor="cyan" paddingLeft={2} paddingRight={2} flexDirection="column">
+        <Text color="cyan">{'◆ Tool permission'}</Text>
+        <Box marginTop={1} flexDirection="row" gap={1}>
+          <Text color="#888888">tool:</Text>
+          <Text color="yellow">{toolName}</Text>
+        </Box>
+        <Box flexDirection="row" gap={1}>
+          <Text color="#888888">args:</Text>
+          <Text color="#888888">{preview}</Text>
+        </Box>
+      </Box>
+      <Box flexDirection="column" marginTop={1} marginLeft={2}>
         {PERMISSION_OPTIONS.map((opt, i) => (
-          <box key={opt.key} flexDirection="row" gap={2}>
-            <text fg={i === selected ? 'cyan' : 'white'}>
+          <Box key={opt.key} flexDirection="row" gap={2}>
+            <Text color={i === selected ? 'cyan' : 'white'}>
               {i === selected ? '❯' : ' '} [{opt.key}]
-            </text>
-            <text fg={i === selected ? 'cyan' : '#888888'}>
+            </Text>
+            <Text color={i === selected ? 'cyan' : '#888888'}>
               {opt.label}
-            </text>
-          </box>
+            </Text>
+          </Box>
         ))}
-      </box>
-      <box marginLeft={2}>
-        <text fg="#888888">{'  ↑↓ navigate  ·  Enter confirm  ·  Esc deny  ·  [3] aborts agent'}</text>
-      </box>
-    </box>
+      </Box>
+      <Box marginLeft={2}>
+        <Text color="#888888">{'  ↑↓ navigate  ·  Enter confirm  ·  Esc deny  ·  [3] aborts agent'}</Text>
+      </Box>
+    </Box>
   )
 }

@@ -5,6 +5,7 @@ import { existsSync } from 'fs'
 import { initPlaywright, closePlaywright, getActivePage } from './proxy/browser/playwright.js'
 
 export const OAUTH_STORAGE_PATH = join(homedir(), '.deepseek', 'browser-profile')
+const PROXY_PORT = '29483'
 
 export function installPlaywright(): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -44,7 +45,7 @@ export async function runOAuthLogin(): Promise<void> {
 export async function startProxy(proxyApiKey: string): Promise<void> {
   process.env.STORAGE_STATE_PATH = OAUTH_STORAGE_PATH
   process.env.PROXY_API_KEY = proxyApiKey
-  process.env.PORT = '29483'
+  process.env.PORT = PROXY_PORT
   process.env.HOST = '127.0.0.1'
   process.env.LOG_LEVEL = 'debug'
 
@@ -56,7 +57,7 @@ export async function waitForProxy(timeout = 150000): Promise<boolean> {
   const deadline = Date.now() + timeout
   while (Date.now() < deadline) {
     try {
-      const res = await fetch('http://127.0.0.1:3000/health')
+      const res = await fetch(`http://127.0.0.1:${PROXY_PORT}/health`)
       if (res.ok) return true
     } catch {}
     await new Promise((r) => setTimeout(r, 500))

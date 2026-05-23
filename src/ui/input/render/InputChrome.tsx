@@ -1,4 +1,6 @@
 import { MODE_LABELS, MODE_COLORS, type InteractionMode } from '../../interactionMode.js'
+import Box from '../../../ink/components/Box.js'
+import Text from '../../../ink/components/Text.js'
 
 interface InputChromeProps {
   columns: number
@@ -34,25 +36,25 @@ export function InputChrome({
   const dashes = '─'.repeat(leftDashes)
 
   return (
-    <box flexDirection="column">
-      <box flexDirection="row">
-        <text fg="#888888">{dashes}</text>
-        <text fg={resolvedModeColor}>{resolvedModeLabel}</text>
-        {vimEnabled && <text fg={vimMode === 'normal' ? 'yellow' : '#888888'}>{vimLabel}</text>}
-        <text fg="#888888">{label + '────'}</text>
-      </box>
+    <Box flexDirection="column">
+      <Box flexDirection="row">
+        <Text color="#888888">{dashes}</Text>
+        <Text color={resolvedModeColor}>{resolvedModeLabel}</Text>
+        {vimEnabled && <Text color={vimMode === 'normal' ? 'yellow' : '#888888'}>{vimLabel}</Text>}
+        <Text color="#888888">{label + '────'}</Text>
+      </Box>
 
-      <box flexDirection="row">
+      <Box flexDirection="row">
         {contextPct > 0 && (() => {
           const color = contextPct >= 90 ? 'red' : contextPct >= 70 ? 'yellow' : 'cyan'
-          return <text fg={color}>{contextPct + '% '}</text>
+          return <Text color={color}>{contextPct + '% '}</Text>
         })()}
-        <text fg={hasExclamation ? 'magenta' : 'cyan'}>{hasExclamation ? '!' : '❯'}</text>
-        <text>{' '}</text>
+        <Text color={hasExclamation ? 'magenta' : 'cyan'}>{hasExclamation ? '!' : '❯'}</Text>
+        <Text>{' '}</Text>
         {children}
-      </box>
+      </Box>
 
-      <text fg="#888888">{'─'.repeat(columns - 8)}</text>
-    </box>
+      <Text color="#888888">{'─'.repeat(columns - 8)}</Text>
+    </Box>
   )
 }

@@ -1,23 +1,27 @@
 /**
- * Markdown renderer using native OpenTUI components for inline formatting.
- * Uses <b>, <i>, <span fg={color}> instead of ANSI escape codes to avoid
- * layout and wrapping issues.
+ * Markdown renderer using native Ink Text components for inline formatting.
+ * Uses <Text bold>, <Text italic>, <Text color={...}> instead of HTML elements.
  */
 
 import { Fragment } from 'react'
+import Box from '../../ink/components/Box.js'
+import Text from '../../ink/components/Text.js'
+import type { Color } from '../../ink/styles.js'
 
-const CODE_FG = '#c3e88d'
-const H1_FG = '#82aaff'
-const H2_FG = '#89ddff'
-const H3_FG = '#c792ea'
-const BULLET_FG = '#00cccc'
-const DIM_FG = '#888888'
-const RULE_FG = '#444444'
+const CODE_FG: Color = '#c3e88d'
+const H1_FG: Color = '#82aaff'
+const H2_FG: Color = '#89ddff'
+const H3_FG: Color = '#c792ea'
+const BULLET_FG: Color = '#00cccc'
+const DIM_FG: Color = '#888888'
+const RULE_FG: Color = '#444444'
+const THINKING_FG: Color = '#666666'
 
-function parseInline(line: string): React.ReactNode {
+function parseInline(line: string, key: string): React.ReactNode {
   const parts: React.ReactNode[] = []
   let i = 0
   let buf = ''
+  let partIdx = 0
 
   const flush = () => {
     if (buf) {
@@ -32,7 +36,11 @@ function parseInline(line: string): React.ReactNode {
       const end = line.indexOf('__**', i + 4)
       if (end !== -1) {
         flush()
-        parts.push(<b key={`bi-${i}`}><i>{line.slice(i + 4, end)}</i></b>)
+        parts.push(
+          <Text key={`${key}-bi-${partIdx++}`} bold italic>
+            {line.slice(i + 4, end)}
+          </Text>
+        )
         i = end + 4
         continue
       }
@@ -42,7 +50,11 @@ function parseInline(line: string): React.ReactNode {
       const end = line.indexOf('**', i + 2)
       if (end !== -1) {
         flush()
-        parts.push(<b key={`b-${i}`}>{line.slice(i + 2, end)}</b>)
+        parts.push(
+          <Text key={`${key}-b-${partIdx++}`} bold>
+            {line.slice(i + 2, end)}
+          </Text>
+        )
         i = end + 2
         continue
       }
@@ -52,7 +64,11 @@ function parseInline(line: string): React.ReactNode {
       const end = line.indexOf('__', i + 2)
       if (end !== -1) {
         flush()
-        parts.push(<i key={`i-${i}`}>{line.slice(i + 2, end)}</i>)
+        parts.push(
+          <Text key={`${key}-i-${partIdx++}`} italic>
+            {line.slice(i + 2, end)}
+          </Text>
+        )
         i = end + 2
         continue
       }
@@ -62,7 +78,11 @@ function parseInline(line: string): React.ReactNode {
       const end = line.indexOf('`', i + 1)
       if (end !== -1) {
         flush()
-        parts.push(<span key={`c-${i}`} fg={CODE_FG}>{line.slice(i + 1, end)}</span>)
+        parts.push(
+          <Text key={`${key}-c-${partIdx++}`} color={CODE_FG}>
+            {line.slice(i + 1, end)}
+          </Text>
+        )
         i = end + 1
         continue
       }
@@ -72,37 +92,38 @@ function parseInline(line: string): React.ReactNode {
   }
   flush()
 
+  if (parts.length === 0) return ''
   if (parts.length === 1) return parts[0]
-  return parts
+  return <>{parts}</>
 }
 
-const THINKING_FG = '#666666'
-
 function formatLine(line: string, lineIdx: number, dimmed?: boolean): React.ReactNode {
+  const k = `line-${lineIdx}`
+
   // Heading
   const hMatch = line.match(/^(#{1,6})\s+(.*)$/)
   if (hMatch) {
     const level = hMatch[1]!.length
-    const fg = level === 1 ? H1_FG : level === 2 ? H2_FG : H3_FG
+    const fg: Color = level === 1 ? H1_FG : level === 2 ? H2_FG : H3_FG
     return (
-      <text key={`h-${lineIdx}`} fg={fg}>
-        <b>{hMatch[2]!}</b>
-      </text>
+      <Text key={k} color={fg} bold>
+        {hMatch[2]!}
+      </Text>
     )
   }
 
   // Horizontal rule
   if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) {
-    return <text key={`hr-${lineIdx}`} fg={RULE_FG}>{'─'.repeat(60)}</text>
+    return <Text key={k} color={RULE_FG}>{'─'.repeat(60)}</Text>
   }
 
   // Blockquote
   if (line.startsWith('> ')) {
     return (
-      <text key={`q-${lineIdx}`} fg={DIM_FG}>
-        <span fg={DIM_FG}>{'│ '}</span>
-        {parseInline(line.slice(2))}
-      </text>
+      <Box key={k} flexDirection="row">
+        <Text color={DIM_FG}>{'│ '}</Text>
+        <Text color={DIM_FG}>{parseInline(line.slice(2), k)}</Text>
+      </Box>
     )
   }
 
@@ -111,11 +132,11 @@ function formatLine(line: string, lineIdx: number, dimmed?: boolean): React.Reac
   if (ulMatch) {
     const indent = ' '.repeat(Math.floor((ulMatch[1]?.length ?? 0) / 2) * 2)
     return (
-      <text key={`ul-${lineIdx}`} fg={dimmed ? THINKING_FG : undefined}>
-        {indent}
-        <span fg={dimmed ? THINKING_FG : BULLET_FG}>{'• '}</span>
-        {parseInline(ulMatch[3]!)}
-      </text>
+      <Box key={k} flexDirection="row">
+        <Text color={dimmed ? THINKING_FG : undefined}>{indent}</Text>
+        <Text color={dimmed ? THINKING_FG : BULLET_FG}>{'• '}</Text>
+        <Text color={dimmed ? THINKING_FG : undefined}>{parseInline(ulMatch[3]!, k)}</Text>
+      </Box>
     )
   }
 
@@ -124,16 +145,20 @@ function formatLine(line: string, lineIdx: number, dimmed?: boolean): React.Reac
   if (olMatch) {
     const indent = ' '.repeat(Math.floor((olMatch[1]?.length ?? 0) / 2) * 2)
     return (
-      <text key={`ol-${lineIdx}`} fg={dimmed ? THINKING_FG : undefined}>
-        {indent}
-        <span fg={dimmed ? THINKING_FG : BULLET_FG}>{olMatch[2]!}.{' '}</span>
-        {parseInline(olMatch[3]!)}
-      </text>
+      <Box key={k} flexDirection="row">
+        <Text color={dimmed ? THINKING_FG : undefined}>{indent}</Text>
+        <Text color={dimmed ? THINKING_FG : BULLET_FG}>{olMatch[2]!}. </Text>
+        <Text color={dimmed ? THINKING_FG : undefined}>{parseInline(olMatch[3]!, k)}</Text>
+      </Box>
     )
   }
 
   // Regular paragraph
-  return <text key={`p-${lineIdx}`} fg={dimmed ? THINKING_FG : undefined}>{parseInline(line)}</text>
+  return (
+    <Text key={k} color={dimmed ? THINKING_FG : undefined}>
+      {parseInline(line, k)}
+    </Text>
+  )
 }
 
 interface Props {
@@ -160,10 +185,14 @@ export function MarkdownText({ content, dimmed }: Props) {
         i++
       }
       if (lang) {
-        result.push(<text key={`lang-${i}`} fg={dimmed ? THINKING_FG : DIM_FG}>{lang}</text>)
+        result.push(<Text key={`lang-${i}`} color={dimmed ? THINKING_FG : DIM_FG}>{lang}</Text>)
       }
       for (let ci = 0; ci < codeLines.length; ci++) {
-        result.push(<text key={`code-${i}-${ci}`} fg={dimmed ? THINKING_FG : CODE_FG}>{'  ' + (codeLines[ci] || ' ')}</text>)
+        result.push(
+          <Text key={`code-${i}-${ci}`} color={dimmed ? THINKING_FG : CODE_FG}>
+            {'  ' + (codeLines[ci] || ' ')}
+          </Text>
+        )
       }
       i++ // skip closing ```
       continue
@@ -171,7 +200,7 @@ export function MarkdownText({ content, dimmed }: Props) {
 
     // Empty line
     if (line.trim() === '') {
-      result.push(<text key={`empty-${i}`}>{' '}</text>)
+      result.push(<Text key={`empty-${i}`}>{' '}</Text>)
       i++
       continue
     }
@@ -181,5 +210,5 @@ export function MarkdownText({ content, dimmed }: Props) {
     i++
   }
 
-  return <box flexDirection="column">{result}</box>
+  return <Box flexDirection="column">{result}</Box>
 }

@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react'
 import type { ToolStatus } from '../App.js'
 import { TOOL_DISPLAY, TOOL_STYLE } from './toolDisplay.js'
 import { useClock } from '../clock.js'
+import Box from '../../ink/components/Box.js'
+import Text from '../../ink/components/Text.js'
 
 const SPINNER_CW = ['◐', '◓', '◑', '◒']
 
@@ -25,11 +27,11 @@ export function ToolUseDisplay({ tool }: { tool: ToolStatus }) {
   const iconColor = tool.done ? style.color : 'cyan'
 
   return (
-    <box flexDirection="row" paddingLeft={2} gap={1}>
-      <text fg={iconColor}>{icon}</text>
-      <text fg={style.color}>{display}</text>
-      {arg ? <text fg="#666666">{arg}</text> : null}
-      {!tool.done && elapsed > 0 && <text fg="#888888">{elapsed + 's'}</text>}
-    </box>
+    <Box flexDirection="row" paddingLeft={2} gap={1}>
+      <Text color={iconColor}>{icon}</Text>
+      <Text color={style.color}>{display}</Text>
+      {arg ? <Text color="#666666">{arg}</Text> : null}
+      {!tool.done && elapsed > 0 && <Text color="#888888">{elapsed + 's'}</Text>}
+    </Box>
   )
 }

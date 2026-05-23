@@ -154,7 +154,7 @@ export function useTextInput(props: UseTextInputProps): BaseInputState {
     },
     renderedValue: props.value,
     offset: props.cursorOffset,
-    cursorLine: cursor.line,
-    cursorColumn: cursor.column,
+    cursorLine: 0,
+    cursorColumn: cursor.offset,
   }
 }

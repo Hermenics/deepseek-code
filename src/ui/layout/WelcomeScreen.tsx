@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react'
 import pkg from '../../../package.json' with { type: 'json' }
+import Box from '../../ink/components/Box.js'
+import Text from '../../ink/components/Text.js'
 
 export function DeepSeekMascot() {
   return (
-    <box flexDirection="column">
-      <text fg="cyan">{' ▄▄███▄▄'}</text>
-      <text fg="cyan">{'▄█ ◉    ██▄'}</text>
-      <text fg="cyan">{'█          ~~█'}</text>
-      <text fg="cyan">{'▀▄▄█▄▄▄▄█▀'}</text>
-    </box>
+    <Box flexDirection="column">
+      <Text color="cyan">{' ▄▄███▄▄'}</Text>
+      <Text color="cyan">{'▄█ ◉    ██▄'}</Text>
+      <Text color="cyan">{'█          ~~█'}</Text>
+      <Text color="cyan">{'▀▄▄█▄▄▄▄█▀'}</Text>
+    </Box>
   )
 }
 
@@ -18,50 +20,50 @@ export function WelcomeArt() {
 
   if (isNarrow) {
     return (
-      <box flexDirection="column" marginBottom={1} marginTop={1}>
-        <box flexDirection="row" gap={2}>
+      <Box flexDirection="column" marginBottom={1} marginTop={1}>
+        <Box flexDirection="row" gap={2}>
           <DeepSeekMascot />
-          <box flexDirection="column">
-            <box flexDirection="row" gap={1}>
-              <text fg="cyan">{'◆ DeepSeek Code'}</text>
-              <text fg="#888888">{'v' + pkg.version}</text>
-            </box>
-            <text fg="#5599ff">Deep reasoning, hello world.</text>
-            <text fg="#888888">Elite code.</text>
-          </box>
-        </box>
-      </box>
+          <Box flexDirection="column">
+            <Box flexDirection="row" gap={1}>
+              <Text color="cyan">{'◆ DeepSeek Code'}</Text>
+              <Text color="#888888">{'v' + pkg.version}</Text>
+            </Box>
+            <Text color="#5599ff">Deep reasoning, hello world.</Text>
+            <Text color="#888888">Elite code.</Text>
+          </Box>
+        </Box>
+      </Box>
     )
   }
 
   return (
-    <box flexDirection="column">
-      <box flexDirection="row" gap={1}>
-        <text fg="cyan">{'Welcome to DeepSeek Code'}</text>
-        <text fg="#888888">{'v' + pkg.version}</text>
-      </box>
-      <box marginTop={1} flexDirection="column">
-        <text fg="#888888">{'  *          .        *             .       *          .*          .   '}</text>
-        <text fg="#888888">{'       .          *         .              *               .              *'}</text>
-        <text fg="#888888">{'  .       *              .        *               .       *               . '}</text>
-        <text fg="#888888">{'        .       *                    .        *       .    '}</text>
-        <text fg="#888888">{'  *          .        *             .       *          .   '}</text>
-        <box flexDirection="row">
-          <text fg="cyan">{'          ▄▄███▄▄'}</text>
-          <text fg="#888888">{'    .        *       .      *        .  *       .      *        .  '}</text>
-        </box>
-        <box flexDirection="row">
-          <text fg="cyan">{'        ▄█ ◉    ██▄'}</text>
-          <text fg="#888888">{'  *          .        *              .  *       .      *        .  '}</text>
-        </box>
-        <box flexDirection="row">
-          <text fg="cyan">{'        █          ~~█'}</text>
-          <text fg="#888888">{'       *          .        *       .    *       .      *        .  '}</text>
-        </box>
-        <text fg="#888888">{'~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~'}</text>
-        <text fg="#888888">{'~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~ '}</text>
-      </box>
-    </box>
+    <Box flexDirection="column">
+      <Box flexDirection="row" gap={1}>
+        <Text color="cyan">{'Welcome to DeepSeek Code'}</Text>
+        <Text color="#888888">{'v' + pkg.version}</Text>
+      </Box>
+      <Box marginTop={1} flexDirection="column">
+        <Text color="#888888">{'  *          .        *             .       *          .*          .   '}</Text>
+        <Text color="#888888">{'       .          *         .              *               .              *'}</Text>
+        <Text color="#888888">{'  .       *              .        *               .       *               . '}</Text>
+        <Text color="#888888">{'        .       *                    .        *       .    '}</Text>
+        <Text color="#888888">{'  *          .        *             .       *          .   '}</Text>
+        <Box flexDirection="row">
+          <Text color="cyan">{'          ▄▄███▄▄'}</Text>
+          <Text color="#888888">{'    .        *       .      *        .  *       .      *        .  '}</Text>
+        </Box>
+        <Box flexDirection="row">
+          <Text color="cyan">{'        ▄█ ◉    ██▄'}</Text>
+          <Text color="#888888">{'  *          .        *              .  *       .      *        .  '}</Text>
+        </Box>
+        <Box flexDirection="row">
+          <Text color="cyan">{'        █          ~~█'}</Text>
+          <Text color="#888888">{'       *          .        *       .    *       .      *        .  '}</Text>
+        </Box>
+        <Text color="#888888">{'~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~^~'}</Text>
+        <Text color="#888888">{'~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~  ~ '}</Text>
+      </Box>
+    </Box>
   )
 }
 
@@ -78,9 +80,9 @@ export function WelcomeScreen({ children }: WelcomeScreenProps) {
   }, [])
 
   return (
-    <box flexDirection="column">
+    <Box flexDirection="column">
       <WelcomeArt />
       {showChildren && children}
-    </box>
+    </Box>
   )
 }

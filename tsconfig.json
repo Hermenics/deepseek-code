@@ -4,12 +4,19 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "jsxImportSource": "@opentui/react",
+    "jsxImportSource": "react",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "types": ["bun-types"],
-    "lib": ["ESNext", "DOM"]
-  }
+    "lib": ["ESNext", "DOM"],
+    "paths": {
+      "src/utils/debug.js": ["./src/utils/debug.ts"],
+      "src/utils/log.js": ["./src/utils/log.ts"],
+      "src/bootstrap/state.js": ["./src/bootstrap/state.ts"],
+      "src/native-ts/yoga-layout/index.js": ["./src/native-ts/yoga-layout/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "dist"]
 }

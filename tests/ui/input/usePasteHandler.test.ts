@@ -107,7 +107,7 @@ describe('usePasteHandler', () => {
 
     it('should have isPasting=true during synchronous paste handling', () => {
       let isPastingDuringCall = false
-      const onPasteInline = mock(() => {})
+      const onPasteInline = mock((_text: string) => {})
 
       // O hook deve expor isPasting=true enquanto handlePaste está em execução.
       // Testamos via side-effect capturado dentro do callback.

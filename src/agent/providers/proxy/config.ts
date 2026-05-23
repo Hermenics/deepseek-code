@@ -1,7 +1,23 @@
-import { readFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs'
+import { readFileSync, existsSync, mkdirSync, writeFileSync, createWriteStream } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
+import type { WriteStream } from 'node:fs'
 import type { ProxyConfig } from './types/index.js'
+
+// Write proxy logs to file instead of stdout so they don't pollute the TUI.
+// Falls back to console.log if the log file can't be opened.
+let _logStream: WriteStream | null = null
+function getLogStream(): WriteStream | null {
+  if (_logStream) return _logStream
+  try {
+    const logDir = join(homedir(), '.deepseek', 'logs')
+    mkdirSync(logDir, { recursive: true })
+    _logStream = createWriteStream(join(logDir, 'proxy.log'), { flags: 'a' })
+    return _logStream
+  } catch {
+    return null
+  }
+}
 
 const CONFIG_DIR = join(homedir(), '.deepsproxy')
 const CONFIG_PATH = join(CONFIG_DIR, 'config.json')
@@ -63,7 +79,13 @@ export function log(level: LogLevel, msg: string, meta?: Record<string, unknown>
   const ts = new Date().toISOString().slice(11, 19)
   const prefix = { debug: '🔍', info: '📋', warn: '⚠️', error: '❌' }[level]
   const metaStr = meta ? ` ${JSON.stringify(meta)}` : ''
-  console.log(`  ${ts} ${prefix} ${msg}${metaStr}`)
+  const line = `  ${ts} ${prefix} ${msg}${metaStr}\n`
+  const stream = getLogStream()
+  if (stream) {
+    stream.write(line)
+  } else {
+    process.stderr.write(line)
+  }
 }
 
 export { CONFIG_DIR, CONFIG_PATH }

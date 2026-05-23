@@ -1,3 +1,5 @@
+import Box from '../../../ink/components/Box.js'
+import Text from '../../../ink/components/Text.js'
 interface CommandDropdownProps {
   matches: string[]
   selectedIdx: number
@@ -18,20 +20,20 @@ export function CommandDropdown({ matches, selectedIdx, columns, descriptions = 
   const visible = matches.slice(start, end)
 
   return (
-    <box flexDirection="column">
+    <Box flexDirection="column">
       {visible.map((cmd, vi) => {
         const i = start + vi
         const isSelected = i === selectedIdx
         const desc = descriptions[cmd] ?? ''
         const truncDesc = desc.length > descMaxLen ? desc.slice(0, descMaxLen - 1) + '…' : desc
         return (
-          <box key={cmd} flexDirection="row">
-            <text fg="#888888">{'│ '}</text>
-            <text fg={isSelected ? 'cyan' : undefined}>{cmd.padEnd(CMD_WIDTH)}</text>
-            <text fg={isSelected ? 'cyan' : '#888888'}>{truncDesc}</text>
-          </box>
+          <Box key={cmd} flexDirection="row">
+            <Text color="#888888">{'│ '}</Text>
+            <Text color={isSelected ? 'cyan' : undefined}>{cmd.padEnd(CMD_WIDTH)}</Text>
+            <Text color={isSelected ? 'cyan' : '#888888'}>{truncDesc}</Text>
+          </Box>
         )
       })}
-    </box>
+    </Box>
   )
 }

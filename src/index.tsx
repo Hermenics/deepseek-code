@@ -6,7 +6,28 @@ if (process.argv.includes('--pipe')) {
   process.exit(0)
 }
 
+// Suppress noisy react-reconciler dev warnings ASAP — before any imports.
+// These fire during reconciler initialization and pollute the TUI output.
+const _origConsoleError = console.error.bind(console)
+const _origConsoleWarn = console.warn.bind(console)
+const _SUPPRESSED = [
+  'Encountered two children with the same key',
+  'Each child in a list should have a unique',
+  'Raw mode is not supported',
+]
+console.error = (...args: unknown[]) => {
+  const msg = String(args[0] ?? '')
+  if (_SUPPRESSED.some(s => msg.includes(s))) return
+  _origConsoleError(...args)
+}
+console.warn = (...args: unknown[]) => {
+  const msg = String(args[0] ?? '')
+  if (_SUPPRESSED.some(s => msg.includes(s))) return
+  _origConsoleWarn(...args)
+}
+
 // Dev logging: redirect stderr + uncaught errors to ~/.deepseek/logs/dev.log
+// Also filter out noisy react-reconciler dev warnings from the terminal.
 if (process.env.NODE_ENV === 'development') {
   const { createWriteStream } = await import('fs')
   const { mkdirSync } = await import('fs')
@@ -18,6 +39,12 @@ if (process.env.NODE_ENV === 'development') {
   const write = (data: unknown) => logStream.write(`[${new Date().toISOString()}] ${String(data)}\n`)
   const origStderr = process.stderr.write.bind(process.stderr)
   process.stderr.write = (data: unknown, ...args: unknown[]) => {
+    const str = String(data)
+    // Suppress noisy react-reconciler dev warnings
+    if (_SUPPRESSED.some(s => str.includes(s))) {
+      write(data)
+      return true
+    }
     write(data)
     return (origStderr as Function)(data, ...args)
   }
@@ -25,14 +52,33 @@ if (process.env.NODE_ENV === 'development') {
   process.on('unhandledRejection', (reason) => write(`unhandledRejection: ${reason}`))
 }
 
+// Force chalk color level based on terminal capabilities.
+// Bun doesn't set isTTY correctly in all cases, so chalk defaults to level 0.
+// We detect color support manually and set it before any UI renders.
+{
+  const { default: chalk } = await import('chalk')
+  if (chalk.level === 0) {
+    const colorterm = process.env.COLORTERM
+    const term = process.env.TERM ?? ''
+    if (colorterm === 'truecolor' || colorterm === '24bit') {
+      chalk.level = 3
+    } else if (colorterm === 'ansi256' || term.includes('256color')) {
+      chalk.level = 2
+    } else if (process.stdout.isTTY || term !== '') {
+      chalk.level = 1
+    }
+  }
+}
+
 // Set terminal title
 process.title = 'deepseek'
 process.stdout.write('\x1b]0;DeepSeek\x07')
 
 import { useState, useEffect } from 'react'
-import { createCliRenderer } from '@opentui/core'
-import { createRoot } from '@opentui/react'
+import { createRoot } from './ink/root.js'
 import { App } from './ui/App.js'
+import Box from './ink/components/Box.js'
+import Text from './ink/components/Text.js'
 import { ApiKeySetup, loadSavedConfig, saveConfig, type ThemeName, type ProviderConfig } from './ui/setup/ApiKeySetup.js'
 import { migrateConfigIfNeeded, logout as doLogout } from './utils/credentials.js'
 import { LanguageSetup } from './ui/setup/LanguageSetup.js'
@@ -183,15 +229,15 @@ function Root() {
         setProviderConfig(saved)
         if (saved.provider === 'deepseek' && saved.apiKey) process.env.DEEPSEEK_API_KEY = saved.apiKey
         if (saved.provider === 'oauth' && isOAuthReady() && saved.proxyApiKey) {
-          const alreadyUp = await fetch('http://127.0.0.1:3000/health').then(r => r.ok).catch(() => false)
+          const alreadyUp = await fetch('http://127.0.0.1:29483/health').then(r => r.ok).catch(() => false)
           const proxyVersion = alreadyUp
-            ? await fetch('http://127.0.0.1:3000/health').then(r => r.json()).then((d: any) => d.deepseekVersion ?? '').catch(() => '')
+            ? await fetch('http://127.0.0.1:29483/health').then(r => r.json()).then((d: any) => d.deepseekVersion ?? '').catch(() => '')
             : ''
           const needsRestart = alreadyUp && proxyVersion !== pkg.version
           if (needsRestart) {
-            await fetch('http://127.0.0.1:3000/shutdown').catch(() => {})
+            await fetch('http://127.0.0.1:29483/shutdown').catch(() => {})
             const { execSync } = await import('child_process')
-            try { execSync('lsof -ti:3000 | xargs -r kill -9', { stdio: 'ignore' }) } catch {}
+            try { execSync('lsof -ti:29483 | xargs -r kill -9', { stdio: 'ignore' }) } catch {}
             await new Promise(r => setTimeout(r, 600))
           }
           if (!alreadyUp || needsRestart) {
@@ -235,28 +281,28 @@ function Root() {
   if (resumeNotFound) {
     // Show error inline — don't crash, just start fresh
     return (
-      <box flexDirection="column" paddingLeft={2} paddingTop={1}>
-        <text fg="yellow">{'⚠ Session not found. Starting a new session.'}</text>
-      </box>
+      <Box flexDirection="column" paddingLeft={2} paddingTop={1}>
+        <Text color="yellow">{'⚠ Session not found. Starting a new session.'}</Text>
+      </Box>
     )
   }
 
   if (!ready) {
     return (
-      <box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
+      <Box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
         <ApiKeySetup onDone={(t, cfg) => { setTheme(t); setProviderConfig(cfg); setReady(true) }} />
-      </box>
+      </Box>
     )
   }
 
   if (languageChecked && language === null && !ARGV.resumeId) {
     return (
-      <box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
+      <Box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
         <LanguageSetup onDone={(lang) => {
           setLanguage(lang)
           saveConfig({ LANGUAGE: lang })
         }} />
-      </box>
+      </Box>
     )
   }
 
@@ -276,25 +322,10 @@ function Root() {
   )
 }
 
-const renderer = await createCliRenderer({
+const root = await createRoot({
   exitOnCtrlC: false,
-  clearOnShutdown: true,
-  screenMode: 'alternate-screen',
-  useMouse: false,
-  enableMouseMovement: false,
+  patchConsole: false,
 })
-
-// Explicitly disable mouse tracking to prevent escape sequence leaks
-process.stdout.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l')
-
-// Periodically re-disable mouse tracking in case something re-enables it
-// (e.g. Playwright browser, terminal multiplexer, or OpenTUI internals)
-const mouseDisableInterval = setInterval(() => {
-  process.stdout.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l')
-}, 5000)
-mouseDisableInterval.unref() // Don't prevent process exit
-
-const root = createRoot(renderer)
 root.render(<Root />)
 
 function cleanExit(code = 0): never {
@@ -306,7 +337,5 @@ function cleanExit(code = 0): never {
 }
 
 // Handle clean exit
-renderer.on('exit', () => cleanExit(0))
-
 process.on('SIGINT', () => cleanExit(0))
 process.on('SIGTERM', () => cleanExit(0))

@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { useKeyboard } from '@opentui/react'
-import type { KeyEvent } from '@opentui/core'
+import useInput from '../../ink/hooks/use-input.js'
+import type { Key } from '../../ink/events/input-event.js'
 import { homedir } from 'os'
 import { join } from 'path'
 import type { ThemeName } from './ApiKeySetup.js'
 import { readJson, writeRaw } from '../../utils/fs.js'
+import Box from '../../ink/components/Box.js'
+import Text from '../../ink/components/Text.js'
 
 const THEMES: { label: string; value: ThemeName }[] = [
   { label: 'Dark mode', value: 'dark' },
@@ -42,40 +44,40 @@ export function ThemeSelector({ currentTheme, onSelect, onCancel }: Props) {
   const preview = THEMES[idx]!.value
   const c = DIFF_COLORS[preview]
 
-  useKeyboard((key: KeyEvent) => {
-    if (key.name === 'up') { setIdx((i) => (i - 1 + THEMES.length) % THEMES.length); return }
-    if (key.name === 'down') { setIdx((i) => (i + 1) % THEMES.length); return }
-    if (key.name === 'return') {
+  useInput((input: string, key: Key) => {
+    if (key.upArrow) { setIdx((i) => (i - 1 + THEMES.length) % THEMES.length); return }
+    if (key.downArrow) { setIdx((i) => (i + 1) % THEMES.length); return }
+    if (key.return) {
       saveTheme(preview).then(() => onSelect(preview))
       return
     }
-    if (key.name === 'escape') { onCancel(); return }
+    if (key.escape) { onCancel(); return }
   })
 
   return (
-    <box flexDirection="column" marginTop={1}>
-      <text fg="#888888">/theme</text>
-      <box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={1}>
+      <Text color="#888888">/theme</Text>
+      <Box flexDirection="column" marginTop={1}>
         {THEMES.map((t, i) => (
-          <box key={t.value} flexDirection="row" gap={2}>
-            <text fg={i === idx ? 'cyan' : undefined}>
+          <Box key={t.value} flexDirection="row" gap={2}>
+            <Text color={i === idx ? 'cyan' : undefined}>
               {i === idx ? '❯ ' : '  '}{t.label}
-            </text>
-            {t.value === currentTheme && <text fg="#888888">[active]</text>}
-          </box>
+            </Text>
+            {t.value === currentTheme && <Text color="#888888">[active]</Text>}
+          </Box>
         ))}
-      </box>
-      <box marginTop={1}><text fg="#888888">{'─'.repeat(60)}</text></box>
-      <text fg="#888888">ESC to cancel · ↑↓ to navigate</text>
-      <box marginTop={1}><text fg="#888888">{'─'.repeat(60)}</text></box>
-      <box flexDirection="column" marginTop={1}>
-        <text fg="#888888">Preview</text>
-        <box marginTop={1} flexDirection="column">
-          <text fg="#888888">Code diff — added and removed lines will look like:</text>
-          <text bg={c.added} fg={c.addedWord}>{'+ const result = compute(input);'}</text>
-          <text bg={c.removed} fg={c.removedWord}>{'- const result = calculate(input);'}</text>
-        </box>
-      </box>
-    </box>
+      </Box>
+      <Box marginTop={1}><Text color="#888888">{'─'.repeat(60)}</Text></Box>
+      <Text color="#888888">ESC to cancel · ↑↓ to navigate</Text>
+      <Box marginTop={1}><Text color="#888888">{'─'.repeat(60)}</Text></Box>
+      <Box flexDirection="column" marginTop={1}>
+        <Text color="#888888">Preview</Text>
+        <Box marginTop={1} flexDirection="column">
+          <Text color="#888888">Code diff — added and removed lines will look like:</Text>
+          <Text backgroundColor={c.added} color={c.addedWord}>{'+ const result = compute(input);'}</Text>
+          <Text backgroundColor={c.removed} color={c.removedWord}>{'- const result = calculate(input);'}</Text>
+        </Box>
+      </Box>
+    </Box>
   )
 }

@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
-import { useKeyboard, usePaste } from '@opentui/react'
-import type { KeyEvent } from '@opentui/core'
+import useInput from '../../ink/hooks/use-input.js'
+import type { Key } from '../../ink/events/input-event.js'
 import { execSync } from 'child_process'
 import { loadInputHistory } from '../../agent/inputHistory.js'
 import type { AgentPhase } from '../App.js'
 import { MODE_LABELS, MODE_COLORS, type InteractionMode } from '../interactionMode.js'
 import { Cursor } from './cursor/index.js'
-import { processTextInputKey } from './hooks/useTextInput.js'
+import { processTextInputKey, type KeyEvent } from './hooks/useTextInput.js'
 import { processVimKey } from './hooks/useVimMode.js'
 import { InputBuffer } from './hooks/useInputBuffer.js'
 import { InputHistory } from './hooks/useInputHistory.js'
@@ -14,6 +14,43 @@ import { getMatches } from './commandMatches.js'
 import { InputLine } from './render/InputLine.js'
 import { CommandDropdown } from './render/CommandDropdown.js'
 import { InputChrome } from './render/InputChrome.js'
+import Box from '../../ink/components/Box.js'
+import Text from '../../ink/components/Text.js'
+
+// Convert Ink's Key (boolean flags) to KeyEvent (name-based) used by processTextInputKey/processVimKey
+function inkKeyToKeyEvent(key: Key, input: string): KeyEvent {
+  let name: string | undefined
+  let isSpecial = false
+
+  if (key.upArrow)    { name = 'up';        isSpecial = true }
+  else if (key.downArrow)  { name = 'down';      isSpecial = true }
+  else if (key.leftArrow)  { name = 'left';      isSpecial = true }
+  else if (key.rightArrow) { name = 'right';     isSpecial = true }
+  else if (key.return)     { name = 'return';    isSpecial = true }
+  else if (key.escape)     { name = 'escape';    isSpecial = true }
+  else if (key.backspace)  { name = 'backspace'; isSpecial = true }
+  else if (key.delete)     { name = 'delete';    isSpecial = true }
+  else if (key.tab)        { name = 'tab';       isSpecial = true }
+  else if (key.home)       { name = 'home';      isSpecial = true }
+  else if (key.end)        { name = 'end';       isSpecial = true }
+  else if (key.pageUp)     { name = 'pageup';    isSpecial = true }
+  else if (key.pageDown)   { name = 'pagedown';  isSpecial = true }
+  else if (key.ctrl && input.length === 1) {
+    name = input.toLowerCase()
+    isSpecial = true
+  }
+
+  return {
+    name,
+    ctrl:     key.ctrl,
+    meta:     key.meta,
+    shift:    key.shift,
+    option:   key.meta,
+    // raw = printable character to insert (only when not a special key and not a control combo)
+    raw:      !isSpecial && !key.ctrl && !key.meta && input.length === 1 ? input : undefined,
+    sequence: input,
+  }
+}
 
 export { LoadingSpinner } from './render/LoadingSpinner.js'
 export { getMatches } from './commandMatches.js'
@@ -88,36 +125,28 @@ export function InputBox({
     historyRef.current.reset()
   }
 
-  usePaste((event) => {
-    const text = new TextDecoder().decode(event.bytes)
-    if (text) applyInlinePaste(text)
-  })
-
-  const matches = getMatches(cursor.text)
+    const matches = getMatches(cursor.text)
   const showDropdown = matches.length > 0
 
-  useKeyboard((key: KeyEvent) => {
-    if ((key.name === 'up' || key.name === 'down') && key.raw && key.raw.length > 3) return
-    if (key.raw === '\x1b[Z' || (key.shift && key.name === 'tab')) {
+  useInput((input: string, key: Key) => {
+    if (input === '\x1b[Z' || (key.shift && key.tab)) {
       onModeChange?.()
       return
     }
-    if (!key.name && key.raw) {
-      if (key.raw.startsWith('\x1b')) return
-      if (key.raw.length === 1 && key.raw.charCodeAt(0) < 32) return
-    }
+    if (input.startsWith('\x1b')) return
+    if (input.length === 1 && input.charCodeAt(0) < 32 && !key.ctrl) return
 
-    if (key.ctrl && key.name === 'c') {
+    if (key.ctrl && input === 'c') {
       if (isLoading) onAbort?.()
       return
     }
 
-    // Deixa teclas de scroll serem tratadas pelo <scrollbox focused>
-    if (key.name === 'pageup' || key.name === 'pagedown') {
+    // Deixa teclas de scroll serem tratadas pelo <Box focused>
+    if (key.pageUp || key.pageDown) {
       return
     }
 
-    if (key.ctrl && key.name === 'v') {
+    if (key.ctrl && input === 'v') {
       try {
         const text = execSync('xclip -selection clipboard -o 2>/dev/null || xsel --clipboard --output 2>/dev/null || wl-paste 2>/dev/null', { encoding: 'utf-8', timeout: 2000 })
         if (text) applyInlinePaste(text)
@@ -125,20 +154,18 @@ export function InputBox({
       return
     }
 
-    if (key.sequence && key.sequence.includes('\x1b')) return
-
-    if (key.ctrl && key.name === 'z') {
+    if (key.ctrl && input === 'z') {
       const entry = key.shift ? bufferRef.current.redo() : bufferRef.current.undo()
       if (entry) setCursor(Cursor.fromText(entry.text, cols, entry.cursorOffset))
       return
     }
 
-    if (showDropdown && (key.name === 'up' || key.name === 'down')) {
-      setSelectedIdx((i) => key.name === 'up' ? (i - 1 + matches.length) % matches.length : (i + 1) % matches.length)
+    if (showDropdown && (key.upArrow || key.downArrow)) {
+      setSelectedIdx((i) => key.upArrow ? (i - 1 + matches.length) % matches.length : (i + 1) % matches.length)
       return
     }
 
-    if (showDropdown && (key.name === 'tab' || key.name === 'return' || key.name === 'enter')) {
+    if (showDropdown && (key.tab || key.return)) {
       const chosen = matches[selectedIdx]!
       onSubmit(chosen)
       setCursor(Cursor.fromText('', cols))
@@ -149,7 +176,7 @@ export function InputBox({
       return
     }
 
-    if (isLoading && (key.name === 'return' || key.name === 'enter')) {
+    if (isLoading && key.return) {
       const queued = cursor.text.trim()
       if (queued) {
         onQueue?.(queued)
@@ -159,8 +186,10 @@ export function InputBox({
       return
     }
 
+    const keyEvent = inkKeyToKeyEvent(key, input)
+
     if (vimEnabled) {
-      const vim = processVimKey(cursor, key, { mode: vimMode })
+      const vim = processVimKey(cursor, keyEvent, { mode: vimMode })
       if (vim.type === 'modeChange') {
         setVimMode(vim.mode)
         setCursor(vim.cursor)
@@ -192,7 +221,7 @@ export function InputBox({
       if (vim.type === 'noop' && vimMode === 'normal') return
     }
 
-    const result = processTextInputKey(cursor, key, { multiline: true })
+    const result = processTextInputKey(cursor, keyEvent, { multiline: true })
     if (result.type === 'cursor') {
       setCursor(result.cursor)
       setSelectedIdx(0)
@@ -224,7 +253,7 @@ export function InputBox({
   const hasExclamation = cursor.text.trimStart().startsWith('!')
 
   return (
-    <box flexDirection="column">
+    <Box flexDirection="column">
       <InputChrome
         columns={cols}
         agentLabel={agentLabel}
@@ -237,9 +266,9 @@ export function InputBox({
         hasExclamation={hasExclamation}
       >
         {pastedBlock && (
-          <box border borderStyle="rounded" borderColor="#888888" paddingLeft={1} paddingRight={1} marginRight={1}>
-            <text fg="#888888">{'[Pasted text | ' + pastedBlock.split('\n').length + ' lines]'}</text>
-          </box>
+          <Box border borderStyle="rounded" borderColor="#888888" paddingLeft={1} paddingRight={1} marginRight={1}>
+            <Text color="#888888">{'[Pasted text | ' + pastedBlock.split('\n').length + ' lines]'}</Text>
+          </Box>
         )}
         <InputLine cursor={cursor} columns={cols} placeholder={pastedBlock ? '' : 'What do you want me to do? ↵'} />
       </InputChrome>
@@ -252,6 +281,6 @@ export function InputBox({
           descriptions={DESCRIPTIONS}
         />
       )}
-    </box>
+    </Box>
   )
 }

@@ -1,4 +1,6 @@
 import type { Cursor } from '../cursor/index.js'
+import Box from '../../../ink/components/Box.js'
+import Text from '../../../ink/components/Text.js'
 
 interface InputLineProps {
   cursor: Cursor
@@ -13,8 +15,8 @@ export function InputLine({ cursor, columns, placeholder = 'What do you want me 
   if (value === '') {
     return (
       <>
-        <text fg="white" bg="white">{' '}</text>
-        <text fg="#888888">{placeholder}</text>
+        <Text color="white" backgroundColor="white">{' '}</Text>
+        <Text color="#888888">{placeholder}</Text>
       </>
     )
   }
@@ -23,29 +25,29 @@ export function InputLine({ cursor, columns, placeholder = 'What do you want me 
     const lines = value.split('\n')
     let offset = 0
     return (
-      <box flexDirection="column">
+      <Box flexDirection="column">
         {lines.map((line, li) => {
           const lineStart = offset
           const lineEnd = offset + line.length
           offset += line.length + 1
           const cursorInLine = cursorPos >= lineStart && cursorPos <= lineEnd
           if (!cursorInLine) {
-            return <text key={li}>{li > 0 ? '  ' : ''}{line || ' '}</text>
+            return <Text key={li}>{li > 0 ? '  ' : ''}{line || ' '}</Text>
           }
           const localPos = cursorPos - lineStart
           const before = line.slice(0, localPos)
           const at = line.slice(localPos, localPos + 1) || ' '
           const after = line.slice(localPos + 1)
           return (
-            <box key={li} flexDirection="row">
-              {li > 0 && <text>{'  '}</text>}
-              <text>{before}</text>
-              <text fg="black" bg="white">{at}</text>
-              <text>{after}</text>
-            </box>
+            <Box key={li} flexDirection="row">
+              {li > 0 && <Text>{'  '}</Text>}
+              <Text>{before}</Text>
+              <Text color="black" backgroundColor="white">{at}</Text>
+              <Text>{after}</Text>
+            </Box>
           )
         })}
-      </box>
+      </Box>
     )
   }
 
@@ -56,9 +58,9 @@ export function InputLine({ cursor, columns, placeholder = 'What do you want me 
     const afterCursor = value.slice(cursorPos + 1)
     return (
       <>
-        <text>{beforeCursor}</text>
-        <text fg="black" bg="white">{atCursor}</text>
-        <text>{afterCursor}</text>
+        <Text>{beforeCursor}</Text>
+        <Text color="black" backgroundColor="white">{atCursor}</Text>
+        <Text>{afterCursor}</Text>
       </>
     )
   }
@@ -78,11 +80,11 @@ export function InputLine({ cursor, columns, placeholder = 'What do you want me 
 
   return (
     <>
-      <text fg="#888888">{prefix}</text>
-      <text>{beforeCursor}</text>
-      <text fg="black" bg="white">{atCursor}</text>
-      <text>{afterCursor}</text>
-      <text fg="#888888">{suffix}</text>
+      <Text color="#888888">{prefix}</Text>
+      <Text>{beforeCursor}</Text>
+      <Text color="black" backgroundColor="white">{atCursor}</Text>
+      <Text>{afterCursor}</Text>
+      <Text color="#888888">{suffix}</Text>
     </>
   )
 }
