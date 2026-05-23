@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { ProxyRequest, ChatMessage } from '../types/index.js'
 import { getAvailableModels } from '../services/model-resolver.js'
-import { injectToolPrompt, parseToolResponse, type ToolDef } from '../tools/prompt-emulation.js'
+import { injectToolPrompt, parseToolResponse, parseToolResponses, type ToolDef } from '../tools/prompt-emulation.js'
 
 export function parseRequest(body: any): ProxyRequest {
   let messages: ChatMessage[] = (body.messages || []).map((m: any) => ({
@@ -59,11 +59,15 @@ export function parseToolCall(content: string) {
   return parseToolResponse(content)
 }
 
+export function parseToolCalls(content: string) {
+  return parseToolResponses(content)
+}
+
 export function formatStreamEnd(): string {
   return 'data: [DONE]\n\n'
 }
 
-export function formatStreamToolCall(toolCall: { name: string; id: string; arguments: any }, model: string): string {
+export function formatStreamToolCall(toolCall: { name: string; id: string; arguments: any }, model: string, index = 0): string {
   const chunk = {
     id: `chatcmpl-${randomUUID()}`,
     object: 'chat.completion.chunk',
@@ -73,7 +77,7 @@ export function formatStreamToolCall(toolCall: { name: string; id: string; argum
       index: 0,
       delta: {
         tool_calls: [{
-          index: 0,
+          index,
           id: toolCall.id,
           type: 'function',
           function: { name: toolCall.name, arguments: JSON.stringify(toolCall.arguments) },
@@ -86,8 +90,8 @@ export function formatStreamToolCall(toolCall: { name: string; id: string; argum
 }
 
 export function formatResponse(model: string, content: string, thinking?: string) {
-  const toolCall = parseToolResponse(content)
-  if (toolCall) {
+  const toolCalls = parseToolResponses(content)
+  if (toolCalls.length > 0) {
     return {
       id: `chatcmpl-${randomUUID()}`,
       object: 'chat.completion',
@@ -98,11 +102,11 @@ export function formatResponse(model: string, content: string, thinking?: string
         message: {
           role: 'assistant',
           content: null,
-          tool_calls: [{
+          tool_calls: toolCalls.map((toolCall) => ({
             id: toolCall.id,
             type: 'function',
             function: { name: toolCall.name, arguments: JSON.stringify(toolCall.arguments) },
-          }],
+          })),
           ...(thinking ? { reasoning_content: thinking } : {}),
         },
         finish_reason: 'tool_calls',

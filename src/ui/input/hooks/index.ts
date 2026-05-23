@@ -1,4 +1,5 @@
-export { processTextInputKey } from './useTextInput.js'
+export { processTextInputKey, useTextInput, type UseTextInputProps, type BaseInputState } from './useTextInput.js'
 export { processVimKey, type VimState } from './useVimMode.js'
-export { InputBuffer, type BufferEntry } from './useInputBuffer.js'
-export { InputHistory } from './useInputHistory.js'
+export { InputBuffer, useInputBuffer, type BufferEntry, type UseInputBufferResult } from './useInputBuffer.js'
+export { InputHistory, useInputHistory, type UseInputHistoryResult } from './useInputHistory.js'
+export { usePasteHandler, type UsePasteHandlerProps, type UsePasteHandlerResult } from './usePasteHandler.js'

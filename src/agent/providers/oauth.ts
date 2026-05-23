@@ -44,7 +44,7 @@ export async function runOAuthLogin(): Promise<void> {
 export async function startProxy(proxyApiKey: string): Promise<void> {
   process.env.STORAGE_STATE_PATH = OAUTH_STORAGE_PATH
   process.env.PROXY_API_KEY = proxyApiKey
-  process.env.PORT = '3000'
+  process.env.PORT = '29483'
   process.env.HOST = '127.0.0.1'
   process.env.LOG_LEVEL = 'debug'
 

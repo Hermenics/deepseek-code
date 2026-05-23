@@ -98,14 +98,22 @@ export function InputBox({
 
   useKeyboard((key: KeyEvent) => {
     if ((key.name === 'up' || key.name === 'down') && key.raw && key.raw.length > 3) return
+    if (key.raw === '\x1b[Z' || (key.shift && key.name === 'tab')) {
+      onModeChange?.()
+      return
+    }
     if (!key.name && key.raw) {
       if (key.raw.startsWith('\x1b')) return
       if (key.raw.length === 1 && key.raw.charCodeAt(0) < 32) return
     }
-    if (key.sequence && key.sequence.includes('\x1b')) return
 
     if (key.ctrl && key.name === 'c') {
       if (isLoading) onAbort?.()
+      return
+    }
+
+    // Deixa teclas de scroll serem tratadas pelo <scrollbox focused>
+    if (key.name === 'pageup' || key.name === 'pagedown') {
       return
     }
 
@@ -117,10 +125,7 @@ export function InputBox({
       return
     }
 
-    if (key.shift && key.name === 'tab') {
-      onModeChange?.()
-      return
-    }
+    if (key.sequence && key.sequence.includes('\x1b')) return
 
     if (key.ctrl && key.name === 'z') {
       const entry = key.shift ? bufferRef.current.redo() : bufferRef.current.undo()

@@ -33,6 +33,8 @@ function processStreamedText(text: string): { thinking: string; content: string 
     .replace(/<thinking>[\s\S]*?<\/thinking>/g, '')
     .replace(/<think>[\s\S]*?<\/think>/g, '')
     .replace(/<step>[\s\S]*?<\/step>/g, '')
+    .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
+    .replace(/<tool_call>[\s\S]*$/g, '')
     .replace(/<response>([\s\S]*?)<\/response>/g, '$1')
     .trim()
   return { thinking, content }
@@ -75,6 +77,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 }) {
   const initialSessionRef = useRef(initialSession)
   const handleSubmitRef = useRef<((text: string) => Promise<void>) | null>(null)
+  const toolStatusClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const queuedSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const saveSessionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [streamText, setStreamText] = useState('')
   const [thinkingText, setThinkingText] = useState('')
@@ -170,6 +175,23 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   const shellProcRef = useRef<ReturnType<typeof execa> | null>(null)
 
+  useEffect(() => {
+    return () => {
+      if (toolStatusClearTimerRef.current) {
+        clearTimeout(toolStatusClearTimerRef.current)
+        toolStatusClearTimerRef.current = null
+      }
+      if (queuedSubmitTimerRef.current) {
+        clearTimeout(queuedSubmitTimerRef.current)
+        queuedSubmitTimerRef.current = null
+      }
+      if (saveSessionTimerRef.current) {
+        clearTimeout(saveSessionTimerRef.current)
+        saveSessionTimerRef.current = null
+      }
+    }
+  }, [])
+
   const handleAbort = useCallback(() => {
     agent.abort()
     if (shellProcRef.current) {
@@ -254,7 +276,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         onPhaseChange(phase) { setAgentPhase(phase) },
         onToken(token) { tokenBuffer += token },
         onThinking(text) {
-          mergeThinking(`${thinkingAccum}${text}`)
+          mergeThinking(text)
           setThinkingText(thinkingAccum)
         },
         onToolCall(name, args) {
@@ -279,7 +301,13 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         onToolResult(name, result, args) {
           // Mark tool as done (shows checkmark briefly) then clear
           setToolStatus((prev) => prev?.name === name ? { ...prev, done: true, result: result.slice(0, 200) } : null)
-          setTimeout(() => setToolStatus(null), 800)
+          if (toolStatusClearTimerRef.current) {
+            clearTimeout(toolStatusClearTimerRef.current)
+          }
+          toolStatusClearTimerRef.current = setTimeout(() => {
+            setToolStatus(null)
+            toolStatusClearTimerRef.current = null
+          }, 800)
           if (name === 'shell') {
             const cmd = args?.command ?? ''
             const payload = JSON.stringify({ arg: String(cmd), output: result ?? '' })
@@ -317,13 +345,23 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setQueuedMessages((q) => {
             if (q.length === 0) return q
             const [first, ...rest] = q
-            setTimeout(() => handleSubmit(first!), 0)
+            if (queuedSubmitTimerRef.current) {
+              clearTimeout(queuedSubmitTimerRef.current)
+            }
+            queuedSubmitTimerRef.current = setTimeout(() => {
+              queuedSubmitTimerRef.current = null
+              void handleSubmit(first!)
+            }, 0)
             return rest
           })
           const pct = agent.contextLimit > 0 ? Math.round((agent.contextUsage / agent.contextLimit) * 100) : 0
           setContextPct(pct)
           if (sessionId) {
-            setTimeout(() => {
+            if (saveSessionTimerRef.current) {
+              clearTimeout(saveSessionTimerRef.current)
+            }
+            saveSessionTimerRef.current = setTimeout(() => {
+              saveSessionTimerRef.current = null
               setMessages((current) => {
                 saveSession({
                   id: sessionId,

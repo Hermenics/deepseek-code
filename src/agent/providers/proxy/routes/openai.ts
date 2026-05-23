@@ -62,10 +62,12 @@ export function createOpenAIRouter(pool: PagePool, config: ProxyConfig) {
 
             if (event.done) {
               // Response complete — check if it's a tool call or normal text
-              const toolCall = openai.parseToolCall(accumulated)
-              if (toolCall) {
-                // Entire response was a tool call — send as tool_calls delta
-                await s.write(openai.formatStreamToolCall(toolCall, request.model))
+              const toolCalls = openai.parseToolCalls(accumulated)
+              if (toolCalls.length > 0) {
+                // Entire response was a tool call batch — send all tool_calls deltas
+                for (const [index, toolCall] of toolCalls.entries()) {
+                  await s.write(openai.formatStreamToolCall(toolCall, request.model, index))
+                }
               } else if (accumulated) {
                 // Normal text response — flush remaining buffered text
                 await s.write(openai.formatStreamChunk(doubleMarkdown(accumulated), request.model))

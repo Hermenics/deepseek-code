@@ -4,6 +4,15 @@ export interface BufferEntry {
   timestamp: number
 }
 
+export interface UseInputBufferResult {
+  pushToBuffer: (text: string, cursorOffset: number) => void
+  undo: () => BufferEntry | undefined
+  redo: () => BufferEntry | undefined
+  canUndo: boolean
+  canRedo: boolean
+  clearBuffer: () => void
+}
+
 export class InputBuffer {
   private readonly maxSize: number
   private entries: BufferEntry[] = []
@@ -53,5 +62,26 @@ export class InputBuffer {
   clear(): void {
     this.entries = []
     this.currentIndex = -1
+  }
+}
+
+export function useInputBuffer(props?: { maxSize?: number; debounceMs?: number }): UseInputBufferResult {
+  const buffer = new InputBuffer({ maxSize: props?.maxSize })
+
+  return {
+    pushToBuffer: (text: string, cursorOffset: number) => {
+      buffer.push(text, cursorOffset)
+    },
+    undo: () => buffer.undo(),
+    redo: () => buffer.redo(),
+    get canUndo() {
+      return buffer.canUndo
+    },
+    get canRedo() {
+      return buffer.canRedo
+    },
+    clearBuffer: () => {
+      buffer.clear()
+    },
   }
 }

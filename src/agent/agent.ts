@@ -897,13 +897,6 @@ export class Agent {
         function: { name: tc.name, arguments: tc.args },
       }))
 
-      // ── OAuth: enforce single tool per response ────────────────────────────
-      let oauthSkipped: string[] = []
-      if (this.provider === 'oauth' && tcArray.length > 1) {
-        oauthSkipped = tcArray.slice(1).map((tc) => tc.function.name)
-        tcArray = [tcArray[0]!]
-        auditLog({ type: 'oauth_tool_truncate', skipped: oauthSkipped })
-      }
 
       const assistantMsg: AssistantMessageWithReasoning = {
         role: 'assistant',
@@ -962,13 +955,6 @@ export class Agent {
         }
       }
 
-      // ── OAuth: notify model about skipped tools ────────────────────────────
-      if (oauthSkipped.length > 0) {
-        const lastMsg = this.messages[this.messages.length - 1]
-        if (lastMsg && lastMsg.role === 'tool') {
-          (lastMsg as any).content += `\n\n[System: You called ${oauthSkipped.length + 1} tools at once, but only the first was executed. Skipped: ${oauthSkipped.join(', ')}. Call them one at a time in your next responses.]`
-        }
-      }
     }
   }
 

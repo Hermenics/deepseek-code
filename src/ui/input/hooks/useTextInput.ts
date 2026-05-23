@@ -6,13 +6,34 @@ import {
   recordYank,
 } from '../cursor/index.js'
 
-type KeyEvent = {
+export type KeyEvent = {
   name?: string
   ctrl?: boolean
   meta?: boolean
   shift?: boolean
   option?: boolean
   raw?: string
+  sequence?: string
+}
+
+export interface UseTextInputProps {
+  value: string
+  onChange: (value: string) => void
+  cursorOffset: number
+  onChangeCursorOffset: (offset: number) => void
+  onSubmit?: (value: string) => void
+  onHistoryUp?: () => void
+  onHistoryDown?: () => void
+  multiline?: boolean
+  columns: number
+}
+
+export interface BaseInputState {
+  onKeyEvent: (key: KeyEvent) => void
+  renderedValue: string
+  offset: number
+  cursorLine: number
+  cursorColumn: number
 }
 
 type TextInputResult =
@@ -108,4 +129,32 @@ export function processTextInputKey(
   }
 
   return { type: 'cursor', cursor }
+}
+
+export function useTextInput(props: UseTextInputProps): BaseInputState {
+  const cursor = Cursor.fromText(props.value, props.columns, props.cursorOffset)
+
+  return {
+    onKeyEvent: (key: KeyEvent) => {
+      const result = processTextInputKey(cursor, key, { multiline: props.multiline })
+
+      if (result.type === 'action') {
+        if (result.action === 'submit') props.onSubmit?.(props.value)
+        if (result.action === 'historyUp') props.onHistoryUp?.()
+        if (result.action === 'historyDown') props.onHistoryDown?.()
+        return
+      }
+
+      if (result.cursor.text !== props.value) {
+        props.onChange(result.cursor.text)
+      }
+      if (result.cursor.offset !== props.cursorOffset || result.cursor.text !== props.value) {
+        props.onChangeCursorOffset(result.cursor.offset)
+      }
+    },
+    renderedValue: props.value,
+    offset: props.cursorOffset,
+    cursorLine: cursor.line,
+    cursorColumn: cursor.column,
+  }
 }

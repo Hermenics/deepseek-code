@@ -1,3 +1,10 @@
+export interface UseInputHistoryResult {
+  historyUp: (currentDraft: string) => string | undefined
+  historyDown: () => string | undefined
+  resetHistory: () => void
+  isNavigating: boolean
+}
+
 export class InputHistory {
   private entries: string[] = []
   private index: number | null = null
@@ -45,5 +52,19 @@ export class InputHistory {
 
   get isNavigating(): boolean {
     return this.index !== null
+  }
+}
+
+export function useInputHistory(props: { entries: string[] }): UseInputHistoryResult {
+  const history = new InputHistory()
+  history.setHistory(props.entries)
+
+  return {
+    historyUp: (currentDraft: string) => history.up(currentDraft),
+    historyDown: () => history.down(),
+    resetHistory: () => history.reset(),
+    get isNavigating() {
+      return history.isNavigating
+    },
   }
 }

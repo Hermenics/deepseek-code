@@ -19,7 +19,7 @@ You have access to tools. When you decide to use a tool, your ENTIRE response mu
 1. Your response is EITHER a tool call OR normal text. NEVER both.
 2. When calling a tool: output ONLY the raw JSON. No text before. No text after. No markdown fences. No explanation.
 3. When NOT calling a tool: respond normally with text. Never include the JSON format in a text response.
-4. Call exactly ONE tool per response. After you receive the result, you may call another tool or respond with text.
+4. You may call multiple tools in a single response when they are independent of each other. For write operations that depend on each other, call them sequentially. After you receive results, you may call additional tools or respond with text.
 5. NEVER wrap the JSON in \`\`\`json, \`\`\`text, or any code block.
 6. NEVER prefix with "I'll use..." or "Let me..." — just output the JSON directly.
 
@@ -92,14 +92,14 @@ export function injectToolPrompt(messages: ChatMessage[], tools: ToolDef[]): Cha
   return [systemMsg, ...messages]
 }
 
-export function parseToolResponse(
+export function parseToolResponses(
   text: string,
   allowedTools?: ReadonlySet<string>,
-): { name: string; id: string; arguments: any } | null {
-  if (text.length > 10 * 1024) return null
+): Array<{ name: string; id: string; arguments: any }> {
+  if (text.length > 10 * 1024) return []
 
   const trimmed = text.trim()
-  if (!trimmed) return null
+  if (!trimmed) return []
 
   const makeResult = (parsed: unknown): { name: string; id: string; arguments: any } | null => {
     const validated = validateToolCall(parsed)
@@ -107,85 +107,73 @@ export function parseToolResponse(
     if (allowedTools && !allowedTools.has(validated.name)) return null
     return {
       name: validated.name,
-      id: `toolu_${Date.now().toString(36)}`,
+      id: `toolu_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
       arguments: validated.arguments,
     }
   }
 
-  if (trimmed.startsWith('```')) {
-    const stripped = trimmed
-      .replace(/^```(?:json|text|typescript|js)?\s*\n?/, '')
-      .replace(/\n?```\s*$/, '')
-      .trim()
-    if (stripped.startsWith('{')) {
-      try {
-        return makeResult(JSON.parse(stripped))
-      } catch {
-        const extracted = extractBalancedJson(stripped)
-        if (extracted) {
-          try { return makeResult(JSON.parse(extracted)) } catch { }
-        }
-      }
-    }
-    return null
+  const results: Array<{ name: string; id: string; arguments: any }> = []
+
+  const pushIfValid = (parsed: unknown) => {
+    const result = makeResult(parsed)
+    if (result) results.push(result)
   }
 
-  const dsmlInvoke = trimmed.match(/<\|{2}DSML\|{2}invoke\s+name="([^"]+)">/)
+  const source = trimmed.startsWith('```')
+    ? trimmed.replace(/^```(?:json|text|typescript|js)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim()
+    : trimmed
+
+  const dsmlInvoke = source.match(/<\|{2}DSML\|{2}invoke\s+name="([^"]+)">/)
   if (dsmlInvoke) {
     const name = dsmlInvoke[1]!
-    if (allowedTools && !allowedTools.has(name)) return null
-
-    const args: Record<string, unknown> = {}
-    const paramRe = /<\|{2}DSML\|{2}parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/\|{2}DSML\|{2}parameter>/g
-    let m
-    while ((m = paramRe.exec(trimmed)) !== null) {
-      try { args[m[1]!] = JSON.parse(m[2]!) } catch { args[m[1]!] = m[2]! }
-    }
-
-    return { name, id: `toolu_${Date.now().toString(36)}`, arguments: args }
-  }
-
-  const toolCallTag = trimmed.match(/<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/)
-  if (toolCallTag) {
-    const wrappedJson = extractBalancedJson(toolCallTag[1]!.trim())
-    if (!wrappedJson) return null
-    try {
-      return makeResult(JSON.parse(wrappedJson))
-    } catch {
-      return null
+    if (!allowedTools || allowedTools.has(name)) {
+      const args: Record<string, unknown> = {}
+      const paramRe = /<\|{2}DSML\|{2}parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/\|{2}DSML\|{2}parameter>/g
+      let m
+      while ((m = paramRe.exec(source)) !== null) {
+        try { args[m[1]!] = JSON.parse(m[2]!) } catch { args[m[1]!] = m[2]! }
+      }
+      results.push({ name, id: `toolu_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, arguments: args })
     }
   }
 
-  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+  const toolCallTagRe = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g
+  let tagMatch: RegExpExecArray | null
+  while ((tagMatch = toolCallTagRe.exec(source)) !== null) {
+    const wrappedJson = extractBalancedJson(tagMatch[1]!.trim())
+    if (!wrappedJson) continue
+    try { pushIfValid(JSON.parse(wrappedJson)) } catch { }
+  }
+
+  const toolUseRe = /\{\s*"tool_use"\s*:/g
+  let useMatch: RegExpExecArray | null
+  while ((useMatch = toolUseRe.exec(source)) !== null) {
+    const extracted = extractBalancedJson(source.slice(useMatch.index))
+    if (!extracted) continue
+    try { pushIfValid(JSON.parse(extracted)) } catch { }
+  }
+
+  if (results.length === 0 && source.startsWith('{') && source.endsWith('}')) {
     try {
-      return makeResult(JSON.parse(trimmed))
+      pushIfValid(JSON.parse(source))
     } catch {
       for (let i = 1; i <= 2; i++) {
         try {
-          const completed = trimmed + '}'.repeat(i)
-          return makeResult(JSON.parse(completed))
+          pushIfValid(JSON.parse(source + '}'.repeat(i)))
+          break
         } catch { }
       }
-      return null
     }
   }
 
-  const jsonStartIdx = trimmed.indexOf('{"tool_use"')
-  if (jsonStartIdx >= 0) {
-    const prefix = trimmed.slice(0, jsonStartIdx)
-    if (prefix.length > 500) return null
-    if (prefix.includes('```')) return null
+  return results
+}
 
-    const extracted = extractBalancedJson(trimmed.slice(jsonStartIdx))
-    if (!extracted) return null
-    try {
-      return makeResult(JSON.parse(extracted))
-    } catch {
-      return null
-    }
-  }
-
-  return null
+export function parseToolResponse(
+  text: string,
+  allowedTools?: ReadonlySet<string>,
+): { name: string; id: string; arguments: any } | null {
+  return parseToolResponses(text, allowedTools)[0] ?? null
 }
 
 function validateToolCall(parsed: any): { name: string; arguments: Record<string, unknown> } | null {
