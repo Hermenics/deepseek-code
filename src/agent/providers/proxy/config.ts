@@ -28,7 +28,7 @@ const DEFAULTS: ProxyConfig = {
   cacheTtl: 300,
   poolSize: 2,
   responseTimeout: 60000,
-  port: 29483,
+  port: 19816,
   host: '127.0.0.1',
   logLevel: 'info',
   corsOrigins: '*',

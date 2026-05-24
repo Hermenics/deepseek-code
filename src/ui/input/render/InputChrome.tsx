@@ -49,8 +49,6 @@ export function InputChrome({
           const color = contextPct >= 90 ? 'red' : contextPct >= 70 ? 'yellow' : 'cyan'
           return <Text color={color}>{contextPct + '% '}</Text>
         })()}
-        <Text color={hasExclamation ? 'magenta' : 'cyan'}>{hasExclamation ? '!' : '❯'}</Text>
-        <Text>{' '}</Text>
         {children}
       </Box>
 

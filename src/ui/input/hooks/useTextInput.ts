@@ -113,8 +113,24 @@ export function processTextInputKey(
     case 'end':
       return { type: 'cursor', cursor: cursor.endOfLine() }
     case 'up':
+      if (options?.multiline && cursor.text.includes('\n')) {
+        // Only navigate history when cursor is on the first line
+        const firstNewline = cursor.text.indexOf('\n')
+        if (cursor.offset <= firstNewline) {
+          return { type: 'action', action: 'historyUp' }
+        }
+        return { type: 'cursor', cursor: cursor.up() }
+      }
       return { type: 'action', action: 'historyUp' }
     case 'down':
+      if (options?.multiline && cursor.text.includes('\n')) {
+        // Only navigate history when cursor is on the last line
+        const lastNewline = cursor.text.lastIndexOf('\n')
+        if (cursor.offset > lastNewline) {
+          return { type: 'action', action: 'historyDown' }
+        }
+        return { type: 'cursor', cursor: cursor.down() }
+      }
       return { type: 'action', action: 'historyDown' }
     case 'return':
     case 'enter':

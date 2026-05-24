@@ -229,22 +229,9 @@ function Root() {
         setProviderConfig(saved)
         if (saved.provider === 'deepseek' && saved.apiKey) process.env.DEEPSEEK_API_KEY = saved.apiKey
         if (saved.provider === 'oauth' && isOAuthReady() && saved.proxyApiKey) {
-          const alreadyUp = await fetch('http://127.0.0.1:29483/health').then(r => r.ok).catch(() => false)
-          const proxyVersion = alreadyUp
-            ? await fetch('http://127.0.0.1:29483/health').then(r => r.json()).then((d: any) => d.deepseekVersion ?? '').catch(() => '')
-            : ''
-          const needsRestart = alreadyUp && proxyVersion !== pkg.version
-          if (needsRestart) {
-            await fetch('http://127.0.0.1:29483/shutdown', { method: 'POST' }).catch(() => {})
-            const { execSync } = await import('child_process')
-            try { execSync('lsof -ti:29483 | xargs -r kill -9', { stdio: 'ignore' }) } catch {}
-            await new Promise(r => setTimeout(r, 600))
-          }
-          if (!alreadyUp || needsRestart) {
-            await startProxy(saved.proxyApiKey)
-            const ok = await waitForProxy(150000)
-            if (!ok) console.error('Warning: proxy failed to start within 15s')
-          }
+          await startProxy(saved.proxyApiKey)
+          const ok = await waitForProxy(15000)
+          if (!ok) console.error('Warning: proxy failed to start within 15s')
         } else if (saved.provider === 'oauth' && (!isOAuthReady() || !saved.proxyApiKey)) {
           // OAuth session or key missing — force re-setup
           setReady(false)

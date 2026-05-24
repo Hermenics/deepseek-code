@@ -327,6 +327,8 @@ export function InputBox({
           columns={cols}
           placeholder={pastedBlock ? '' : placeholder}
           ghostText={ghost?.text}
+          prefix={hasExclamation ? '! ' : '❯ '}
+          prefixColor={hasExclamation ? 'magenta' : 'cyan'}
         />
         {ctrlCDouble.armed && (
           <Text color="yellow">{'  Press Ctrl+C again to exit'}</Text>

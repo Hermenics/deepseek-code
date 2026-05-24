@@ -1,6 +1,5 @@
 import { Hono } from 'hono'
 import { serve } from '@hono/node-server'
-import { execSync } from 'node:child_process'
 import { loadConfig, setLogLevel, log } from './config.js'
 import { initPlaywright, closePlaywright, BROWSER_PROFILE_PATH } from './browser/playwright.js'
 import { PagePool } from './browser/pool.js'
@@ -66,11 +65,6 @@ export async function startProxyServer(): Promise<void> {
   app.notFound((c) => c.json({
     error: { message: `Not found: ${c.req.method} ${c.req.path}`, type: 'invalid_request_error' },
   }, 404))
-
-  try {
-    execSync(`lsof -ti:${config.port} | grep -v "^${process.pid}$" | xargs -r kill -9`, { stdio: 'ignore' })
-    await new Promise((r) => setTimeout(r, 500))
-  } catch {}
 
   const { host, port } = config
   serve({ fetch: app.fetch, hostname: host, port })

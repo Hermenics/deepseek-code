@@ -2,6 +2,7 @@ import OpenAI from 'openai'
 import type { ProviderConfig } from '../ui/setup/ApiKeySetup.js'
 import { createBedrockFetch, createBedrockMantleFetch, modelSupportsChatCompletions } from './providers/bedrock.js'
 import { createVertexFetch } from './providers/vertex.js'
+import { getProxyPort } from './providers/oauth.js'
 
 /**
  * Returns an OpenAI-compatible client configured for the given provider.
@@ -60,7 +61,7 @@ export function createLLMClient(cfg: ProviderConfig, model?: string): OpenAI {
       if (!cfg.proxyApiKey) throw new Error('OAuth mode requires a proxy API key. Run deepseek logout and log in again.')
       return new OpenAI({
         apiKey: cfg.proxyApiKey,
-        baseURL: 'http://127.0.0.1:29483/v1',
+        baseURL: `http://127.0.0.1:${getProxyPort()}/v1`,
       })
     }
     default: // deepseek
