@@ -222,45 +222,64 @@ function Root() {
   const [resumeNotFound, setResumeNotFound] = useState(false)
 
   useEffect(() => {
-    const { agentName, initialMessage: msg, resumeId } = ARGV
-    migrateConfigIfNeeded().then(() => loadSavedConfig()).then(async ({ providerConfig: saved, theme: savedTheme, language: savedLanguage }) => {
-      setTheme(savedTheme)
-      if (saved) {
-        setProviderConfig(saved)
-        if (saved.provider === 'deepseek' && saved.apiKey) process.env.DEEPSEEK_API_KEY = saved.apiKey
-        if (saved.provider === 'oauth' && isOAuthReady() && saved.proxyApiKey) {
-          await startProxy(saved.proxyApiKey)
-          const ok = await waitForProxy(15000)
-          if (!ok) console.error('Warning: proxy failed to start within 15s')
-        } else if (saved.provider === 'oauth' && (!isOAuthReady() || !saved.proxyApiKey)) {
-          // OAuth session or key missing — force re-setup
-          setReady(false)
-          setProviderConfig(null)
-          setChecked(true)
-          return
+    const init = async () => {
+      try {
+        const { agentName, initialMessage: msg, resumeId } = ARGV
+        await migrateConfigIfNeeded()
+        const { providerConfig: saved, theme: savedTheme, language: savedLanguage } = await loadSavedConfig()
+
+        setTheme(savedTheme)
+        if (saved) {
+          setProviderConfig(saved)
+          if (saved.provider === 'deepseek' && saved.apiKey) process.env.DEEPSEEK_API_KEY = saved.apiKey
+          if (saved.provider === 'oauth' && isOAuthReady() && saved.proxyApiKey) {
+            try {
+              await startProxy(saved.proxyApiKey)
+              const ok = await waitForProxy(15000)
+              if (!ok) console.error('Warning: proxy failed to start within 15s')
+            } catch (error) {
+              console.error('Failed to start OAuth proxy:', error)
+              setReady(false)
+              setProviderConfig(null)
+              return
+            }
+          } else if (saved.provider === 'oauth' && (!isOAuthReady() || !saved.proxyApiKey)) {
+            // OAuth session or key missing — force re-setup
+            setReady(false)
+            setProviderConfig(null)
+            return
+          }
+          setReady(true)
+        } else if (process.env.DEEPSEEK_API_KEY) {
+          setProviderConfig({ provider: 'deepseek', apiKey: process.env.DEEPSEEK_API_KEY })
+          setReady(true)
         }
-        setReady(true)
-      } else if (process.env.DEEPSEEK_API_KEY) {
-        setProviderConfig({ provider: 'deepseek', apiKey: process.env.DEEPSEEK_API_KEY })
-        setReady(true)
-      }
-      setLanguage(savedLanguage)
-      setLanguageChecked(true)
-      if (resumeId) {
-        const session = await loadSession(resumeId)
-        if (session) {
-          setInitialSession(session)
-          if (session.language) setLanguage(session.language)
-        } else {
-          setResumeNotFound(true)
+
+        setLanguage(savedLanguage)
+        if (resumeId) {
+          const session = await loadSession(resumeId)
+          if (session) {
+            setInitialSession(session)
+            if (session.language) setLanguage(session.language)
+          } else {
+            setResumeNotFound(true)
+          }
         }
+        if (agentName) {
+          try { setInitialAgent(await loadAgentConfig(agentName)) } catch (e) { console.error((e as Error).message) }
+        }
+        if (msg) setInitialMessage(msg)
+      } catch (e) {
+        console.error('App initialization failed:', (e as Error).message)
+        setReady(false)
+        setProviderConfig(null)
+      } finally {
+        setChecked(true)
+        setLanguageChecked(true)
       }
-      if (agentName) {
-        try { setInitialAgent(await loadAgentConfig(agentName)) } catch (e) { console.error((e as Error).message) }
-      }
-      if (msg) setInitialMessage(msg)
-      setChecked(true)
-    })
+    }
+
+    void init()
   }, [])
 
   if (!checked) return null
