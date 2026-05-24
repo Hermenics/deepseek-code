@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/Aethelics/deepseek-code/main/src/public/deepseek-code2.png" alt="DeepSeek Code" height="250"/>
+<img src="https://raw.githubusercontent.com/Aethelics/deepseek-code/main/src/public/deepseek-code.png" alt="DeepSeek Code" height="250"/>
 
 <br/>
 
@@ -17,7 +17,7 @@
 ---
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/Aethelics/deepseek-code/main/demo.gif" alt="DeepSeek Code demo" width="80%" />
+  <img src="https://raw.githubusercontent.com/Aethelics/deepseek-code/main/src/public/demo.gif" alt="DeepSeek Code demo" width="80%" />
 </div>
 
 ## Get started
