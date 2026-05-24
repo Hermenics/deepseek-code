@@ -9,8 +9,11 @@ import { Cursor } from './cursor/index.js'
 import { processTextInputKey, type KeyEvent } from './hooks/useTextInput.js'
 import { processVimKey } from './hooks/useVimMode.js'
 import { InputBuffer } from './hooks/useInputBuffer.js'
+import { useDoublePress } from './hooks/useDoublePress.js'
 import { InputHistory } from './hooks/useInputHistory.js'
 import { getMatches } from './commandMatches.js'
+import { computeGhostText } from './ghost/index.js'
+import { COMMAND_SUGGESTIONS } from '../../commands.js'
 import { InputLine } from './render/InputLine.js'
 import { CommandDropdown } from './render/CommandDropdown.js'
 import { InputChrome } from './render/InputChrome.js'
@@ -104,6 +107,21 @@ export function InputBox({
   const historyRef = useRef(new InputHistory())
   const bufferRef = useRef(new InputBuffer())
 
+  const ctrlCDouble = useDoublePress({
+    timeout: 800,
+    onDoublePress: () => process.exit(0),
+  })
+
+  const escDouble = useDoublePress({
+    timeout: 800,
+    onDoublePress: () => {
+      setCursor(Cursor.fromText('', cols))
+      setPastedBlock(null)
+      setSelectedIdx(0)
+      historyRef.current.reset()
+    },
+  })
+
   useEffect(() => {
     loadInputHistory().then((entries) => historyRef.current.setHistory(entries))
   }, [sessionId])
@@ -125,8 +143,9 @@ export function InputBox({
     historyRef.current.reset()
   }
 
-    const matches = getMatches(cursor.text)
+  const matches = getMatches(cursor.text)
   const showDropdown = matches.length > 0
+  const ghost = computeGhostText(cursor.text, cursor.offset, COMMAND_SUGGESTIONS, historyRef.current.entries)
 
   useInput((input: string, key: Key) => {
     if (input === '\x1b[Z' || (key.shift && key.tab)) {
@@ -136,8 +155,16 @@ export function InputBox({
     if (input.startsWith('\x1b')) return
     if (input.length === 1 && input.charCodeAt(0) < 32 && !key.ctrl) return
 
+    // Reset double-press states on any other key
+    if (!(key.ctrl && input === 'c')) ctrlCDouble.reset()
+    if (!key.escape) escDouble.reset()
+
     if (key.ctrl && input === 'c') {
-      if (isLoading) onAbort?.()
+      if (isLoading) {
+        onAbort?.()
+        return
+      }
+      ctrlCDouble.trigger()
       return
     }
 
@@ -158,6 +185,26 @@ export function InputBox({
       const entry = key.shift ? bufferRef.current.redo() : bufferRef.current.undo()
       if (entry) setCursor(Cursor.fromText(entry.text, cols, entry.cursorOffset))
       return
+    }
+
+    if (key.escape && !vimEnabled && cursor.text.length > 0) {
+      escDouble.trigger()
+      return
+    }
+
+    if (!showDropdown && ghost && ghost.insertPosition === cursor.offset) {
+      if (key.tab) {
+        setCursor(Cursor.fromText(ghost.fullCommand, cols, ghost.fullCommand.length))
+        setSelectedIdx(0)
+        historyRef.current.reset()
+        return
+      }
+      if (key.rightArrow && cursor.isAtEnd()) {
+        setCursor(Cursor.fromText(ghost.fullCommand, cols, ghost.fullCommand.length))
+        setSelectedIdx(0)
+        historyRef.current.reset()
+        return
+      }
     }
 
     if (showDropdown && (key.upArrow || key.downArrow)) {
@@ -251,6 +298,11 @@ export function InputBox({
   })
 
   const hasExclamation = cursor.text.trimStart().startsWith('!')
+  const placeholder = isLoading
+    ? 'Queue a message...'
+    : contextPct >= 90
+      ? 'Context almost full. Try /compact'
+      : 'What do you want me to do? ↵'
 
   return (
     <Box flexDirection="column">
@@ -270,7 +322,18 @@ export function InputBox({
             <Text color="#888888">{'[Pasted text | ' + pastedBlock.split('\n').length + ' lines]'}</Text>
           </Box>
         )}
-        <InputLine cursor={cursor} columns={cols} placeholder={pastedBlock ? '' : 'What do you want me to do? ↵'} />
+        <InputLine
+          cursor={cursor}
+          columns={cols}
+          placeholder={pastedBlock ? '' : placeholder}
+          ghostText={ghost?.text}
+        />
+        {ctrlCDouble.armed && (
+          <Text color="yellow">{'  Press Ctrl+C again to exit'}</Text>
+        )}
+        {escDouble.armed && (
+          <Text color="yellow">{'  Press Esc again to clear input'}</Text>
+        )}
       </InputChrome>
 
       {showDropdown && (

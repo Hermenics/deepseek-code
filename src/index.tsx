@@ -235,7 +235,7 @@ function Root() {
             : ''
           const needsRestart = alreadyUp && proxyVersion !== pkg.version
           if (needsRestart) {
-            await fetch('http://127.0.0.1:29483/shutdown').catch(() => {})
+            await fetch('http://127.0.0.1:29483/shutdown', { method: 'POST' }).catch(() => {})
             const { execSync } = await import('child_process')
             try { execSync('lsof -ti:29483 | xargs -r kill -9', { stdio: 'ignore' }) } catch {}
             await new Promise(r => setTimeout(r, 600))

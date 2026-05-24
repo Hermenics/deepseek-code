@@ -6,38 +6,42 @@ export interface UseInputHistoryResult {
 }
 
 export class InputHistory {
-  private entries: string[] = []
+  private _entries: string[] = []
   private index: number | null = null
   private draft: string | null = null
+
+  get entries(): string[] {
+    return [...this._entries]
+  }
 
   constructor() {}
 
   setHistory(entries: string[]): void {
-    this.entries = [...entries]
+    this._entries = [...entries]
     this.reset()
   }
 
   up(currentDraft: string): string | undefined {
-    if (this.entries.length === 0) return undefined
+    if (this._entries.length === 0) return undefined
 
     if (this.index === null) {
-      this.index = this.entries.length - 1
+      this.index = this._entries.length - 1
       this.draft = currentDraft
-      return this.entries[this.index]
+      return this._entries[this.index]
     }
 
     if (this.index === 0) return undefined
 
     this.index -= 1
-    return this.entries[this.index]
+    return this._entries[this.index]
   }
 
   down(): string | undefined {
     if (this.index === null) return undefined
 
-    if (this.index < this.entries.length - 1) {
+    if (this.index < this._entries.length - 1) {
       this.index += 1
-      return this.entries[this.index]
+      return this._entries[this.index]
     }
 
     const restored = this.draft ?? ''

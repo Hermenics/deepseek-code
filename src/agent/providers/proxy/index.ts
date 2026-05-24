@@ -55,6 +55,10 @@ export async function startProxyServer(): Promise<void> {
     pool: { size: config.poolSize },
     auth: config.proxyApiKey ? 'enabled' : 'disabled',
   }))
+  app.post('/shutdown', (c) => {
+    setTimeout(() => shutdown('HTTP /shutdown'), 100)
+    return c.json({ status: 'shutting_down', message: 'Proxy shutting down gracefully...' })
+  })
 
   app.route('/', createOpenAIRouter(pool, config))
   app.route('/', createAnthropicRouter(pool, config))

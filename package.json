@@ -1,6 +1,6 @@
 {
   "name": "@aethelics/deepseek-code",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
@@ -38,6 +38,7 @@
     "emoji-regex": "^10.6.0",
     "execa": "^9.6.1",
     "fast-glob": "^3.3.3",
+    "fuse.js": "^7.0.0",
     "get-east-asian-width": "^1.6.0",
     "google-auth-library": "^10.6.2",
     "hono": "^4.12.21",

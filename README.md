@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/Aethelics/deepseek-code2/main/deepseek-code.png" alt="DeepSeek Code" height="250"/>
+<img src="https://raw.githubusercontent.com/Aethelics/deepseek-code/main/src/public/deepseek-code2.png" alt="DeepSeek Code" height="250"/>
 
 <br/>
 
@@ -17,7 +17,7 @@
 ---
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/Aethelics/deepseek-code2/main/demo.gif" alt="DeepSeek Code demo" width="80%" />
+  <img src="https://raw.githubusercontent.com/Aethelics/deepseek-code/main/demo.gif" alt="DeepSeek Code demo" width="80%" />
 </div>
 
 ## Get started
@@ -64,48 +64,7 @@ DeepSeek Code is an agentic coding tool with a TUI that lives in your terminal. 
 
 ## Reporting bugs
 
-File a [GitHub issue](https://github.com/Aethelics/deepseek-code2/issues) or use `/help` inside the TUI.
-
----
-
-<div align="center">
-  <p>Made with ❤️ by <a href="https://github.com/Marcelo-Henry">Marcelo</a></p>
-</div>
-
----
-
-
-<div align="center">
-  <img src="https://raw.githubusercontent.com/Aethelics/deepseek-code2/main/demo.gif" alt="DeepSeek Code demo" width="80%" />
-</div>
-
-## Get started
-
-1. Install DeepSeek Code:
-
-```bash
-npm install -g @aethelics/deepseek-code
-```
-
-2. Navigate to your project and run `deepseek`.
-
-On first run you'll be asked for your [DeepSeek API key](https://platform.deepseek.com/api_keys), language and theme.
-
-## What it does
-
-DeepSeek Code is an agentic coding tool with a beautiful terminal UI. It understands your codebase and helps you code faster through natural language — reading and writing files, running shell commands, searching code, fetching URLs, managing git, and more.
-
-It supports two models: **DeepSeek-V4-Flash** (`deepseek-v4-flash`) for fast general use, **DeepSeek-V4-Pro** (`deepseek-v4-pro`) for complext tasks, and **DeepSeek-R1** (`deepseek-reasoner`) for complex chain-of-thought reasoning. Switch between them at any time with `/model`.
-
-## TUI behavior
-
-- The TUI now runs on the terminal **main screen** (`screenMode: "main-screen"`), so terminal scrollback keeps chat history visible instead of limiting everything to an alternate-screen viewport.
-- Thinking output is rendered as a full multiline block while streaming and is persisted in chat history after each response/tool step.
-- To force alternate-screen mode, set `OTUI_USE_ALTERNATE_SCREEN=1` before running `deepseek`.
-
-## Reporting bugs
-
-File a [GitHub issue](https://github.com/Aethelics/deepseek-code2/issues) or use the `/help` command inside the TUI.
+File a [GitHub issue](https://github.com/Aethelics/deepseek-code/issues) or use `/help` inside the TUI.
 
 ---
 
