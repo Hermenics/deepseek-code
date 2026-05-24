@@ -145,9 +145,13 @@ export function parseToolResponses(
     try { pushIfValid(JSON.parse(wrappedJson)) } catch { }
   }
 
+  const MAX_PREFIX_LENGTH = 500
   const toolUseRe = /\{\s*"tool_use"\s*:/g
   let useMatch: RegExpExecArray | null
   while ((useMatch = toolUseRe.exec(source)) !== null) {
+    // Reject tool calls where the text prefix before the JSON is too long —
+    // a long preamble means the model is explaining/showing an example, not calling a tool.
+    if (useMatch.index > MAX_PREFIX_LENGTH) continue
     const extracted = extractBalancedJson(source.slice(useMatch.index))
     if (!extracted) continue
     try { pushIfValid(JSON.parse(extracted)) } catch { }
