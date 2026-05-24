@@ -152,6 +152,11 @@ export function parseToolResponses(
     // Reject tool calls where the text prefix before the JSON is too long —
     // a long preamble means the model is explaining/showing an example, not calling a tool.
     if (useMatch.index > MAX_PREFIX_LENGTH) continue
+    // Reject tool calls that are inside an inline code fence (```...```) embedded in prose.
+    // A leading fence is already stripped into `source`, so a fence marker before the match
+    // means the JSON is an example inside an explanation, not an actual tool call.
+    const prefix = source.slice(0, useMatch.index)
+    if (/```/.test(prefix)) continue
     const extracted = extractBalancedJson(source.slice(useMatch.index))
     if (!extracted) continue
     try { pushIfValid(JSON.parse(extracted)) } catch { }
