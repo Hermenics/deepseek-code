@@ -101,8 +101,8 @@ export function parseToolResponses(
   const trimmed = text.trim()
   if (!trimmed) return []
 
-  const makeResult = (parsed: unknown): { name: string; id: string; arguments: any } | null => {
-    const validated = validateToolCall(parsed)
+  const makeResult = (parsed: unknown, allowDirectFormat = false): { name: string; id: string; arguments: any } | null => {
+    const validated = validateToolCall(parsed, allowDirectFormat)
     if (!validated) return null
     if (allowedTools && !allowedTools.has(validated.name)) return null
     return {
@@ -114,8 +114,8 @@ export function parseToolResponses(
 
   const results: Array<{ name: string; id: string; arguments: any }> = []
 
-  const pushIfValid = (parsed: unknown) => {
-    const result = makeResult(parsed)
+  const pushIfValid = (parsed: unknown, allowDirectFormat = false) => {
+    const result = makeResult(parsed, allowDirectFormat)
     if (result) results.push(result)
   }
 
@@ -142,7 +142,7 @@ export function parseToolResponses(
   while ((tagMatch = toolCallTagRe.exec(source)) !== null) {
     const wrappedJson = extractBalancedJson(tagMatch[1]!.trim())
     if (!wrappedJson) continue
-    try { pushIfValid(JSON.parse(wrappedJson)) } catch { }
+    try { pushIfValid(JSON.parse(wrappedJson), true) } catch { }
   }
 
   const MAX_PREFIX_LENGTH = 500
@@ -185,7 +185,7 @@ export function parseToolResponse(
   return parseToolResponses(text, allowedTools)[0] ?? null
 }
 
-function validateToolCall(parsed: any): { name: string; arguments: Record<string, unknown> } | null {
+function validateToolCall(parsed: any, allowDirectFormat = false): { name: string; arguments: Record<string, unknown> } | null {
   if (!parsed || typeof parsed !== 'object') return null
 
   // Format 1: {"tool_use": {"name": "...", "arguments": {...}}}
@@ -196,10 +196,10 @@ function validateToolCall(parsed: any): { name: string; arguments: Record<string
     return { name: toolUse.name, arguments: toolUse.arguments || {} }
   }
 
-  // Format 2: {"name": "...", "arguments": {...}} (direct format from <tool_call> tags)
-  if (typeof parsed.name === 'string' && parsed.name.length > 0) {
-    if (parsed.arguments !== undefined && (typeof parsed.arguments !== 'object' || parsed.arguments === null || Array.isArray(parsed.arguments))) return null
-    return { name: parsed.name, arguments: parsed.arguments || {} }
+  // Format 2: {"name": "...", "arguments": {...}} — only inside <tool_call> tags
+  if (allowDirectFormat && typeof parsed.name === 'string' && parsed.name.length > 0 && parsed.arguments !== undefined) {
+    if (typeof parsed.arguments !== 'object' || parsed.arguments === null || Array.isArray(parsed.arguments)) return null
+    return { name: parsed.name, arguments: parsed.arguments }
   }
 
   return null

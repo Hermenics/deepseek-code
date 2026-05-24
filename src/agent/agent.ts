@@ -897,6 +897,15 @@ export class Agent {
         function: { name: tc.name, arguments: tc.args },
       }))
 
+      // ── OAuth: truncate to single tool call ────────────────────────────────
+      // The OAuth proxy uses prompt-emulated tools and the model may return
+      // multiple tool calls at once. Truncate to the first and notify the model.
+      let skippedToolNames: string[] = []
+      if (this.provider === 'oauth' && tcArray.length > 1) {
+        skippedToolNames = tcArray.slice(1).map((tc) => tc.function.name)
+        tcArray = tcArray.slice(0, 1)
+      }
+
 
       const assistantMsg: AssistantMessageWithReasoning = {
         role: 'assistant',
@@ -951,7 +960,11 @@ export class Agent {
         // Sequential execution (file writes, or mixed batch)
         for (const { tc, parsedArgs } of parsedList) {
           const { result } = await this.checkAndExecuteTool(tc, parsedArgs, cb)
-          this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
+          let content = result
+          if (skippedToolNames.length > 0 && tc.id === tcArray[0]!.id) {
+            content += `\n[System: You called ${skippedToolNames.length + 1} tools at once. Only the first was executed. Skipped: ${skippedToolNames.join(', ')}. Call one tool at a time.]`
+          }
+          this.messages.push({ role: 'tool', tool_call_id: tc.id, content })
         }
       }
 

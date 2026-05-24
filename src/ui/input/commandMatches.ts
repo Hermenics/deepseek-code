@@ -18,6 +18,7 @@ function getFuse(): Fuse<string> {
 
 export function getMatches(value: string): string[] {
   if (!value.startsWith('/')) return []
+  if (value === '/') return COMMAND_SUGGESTIONS
   if (value.length < 2) return []
 
   const prefixMatches = COMMAND_SUGGESTIONS.filter((s) => s.startsWith(value))
