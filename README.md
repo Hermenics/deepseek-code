@@ -48,7 +48,6 @@ Switch between models at any time with `/model`:
 |---|---|---|
 | `deepseek-v4-flash` | Fast, general purpose (default) | 128K |
 | `deepseek-v4-pro` | Advanced reasoning | 128K |
-| `deepseek-reasoner` | Chain-of-thought reasoning (R1) | 128K |
 
 Each provider also exposes provider-specific models (Bedrock, Vertex, local).
 
