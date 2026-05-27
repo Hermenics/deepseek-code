@@ -2,7 +2,201 @@ import OpenAI from 'openai'
 import type { ProviderConfig } from '../ui/setup/ApiKeySetup.js'
 import { createBedrockFetch, createBedrockMantleFetch, modelSupportsChatCompletions } from './providers/bedrock.js'
 import { createVertexFetch } from './providers/vertex.js'
-import { getProxyPort } from './providers/oauth.js'
+import { orchestrate } from './providers/proxy/services/orchestrator.js'
+import type { ProxyRequest } from './providers/proxy/types/index.js'
+
+const TOOL_START = '<tool_call>'
+const TOOL_END = '</tool_call>'
+
+function createOAuthFetch(): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> {
+  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
+    const method = init?.method ?? 'GET'
+
+    if (!url.includes('/v1/chat/completions') || method.toUpperCase() !== 'POST') {
+      return new Response(JSON.stringify({ error: 'Not found' }), {
+        status: 404,
+        headers: { 'content-type': 'application/json' },
+      })
+    }
+
+    const rawBody = init?.body
+    const bodyText = typeof rawBody === 'string' ? rawBody : rawBody ? String(rawBody) : '{}'
+    const parsed = JSON.parse(bodyText) as {
+      messages?: ProxyRequest['messages']
+      model?: string
+      tools?: Array<{ type?: string; function?: { name: string; description?: string; parameters?: unknown }; name?: string; description?: string; input_schema?: unknown }>
+    }
+
+    // Convert OpenAI tool format {type:'function', function:{name,description,parameters}}
+    // to ProxyTool format {name, description, input_schema} that buildPrompt expects
+    const tools: ProxyRequest['tools'] = (parsed.tools ?? []).map((t) => {
+      if (t.type === 'function' && t.function) {
+        return { name: t.function.name, description: t.function.description, input_schema: t.function.parameters }
+      }
+      return { name: t.name ?? '', description: t.description, input_schema: t.input_schema }
+    })
+
+    const proxyRequest: ProxyRequest = {
+      messages: parsed.messages ?? [],
+      model: parsed.model ?? 'deepseek-v4-flash',
+      stream: true,
+      tools,
+    }
+
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        const id = `chatcmpl-${Date.now()}`
+        const sendChunk = (payload: unknown) => controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`))
+
+        // Tool call parsing state (mirrors deepsproxy/src/routes/chat.ts)
+        let contentBuffer = ''   // accumulates text tokens for tool detection
+        let insideTool = false   // currently inside <tool_call>...</tool_call>
+        let toolCallCount = 0    // number of tool calls emitted so far
+
+        const flushText = (text: string) => {
+          if (!text || toolCallCount > 0) return
+          sendChunk({
+            id, object: 'chat.completion.chunk',
+            choices: [{ index: 0, delta: { content: text }, finish_reason: null }],
+          })
+        }
+
+        const emitToolCall = (toolJson: string) => {
+          try {
+            const obj = JSON.parse(toolJson) as { name?: string; arguments?: unknown }
+            const name = obj.name ?? ''
+            const args = obj.arguments && typeof obj.arguments === 'object'
+              ? obj.arguments as Record<string, unknown>
+              : {}
+            const toolId = `call_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+            sendChunk({
+              id, object: 'chat.completion.chunk',
+              choices: [{
+                index: 0,
+                delta: {
+                  tool_calls: [{
+                    index: toolCallCount,
+                    id: toolId,
+                    type: 'function',
+                    function: { name, arguments: JSON.stringify(args) },
+                  }],
+                },
+                finish_reason: null,
+              }],
+            })
+            toolCallCount++
+          } catch {
+            // malformed tool JSON — emit as text
+            flushText(TOOL_START + toolJson + TOOL_END)
+          }
+        }
+
+        // Process accumulated contentBuffer for tool tags
+        const processBuffer = () => {
+          while (contentBuffer.length > 0) {
+            if (!insideTool) {
+              const startIdx = contentBuffer.indexOf(TOOL_START)
+              if (startIdx !== -1) {
+                // emit text before the tag
+                flushText(contentBuffer.slice(0, startIdx))
+                insideTool = true
+                contentBuffer = contentBuffer.slice(startIdx + TOOL_START.length)
+              } else {
+                // no tool tag — check for partial match at end, hold back
+                let holdBack = 0
+                for (let i = 1; i <= TOOL_START.length; i++) {
+                  if (contentBuffer.endsWith(TOOL_START.slice(0, i))) {
+                    holdBack = i
+                    break
+                  }
+                }
+                flushText(contentBuffer.slice(0, contentBuffer.length - holdBack))
+                contentBuffer = contentBuffer.slice(contentBuffer.length - holdBack)
+                break
+              }
+            } else {
+              const endIdx = contentBuffer.indexOf(TOOL_END)
+              if (endIdx !== -1) {
+                emitToolCall(contentBuffer.slice(0, endIdx).trim())
+                insideTool = false
+                contentBuffer = contentBuffer.slice(endIdx + TOOL_END.length)
+              } else {
+                break // wait for more tokens
+              }
+            }
+          }
+        }
+
+        try {
+          for await (const event of orchestrate(proxyRequest, null as never, null as never)) {
+            if (event.error) {
+              sendChunk({
+                id, object: 'chat.completion.chunk',
+                choices: [{ index: 0, delta: { content: `⚠ ${event.error}` }, finish_reason: null }],
+              })
+              sendChunk({
+                id, object: 'chat.completion.chunk',
+                choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+              })
+              controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+              break
+            }
+
+            if (event.thinking) {
+              sendChunk({
+                id, object: 'chat.completion.chunk',
+                choices: [{ index: 0, delta: { reasoning_content: event.thinking }, finish_reason: null }],
+              })
+            }
+
+            if (event.token) {
+              contentBuffer += event.token
+              processBuffer()
+            }
+
+            if (event.done) {
+              // flush remaining buffer
+              if (!insideTool && contentBuffer) flushText(contentBuffer)
+              contentBuffer = ''
+
+              const finishReason = toolCallCount > 0 ? 'tool_calls' : 'stop'
+              sendChunk({
+                id, object: 'chat.completion.chunk',
+                choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
+              })
+              controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+              break
+            }
+          }
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err)
+          sendChunk({
+            id, object: 'chat.completion.chunk',
+            choices: [{ index: 0, delta: { content: `⚠ OAuth error: ${msg}` }, finish_reason: null }],
+          })
+          sendChunk({
+            id, object: 'chat.completion.chunk',
+            choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+          })
+          controller.enqueue(encoder.encode('data: [DONE]\n\n'))
+        } finally {
+          controller.close()
+        }
+      },
+    })
+
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache',
+        connection: 'keep-alive',
+      },
+    })
+  }
+}
 
 /**
  * Returns an OpenAI-compatible client configured for the given provider.
@@ -58,10 +252,10 @@ export function createLLMClient(cfg: ProviderConfig, model?: string): OpenAI {
       })
     }
     case 'oauth': {
-      if (!cfg.proxyApiKey) throw new Error('OAuth mode requires a proxy API key. Run deepseek logout and log in again.')
       return new OpenAI({
-        apiKey: cfg.proxyApiKey,
-        baseURL: `http://127.0.0.1:${getProxyPort()}/v1`,
+        apiKey: cfg.proxyApiKey ?? 'oauth',
+        baseURL: 'https://chat.deepseek.com/oauth-passthrough/v1',
+        fetch: createOAuthFetch(),
       })
     }
     default: // deepseek

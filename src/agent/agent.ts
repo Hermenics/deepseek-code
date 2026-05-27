@@ -833,54 +833,6 @@ export class Agent {
         throw e
       }
 
-      // ── OAuth fallback: parse textual tool_use when proxy didn't convert ──
-      if (this.provider === 'oauth' && toolCalls.size === 0 && assistantText.trim()) {
-        // Strip code fences that the DOM observer may have added
-        let textToParse = assistantText.trim()
-        if (textToParse.startsWith('```')) {
-          textToParse = textToParse
-            .replace(/^```(?:json|text|typescript|js)?\s*\n?/, '')
-            .replace(/\n?```\s*$/, '')
-            .trim()
-        }
-        const toolNames = new Set(this.tools.map((t) => t.name))
-        const parsed = parseToolResponse(textToParse, toolNames)
-        if (parsed) {
-          const tc = {
-            id: parsed.id,
-            type: 'function' as const,
-            function: { name: parsed.name, arguments: JSON.stringify(parsed.arguments) },
-          }
-          const assistantMsg: AssistantMessageWithReasoning = {
-            role: 'assistant',
-            content: null,
-            tool_calls: [tc],
-          }
-          if (reasoningText) assistantMsg.reasoning_content = reasoningText
-          this.messages.push(assistantMsg)
-
-          let parsedArgs: Record<string, unknown> = {}
-          try { parsedArgs = JSON.parse(tc.function.arguments) } catch { }
-
-          if ((tc.function.name === 'write_file' || tc.function.name === 'patch_file') && parsedArgs.path) {
-            const filePath = parsedArgs.path as string
-            this.filesModified.add(filePath)
-            try {
-              const oldContent = await readFile(filePath, 'utf-8')
-              this.undoStack.push({ path: filePath, content: oldContent })
-            } catch {
-              this.undoStack.push({ path: filePath, content: '' })
-            }
-            if (this.undoStack.length > UNDO_STACK_MAX) this.undoStack.shift()
-          }
-
-          const { result } = await this.checkAndExecuteTool(tc, parsedArgs, cb)
-          this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
-          auditLog({ type: 'oauth_text_tool_fallback', tool: parsed.name })
-          continue // next iteration — model processes tool result
-        }
-      }
-
       if (toolCalls.size === 0) {
         const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText }
         // Always preserve reasoning_content — DeepSeek-V4-Flash has built-in thinking mode

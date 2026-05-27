@@ -84,7 +84,7 @@ import { migrateConfigIfNeeded, logout as doLogout } from './utils/credentials.j
 import { LanguageSetup } from './ui/setup/LanguageSetup.js'
 import { loadAgentConfig, type LoadedAgent } from './agent/config.js'
 import { loadSession, newSessionId, type SessionData } from './agent/session.js'
-import { startProxy, waitForProxy, isOAuthReady } from './agent/providers/oauth.js'
+import { initOAuthSession, isOAuthReady } from './agent/providers/oauth.js'
 import pkg from '../package.json' with { type: 'json' }
 
 function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; update: boolean; logout: boolean; help: boolean; version: boolean } {
@@ -232,19 +232,17 @@ function Root() {
         if (saved) {
           setProviderConfig(saved)
           if (saved.provider === 'deepseek' && saved.apiKey) process.env.DEEPSEEK_API_KEY = saved.apiKey
-          if (saved.provider === 'oauth' && isOAuthReady() && saved.proxyApiKey) {
+          if (saved.provider === 'oauth' && isOAuthReady()) {
             try {
-              await startProxy(saved.proxyApiKey)
-              const ok = await waitForProxy(15000)
-              if (!ok) console.error('Warning: proxy failed to start within 15s')
+              await initOAuthSession()
             } catch (error) {
-              console.error('Failed to start OAuth proxy:', error)
+              console.error('Failed to initialize OAuth session:', error)
               setReady(false)
               setProviderConfig(null)
               return
             }
-          } else if (saved.provider === 'oauth' && (!isOAuthReady() || !saved.proxyApiKey)) {
-            // OAuth session or key missing — force re-setup
+          } else if (saved.provider === 'oauth' && !isOAuthReady()) {
+            // OAuth session missing — force re-setup
             setReady(false)
             setProviderConfig(null)
             return

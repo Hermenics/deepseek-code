@@ -23,14 +23,14 @@ export async function* orchestrate(
 
     const isProModel = request.model.includes('pro')
 
-    // New session if no assistant messages yet
-    const isNewSession = !filteredMessages.some((m) => m.role === 'assistant')
-
+    // Always start a new DeepSeek session — the full conversation history is
+    // already embedded in the prompt via buildPrompt(), so session continuity
+    // via parentMessageId is not needed and causes silent failures on tool-call turns.
     const { stream, chatSessionId } = await createDeepSeekStream({
       prompt: finalPrompt,
       enableThinking: true,
       isProModel,
-      forcedParentId: isNewSession ? null : undefined,
+      forcedParentId: null,
     })
 
     const reader = stream.getReader()
