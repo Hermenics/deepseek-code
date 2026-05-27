@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { Hono } from 'hono'
 import { stream } from 'hono/streaming'
 import { validateRequest } from '../services/validator.js'
@@ -45,66 +46,89 @@ export function createOpenAIRouter(pool: PagePool, config: ProxyConfig) {
         c.header('Cache-Control', 'no-cache')
         c.header('Connection', 'keep-alive')
         try {
-          let accumulated = ''
+          const TOOL_START = '<tool_call>'
+          const TOOL_END = '</tool_call>'
+          let insideTool = false
+          let emittedToolCallCount = 0
+          let contentEmitBuffer = ''
+          let finalUsage: { promptTokens: number; completionTokens: number } | undefined
 
           for await (const event of orchestrate(request, pool, config)) {
             if (event.error) {
               await s.write(`data: ${JSON.stringify({ error: { message: event.error } })}\n\n`)
-              await s.write(openai.formatStreamEnd())
+              await s.write(openai.formatStreamEnd(emittedToolCallCount > 0 ? 'tool_calls' : 'stop', finalUsage))
               break
             }
 
-            // Emit thinking/reasoning as a delta with reasoning_content
             if (event.thinking) {
               await s.write(openai.formatStreamReasoning(event.thinking, request.model))
               continue
             }
 
             if (event.done) {
-              // Response complete — check if it's a tool call or normal text
-              const toolCalls = openai.parseToolCalls(accumulated)
-              if (toolCalls.length > 0) {
-                // Entire response was a tool call batch — send all tool_calls deltas
-                for (const [index, toolCall] of toolCalls.entries()) {
-                  await s.write(openai.formatStreamToolCall(toolCall, request.model, index))
-                }
-              } else if (accumulated) {
-                // Normal text response — flush remaining buffered text
-                await s.write(openai.formatStreamChunk(doubleMarkdown(accumulated), request.model))
+              finalUsage = event.usage
+              if (!insideTool && contentEmitBuffer) {
+                await s.write(openai.formatStreamChunk(doubleMarkdown(contentEmitBuffer), request.model))
+                contentEmitBuffer = ''
               }
-              await s.write(openai.formatStreamEnd())
-            } else {
-              accumulated += event.token
+              await s.write(openai.formatStreamEnd(emittedToolCallCount > 0 ? 'tool_calls' : 'stop', finalUsage))
+              break
+            }
 
-              // Streaming strategy: prioritize responsiveness while still detecting tool calls.
-              // The Agent has a fallback parser, so even if we flush a tool call as text,
-              // it will still be detected and executed. This lets us be aggressive with streaming.
-              const trimmedStart = accumulated.trimStart()
-              const hasToolMarker = accumulated.includes('"tool_use"') ||
-                accumulated.includes('DSML') ||
-                accumulated.includes('<tool_call>')
+            contentEmitBuffer += event.token
 
-              if (hasToolMarker) {
-                // Strong tool signal — buffer until done (handled above)
-              } else if (trimmedStart.startsWith('{') || trimmedStart.startsWith('```')) {
-                // Could be a tool call — buffer briefly to check for markers
-                // Tool calls are typically < 200 chars, so if we exceed that without
-                // seeing a marker, it's likely not a tool call
-                if (accumulated.length >= 200) {
-                  await s.write(openai.formatStreamChunk(accumulated, request.model))
-                  accumulated = ''
+            while (contentEmitBuffer.length > 0) {
+              if (!insideTool) {
+                const startIdx = contentEmitBuffer.indexOf(TOOL_START)
+                if (startIdx !== -1) {
+                  const textBefore = contentEmitBuffer.substring(0, startIdx)
+                  if (textBefore && emittedToolCallCount === 0 && hasCompleteMarkdown(textBefore)) {
+                    await s.write(openai.formatStreamChunk(doubleMarkdown(textBefore), request.model))
+                  }
+                  insideTool = true
+                  contentEmitBuffer = contentEmitBuffer.substring(startIdx + TOOL_START.length)
+                  continue
                 }
-              } else {
-                // Text content — flush only when markdown markers are balanced
-                if (hasCompleteMarkdown(accumulated)) {
-                  await s.write(openai.formatStreamChunk(doubleMarkdown(accumulated), request.model))
-                  accumulated = ''
-                } else if (accumulated.length > 500) {
-                  // Safety valve: don't buffer forever
-                  await s.write(openai.formatStreamChunk(doubleMarkdown(accumulated), request.model))
-                  accumulated = ''
+
+                let flushIndex = contentEmitBuffer.length
+                for (let i = 1; i <= TOOL_START.length; i++) {
+                  if (contentEmitBuffer.endsWith(TOOL_START.substring(0, i))) {
+                    flushIndex = contentEmitBuffer.length - i
+                    break
+                  }
+                }
+                const textToEmit = contentEmitBuffer.substring(0, flushIndex)
+                if (textToEmit && emittedToolCallCount === 0 && hasCompleteMarkdown(textToEmit)) {
+                  await s.write(openai.formatStreamChunk(doubleMarkdown(textToEmit), request.model))
+                }
+                contentEmitBuffer = contentEmitBuffer.substring(flushIndex)
+                break
+              }
+
+              const endIdx = contentEmitBuffer.indexOf(TOOL_END)
+              if (endIdx === -1) break
+
+              const toolJsonStr = contentEmitBuffer.substring(0, endIdx).trim()
+              try {
+                const toolCallObj = JSON.parse(toolJsonStr) as { name?: string; arguments?: unknown }
+                const toolName = toolCallObj.name || ''
+                const toolArgs = toolCallObj.arguments || {}
+                const toolId = 'call_' + randomUUID()
+
+                await s.write(openai.formatStreamToolCall(
+                  { id: toolId, name: toolName, arguments: typeof toolArgs === 'string' ? toolArgs : JSON.stringify(toolArgs) },
+                  request.model,
+                  emittedToolCallCount,
+                ))
+                emittedToolCallCount++
+              } catch {
+                if (emittedToolCallCount === 0) {
+                  await s.write(openai.formatStreamChunk(doubleMarkdown(TOOL_START + toolJsonStr + TOOL_END), request.model))
                 }
               }
+
+              insideTool = false
+              contentEmitBuffer = contentEmitBuffer.substring(endIdx + TOOL_END.length)
             }
           }
         } catch (err: any) {

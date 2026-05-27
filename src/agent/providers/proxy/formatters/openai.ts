@@ -64,11 +64,32 @@ export function parseToolCalls(content: string) {
   return parseToolResponses(content)
 }
 
-export function formatStreamEnd(): string {
-  return 'data: [DONE]\n\n'
+export function formatStreamEnd(finishReason?: string, usage?: { promptTokens: number; completionTokens: number }): string {
+  if (!finishReason && !usage) {
+    return 'data: [DONE]\n\n'
+  }
+
+  const chunk = {
+    id: 'chatcmpl-end',
+    object: 'chat.completion.chunk',
+    created: 0,
+    model: '',
+    choices: [{ index: 0, delta: {}, finish_reason: finishReason || 'stop' }],
+    ...(usage
+      ? {
+          usage: {
+            prompt_tokens: usage.promptTokens,
+            completion_tokens: usage.completionTokens,
+            total_tokens: usage.promptTokens + usage.completionTokens,
+          },
+        }
+      : {}),
+  }
+
+  return `data: ${JSON.stringify(chunk)}\n\n` + 'data: [DONE]\n\n'
 }
 
-export function formatStreamToolCall(toolCall: { name: string; id: string; arguments: any }, model: string, index = 0): string {
+export function formatStreamToolCall(toolCall: { name: string; id: string; arguments: unknown }, model: string, index = 0): string {
   const chunk = {
     id: `chatcmpl-${randomUUID()}`,
     object: 'chat.completion.chunk',
@@ -81,7 +102,10 @@ export function formatStreamToolCall(toolCall: { name: string; id: string; argum
           index,
           id: toolCall.id,
           type: 'function',
-          function: { name: toolCall.name, arguments: JSON.stringify(toolCall.arguments) },
+          function: {
+            name: toolCall.name,
+            arguments: typeof toolCall.arguments === 'string' ? toolCall.arguments : JSON.stringify(toolCall.arguments),
+          },
         }],
       },
       finish_reason: 'tool_calls',
@@ -106,7 +130,10 @@ export function formatResponse(model: string, content: string, thinking?: string
           tool_calls: toolCalls.map((toolCall) => ({
             id: toolCall.id,
             type: 'function',
-            function: { name: toolCall.name, arguments: JSON.stringify(toolCall.arguments) },
+            function: {
+            name: toolCall.name,
+            arguments: typeof toolCall.arguments === 'string' ? toolCall.arguments : JSON.stringify(toolCall.arguments),
+          },
           })),
           ...(thinking ? { reasoning_content: thinking } : {}),
         },

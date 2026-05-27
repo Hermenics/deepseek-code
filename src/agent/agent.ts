@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
 import DEFAULT_SYSTEM_PROMPT_MD from './system-prompt.md' with { type: 'text' }
@@ -831,6 +832,45 @@ export class Agent {
           return
         }
         throw e
+      }
+
+      // ── OAuth fallback: detect tool calls in accumulated text ────────────
+      // When provider is 'oauth', the proxy may deliver tool calls as plain text
+      // in delta.content (format: {"tool_use": {...}}) instead of delta.tool_calls.
+      if (toolCalls.size === 0 && this.provider === 'oauth' && assistantText) {
+        const parsedTool = parseToolResponse(assistantText)
+        if (parsedTool) {
+          const fakeId = parsedTool.id || `call_${randomUUID()}`
+          const tc = {
+            id: fakeId,
+            type: 'function' as const,
+            function: {
+              name: parsedTool.name,
+              arguments: typeof parsedTool.arguments === 'string'
+                ? parsedTool.arguments
+                : JSON.stringify(parsedTool.arguments),
+            },
+          }
+
+          const parsedArgs = typeof parsedTool.arguments === 'string'
+            ? JSON.parse(parsedTool.arguments)
+            : parsedTool.arguments
+
+          const assistantMsg: AssistantMessageWithReasoning = {
+            role: 'assistant',
+            content: null,
+            tool_calls: [tc],
+          }
+          if (reasoningText) assistantMsg.reasoning_content = reasoningText
+          this.messages.push(assistantMsg)
+
+          // Execute the tool
+          const { result } = await this.checkAndExecuteTool(tc, parsedArgs, cb)
+          this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
+
+          // Continue agent loop — model will process tool result
+          continue
+        }
       }
 
       if (toolCalls.size === 0) {

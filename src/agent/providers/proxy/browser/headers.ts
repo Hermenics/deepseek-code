@@ -1,4 +1,5 @@
 import { getActivePage } from './playwright.js'
+import { withRetry } from '../services/retry.js'
 
 export interface DeepSeekHeaders {
   headers: Record<string, string>
@@ -47,7 +48,10 @@ export async function getDeepSeekHeaders(forceNew = false): Promise<DeepSeekHead
     return pendingRequest
   }
 
-  pendingRequest = fetchHeadersFromBrowser(forceNew)
+  pendingRequest = withRetry(() => fetchHeadersFromBrowser(forceNew), {
+    maxRetries: 2,
+    baseDelay: 2000,
+  })
   try {
     const result = await pendingRequest
     return result

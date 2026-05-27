@@ -52,6 +52,7 @@ export interface TokenEvent {
   done: boolean
   error?: string
   thinking?: string
+  usage?: { promptTokens: number; completionTokens: number }
 }
 
 export interface CacheEntry {

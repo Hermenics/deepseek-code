@@ -5,108 +5,125 @@ import { createDeepSeekStream } from './deepseek-api.js'
 import { filterMessages } from './message-filter.js'
 import { type ToolDef } from '../tools/prompt-emulation.js'
 import { updateSessionParent } from '../browser/headers.js'
+import { log } from '../config.js'
 
+function isNetworkStreamError(message: string): boolean {
+  const msg = message.toLowerCase()
+  return /timeout|network|fetch failed|connection|econnr|socket|aborted|enotfound|epipe|net::|err_network/.test(msg)
+}
 
 export async function* orchestrate(
   request: ProxyRequest,
   _pool: PagePool,
   _config: ProxyConfig,
 ): AsyncGenerator<TokenEvent> {
-  try {
-    const requestWithTools = request as ProxyRequest & { tools?: ToolDef[] }
-    const tools = requestWithTools.tools ?? []
+  let lastError: string | undefined
 
-    const filteredMessages = filterMessages(request.messages)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const requestWithTools = request as ProxyRequest & { tools?: ToolDef[] }
+      const tools = requestWithTools.tools ?? []
 
-    const { systemPrompt, prompt } = buildPrompt(filteredMessages, tools)
-    const finalPrompt = systemPrompt ? `${systemPrompt}\n${prompt}` : prompt
+      const filteredMessages = filterMessages(request.messages)
 
-    const isProModel = request.model.includes('pro')
+      const { systemPrompt, prompt } = buildPrompt(filteredMessages, tools)
+      const finalPrompt = systemPrompt ? `${systemPrompt}\n${prompt}` : prompt
 
-    // Always start a new DeepSeek session — the full conversation history is
-    // already embedded in the prompt via buildPrompt(), so session continuity
-    // via parentMessageId is not needed and causes silent failures on tool-call turns.
-    const { stream, chatSessionId } = await createDeepSeekStream({
-      prompt: finalPrompt,
-      enableThinking: true,
-      isProModel,
-      forcedParentId: null,
-    })
+      const isProModel = request.model.includes('pro')
 
-    const reader = stream.getReader()
-    const decoder = new TextDecoder()
+      const { stream, chatSessionId } = await createDeepSeekStream({
+        prompt: finalPrompt,
+        enableThinking: true,
+        isProModel,
+        forcedParentId: null,
+      })
 
-    let sseBuffer = ''
-    let finished = false
-    let currentAppendPath = ''
-    let currentFragmentType = ''
-    // Buffer to hold trailing tokens so we can strip DeepSeek's AI disclaimer
-    let trailingBuffer = ''
-    const TRAILING_HOLD = 200 // chars to hold back before flushing
+      const reader = stream.getReader()
+      const decoder = new TextDecoder()
 
-    while (!finished) {
-      const { done, value } = await reader.read()
-      if (done) break
+      let sseBuffer = ''
+      let finished = false
+      let currentAppendPath = ''
+      let currentFragmentType = ''
+      let trailingBuffer = ''
+      let completionTokens = 0
+      const TRAILING_HOLD = 200
 
-      sseBuffer += decoder.decode(value, { stream: true })
-      const lines = sseBuffer.split('\n')
-      sseBuffer = lines.pop() || ''
+      while (!finished) {
+        const { done, value } = await reader.read()
+        if (done) break
 
-      for (const line of lines) {
-        const trimmed = line.trim()
-        if (!trimmed || !trimmed.startsWith('data: ')) continue
+        sseBuffer += decoder.decode(value, { stream: true })
+        const lines = sseBuffer.split('\n')
+        sseBuffer = lines.pop() || ''
 
-        const data = trimmed.slice(6)
-        if (data === '[DONE]') {
-          finished = true
-          break
-        }
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed || !trimmed.startsWith('data: ')) continue
 
-        try {
-          const chunk = JSON.parse(data) as DeepSeekChunk
-          const messageId = extractMessageId(chunk)
-          if (messageId) updateSessionParent(chatSessionId, messageId)
-
-          const extracted = extractDeepSeekText(chunk, currentAppendPath, currentFragmentType)
-          currentAppendPath = extracted.appendPath
-          currentFragmentType = extracted.fragmentType
-
-          if (!extracted.text || extracted.text === 'FINISHED') continue
-
-          if (extracted.isThinking) {
-            yield { token: '', thinking: extracted.text, done: false }
-          } else {
-            trailingBuffer += extracted.text
-
-            // Flush everything except the last TRAILING_HOLD chars
-            if (trailingBuffer.length > TRAILING_HOLD) {
-              const flushUpTo = trailingBuffer.length - TRAILING_HOLD
-              const toFlush = trailingBuffer.slice(0, flushUpTo)
-              trailingBuffer = trailingBuffer.slice(flushUpTo)
-              yield { token: toFlush, done: false }
-            }
+          const data = trimmed.slice(6)
+          if (data === '[DONE]') {
+            finished = true
+            break
           }
-        } catch {
-          // ignore malformed partial chunks
+
+          try {
+            const chunk = JSON.parse(data) as DeepSeekChunk
+            const messageId = extractMessageId(chunk)
+            if (messageId) updateSessionParent(chatSessionId, messageId)
+
+            if (chunk.p === 'response/accumulated_token_usage' && typeof chunk.v === 'number') {
+              completionTokens = chunk.v
+              continue
+            }
+
+            const extracted = extractDeepSeekText(chunk, currentAppendPath, currentFragmentType)
+            currentAppendPath = extracted.appendPath
+            currentFragmentType = extracted.fragmentType
+
+            if (!extracted.text || extracted.text === 'FINISHED') continue
+
+            if (extracted.isThinking) {
+              yield { token: '', thinking: extracted.text, done: false }
+            } else {
+              trailingBuffer += extracted.text
+
+              if (trailingBuffer.length > TRAILING_HOLD) {
+                const flushUpTo = trailingBuffer.length - TRAILING_HOLD
+                const toFlush = trailingBuffer.slice(0, flushUpTo)
+                trailingBuffer = trailingBuffer.slice(flushUpTo)
+                yield { token: toFlush, done: false }
+              }
+            }
+          } catch {
+            // ignore malformed partial chunks
+          }
         }
       }
-    }
 
-    // Flush remaining buffer, stripping any AI disclaimer suffix
-    if (trailingBuffer) {
-      const cleaned = stripAiDisclaimer(trailingBuffer)
-      if (cleaned) yield { token: cleaned, done: false }
-    }
+      if (trailingBuffer) {
+        const cleaned = stripAiDisclaimer(trailingBuffer)
+        if (cleaned) yield { token: cleaned, done: false }
+      }
 
-    yield { token: '', done: true }
-    return
-  } catch (error: unknown) {
-    yield {
-      token: '',
-      done: true,
-      error: error instanceof Error ? error.message : String(error),
+      const promptTokens = Math.ceil(finalPrompt.length / 3.5)
+      yield { token: '', done: true, usage: { promptTokens, completionTokens } }
+      return
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : String(error)
+      lastError = msg
+
+      if (!isNetworkStreamError(msg) || attempt === 2) {
+        yield { token: '', done: true, error: msg }
+        return
+      }
+
+      log('warn', `Stream attempt ${attempt + 1}/3 failed (network): ${msg}. Retrying...`)
+      await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)))
     }
   }
+
+  yield { token: '', done: true, error: lastError || 'Unknown error after retries' }
 }
 
 // ─── Prompt Builder (mirrors deepsproxy/src/routes/chat.ts) ──────────────────

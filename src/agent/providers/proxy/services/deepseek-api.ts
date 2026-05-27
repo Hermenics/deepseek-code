@@ -1,4 +1,5 @@
 import { getDeepSeekHeaders } from '../browser/headers.js'
+import { withRetry, isTransientHttpStatus } from './retry.js'
 
 export interface DeepSeekStreamOptions {
   prompt: string
@@ -40,29 +41,38 @@ export async function createDeepSeekStream(
     options.forcedParentId !== undefined ? options.forcedParentId : parentMessageId
   const payload = buildPayload(options, chatSessionId, effectiveParentId)
 
-  const response = await fetch('https://chat.deepseek.com/api/v0/chat/completion', {
-    method: 'POST',
-    headers: {
-      'accept': '*/*',
-      'accept-language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
-      'authorization': headers['authorization'] || '',
-      'content-type': 'application/json',
-      'origin': 'https://chat.deepseek.com',
-      'referer': 'https://chat.deepseek.com/',
-      'x-ds-pow-response': headers['x-ds-pow-response'] || '',
-      'x-hif-dliq': headers['x-hif-dliq'] || '',
-      'x-hif-leim': headers['x-hif-leim'] || '',
-      'x-app-version': '2.0.0',
-      'x-client-locale': 'pt_BR',
-      'x-client-platform': 'web',
-      'x-client-version': '2.0.0',
-    },
-    body: JSON.stringify(payload),
-  })
+  const response = await withRetry(async () => {
+    const res = await fetch('https://chat.deepseek.com/api/v0/chat/completion', {
+      method: 'POST',
+      headers: {
+        'accept': '*/*',
+        'accept-language': 'pt-BR,pt;q=0.9,en-US;q=0.8,en;q=0.7',
+        'authorization': headers['authorization'] || '',
+        'content-type': 'application/json',
+        'origin': 'https://chat.deepseek.com',
+        'referer': 'https://chat.deepseek.com/',
+        'x-ds-pow-response': headers['x-ds-pow-response'] || '',
+        'x-hif-dliq': headers['x-hif-dliq'] || '',
+        'x-hif-leim': headers['x-hif-leim'] || '',
+        'x-app-version': '2.0.0',
+        'x-client-locale': 'pt_BR',
+        'x-client-platform': 'web',
+        'x-client-version': '2.0.0',
+      },
+      body: JSON.stringify(payload),
+    })
 
-  if (!response.ok) {
-    throw new Error(`DeepSeek API error: ${response.status}`)
-  }
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '')
+      const err = new Error(`DeepSeek API error: ${res.status} ${res.statusText} - ${errText}`) as Error & { permanent?: boolean }
+      if (!isTransientHttpStatus(res.status)) {
+        err.permanent = true
+      }
+      throw err
+    }
+
+    return res
+  }, { maxRetries: 3, baseDelay: 1000 })
 
   return {
     stream: response.body as ReadableStream,
