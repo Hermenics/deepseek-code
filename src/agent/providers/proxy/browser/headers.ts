@@ -61,9 +61,13 @@ export async function getDeepSeekHeaders(forceNew = false): Promise<DeepSeekHead
 }
 
 async function fetchHeadersFromBrowser(forceNew: boolean): Promise<DeepSeekHeaders> {
+  // Lazy init: start Playwright on first header request if not already running
+  const { initPlaywright } = await import('./playwright.js')
+  await initPlaywright(true)
+
   const page = getActivePage()
   if (!page) {
-    throw new Error('Playwright not initialized. Start the OAuth proxy before sending requests.')
+    throw new Error('Failed to initialize Playwright browser context.')
   }
 
   // Navigate to deepseek home if needed

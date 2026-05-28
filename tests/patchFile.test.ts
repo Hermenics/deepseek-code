@@ -10,7 +10,7 @@ describe('PatchFile tool', () => {
   })
 
   it('substitui old_content por new_content corretamente', async () => {
-    const { PatchFile } = await import('../src/tools/PatchFile.js')
+    const { PatchFile } = await import('../src/tools/PatchFile/PatchFile.js')
     await fs.writeFile(cwdFile, 'hello world', 'utf-8')
     await PatchFile.execute({ path: cwdFile, old_content: 'world', new_content: 'marcelo' })
     const content = await fs.readFile(cwdFile, 'utf-8')
@@ -18,7 +18,7 @@ describe('PatchFile tool', () => {
   })
 
   it('retorna string com contagem de linhas', async () => {
-    const { PatchFile } = await import('../src/tools/PatchFile.js')
+    const { PatchFile } = await import('../src/tools/PatchFile/PatchFile.js')
     await fs.writeFile(cwdFile, 'linha1\nlinha2\nlinha3', 'utf-8')
     const result = await PatchFile.execute({
       path: cwdFile,
@@ -31,7 +31,7 @@ describe('PatchFile tool', () => {
   })
 
   it('arquivo não existe retorna mensagem de erro', async () => {
-    const { PatchFile } = await import('../src/tools/PatchFile.js')
+    const { PatchFile } = await import('../src/tools/PatchFile/PatchFile.js')
     const result = await PatchFile.execute({
       path: path.join(process.cwd(), 'nao-existe-xyz.txt'),
       old_content: 'x',
@@ -41,7 +41,7 @@ describe('PatchFile tool', () => {
   })
 
   it('old_content não encontrado retorna erro', async () => {
-    const { PatchFile } = await import('../src/tools/PatchFile.js')
+    const { PatchFile } = await import('../src/tools/PatchFile/PatchFile.js')
     await fs.writeFile(cwdFile, 'conteúdo original', 'utf-8')
     const result = await PatchFile.execute({
       path: cwdFile,
@@ -52,7 +52,7 @@ describe('PatchFile tool', () => {
   })
 
   it('old_content encontrado mais de uma vez retorna erro', async () => {
-    const { PatchFile } = await import('../src/tools/PatchFile.js')
+    const { PatchFile } = await import('../src/tools/PatchFile/PatchFile.js')
     await fs.writeFile(cwdFile, 'abc abc abc', 'utf-8')
     const result = await PatchFile.execute({
       path: cwdFile,
@@ -64,7 +64,7 @@ describe('PatchFile tool', () => {
   })
 
   it('path fora do cwd lança erro de segurança', async () => {
-    const { PatchFile } = await import('../src/tools/PatchFile.js')
+    const { PatchFile } = await import('../src/tools/PatchFile/PatchFile.js')
     await expect(
       PatchFile.execute({ path: '/etc/hosts', old_content: 'x', new_content: 'y' })
     ).rejects.toThrow('outside the working directory')

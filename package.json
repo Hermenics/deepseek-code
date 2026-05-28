@@ -1,6 +1,6 @@
 {
   "name": "@aethelics/deepseek-code",
-  "version": "0.7.10",
+  "version": "1.0.0",
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
@@ -10,10 +10,13 @@
     "node": ">=18",
     "bun": ">=1.0"
   },
+  "description": "AI-powered coding assistant CLI — DeepSeek models in your terminal",
   "scripts": {
     "start": "NODE_ENV=development bun src/index.tsx",
     "dev": "NODE_ENV=development bun --watch src/index.tsx",
     "build": "bun run build.ts",
+    "typecheck": "bunx tsc --noEmit",
+    "test": "bun test",
     "prepublishOnly": "bun run build"
   },
   "files": [

@@ -36,7 +36,7 @@ describe('UpdateKnowledge tool', () => {
   })
 
   it('cria DEEPSEEK.md com cabeçalho se não existir', async () => {
-    const { UpdateKnowledge } = await import('../src/tools/UpdateKnowledge.js')
+    const { UpdateKnowledge } = await import('../src/tools/UpdateKnowledge/UpdateKnowledge.js')
     await UpdateKnowledge.execute({ section: 'Arquitetura', content: 'Usa Ink para UI' })
     const content = await fs.readFile(DEEPSEEK_MD, 'utf-8')
     expect(content).toContain('# DEEPSEEK.md — Project Knowledge')
@@ -46,7 +46,7 @@ describe('UpdateKnowledge tool', () => {
 
   it('adiciona nova seção ao arquivo existente', async () => {
     await fs.writeFile(DEEPSEEK_MD, '# DEEPSEEK.md — Project Knowledge\n\n## Seção Existente\n\nconteúdo\n', 'utf-8')
-    const { UpdateKnowledge } = await import('../src/tools/UpdateKnowledge.js')
+    const { UpdateKnowledge } = await import('../src/tools/UpdateKnowledge/UpdateKnowledge.js')
     await UpdateKnowledge.execute({ section: 'Nova Seção', content: 'novo conteúdo' })
     const content = await fs.readFile(DEEPSEEK_MD, 'utf-8')
     expect(content).toContain('## Seção Existente')
@@ -56,7 +56,7 @@ describe('UpdateKnowledge tool', () => {
 
   it('atualiza seção existente sem duplicar', async () => {
     await fs.writeFile(DEEPSEEK_MD, '# DEEPSEEK.md\n\n## Arquitetura\n\nconteúdo antigo\n', 'utf-8')
-    const { UpdateKnowledge } = await import('../src/tools/UpdateKnowledge.js')
+    const { UpdateKnowledge } = await import('../src/tools/UpdateKnowledge/UpdateKnowledge.js')
     await UpdateKnowledge.execute({ section: 'Arquitetura', content: 'conteúdo novo' })
     const content = await fs.readFile(DEEPSEEK_MD, 'utf-8')
     const count = (content.match(/## Arquitetura/g) || []).length
@@ -66,14 +66,14 @@ describe('UpdateKnowledge tool', () => {
   })
 
   it('retorna mensagem de confirmação com nome da seção', async () => {
-    const { UpdateKnowledge } = await import('../src/tools/UpdateKnowledge.js')
+    const { UpdateKnowledge } = await import('../src/tools/UpdateKnowledge/UpdateKnowledge.js')
     const result = await UpdateKnowledge.execute({ section: 'Padrões', content: 'usar TDD' })
     expect(result).toContain('Knowledge updated')
     expect(result).toContain('Padrões')
   })
 
   it('seção com caracteres especiais não quebra o regex', async () => {
-    const { UpdateKnowledge } = await import('../src/tools/UpdateKnowledge.js')
+    const { UpdateKnowledge } = await import('../src/tools/UpdateKnowledge/UpdateKnowledge.js')
     await expect(
       UpdateKnowledge.execute({ section: 'Seção (com) especiais.', content: 'conteúdo' })
     ).resolves.toBeDefined()

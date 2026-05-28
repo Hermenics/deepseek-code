@@ -15,7 +15,7 @@ describe('WriteFile tool', () => {
   })
 
   it('escreve conteúdo no arquivo', async () => {
-    const { WriteFile } = await import('../src/tools/WriteFile.js')
+    const { WriteFile } = await import('../src/tools/WriteFile/WriteFile.js')
     const filePath = path.join(TEST_DIR, 'test.txt')
     await WriteFile.execute({ path: filePath, content: 'hello world' })
     const content = await fs.readFile(filePath, 'utf-8')
@@ -23,7 +23,7 @@ describe('WriteFile tool', () => {
   })
 
   it('cria diretórios pai se não existirem', async () => {
-    const { WriteFile } = await import('../src/tools/WriteFile.js')
+    const { WriteFile } = await import('../src/tools/WriteFile/WriteFile.js')
     const filePath = path.join(TEST_DIR, 'sub', 'dir', 'test.txt')
     await WriteFile.execute({ path: filePath, content: 'nested' })
     const content = await fs.readFile(filePath, 'utf-8')
@@ -31,7 +31,7 @@ describe('WriteFile tool', () => {
   })
 
   it('retorna JSON com __diff: true', async () => {
-    const { WriteFile } = await import('../src/tools/WriteFile.js')
+    const { WriteFile } = await import('../src/tools/WriteFile/WriteFile.js')
     const filePath = path.join(TEST_DIR, 'diff.txt')
     const result = await WriteFile.execute({ path: filePath, content: 'linha1\nlinha2' })
     const json = JSON.parse(result as string)
@@ -39,7 +39,7 @@ describe('WriteFile tool', () => {
   })
 
   it('retorna JSON com added, removed, firstChanged, lines', async () => {
-    const { WriteFile } = await import('../src/tools/WriteFile.js')
+    const { WriteFile } = await import('../src/tools/WriteFile/WriteFile.js')
     const filePath = path.join(TEST_DIR, 'diff2.txt')
     const result = await WriteFile.execute({ path: filePath, content: 'linha1\nlinha2' })
     const json = JSON.parse(result as string)
@@ -50,7 +50,7 @@ describe('WriteFile tool', () => {
   })
 
   it('arquivo novo tem todas as linhas como added', async () => {
-    const { WriteFile } = await import('../src/tools/WriteFile.js')
+    const { WriteFile } = await import('../src/tools/WriteFile/WriteFile.js')
     const filePath = path.join(TEST_DIR, 'new.txt')
     const result = await WriteFile.execute({ path: filePath, content: 'a\nb\nc' })
     const json = JSON.parse(result as string)
@@ -60,14 +60,14 @@ describe('WriteFile tool', () => {
   })
 
   it('path fora do cwd lança erro de segurança', async () => {
-    const { WriteFile } = await import('../src/tools/WriteFile.js')
+    const { WriteFile } = await import('../src/tools/WriteFile/WriteFile.js')
     await expect(
       WriteFile.execute({ path: '/etc/passwd', content: 'hack' })
     ).rejects.toThrow('outside the working directory')
   })
 
   it('path dentro do cwd não lança erro', async () => {
-    const { WriteFile } = await import('../src/tools/WriteFile.js')
+    const { WriteFile } = await import('../src/tools/WriteFile/WriteFile.js')
     const filePath = path.join(TEST_DIR, 'safe.txt')
     await expect(
       WriteFile.execute({ path: filePath, content: 'safe' })
@@ -75,7 +75,7 @@ describe('WriteFile tool', () => {
   })
 
   it('diff detecta linhas adicionadas ao atualizar arquivo', async () => {
-    const { WriteFile } = await import('../src/tools/WriteFile.js')
+    const { WriteFile } = await import('../src/tools/WriteFile/WriteFile.js')
     const filePath = path.join(TEST_DIR, 'update.txt')
     await WriteFile.execute({ path: filePath, content: 'linha1' })
     const result = await WriteFile.execute({ path: filePath, content: 'linha1\nlinha2' })

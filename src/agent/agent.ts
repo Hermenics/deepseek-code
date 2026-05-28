@@ -5,8 +5,8 @@ import { join } from 'path'
 import DEFAULT_SYSTEM_PROMPT_MD from './system-prompt.md' with { type: 'text' }
 import OAUTH_SYSTEM_PROMPT_MD from './system-prompt-oauth.md' with { type: 'text' }
 import { allTools } from '../tools/index.js'
-import { setShellConfirmHandler } from '../tools/Shell.js'
-import { setSubAgentProvider, setSubAgentModel } from '../tools/SubAgent.js'
+import { setShellConfirmHandler } from '../tools/Shell/Shell.js'
+import { setSubAgentProvider, setSubAgentModel } from '../tools/SubAgent/SubAgent.js'
 import { loadMcpTools } from './mcp.js'
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
 import type { Model } from '../commands.js'

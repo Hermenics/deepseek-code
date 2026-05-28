@@ -112,6 +112,7 @@ export async function logout(
   const configDir = dirname(configPath)
   const legacyEnvPath = join(configDir, '.env')
   const oauthStoragePath = join(configDir, 'oauth-storage.json')
+  const browserProfilePath = join(homedir(), '.deepseek', 'browser-profile')
 
   for (const filePath of [configPath, legacyEnvPath, oauthStoragePath]) {
     try {
@@ -120,6 +121,13 @@ export async function logout(
     } catch (err: unknown) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
     }
+  }
+
+  try {
+    await rm(browserProfilePath, { recursive: true })
+    deleted.push(browserProfilePath)
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
   }
 
   return deleted
