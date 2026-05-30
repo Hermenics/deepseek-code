@@ -4,6 +4,7 @@ import type { Key } from '../../ink/events/input-event.js'
 import { homedir } from 'os'
 import { join } from 'path'
 import type { ThemeName } from './ApiKeySetup.js'
+import { getThemeColors } from '../theme.js'
 import { readJson, writeRaw } from '../../utils/fs.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
@@ -16,15 +17,6 @@ const THEMES: { label: string; value: ThemeName }[] = [
   { label: 'Dark mode (ANSI colors only)', value: 'dark-ansi' },
   { label: 'Light mode (ANSI colors only)', value: 'light-ansi' },
 ]
-
-const DIFF_COLORS: Record<ThemeName, { added: string; removed: string; addedWord: string; removedWord: string }> = {
-  'dark':             { added: 'rgb(34,92,43)',    removed: 'rgb(122,41,54)',  addedWord: 'rgb(56,166,96)',  removedWord: 'rgb(179,89,107)' },
-  'light':            { added: 'rgb(105,219,124)', removed: 'rgb(255,168,180)',addedWord: 'rgb(47,157,68)', removedWord: 'rgb(209,69,75)'  },
-  'dark-daltonized':  { added: 'rgb(0,68,102)',    removed: 'rgb(102,0,0)',    addedWord: 'rgb(0,119,179)', removedWord: 'rgb(179,0,0)'    },
-  'light-daltonized': { added: 'rgb(153,204,255)', removed: 'rgb(255,204,204)',addedWord: 'rgb(51,102,204)',removedWord: 'rgb(153,51,51)'  },
-  'dark-ansi':        { added: 'green',            removed: 'red',             addedWord: 'greenBright',    removedWord: 'redBright'       },
-  'light-ansi':       { added: 'green',            removed: 'red',             addedWord: 'greenBright',    removedWord: 'redBright'       },
-}
 
 const CONFIG_PATH = join(homedir(), '.deepseek', 'config.json')
 
@@ -42,7 +34,7 @@ interface Props {
 export function ThemeSelector({ currentTheme, onSelect, onCancel }: Props) {
   const [idx, setIdx] = useState(() => Math.max(0, THEMES.findIndex((t) => t.value === currentTheme)))
   const preview = THEMES[idx]!.value
-  const c = DIFF_COLORS[preview]
+  const colors = getThemeColors(preview)
 
   useInput((input: string, key: Key) => {
     if (key.upArrow) { setIdx((i) => (i - 1 + THEMES.length) % THEMES.length); return }
@@ -56,27 +48,40 @@ export function ThemeSelector({ currentTheme, onSelect, onCancel }: Props) {
 
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text color="#888888">/theme</Text>
-      <Box flexDirection="column" marginTop={1}>
-        {THEMES.map((t, i) => (
-          <Box key={t.value} flexDirection="row" gap={2}>
-            <Text color={i === idx ? 'cyan' : undefined}>
-              {i === idx ? '❯ ' : '  '}{t.label}
-            </Text>
-            {t.value === currentTheme && <Text color="#888888">[active]</Text>}
-          </Box>
-        ))}
-      </Box>
-      <Box marginTop={1}><Text color="#888888">{'─'.repeat(60)}</Text></Box>
-      <Text color="#888888">ESC to cancel · ↑↓ to navigate</Text>
-      <Box marginTop={1}><Text color="#888888">{'─'.repeat(60)}</Text></Box>
-      <Box flexDirection="column" marginTop={1}>
-        <Text color="#888888">Preview</Text>
-        <Box marginTop={1} flexDirection="column">
-          <Text color="#888888">Code diff — added and removed lines will look like:</Text>
-          <Text backgroundColor={c.added} color={c.addedWord}>{'+ const result = compute(input);'}</Text>
-          <Text backgroundColor={c.removed} color={c.removedWord}>{'- const result = calculate(input);'}</Text>
+      <Text color="cyan" bold>Theme</Text>
+      <Text bold>Choose the text style that looks best with your terminal</Text>
+
+      {/* Side-by-side: selector on left, diff preview on right */}
+      <Box flexDirection="row" marginTop={1} gap={3}>
+        {/* Theme list (left) */}
+        <Box flexDirection="column">
+          {THEMES.map((t, i) => (
+            <Box key={t.value} flexDirection="row" gap={1}>
+              <Text color={i === idx ? 'cyan' : '#888888'}>
+                {i === idx ? '❯' : ' '}
+              </Text>
+              <Text color={i === idx ? 'cyan' : undefined}>
+                {t.label}
+              </Text>
+              {t.value === currentTheme && <Text color="#888888"> [active]</Text>}
+            </Box>
+          ))}
         </Box>
+
+        {/* Diff preview (right) */}
+        <Box flexDirection="column" borderLeft borderStyle="single" borderColor="#444444" paddingLeft={2}>
+          <Text color="#888888" italic>Preview — demo.js</Text>
+          <Box flexDirection="column" marginTop={1}>
+            <Text color={colors.textDim}>{' function greet() {'}</Text>
+            <Text backgroundColor={colors.diffRemoved} color={colors.diffRemovedWord}>{'-  console.log("Hello, World!");'}</Text>
+            <Text backgroundColor={colors.diffAdded} color={colors.diffAddedWord}>{'+  console.log("Hello, DeepSeek!");'}</Text>
+            <Text color={colors.textDim}>{' }'}</Text>
+          </Box>
+        </Box>
+      </Box>
+
+      <Box marginTop={1}>
+        <Text color="#888888" italic>{'Enter to select · ESC to cancel · ↑↓ to navigate'}</Text>
       </Box>
     </Box>
   )
