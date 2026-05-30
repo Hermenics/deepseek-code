@@ -10,6 +10,7 @@ import { readJson, writeRaw } from '../../utils/fs.js'
 import { saveFullConfig, loadFullConfig, migrateConfigIfNeeded, getOrCreateProxyApiKey } from '../../utils/credentials.js'
 import { WelcomeScreen } from '../layout/WelcomeScreen.js'
 import { installPlaywright, runOAuthLogin, OAUTH_STORAGE_PATH } from '../../agent/providers/oauth.js'
+import { getThemeColors } from '../theme.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 
@@ -280,15 +281,35 @@ export function ApiKeySetup({ onDone }: Props) {
   let content: React.ReactNode = null
 
   if (step === 'theme') {
+    const colors = getThemeColors(selectedTheme)
     content = (
       <Box flexDirection="column" marginTop={1}>
         <Text>Choose the text style that looks best with your terminal:</Text>
-        <Box flexDirection="column" marginTop={1}>
-          {THEMES.map((t, i) => (
-            <Box key={t.value}>
-              <Text color={i === themeIdx ? 'cyan' : undefined}>{i === themeIdx ? '❯ ' : '  '}{t.label}</Text>
-            </Box>
-          ))}
+        <Box flexDirection="row" marginTop={1} gap={3}>
+          {/* Theme list (left) */}
+          <Box flexDirection="column">
+            {THEMES.map((t, i) => (
+              <Box key={t.value}>
+                <Text color={i === themeIdx ? 'cyan' : undefined}>{i === themeIdx ? '❯ ' : '  '}{t.label}</Text>
+              </Box>
+            ))}
+          </Box>
+
+          {/* Separator */}
+          <Box flexDirection="column">
+            {Array.from({ length: THEMES.length }).map((_, i) => (
+              <Text key={i} color="#444444">{'│'}</Text>
+            ))}
+          </Box>
+
+          {/* Diff preview (right) */}
+          <Box flexDirection="column">
+            <Text color="#888888" italic>{'Preview — demo.js'}</Text>
+            <Text color={colors.textDim}>{' function greet() {'}</Text>
+            <Text backgroundColor={colors.diffRemoved} color={colors.diffRemovedWord}>{'-  console.log("Hello, World!");'}</Text>
+            <Text backgroundColor={colors.diffAdded} color={colors.diffAddedWord}>{'+  console.log("Hello, DeepSeek!");'}</Text>
+            <Text color={colors.textDim}>{' }'}</Text>
+          </Box>
         </Box>
         <Text color="#888888">{'↑↓ navigate · Enter select · Esc exit'}</Text>
       </Box>

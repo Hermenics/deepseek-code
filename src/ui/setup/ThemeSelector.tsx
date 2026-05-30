@@ -68,15 +68,20 @@ export function ThemeSelector({ currentTheme, onSelect, onCancel }: Props) {
           ))}
         </Box>
 
+        {/* Separator */}
+        <Box flexDirection="column">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <Text key={i} color="#444444">{'│'}</Text>
+          ))}
+        </Box>
+
         {/* Diff preview (right) */}
-        <Box flexDirection="column" borderLeft borderStyle="single" borderColor="#444444" paddingLeft={2}>
-          <Text color="#888888" italic>Preview — demo.js</Text>
-          <Box flexDirection="column" marginTop={1}>
-            <Text color={colors.textDim}>{' function greet() {'}</Text>
-            <Text backgroundColor={colors.diffRemoved} color={colors.diffRemovedWord}>{'-  console.log("Hello, World!");'}</Text>
-            <Text backgroundColor={colors.diffAdded} color={colors.diffAddedWord}>{'+  console.log("Hello, DeepSeek!");'}</Text>
-            <Text color={colors.textDim}>{' }'}</Text>
-          </Box>
+        <Box flexDirection="column">
+          <Text color="#888888" italic>{'Preview — demo.js'}</Text>
+          <Text color={colors.textDim}>{' function greet() {'}</Text>
+          <Text backgroundColor={colors.diffRemoved} color={colors.diffRemovedWord}>{'-  console.log("Hello, World!");'}</Text>
+          <Text backgroundColor={colors.diffAdded} color={colors.diffAddedWord}>{'+  console.log("Hello, DeepSeek!");'}</Text>
+          <Text color={colors.textDim}>{' }'}</Text>
         </Box>
       </Box>
 

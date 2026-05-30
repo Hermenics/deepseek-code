@@ -78,9 +78,8 @@ import { createRoot } from '../ink/root.js'
 import { App } from '../ui/App.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
-import { ApiKeySetup, loadSavedConfig, saveConfig, type ThemeName, type ProviderConfig } from '../ui/setup/ApiKeySetup.js'
+import { ApiKeySetup, loadSavedConfig, type ThemeName, type ProviderConfig } from '../ui/setup/ApiKeySetup.js'
 import { migrateConfigIfNeeded, logout as doLogout } from '../utils/credentials.js'
-import { LanguageSetup } from '../ui/setup/LanguageSetup.js'
 import { loadAgentConfig, type LoadedAgent } from '../agent/config.js'
 import { loadSession, newSessionId, type SessionData } from '../agent/session.js'
 import { isOAuthReady } from '../agent/providers/oauth.js'
@@ -215,8 +214,6 @@ function Root() {
   const [providerConfig, setProviderConfig] = useState<ProviderConfig | null>(null)
   const [initialAgent, setInitialAgent] = useState<LoadedAgent | null>(null)
   const [initialMessage, setInitialMessage] = useState<string | null>(null)
-  const [language, setLanguage] = useState<string | null>(null)
-  const [languageChecked, setLanguageChecked] = useState(false)
   const [initialSession, setInitialSession] = useState<SessionData | null>(null)
   const [resumeNotFound, setResumeNotFound] = useState(false)
 
@@ -225,31 +222,27 @@ function Root() {
       try {
         const { agentName, initialMessage: msg, resumeId } = ARGV
         await migrateConfigIfNeeded()
-        const { providerConfig: saved, theme: savedTheme, language: savedLanguage } = await loadSavedConfig()
+        const { providerConfig: saved, theme: savedTheme } = await loadSavedConfig()
 
         setTheme(savedTheme)
         if (saved) {
           setProviderConfig(saved)
           if (saved.provider === 'deepseek' && saved.apiKey) process.env.DEEPSEEK_API_KEY = saved.apiKey
           if (saved.provider === 'oauth' && !isOAuthReady()) {
-            // OAuth browser-profile missing — force re-setup
             setReady(false)
             setProviderConfig(null)
             return
           }
-          // OAuth ready: Playwright will be initialized lazily on first API call
           setReady(true)
         } else if (process.env.DEEPSEEK_API_KEY) {
           setProviderConfig({ provider: 'deepseek', apiKey: process.env.DEEPSEEK_API_KEY })
           setReady(true)
         }
 
-        setLanguage(savedLanguage)
         if (resumeId) {
           const session = await loadSession(resumeId)
           if (session) {
             setInitialSession(session)
-            if (session.language) setLanguage(session.language)
           } else {
             setResumeNotFound(true)
           }
@@ -264,7 +257,6 @@ function Root() {
         setProviderConfig(null)
       } finally {
         setChecked(true)
-        setLanguageChecked(true)
       }
     }
 
@@ -274,7 +266,6 @@ function Root() {
   if (!checked) return null
 
   if (resumeNotFound) {
-    // Show error inline — don't crash, just start fresh
     return (
       <Box flexDirection="column" paddingLeft={2} paddingTop={1}>
         <Text color="yellow">{'⚠ Session not found. Starting a new session.'}</Text>
@@ -290,17 +281,6 @@ function Root() {
     )
   }
 
-  if (languageChecked && language === null && !ARGV.resumeId) {
-    return (
-      <Box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
-        <LanguageSetup onDone={(lang) => {
-          setLanguage(lang)
-          saveConfig({ LANGUAGE: lang })
-        }} />
-      </Box>
-    )
-  }
-
   return (
     <App
       initialAgent={initialAgent}
@@ -308,7 +288,6 @@ function Root() {
       theme={theme}
       providerConfig={providerConfig}
       onThemeChange={setTheme}
-      language={language}
       sessionId={SESSION_ID}
       initialSession={initialSession}
       headerProvider={providerConfig?.provider ?? 'deepseek'}
