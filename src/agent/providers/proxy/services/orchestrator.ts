@@ -5,6 +5,7 @@ import { createDeepSeekStream } from './deepseek-api.js'
 import { filterMessages } from './message-filter.js'
 import { type ToolDef } from '../tools/prompt-emulation.js'
 import { updateSessionParent } from '../browser/headers.js'
+import { sanitizeOutput, sanitizeStreamChunk } from './output-sanitizer.js'
 import { log } from '../config.js'
 
 function isNetworkStreamError(message: string): boolean {
@@ -31,11 +32,15 @@ export async function* orchestrate(
 
       const isProModel = request.model.includes('pro')
 
+      // Detect new session: no assistant messages means first interaction
+      // Force parent_message_id to null to avoid stale session conflicts (from deepsproxy)
+      const isNewSession = !request.messages.some((m) => m.role === 'assistant')
+
       const { stream, chatSessionId } = await createDeepSeekStream({
         prompt: finalPrompt,
         enableThinking: true,
         isProModel,
-        forcedParentId: null,
+        forcedParentId: isNewSession ? null : undefined,
       })
 
       const reader = stream.getReader()
@@ -47,7 +52,9 @@ export async function* orchestrate(
       let currentFragmentType = ''
       let trailingBuffer = ''
       let completionTokens = 0
-      const TRAILING_HOLD = 200
+      // Sliding window: hold back enough chars to detect the longest possible
+      // tool call start tag or DeepSeek marker (~71 chars for native markers)
+      const TRAILING_HOLD = 80
 
       while (!finished) {
         const { done, value } = await reader.read()
@@ -90,9 +97,10 @@ export async function* orchestrate(
 
               if (trailingBuffer.length > TRAILING_HOLD) {
                 const flushUpTo = trailingBuffer.length - TRAILING_HOLD
-                const toFlush = trailingBuffer.slice(0, flushUpTo)
+                let toFlush = trailingBuffer.slice(0, flushUpTo)
+                toFlush = sanitizeStreamChunk(toFlush)
                 trailingBuffer = trailingBuffer.slice(flushUpTo)
-                yield { token: toFlush, done: false }
+                if (toFlush) yield { token: toFlush, done: false }
               }
             }
           } catch {
@@ -102,7 +110,7 @@ export async function* orchestrate(
       }
 
       if (trailingBuffer) {
-        const cleaned = stripAiDisclaimer(trailingBuffer)
+        const cleaned = sanitizeOutput(trailingBuffer)
         if (cleaned) yield { token: cleaned, done: false }
       }
 
@@ -126,41 +134,29 @@ export async function* orchestrate(
   yield { token: '', done: true, error: lastError || 'Unknown error after retries' }
 }
 
-// ─── Prompt Builder (mirrors deepsproxy/src/routes/chat.ts) ──────────────────
+// ─── Prompt Builder (DeepSeek Native Tokens) ─────────────────────────────────
+// Uses DeepSeek's native conversation markers instead of plain "User:"/"Assistant:"
+// This eliminates role prefix leakage because the model recognizes these as structural
+// tokens, not text to echo back. Ported from deepseek-free-api.
+
+// DeepSeek V3/R1 native conversation markers
+const DS_BOS = '<｜begin▁of▁sentence｜>'
+const DS_SYS = '<｜System｜>'
+const DS_USER = '<｜User｜>'
+const DS_ASST = '<｜Assistant｜>'
+const DS_TOOL = '<｜Tool｜>'
+const DS_EOS = '<｜end▁of▁sentence｜>'
+const DS_TOOL_END = '<｜end▁of▁toolresults｜>'
+const DS_SYS_END = '<｜end▁of▁instructions｜>'
 
 function buildPrompt(
   messages: ChatMessage[],
   tools: ToolDef[],
 ): { systemPrompt: string; prompt: string } {
-  let systemPrompt = ''
-  let prompt = ''
+  // Build system content first (tools get injected here)
+  let systemContent = ''
 
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i]!
-    const contentStr = extractContent(msg)
-
-    if (msg.role === 'system') {
-      systemPrompt += contentStr + '\n\n'
-    } else if (msg.role === 'user') {
-      prompt += `User: ${contentStr}\n\n`
-    } else if (msg.role === 'assistant') {
-      let assistantContent = contentStr
-      // Include tool calls in assistant turn if present
-      const msgAny = msg as any
-      if (msgAny.tool_calls && Array.isArray(msgAny.tool_calls)) {
-        for (const tc of msgAny.tool_calls) {
-          let args = tc.function?.arguments || '{}'
-          if (typeof args !== 'string') args = JSON.stringify(args)
-          assistantContent += `\n<tool_call>{"name": "${tc.function?.name}", "arguments": ${args}}</tool_call>`
-        }
-      }
-      prompt += `Assistant: ${assistantContent.trim()}\n\n`
-    } else if (msg.role === 'tool') {
-      prompt += `Tool Response (${(msg as any).name || 'tool'}): ${contentStr}\n\n`
-    }
-  }
-
-  // Inject tools into system prompt
+  // Inject tools into system content
   if (tools.length > 0) {
     const formattedTools = tools.map((t: any) => {
       if (t.type === 'function') {
@@ -174,15 +170,64 @@ function buildPrompt(
     })
 
     const toolsJson = JSON.stringify(formattedTools, null, 2)
-    systemPrompt += `\n\n# TOOLS AVAILABLE\nYou have access to the following tools:\n${toolsJson}\n\nTo use a tool, you MUST output a JSON object wrapped EXACTLY in these tags:\n<tool_call>\n{"name": "tool_name", "arguments": {"param_name": "value"}}\n</tool_call>\n\nRULES:\n1. You can call multiple tools by outputting multiple <tool_call> blocks consecutively.\n2. Do NOT output any other text after your <tool_call> blocks. Wait for the user to provide the tool response.\n3. The JSON must be valid and accurately follow the tool's parameters.\n\n`
+    systemContent += `# TOOLS AVAILABLE\nYou have access to the following tools:\n${toolsJson}\n\nTo use a tool, you MUST output a JSON object wrapped EXACTLY in these tags:\n<tool_call>\n{"name": "tool_name", "arguments": {"param_name": "value"}}\n</tool_call>\n\nRULES:\n1. You can call multiple tools by outputting multiple <tool_call> blocks consecutively.\n2. Do NOT output any other text after your <tool_call> blocks. Wait for the user to provide the tool response.\n3. The JSON must be valid and accurately follow the tool's parameters.\n\n`
 
     const toolChoiceAny = (messages as any).tool_choice
     if (toolChoiceAny && typeof toolChoiceAny === 'object' && toolChoiceAny.function) {
-      systemPrompt += `CRITICAL: You MUST call the tool "${toolChoiceAny.function.name}" in this response.\n\n`
+      systemContent += `CRITICAL: You MUST call the tool "${toolChoiceAny.function.name}" in this response.\n\n`
     }
   }
 
-  return { systemPrompt, prompt }
+  // Build the full prompt using native tokens
+  const parts: string[] = [DS_BOS]
+  let lastRole = ''
+
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i]!
+    const contentStr = extractContent(msg)
+
+    if (msg.role === 'system') {
+      systemContent += contentStr + '\n\n'
+    } else if (msg.role === 'user') {
+      parts.push(DS_USER + contentStr)
+      lastRole = 'user'
+    } else if (msg.role === 'assistant') {
+      let assistantContent = contentStr
+      // Preserve reasoning_content as <think> tags (ported from deepsproxy)
+      const msgAny = msg as any
+      if (msgAny.reasoning_content) {
+        assistantContent = `<think>\n${msgAny.reasoning_content}\n</think>\n${assistantContent}`
+      }
+      // Include tool calls in assistant turn if present
+      if (msgAny.tool_calls && Array.isArray(msgAny.tool_calls)) {
+        for (const tc of msgAny.tool_calls) {
+          let args = tc.function?.arguments || '{}'
+          if (typeof args !== 'string') args = JSON.stringify(args)
+          assistantContent += `\n<tool_call>{"name": "${tc.function?.name}", "arguments": ${args}}</tool_call>`
+        }
+      }
+      parts.push(DS_ASST + assistantContent.trim() + DS_EOS)
+      lastRole = 'assistant'
+    } else if (msg.role === 'tool') {
+      // Truncate very long tool results to avoid context overflow
+      const result = contentStr.slice(0, 4000)
+      parts.push(DS_TOOL + result + DS_TOOL_END)
+      lastRole = 'tool'
+    }
+  }
+
+  // Insert system content at position 1 (after BOS)
+  if (systemContent.trim()) {
+    parts.splice(1, 0, DS_SYS + systemContent.trim() + DS_SYS_END)
+  }
+
+  // Ensure prompt ends with Assistant marker (model continues from here)
+  if (lastRole !== 'assistant') {
+    parts.push(DS_ASST)
+  }
+
+  // Return as combined prompt (systemPrompt empty since it's embedded in native format)
+  return { systemPrompt: '', prompt: parts.join('') }
 }
 
 function extractContent(msg: ChatMessage): string {
@@ -267,24 +312,4 @@ function extractDeepSeekText(
     (appendPath.includes('fragments/-1/content') && fragmentType === 'THINK')
 
   return { text, isThinking, appendPath, fragmentType }
-}
-
-// ─── AI Disclaimer Stripper ───────────────────────────────────────────────────
-
-const AI_DISCLAIMER_PATTERNS = [
-  /\n*\*?\s*Esta resposta é gerada por IA[^]*$/i,
-  /\n*\*?\s*This response is generated by AI[^]*$/i,
-  /\n*\*?\s*Gerado por IA[^]*$/i,
-  /\n*\*?\s*Generated by AI[^]*$/i,
-  /\n*---\s*\n\*?Esta resposta[^]*$/i,
-]
-
-function stripAiDisclaimer(text: string): string {
-  for (const pattern of AI_DISCLAIMER_PATTERNS) {
-    const match = text.match(pattern)
-    if (match && match.index !== undefined) {
-      return text.slice(0, match.index).trimEnd()
-    }
-  }
-  return text
 }

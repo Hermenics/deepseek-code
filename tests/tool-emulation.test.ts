@@ -191,11 +191,14 @@ describe('parseToolResponse', () => {
     })
   })
 
-  // ── 9. Malformed JSON recovery (não suportado) ────────────────────────────
+  // ── 9. Malformed JSON recovery (robustParseJSON handles these) ────────────
   describe('malformed JSON recovery', () => {
-    it('should return null for trailing comma in arguments', () => {
+    it('should recover trailing comma in arguments via robust parser', () => {
       const input = '{"tool_use": {"name": "shell", "arguments": {"command": "ls",}}}'
-      expect(parseToolResponse(input)).toBeNull()
+      const result = parseToolResponse(input)
+      expect(result).not.toBeNull()
+      expect(result!.name).toBe('shell')
+      expect(result!.arguments).toEqual({ command: 'ls' })
     })
   })
 

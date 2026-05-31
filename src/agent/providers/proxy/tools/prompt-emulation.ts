@@ -1,4 +1,6 @@
 import type { ChatMessage } from '../types/index.js'
+import { robustParseJSON } from '../services/robust-json.js'
+import { resolveToolName } from '../services/output-sanitizer.js'
 
 export interface ToolDef {
   name: string
@@ -104,9 +106,16 @@ export function parseToolResponses(
   const makeResult = (parsed: unknown, allowDirectFormat = false): { name: string; id: string; arguments: any } | null => {
     const validated = validateToolCall(parsed, allowDirectFormat)
     if (!validated) return null
-    if (allowedTools && !allowedTools.has(validated.name)) return null
+
+    // Fuzzy tool name resolution: ReadFile → read_file, SHELL → shell, etc.
+    const knownToolList = allowedTools ? [...allowedTools] : []
+    const resolved = knownToolList.length > 0
+      ? resolveToolName(validated.name, knownToolList) || validated.name
+      : validated.name
+
+    if (allowedTools && !allowedTools.has(resolved)) return null
     return {
-      name: validated.name,
+      name: resolved,
       id: `toolu_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
       arguments: validated.arguments,
     }
@@ -123,43 +132,76 @@ export function parseToolResponses(
     ? trimmed.replace(/^```(?:json|text|typescript|js)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim()
     : trimmed
 
-  const dsmlInvoke = source.match(/<\|{2}DSML\|{2}invoke\s+name="([^"]+)">/)
+  // Normalize Unicode variants in tags before parsing (from ds-free-api)
+  // DeepSeek sometimes outputs ｜ (U+FF5C) instead of | and ▁ (U+2581) instead of _
+  const normalized = source
+    .replace(/｜/g, '|')  // full-width pipe → ASCII pipe
+    .replace(/▁/g, '_')  // lower one eighth block → underscore
+
+  // ── DSML format: <|DSML|invoke name="..."> (native DeepSeek format)
+  const dsmlInvoke = normalized.match(/<\|{1,2}DSML\|{1,2}invoke\s+name="([^"]+)">/i)
   if (dsmlInvoke) {
     const name = dsmlInvoke[1]!
-    if (!allowedTools || allowedTools.has(name)) {
+    const resolvedName = allowedTools
+      ? (resolveToolName(name, [...allowedTools]) || name)
+      : name
+    if (!allowedTools || allowedTools.has(resolvedName)) {
       const args: Record<string, unknown> = {}
-      const paramRe = /<\|{2}DSML\|{2}parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/\|{2}DSML\|{2}parameter>/g
+      // Match both ||DSML|| and |DSML| variants
+      const paramRe = /<\|{1,2}DSML\|{1,2}parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/\|{1,2}DSML\|{1,2}parameter>/gi
       let m
-      while ((m = paramRe.exec(source)) !== null) {
-        try { args[m[1]!] = JSON.parse(m[2]!) } catch { args[m[1]!] = m[2]! }
+      while ((m = paramRe.exec(normalized)) !== null) {
+        let val = m[2]!
+        // Strip CDATA wrapper if present
+        if (val.startsWith('<![CDATA[') && val.endsWith(']]>')) {
+          val = val.slice(9, -3)
+        }
+        try { args[m[1]!] = JSON.parse(val) } catch { args[m[1]!] = val }
       }
-      results.push({ name, id: `toolu_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, arguments: args })
+      results.push({ name: resolvedName, id: `toolu_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, arguments: args })
+    }
+  }
+
+  // ── Native DeepSeek tool_calls markers: <|tool_calls_begin|> ... <|tool_calls_end|>
+  const nativeToolCallsRe = /<\|tool[_\s]?calls[_\s]?begin\|>([\s\S]*?)<\|tool[_\s]?calls[_\s]?end\|>/i
+  const nativeMatch = normalized.match(nativeToolCallsRe)
+  if (nativeMatch && results.length === 0) {
+    const inner = nativeMatch[1]!
+    // Try to parse as JSON array or object inside the markers
+    const jsonContent = extractBalancedJson(inner.trim())
+    if (jsonContent) {
+      try {
+        const parsed = robustParseJSON(jsonContent)
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) { pushIfValid(item, true) }
+        } else {
+          pushIfValid(parsed, true)
+        }
+      } catch { }
     }
   }
 
   const toolCallTagRe = /<tool_call>\s*([\s\S]*?)\s*<\/tool_call>/g
   let tagMatch: RegExpExecArray | null
-  while ((tagMatch = toolCallTagRe.exec(source)) !== null) {
+  while ((tagMatch = toolCallTagRe.exec(normalized)) !== null) {
     const wrappedJson = extractBalancedJson(tagMatch[1]!.trim())
     if (!wrappedJson) continue
-    try { pushIfValid(JSON.parse(wrappedJson), true) } catch { }
+    try { pushIfValid(robustParseJSON(wrappedJson), true) } catch { }
   }
 
   const MAX_PREFIX_LENGTH = 500
   const toolUseRe = /\{\s*"tool_use"\s*:/g
   let useMatch: RegExpExecArray | null
-  while ((useMatch = toolUseRe.exec(source)) !== null) {
+  while ((useMatch = toolUseRe.exec(normalized)) !== null) {
     // Reject tool calls where the text prefix before the JSON is too long —
     // a long preamble means the model is explaining/showing an example, not calling a tool.
     if (useMatch.index > MAX_PREFIX_LENGTH) continue
     // Reject tool calls that are inside an inline code fence (```...```) embedded in prose.
-    // A leading fence is already stripped into `source`, so a fence marker before the match
-    // means the JSON is an example inside an explanation, not an actual tool call.
-    const prefix = source.slice(0, useMatch.index)
+    const prefix = normalized.slice(0, useMatch.index)
     if (/```/.test(prefix)) continue
-    const extracted = extractBalancedJson(source.slice(useMatch.index))
+    const extracted = extractBalancedJson(normalized.slice(useMatch.index))
     if (!extracted) continue
-    try { pushIfValid(JSON.parse(extracted)) } catch { }
+    try { pushIfValid(robustParseJSON(extracted)) } catch { }
   }
 
   if (results.length === 0 && source.startsWith('{') && source.endsWith('}')) {

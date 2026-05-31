@@ -63,7 +63,7 @@ export async function assertSafePath(filePath: string): Promise<void> {
   const cwd = process.cwd()
 
   if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
-    throw new Error(`Path '${filePath}' is outside the working directory`)
+    throw new Error(`Error: Path '${filePath}' is outside the working directory (${cwd}). Use a relative path instead — e.g. './${path.basename(filePath)}' or create files within the current project.`)
   }
 
   // Resolve symlinks to prevent traversal attacks
