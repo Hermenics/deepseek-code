@@ -32,15 +32,15 @@ export async function* orchestrate(
 
       const isProModel = request.model.includes('pro')
 
-      // Detect new session: no assistant messages means first interaction
-      // Force parent_message_id to null to avoid stale session conflicts (from deepsproxy)
-      const isNewSession = !request.messages.some((m) => m.role === 'assistant')
-
+      // Always force parent_message_id: null — the proxy sends the full conversation
+      // history inside the prompt (native DeepSeek tokens), so the backend must be
+      // treated as stateless per request. Using a stale parent_message_id from a
+      // previous response causes DeepSeek to see duplicate context and stop responding.
       const { stream, chatSessionId } = await createDeepSeekStream({
         prompt: finalPrompt,
         enableThinking: true,
         isProModel,
-        forcedParentId: isNewSession ? null : undefined,
+        forcedParentId: null,
       })
 
       const reader = stream.getReader()
@@ -103,8 +103,8 @@ export async function* orchestrate(
                 if (toFlush) yield { token: toFlush, done: false }
               }
             }
-          } catch {
-            // ignore malformed partial chunks
+          } catch (err) {
+            log('debug', `Failed to parse SSE chunk: ${data}`)
           }
         }
       }
@@ -189,7 +189,7 @@ function buildPrompt(
     if (msg.role === 'system') {
       systemContent += contentStr + '\n\n'
     } else if (msg.role === 'user') {
-      parts.push(DS_USER + contentStr)
+      parts.push(DS_USER + contentStr + DS_EOS)
       lastRole = 'user'
     } else if (msg.role === 'assistant') {
       let assistantContent = contentStr
@@ -211,7 +211,7 @@ function buildPrompt(
     } else if (msg.role === 'tool') {
       // Truncate very long tool results to avoid context overflow
       const result = contentStr.slice(0, 4000)
-      parts.push(DS_TOOL + result + DS_TOOL_END)
+      parts.push(DS_TOOL + result + DS_TOOL_END + DS_EOS)
       lastRole = 'tool'
     }
   }

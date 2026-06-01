@@ -34,9 +34,11 @@ export function buildPayload(
 export async function createDeepSeekStream(
   options: DeepSeekStreamOptions,
 ): Promise<DeepSeekStreamResult> {
-  const { headers, chatSessionId, parentMessageId } = await getDeepSeekHeaders(
-    options.forcedParentId === null,
-  )
+  // Never force a new browser session just because parent_message_id is null.
+  // The two decisions are independent:
+  //   - forceNew (browser navigation + PoW capture) → always false, use cache
+  //   - effectiveParentId (what goes in the payload) → controlled by forcedParentId
+  const { headers, chatSessionId, parentMessageId } = await getDeepSeekHeaders(false)
   const effectiveParentId =
     options.forcedParentId !== undefined ? options.forcedParentId : parentMessageId
   const payload = buildPayload(options, chatSessionId, effectiveParentId)
