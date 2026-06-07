@@ -40,15 +40,24 @@ export async function getDeepSeekHeaders(forceNew = false): Promise<DeepSeekHead
     // Background refresh: when cache age > 80% of TTL, trigger non-blocking refresh
     const cacheAge = Date.now() - cachedHeaders.timestamp
     if (cacheAge > CACHE_TTL_MS * 0.8 && !pendingRequest) {
-      // Fire and forget — don't await
-      withRetry(() => refreshSessionAndHeaders(), { maxRetries: 2, baseDelay: 2000 })
+      // Background refresh participates in the mutex so a concurrent foreground
+      // request waits for the same Promise instead of spawning a second browser intercept.
+      pendingRequest = withRetry(() => refreshSessionAndHeaders(), { maxRetries: 2, baseDelay: 2000 })
         .then((result) => {
-          // Update cache silently on success
           cachedHeaders = { headers: result.headers, chatSessionId: result.chatSessionId, timestamp: Date.now() }
+          return result
         })
         .catch(() => {
-          // Ignore background refresh failures
+          // Ignore background refresh failures — return current cache so callers don't fail
+          if (!cachedHeaders) throw new Error('Cache expired during background refresh')
+          return {
+            headers: cachedHeaders.headers,
+            chatSessionId: cachedHeaders.chatSessionId,
+            parentMessageId: getSessionParent(cachedHeaders.chatSessionId),
+          }
         })
+        .finally(() => { pendingRequest = null })
+      // Do NOT await — return the cached value immediately to the current caller
     }
 
     return {
@@ -59,7 +68,8 @@ export async function getDeepSeekHeaders(forceNew = false): Promise<DeepSeekHead
   }
 
   // Mutex: if another request is already fetching headers, wait for it
-  if (pendingRequest) {
+  // forceNew bypasses the mutex — a stale pending request must not block a forced re-auth
+  if (pendingRequest && !forceNew) {
     return pendingRequest
   }
 
@@ -136,6 +146,32 @@ async function refreshSessionAndHeaders(): Promise<DeepSeekHeaders> {
   return fetchHeadersFromBrowser(false)
 }
 
+/**
+ * Check whether the current browser session has a valid DeepSeek login.
+ * Reads userToken from localStorage, or falls back to checking the URL for
+ * a redirect to the sign-in page.
+ */
+async function checkSessionValid(page: Page): Promise<boolean> {
+  try {
+    // Primary check: URL must be on deepseek and not on a login/sign-in redirect
+    const url = page.url()
+    if (url.includes('sign_in') || url.includes('login')) return false
+    if (!url.includes('chat.deepseek.com')) return false
+
+    // Secondary check: userToken present in localStorage
+    const userToken = await page.evaluate(() => {
+      try {
+        return localStorage.getItem('userToken')
+      } catch {
+        return null
+      }
+    })
+    return !!userToken
+  } catch {
+    return false
+  }
+}
+
 async function fetchHeadersFromBrowser(forceNew: boolean): Promise<DeepSeekHeaders> {
   // Lazy init: start Playwright on first header request if not already running
   const { initPlaywright } = await import('./playwright.js')
@@ -173,8 +209,13 @@ async function fetchHeadersFromBrowser(forceNew: boolean): Promise<DeepSeekHeade
     }
   }
 
-  // Wait for textarea (confirms user is logged in)
-  await page.waitForSelector('textarea', { timeout: 30000 }).catch(async () => {
+  // Wait for textarea — React can take 2-5 seconds to mount after networkidle,
+  // so we give it 45 seconds before falling back to a session check + reload.
+  const textareaFound = await page.waitForSelector('textarea', { timeout: 45000 })
+    .then(() => true)
+    .catch(() => false)
+
+  if (!textareaFound) {
     // Check if redirected to sign-in page (OAuth session expired)
     const url = page.url()
     if (url.includes('sign_in') || url.includes('login')) {
@@ -188,52 +229,91 @@ async function fetchHeadersFromBrowser(forceNew: boolean): Promise<DeepSeekHeade
       throw new Error("WAF challenge detected. Run 'deepseek login' to re-authenticate.")
     }
 
-    throw new Error('Timeout waiting for chat input. Are you logged in to DeepSeek?')
-  })
+    // Validate session — if valid, React may just need a reload to mount
+    const sessionValid = await checkSessionValid(page)
+    if (sessionValid) {
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      // Verify WAF did not trigger after reload before waiting for textarea
+      if (await isWafChallenge(page)) {
+        await waitForWafResolution(page, 30000)
+      }
+      const textareaFoundAfterReload = await page.waitForSelector('textarea', { timeout: 45000 })
+        .then(() => true)
+        .catch(() => false)
+
+      if (!textareaFoundAfterReload) {
+        throw new Error('Timeout waiting for chat input after reload. DeepSeek UI did not mount.')
+      }
+    } else {
+      throw new Error("OAuth session expired. Run 'deepseek login' to re-authenticate.")
+    }
+  }
 
   // Intercept the real API request to extract PoW headers
   return new Promise((resolve, reject) => {
+    let settled = false
+
     const timeout = setTimeout(() => {
-      page.unroute('**/api/v0/chat/completion').catch(() => {})
+      if (settled) return
+      settled = true
+      page.unroute('**/api/v0/chat/completion', routeHandler).catch(() => {})
       reject(new Error('Timeout waiting for PoW headers from DeepSeek'))
     }, 60000)
 
     const routeHandler = async (route: any, request: any) => {
+      // Guard against being called after we already resolved/rejected
+      if (settled) {
+        route.abort('aborted').catch(() => {})
+        return
+      }
+      // Set settled FIRST before any await to prevent double-settle with the timeout
+      settled = true
       clearTimeout(timeout)
 
-      const reqHeaders = request.headers()
-      let chatSessionId = ''
-      let parentMessageId: number | null = null
+      try {
+        const reqHeaders = request.headers()
+        let chatSessionId = ''
+        let parentMessageId: number | null = null
 
-      const postData = request.postData()
-      if (postData) {
-        try {
-          const payload = JSON.parse(postData)
-          if (payload.chat_session_id) chatSessionId = payload.chat_session_id
-          if (payload.parent_message_id !== undefined) parentMessageId = payload.parent_message_id
-        } catch {
-          // ignore parse error
+        const postData = request.postData()
+        if (postData) {
+          try {
+            const payload = JSON.parse(postData)
+            if (payload.chat_session_id) chatSessionId = payload.chat_session_id
+            if (payload.parent_message_id !== undefined) parentMessageId = payload.parent_message_id
+          } catch {
+            // ignore parse error
+          }
         }
+
+        const headers: Record<string, string> = {
+          'x-ds-pow-response': reqHeaders['x-ds-pow-response'] || '',
+          'x-hif-dliq':        reqHeaders['x-hif-dliq'] || '',
+          'x-hif-leim':        reqHeaders['x-hif-leim'] || '',
+          'authorization':     reqHeaders['authorization'] || '',
+          'cookie':            reqHeaders['cookie'] || '',
+          'accept':            'text/event-stream',
+          'origin':            'https://chat.deepseek.com',
+          'referer':           'https://chat.deepseek.com/',
+        }
+
+        // Abort the intercepted request before unrouting to prevent context teardown issues
+        await Promise.race([
+          route.abort('aborted'),
+          new Promise<void>((res) => setTimeout(res, 3000)),
+        ]).catch(() => {})
+
+        // Unroute only after abort completes (or times out)
+        await page.unroute('**/api/v0/chat/completion', routeHandler).catch(() => {})
+
+        cachedHeaders = { headers, chatSessionId, timestamp: Date.now() }
+        resolve({ headers, chatSessionId, parentMessageId })
+      } catch (err) {
+        // Something went wrong inside the handler — clean up and reject
+        await route.abort('aborted').catch(() => {})
+        await page.unroute('**/api/v0/chat/completion', routeHandler).catch(() => {})
+        reject(err)
       }
-
-      const headers: Record<string, string> = {
-        'x-ds-pow-response': reqHeaders['x-ds-pow-response'] || '',
-        'x-hif-dliq':        reqHeaders['x-hif-dliq'] || '',
-        'x-hif-leim':        reqHeaders['x-hif-leim'] || '',
-        'authorization':     reqHeaders['authorization'] || '',
-        'cookie':            reqHeaders['cookie'] || '',
-        'accept':            'text/event-stream',
-        'origin':            'https://chat.deepseek.com',
-        'referer':           'https://chat.deepseek.com/',
-      }
-
-      // Abort to avoid polluting chat history
-      await route.abort('aborted').catch(() => {})
-      await page.unroute('**/api/v0/chat/completion', routeHandler).catch(() => {})
-
-      cachedHeaders = { headers, chatSessionId, timestamp: Date.now() }
-
-      resolve({ headers, chatSessionId, parentMessageId })
     }
 
     // Register route interceptor then trigger PoW generation
@@ -242,8 +322,11 @@ async function fetchHeadersFromBrowser(forceNew: boolean): Promise<DeepSeekHeade
         page.keyboard.press('Enter').catch(() => {})
       }).catch(() => {})
     }).catch((err: Error) => {
-      clearTimeout(timeout)
-      reject(err)
+      if (!settled) {
+        settled = true
+        clearTimeout(timeout)
+        reject(err)
+      }
     })
   })
 }

@@ -180,6 +180,8 @@ function buildPrompt(
   messages: ChatMessage[],
   tools: ToolDef[],
 ): { systemPrompt: string; prompt: string } {
+  const hasToolResult = messages.some((m) => m.role === 'tool')
+
   // Build system content first (tools get injected here)
   let systemContent = ''
 
@@ -198,11 +200,6 @@ function buildPrompt(
 
     const toolsJson = JSON.stringify(formattedTools, null, 2)
     systemContent += `# TOOLS AVAILABLE\nYou have access to the following tools:\n${toolsJson}\n\nTo use a tool, you MUST output a JSON object wrapped EXACTLY in these tags:\n<tool_call>\n{"name": "tool_name", "arguments": {"param_name": "value"}}\n</tool_call>\n\nRULES:\n1. You can call multiple tools by outputting multiple <tool_call> blocks consecutively.\n2. Do NOT output any other text after your <tool_call> blocks. Wait for the user to provide the tool response.\n3. The JSON must be valid and accurately follow the tool's parameters.\n\n`
-
-    const toolChoiceAny = (messages as any).tool_choice
-    if (toolChoiceAny && typeof toolChoiceAny === 'object' && toolChoiceAny.function) {
-      systemContent += `CRITICAL: You MUST call the tool "${toolChoiceAny.function.name}" in this response.\n\n`
-    }
   }
 
   // Build the full prompt using native tokens
@@ -228,9 +225,15 @@ function buildPrompt(
       // Include tool calls in assistant turn if present
       if (msgAny.tool_calls && Array.isArray(msgAny.tool_calls)) {
         for (const tc of msgAny.tool_calls) {
-          let args = tc.function?.arguments || '{}'
-          if (typeof args !== 'string') args = JSON.stringify(args)
-          assistantContent += `\n<tool_call>{"name": "${tc.function?.name}", "arguments": ${args}}</tool_call>`
+          const rawArgs = tc.function?.arguments || '{}'
+          // OpenAI SDK always serializes arguments as a JSON string — parse it back
+          // to an object so we can re-serialize the whole call without double-encoding.
+          const parsedArgs = (() => {
+            if (typeof rawArgs === 'string') { try { return JSON.parse(rawArgs) } catch { return {} } }
+            return rawArgs
+          })()
+          const callObj = { name: tc.function?.name ?? '', arguments: parsedArgs }
+          assistantContent += `\n<tool_call>${JSON.stringify(callObj)}</tool_call>`
         }
       }
       parts.push(DS_ASST + assistantContent.trim() + DS_EOS)
@@ -253,8 +256,32 @@ function buildPrompt(
     parts.push(DS_ASST)
   }
 
+  const finalPrompt = parts.join('')
+
+  // Debug logging: when a tool result is present, log the full prompt structure
+  // so we can verify the multi-turn tool flow is correct.
+  // Guard with explicit env var to avoid leaking sensitive prompt content in production.
+  if (hasToolResult && process.env.DEEPSEEK_DEBUG_PROMPTS === '1') {
+    const structure = messages.map((m) => {
+      const msgAny = m as any
+      if (m.role === 'assistant' && msgAny.tool_calls) {
+        const names = msgAny.tool_calls.map((tc: any) => tc.function?.name).join(', ')
+        return `assistant[tool_calls:${names}]`
+      }
+      if (m.role === 'tool') return `tool[${String(m.content ?? '').slice(0, 60).replace(/\n/g, '\\n')}...]`
+      return `${m.role}[${String(m.content ?? '').slice(0, 40).replace(/\n/g, '\\n')}]`
+    })
+    log('debug', `buildPrompt tool-result turn: ${structure.join(' → ')}`)
+    log('debug', `buildPrompt prompt length=${finalPrompt.length} tools=${tools.length}`)
+    // Log abbreviated prompt showing structure (replace long content with lengths)
+    const abbreviated = finalPrompt
+      .replace(/(DS_SYS_END|<｜end▁of▁instructions｜>)([\s\S]{0,2000}?)(<｜User｜>)/g,
+        (_m, a, _body, c) => `${a}[...system ${_body.length}chars...]${c}`)
+    log('debug', `buildPrompt prompt structure: ${abbreviated.slice(0, 800)}`)
+  }
+
   // Return as combined prompt (systemPrompt empty since it's embedded in native format)
-  return { systemPrompt: '', prompt: parts.join('') }
+  return { systemPrompt: '', prompt: finalPrompt }
 }
 
 function extractContent(msg: ChatMessage): string {

@@ -10,6 +10,11 @@ const TOOL_START = '<tool_call>'
 const TOOL_END = '</tool_call>'
 
 function createOAuthFetch(): (input: RequestInfo | URL, init?: RequestInit) => Promise<Response> {
+  // Cache tool definitions across turns — the agent loop omits tools on turn 2+
+  // (the tool-result follow-up), but buildPrompt needs them to construct the system
+  // prompt so the model understands the tool context when it formulates its final answer.
+  let cachedTools: ProxyRequest['tools'] = []
+
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
     const method = init?.method ?? 'GET'
@@ -30,13 +35,21 @@ function createOAuthFetch(): (input: RequestInfo | URL, init?: RequestInit) => P
     }
 
     // Convert OpenAI tool format {type:'function', function:{name,description,parameters}}
-    // to ProxyTool format {name, description, input_schema} that buildPrompt expects
-    const tools: ProxyRequest['tools'] = (parsed.tools ?? []).map((t) => {
+    // to ProxyTool format {name, description, input_schema} that buildPrompt expects.
+    // On turn 2+ (tool-result follow-up) the agent loop typically omits `tools` from
+    // the request body. Fall back to the cached definitions so buildPrompt still injects
+    // the tool system prompt and the model understands what the tool result means.
+    // Distinguish "tools omitted" (undefined → use cache) from "tools explicitly empty"
+    // ([] → reset cache so old tools don't leak into conversations without tools).
+    const toolsOmitted = parsed.tools === undefined
+    const parsedTools: ProxyRequest['tools'] = (parsed.tools ?? []).map((t) => {
       if (t.type === 'function' && t.function) {
         return { name: t.function.name, description: t.function.description, input_schema: t.function.parameters }
       }
       return { name: t.name ?? '', description: t.description, input_schema: t.input_schema }
     })
+    if (!toolsOmitted) cachedTools = parsedTools  // reset even when array is empty
+    const tools = parsedTools.length > 0 ? parsedTools : (toolsOmitted ? cachedTools : [])
 
     const proxyRequest: ProxyRequest = {
       messages: parsed.messages ?? [],

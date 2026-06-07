@@ -15,7 +15,11 @@ export function filterMessages(messages: ChatMessage[]): ChatMessage[] {
   return filtered
 }
 
-function isClientNoise(content: string): boolean {
+function isClientNoise(content: unknown): boolean {
+  // content can be a string, array of parts, or null depending on the message
+  const text = typeof content === 'string' ? content : Array.isArray(content)
+    ? content.map((c: any) => (typeof c === 'string' ? c : c?.text ?? '')).join('\n')
+    : ''
   const noisePatterns = [
     'system-reminder',
     'The following skills are available',
@@ -33,5 +37,5 @@ function isClientNoise(content: string): boolean {
     'IMPORTANT: These instructions OVERRIDE',
     'As you answer the user\'s questions, you can use the following context',
   ]
-  return noisePatterns.some((p) => content.includes(p))
+  return noisePatterns.some((p) => text.includes(p))
 }
