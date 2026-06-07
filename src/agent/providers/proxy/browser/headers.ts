@@ -1,3 +1,4 @@
+import { type Page } from 'playwright'
 import { getActivePage } from './playwright.js'
 import { withRetry } from '../services/retry.js'
 
@@ -25,7 +26,7 @@ function buildTestHeaders(): DeepSeekHeaders {
   }
 }
 
-const CACHE_TTL_MS = 45_000
+const CACHE_TTL_MS = 120_000
 
 let cachedHeaders: { headers: Record<string, string>; chatSessionId: string; timestamp: number } | null = null
 let pendingRequest: Promise<DeepSeekHeaders> | null = null
@@ -36,6 +37,20 @@ export async function getDeepSeekHeaders(forceNew = false): Promise<DeepSeekHead
 
   // Return cached headers if still fresh (and not forcing new session)
   if (!forceNew && cachedHeaders && (Date.now() - cachedHeaders.timestamp) < CACHE_TTL_MS) {
+    // Background refresh: when cache age > 80% of TTL, trigger non-blocking refresh
+    const cacheAge = Date.now() - cachedHeaders.timestamp
+    if (cacheAge > CACHE_TTL_MS * 0.8 && !pendingRequest) {
+      // Fire and forget — don't await
+      withRetry(() => refreshSessionAndHeaders(), { maxRetries: 2, baseDelay: 2000 })
+        .then((result) => {
+          // Update cache silently on success
+          cachedHeaders = { headers: result.headers, chatSessionId: result.chatSessionId, timestamp: Date.now() }
+        })
+        .catch(() => {
+          // Ignore background refresh failures
+        })
+    }
+
     return {
       headers: cachedHeaders.headers,
       chatSessionId: cachedHeaders.chatSessionId,
@@ -60,6 +75,67 @@ export async function getDeepSeekHeaders(forceNew = false): Promise<DeepSeekHead
   }
 }
 
+/**
+ * Detect if the page is showing a WAF (Web Application Firewall) challenge
+ * instead of the actual DeepSeek chat interface.
+ */
+async function isWafChallenge(page: Page): Promise<boolean> {
+  const content = await page.content()
+  const lowerContent = content.toLowerCase()
+  return (
+    lowerContent.includes('confirm you are human') ||
+    lowerContent.includes('security check') ||
+    lowerContent.includes('checking your browser') ||
+    lowerContent.includes('just a moment') ||
+    lowerContent.includes('challenge-platform')
+  )
+}
+
+/**
+ * Wait for a WAF challenge to auto-resolve. The challenge JS often solves
+ * itself after a few seconds when cookies/tokens are partially valid.
+ * Returns true if the challenge resolved, false if still blocked.
+ */
+async function waitForWafResolution(page: Page, timeoutMs: number = 30000): Promise<boolean> {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    await page.waitForTimeout(2000)
+    if (!(await isWafChallenge(page))) {
+      return true
+    }
+  }
+  return false
+}
+
+/**
+ * Refresh session by navigating to DeepSeek to keep WAF token fresh,
+ * then fetch new PoW headers. Used by background refresh.
+ */
+async function refreshSessionAndHeaders(): Promise<DeepSeekHeaders> {
+  const { initPlaywright } = await import('./playwright.js')
+  await initPlaywright(true)
+
+  const page = getActivePage()
+  if (!page) {
+    throw new Error('Failed to initialize Playwright browser context.')
+  }
+
+  // Navigate to keep WAF cookie alive
+  await page.goto('https://chat.deepseek.com/', { waitUntil: 'domcontentloaded' })
+
+  // If WAF challenge appears during refresh, wait for it to auto-resolve
+  if (await isWafChallenge(page)) {
+    const resolved = await waitForWafResolution(page, 30000)
+    if (!resolved) {
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await page.waitForTimeout(3000)
+    }
+  }
+
+  // Now fetch fresh headers via the normal flow (skip navigation since we just did it)
+  return fetchHeadersFromBrowser(false)
+}
+
 async function fetchHeadersFromBrowser(forceNew: boolean): Promise<DeepSeekHeaders> {
   // Lazy init: start Playwright on first header request if not already running
   const { initPlaywright } = await import('./playwright.js')
@@ -79,8 +155,39 @@ async function fetchHeadersFromBrowser(forceNew: boolean): Promise<DeepSeekHeade
     await page.goto('https://chat.deepseek.com/', { waitUntil: 'domcontentloaded' })
   }
 
+  // Check for WAF challenge before waiting for textarea
+  if (await isWafChallenge(page)) {
+    // Wait for the WAF challenge JS to auto-resolve
+    const resolved = await waitForWafResolution(page, 30000)
+    if (!resolved) {
+      // Try refreshing — the WAF token from the challenge JS might now be valid
+      await page.reload({ waitUntil: 'domcontentloaded' })
+      await page.waitForTimeout(3000)
+
+      if (await isWafChallenge(page)) {
+        throw new Error(
+          'WAF challenge detected. The browser session is blocked by DeepSeek\'s security. ' +
+          'Please run \'deepseek login\' to re-authenticate.'
+        )
+      }
+    }
+  }
+
   // Wait for textarea (confirms user is logged in)
-  await page.waitForSelector('textarea', { timeout: 30000 }).catch(() => {
+  await page.waitForSelector('textarea', { timeout: 30000 }).catch(async () => {
+    // Check if redirected to sign-in page (OAuth session expired)
+    const url = page.url()
+    if (url.includes('sign_in') || url.includes('login')) {
+      throw new Error("OAuth session expired. Run 'deepseek login' to re-authenticate.")
+    }
+
+    // Check if WAF challenge appeared after navigation
+    const content = await page.content()
+    const lowerContent = content.toLowerCase()
+    if (lowerContent.includes('confirm you are human') || lowerContent.includes('security check')) {
+      throw new Error("WAF challenge detected. Run 'deepseek login' to re-authenticate.")
+    }
+
     throw new Error('Timeout waiting for chat input. Are you logged in to DeepSeek?')
   })
 

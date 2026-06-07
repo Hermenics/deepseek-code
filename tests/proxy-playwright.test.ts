@@ -17,6 +17,7 @@ const mockContext = {
   newPage: mock(() => Promise.resolve(mockPage)),
   close: mock(() => Promise.resolve()),
   pages: mock(() => [mockPage]),
+  addInitScript: mock(() => Promise.resolve()),
 }
 
 const mockBrowser = {

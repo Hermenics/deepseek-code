@@ -8,7 +8,12 @@ import { updateSessionParent } from '../browser/headers.js'
 import { sanitizeOutput, sanitizeStreamChunk } from './output-sanitizer.js'
 import { log } from '../config.js'
 
+function isPermanentAuthError(message: string): boolean {
+  return message.includes('OAuth session expired') || message.includes('WAF challenge detected')
+}
+
 function isNetworkStreamError(message: string): boolean {
+  if (isPermanentAuthError(message)) return false
   const msg = message.toLowerCase()
   return /timeout|network|fetch failed|connection|econnr|socket|aborted|enotfound|epipe|net::|err_network/.test(msg)
 }
@@ -52,9 +57,10 @@ export async function* orchestrate(
       let currentFragmentType = ''
       let trailingBuffer = ''
       let completionTokens = 0
+      let contentEmitted = false
       // Sliding window: hold back enough chars to detect the longest possible
       // tool call start tag or DeepSeek marker (~71 chars for native markers)
-      const TRAILING_HOLD = 80
+      const TRAILING_HOLD = 150
 
       while (!finished) {
         const { done, value } = await reader.read()
@@ -88,9 +94,10 @@ export async function* orchestrate(
             currentAppendPath = extracted.appendPath
             currentFragmentType = extracted.fragmentType
 
-            if (!extracted.text || extracted.text === 'FINISHED') continue
+            if (!extracted.text || extracted.isFinished) continue
 
             if (extracted.isThinking) {
+              contentEmitted = true
               yield { token: '', thinking: extracted.text, done: false }
             } else {
               trailingBuffer += extracted.text
@@ -100,7 +107,10 @@ export async function* orchestrate(
                 let toFlush = trailingBuffer.slice(0, flushUpTo)
                 toFlush = sanitizeStreamChunk(toFlush)
                 trailingBuffer = trailingBuffer.slice(flushUpTo)
-                if (toFlush) yield { token: toFlush, done: false }
+                if (toFlush) {
+                  contentEmitted = true
+                  yield { token: toFlush, done: false }
+                }
               }
             }
           } catch (err) {
@@ -111,7 +121,18 @@ export async function* orchestrate(
 
       if (trailingBuffer) {
         const cleaned = sanitizeOutput(trailingBuffer)
-        if (cleaned) yield { token: cleaned, done: false }
+        if (cleaned) {
+          contentEmitted = true
+          yield { token: cleaned, done: false }
+        }
+      }
+
+      // Only show "empty response" if truly nothing was emitted AND no thinking was shown.
+      // When the model outputs a tool call, the text goes through trailingBuffer → sanitizeOutput
+      // and may be consumed by the downstream tool parser (llmClient.ts), leaving contentEmitted=false.
+      // That's not a real "empty response" — the tool call IS the response.
+      if (!contentEmitted && completionTokens === 0) {
+        yield { token: 'DeepSeek returned empty response. Try again.', done: false }
       }
 
       const promptTokens = Math.ceil(finalPrompt.length / 3.5)
@@ -120,6 +141,12 @@ export async function* orchestrate(
     } catch (error: unknown) {
       const msg = error instanceof Error ? error.message : String(error)
       lastError = msg
+
+      // Auth/WAF errors are permanent — don't retry
+      if (isPermanentAuthError(msg)) {
+        yield { token: '', done: true, error: msg }
+        return
+      }
 
       if (!isNetworkStreamError(msg) || attempt === 2) {
         yield { token: '', done: true, error: msg }
@@ -268,7 +295,7 @@ function extractDeepSeekText(
   chunk: DeepSeekChunk,
   previousAppendPath: string,
   previousFragmentType: string,
-): { text: string; isThinking: boolean; appendPath: string; fragmentType: string } {
+): { text: string; isThinking: boolean; isFinished: boolean; appendPath: string; fragmentType: string } {
   let appendPath = previousAppendPath
   let fragmentType = previousFragmentType
   let text = ''
@@ -282,8 +309,21 @@ function extractDeepSeekText(
     if (typeof lastFrag?.type === 'string') fragmentType = lastFrag.type
   }
 
+  // Known metadata paths that should NOT be treated as content
+  const METADATA_PATHS = ['response/accumulated_token_usage', 'response/ping', 'response/status']
+
   if (typeof chunk.v === 'string') {
-    text = chunk.v
+    // If this is a known metadata path, handle specially
+    if (chunk.p && METADATA_PATHS.includes(chunk.p)) {
+      // "FINISHED" on a status path is a sentinel, not content
+      if (chunk.p === 'response/status' && chunk.v === 'FINISHED') {
+        return { text: '', isThinking: false, isFinished: true, appendPath, fragmentType }
+      }
+      // Other metadata string values are not content
+      text = ''
+    } else {
+      text = chunk.v
+    }
   } else if (chunk.v && typeof chunk.v === 'object') {
     const value = chunk.v as {
       response?: { fragments?: Array<{ content?: unknown; type?: unknown }> }
@@ -311,5 +351,5 @@ function extractDeepSeekText(
     appendPath.includes('THINK') ||
     (appendPath.includes('fragments/-1/content') && fragmentType === 'THINK')
 
-  return { text, isThinking, appendPath, fragmentType }
+  return { text, isThinking, isFinished: false, appendPath, fragmentType }
 }

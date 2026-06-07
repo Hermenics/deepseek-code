@@ -3,6 +3,7 @@ import type { ProviderConfig } from '../ui/setup/ApiKeySetup.js'
 import { createBedrockFetch, createBedrockMantleFetch, modelSupportsChatCompletions } from './providers/bedrock.js'
 import { createVertexFetch } from './providers/vertex.js'
 import { orchestrate } from './providers/proxy/services/orchestrator.js'
+import { parseToolResponses } from './providers/proxy/tools/prompt-emulation.js'
 import type { ProxyRequest } from './providers/proxy/types/index.js'
 
 const TOOL_START = '<tool_call>'
@@ -54,9 +55,10 @@ function createOAuthFetch(): (input: RequestInfo | URL, init?: RequestInit) => P
         let contentBuffer = ''   // accumulates text tokens for tool detection
         let insideTool = false   // currently inside <tool_call>...</tool_call>
         let toolCallCount = 0    // number of tool calls emitted so far
+        let toolUseDetected = false // mid-stream {"tool_use" detection — stop flushing text
 
         const flushText = (text: string) => {
-          if (!text || toolCallCount > 0) return
+          if (!text || toolCallCount > 0 || toolUseDetected) return
           sendChunk({
             id, object: 'chat.completion.chunk',
             choices: [{ index: 0, delta: { content: text }, finish_reason: null }],
@@ -97,6 +99,30 @@ function createOAuthFetch(): (input: RequestInfo | URL, init?: RequestInit) => P
         const processBuffer = () => {
           while (contentBuffer.length > 0) {
             if (!insideTool) {
+              // Mid-stream detection of {"tool_use" — stop flushing text
+              if (!toolUseDetected) {
+                const toolUseIdx = contentBuffer.indexOf('{"tool_use"')
+                // Only detect if not inside a code fence
+                if (toolUseIdx !== -1 && !contentBuffer.slice(0, toolUseIdx).includes('```')) {
+                  toolUseDetected = true
+                  // Flush any text before the JSON
+                  flushText(contentBuffer.slice(0, toolUseIdx))
+                  contentBuffer = contentBuffer.slice(toolUseIdx)
+                  break // wait for more tokens to complete the JSON
+                }
+              }
+
+              // Also detect native DeepSeek markers mid-stream
+              if (!toolUseDetected) {
+                const nativeIdx = contentBuffer.indexOf('<|tool_calls_begin|>')
+                if (nativeIdx !== -1) {
+                  toolUseDetected = true
+                  flushText(contentBuffer.slice(0, nativeIdx))
+                  contentBuffer = contentBuffer.slice(nativeIdx)
+                  break
+                }
+              }
+
               const startIdx = contentBuffer.indexOf(TOOL_START)
               if (startIdx !== -1) {
                 // emit text before the tag
@@ -157,8 +183,35 @@ function createOAuthFetch(): (input: RequestInfo | URL, init?: RequestInit) => P
             }
 
             if (event.done) {
-              // flush remaining buffer
-              if (!insideTool && contentBuffer) flushText(contentBuffer)
+              // Fallback: if no tool calls detected via tags, try parseToolResponses on full buffer
+              if (toolCallCount === 0 && contentBuffer.trim()) {
+                const fallbackCalls = parseToolResponses(contentBuffer)
+                if (fallbackCalls.length > 0) {
+                  for (const call of fallbackCalls) {
+                    const toolId = `call_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`
+                    sendChunk({
+                      id, object: 'chat.completion.chunk',
+                      choices: [{
+                        index: 0,
+                        delta: {
+                          tool_calls: [{
+                            index: toolCallCount,
+                            id: toolId,
+                            type: 'function',
+                            function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+                          }],
+                        },
+                        finish_reason: null,
+                      }],
+                    })
+                    toolCallCount++
+                  }
+                  contentBuffer = ''
+                }
+              }
+
+              // flush remaining buffer (only if no tool calls were emitted)
+              if (!insideTool && contentBuffer && toolCallCount === 0) flushText(contentBuffer)
               contentBuffer = ''
 
               const finishReason = toolCallCount > 0 ? 'tool_calls' : 'stop'

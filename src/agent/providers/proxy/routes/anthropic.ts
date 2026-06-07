@@ -4,6 +4,8 @@ import { validateRequest } from '../services/validator.js'
 import * as anthropic from '../formatters/anthropic.js'
 import { orchestrate } from '../services/orchestrator.js'
 import { log } from '../config.js'
+import { parseToolResponses } from '../tools/prompt-emulation.js'
+import { isInsideCodeFence } from '../services/output-sanitizer.js'
 import type { PagePool } from '../browser/pool.js'
 import type { ProxyConfig } from '../types/index.js'
 
@@ -31,8 +33,9 @@ export function createAnthropicRouter(pool: PagePool, config: ProxyConfig) {
         c.header('Connection', 'keep-alive')
         try {
           await s.write(anthropic.formatStreamStart(request.model))
-          let textBlockStarted = false
           let contentIndex = 0
+          let textBuffer = ''
+          let toolCallDetected = false
 
           for await (const event of orchestrate(request, pool, config)) {
             if (event.error) {
@@ -43,15 +46,63 @@ export function createAnthropicRouter(pool: PagePool, config: ProxyConfig) {
               await s.write(anthropic.formatThinkingBlock(event.thinking))
               contentIndex = 1
             } else if (event.done) {
-              if (textBlockStarted) {
-                await s.write(anthropic.formatStreamEnd())
+              // Stream ended — check accumulated buffer for tool calls
+              const toolCalls = parseToolResponses(textBuffer)
+
+              if (toolCalls.length > 0) {
+                // Find where the first tool call starts in the text
+                const firstToolMarkers = ['<tool_call>', '{"tool_use"', '<|DSML|', '<|tool_calls_begin|>']
+                let firstToolPos = textBuffer.length
+                for (const marker of firstToolMarkers) {
+                  const pos = textBuffer.indexOf(marker)
+                  if (pos !== -1 && pos < firstToolPos && !isInsideCodeFence(textBuffer, pos)) {
+                    firstToolPos = pos
+                  }
+                }
+
+                // Emit text before the first tool call (if any)
+                const textBefore = textBuffer.slice(0, firstToolPos).trim()
+                if (textBefore) {
+                  await s.write(anthropic.formatContentBlockStart(contentIndex))
+                  await s.write(anthropic.formatStreamChunk(textBefore, contentIndex))
+                  await s.write(anthropic.formatStreamEnd(contentIndex))
+                  contentIndex++
+                }
+
+                // Emit each tool call as a tool_use content block
+                for (const tool of toolCalls) {
+                  await s.write(anthropic.formatToolUseBlockStart(contentIndex, tool.id, tool.name))
+                  await s.write(anthropic.formatToolUseBlockDelta(contentIndex, JSON.stringify(tool.arguments)))
+                  await s.write(anthropic.formatToolUseBlockStop(contentIndex))
+                  contentIndex++
+                }
+
+                // End with message_delta stop_reason=tool_use and message_stop
+                await s.write(anthropic.formatMessageDelta('tool_use'))
+                await s.write(`event: message_stop\ndata: ${JSON.stringify({ type: 'message_stop' })}\n\n`)
+              } else {
+                // No tool calls — emit all accumulated text
+                if (textBuffer) {
+                  await s.write(anthropic.formatContentBlockStart(contentIndex))
+                  await s.write(anthropic.formatStreamChunk(textBuffer, contentIndex))
+                  await s.write(anthropic.formatStreamEnd(contentIndex))
+                }
               }
             } else {
-              if (!textBlockStarted) {
-                await s.write(anthropic.formatContentBlockStart(contentIndex))
-                textBlockStarted = true
+              // Accumulate tokens into buffer
+              textBuffer += event.token
+
+              // Check for tool call patterns mid-stream to set flag (for logging/debugging)
+              if (!toolCallDetected) {
+                const markers = ['<tool_call>', '{"tool_use"', '<|DSML|', '<|tool_calls_begin|>']
+                for (const marker of markers) {
+                  const pos = textBuffer.indexOf(marker)
+                  if (pos !== -1 && !isInsideCodeFence(textBuffer, pos)) {
+                    toolCallDetected = true
+                    break
+                  }
+                }
               }
-              await s.write(anthropic.formatStreamChunk(event.token, contentIndex))
             }
           }
         } catch (err: any) {

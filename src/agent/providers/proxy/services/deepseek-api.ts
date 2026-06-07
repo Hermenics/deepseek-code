@@ -76,6 +76,10 @@ export async function createDeepSeekStream(
     return res
   }, { maxRetries: 3, baseDelay: 1000 })
 
+  if (!response.body) {
+    throw new Error('DeepSeek returned empty response body')
+  }
+
   return {
     stream: response.body as ReadableStream,
     chatSessionId,

@@ -52,10 +52,31 @@ export function formatStreamChunk(token: string, index = 1): string {
   return `event: content_block_delta\ndata: ${JSON.stringify(delta)}\n\n`
 }
 
-export function formatStreamEnd(): string {
-  const blockStop = { type: 'content_block_stop', index: 0 }
+export function formatStreamEnd(index = 0, stopReason = 'end_turn'): string {
+  const blockStop = { type: 'content_block_stop', index }
+  const msgDelta = { type: 'message_delta', delta: { stop_reason: stopReason }, usage: { output_tokens: 0 } }
   const msgStop = { type: 'message_stop' }
-  return `event: content_block_stop\ndata: ${JSON.stringify(blockStop)}\n\nevent: message_stop\ndata: ${JSON.stringify(msgStop)}\n\n`
+  return `event: content_block_stop\ndata: ${JSON.stringify(blockStop)}\n\nevent: message_delta\ndata: ${JSON.stringify(msgDelta)}\n\nevent: message_stop\ndata: ${JSON.stringify(msgStop)}\n\n`
+}
+
+export function formatToolUseBlockStart(index: number, id: string, name: string): string {
+  const blockStart = { type: 'content_block_start', index, content_block: { type: 'tool_use', id, name, input: {} } }
+  return `event: content_block_start\ndata: ${JSON.stringify(blockStart)}\n\n`
+}
+
+export function formatToolUseBlockDelta(index: number, argsJson: string): string {
+  const delta = { type: 'content_block_delta', index, delta: { type: 'input_json_delta', partial_json: argsJson } }
+  return `event: content_block_delta\ndata: ${JSON.stringify(delta)}\n\n`
+}
+
+export function formatToolUseBlockStop(index: number): string {
+  const blockStop = { type: 'content_block_stop', index }
+  return `event: content_block_stop\ndata: ${JSON.stringify(blockStop)}\n\n`
+}
+
+export function formatMessageDelta(stopReason: string): string {
+  const msgDelta = { type: 'message_delta', delta: { stop_reason: stopReason }, usage: { output_tokens: 0 } }
+  return `event: message_delta\ndata: ${JSON.stringify(msgDelta)}\n\n`
 }
 
 export function formatResponse(model: string, content: string, thinking?: string) {

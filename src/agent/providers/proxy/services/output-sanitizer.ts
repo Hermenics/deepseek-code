@@ -74,6 +74,13 @@ export function sanitizeOutput(text: string): string {
   return result
 }
 
+// ─── Stream-safe Role Prefix Pattern ────────────────────────────────────────
+// Simpler pattern for streaming: only removes prefixes at the very start of
+// the chunk or immediately after a newline. Safe because these prefixes are
+// self-contained tokens that won't split across chunk boundaries.
+
+const STREAM_ROLE_PREFIX = /(?:^|\n)(Assistant|User|Response|Tool Response\s*\([^)]*\)):\s*/g
+
 /**
  * Light sanitization for streaming chunks (mid-stream).
  * Only removes markers that can be detected in partial text without
@@ -87,6 +94,12 @@ export function sanitizeStreamChunk(text: string): string {
   // Remove DeepSeek native markers (self-contained, safe to remove mid-stream)
   result = result.replace(LEAKED_BOS_MARKER, '')
   result = result.replace(LEAKED_META_MARKERS, '')
+
+  // Remove role prefixes at start of text or after newlines
+  result = result.replace(STREAM_ROLE_PREFIX, (match, _role, offset) => {
+    // Preserve the leading newline if the match started after one
+    return offset > 0 && match.startsWith('\n') ? '\n' : ''
+  })
 
   // Remove citation tags
   result = result.replace(CITATION_PATTERN, '')
@@ -107,34 +120,60 @@ export function isInsideCodeFence(text: string, position: number): boolean {
   return fenceCount % 2 === 1
 }
 
-// ─── Tool Name Fuzzy Resolution ──────────────────────────────────────────────
-// Ported from deepseek-free-api: handles case mismatches and naming variants.
+// ─── Tool Name Resolution ────────────────────────────────────────────────────
+// Strict resolution: exact match, case-insensitive, case conversions, and
+// known DeepSeek hallucination mappings. No partial/prefix matching.
+
+const DEEPSEEK_HALLUCINATION_MAP: Record<string, string> = {
+  execute_command: 'shell',
+  run_command: 'shell',
+  execute: 'shell',
+  file_read: 'read_file',
+  file_write: 'write_file',
+  list_directory: 'read_folder',
+  search_files: 'grep',
+}
 
 /**
  * Resolve a tool name against a list of known tools.
- * Handles: exact match, case-insensitive, camelCase→snake_case conversion.
+ * Handles: exact match, case-insensitive exact match, camelCase↔snake_case
+ * exact conversions, and known DeepSeek hallucination mappings.
+ * No partial or prefix matching is performed.
  */
 export function resolveToolName(name: string, knownTools: string[]): string | null {
   if (!name || !knownTools.length) return null
 
-  // Exact match
+  // 1. Exact match
   if (knownTools.includes(name)) return name
 
-  // Case-insensitive match
+  // 2. Case-insensitive exact match
   const lower = name.toLowerCase()
   const ciMatch = knownTools.find((t) => t.toLowerCase() === lower)
   if (ciMatch) return ciMatch
 
-  // camelCase/PascalCase → snake_case
+  // 3. camelCase/PascalCase → snake_case (exact match after conversion)
   const snake = name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
-  if (knownTools.includes(snake)) return snake
-  const snakeMatch = knownTools.find((t) => t.toLowerCase() === snake)
-  if (snakeMatch) return snakeMatch
+  if (snake !== lower) {
+    if (knownTools.includes(snake)) return snake
+    const snakeCI = knownTools.find((t) => t.toLowerCase() === snake)
+    if (snakeCI) return snakeCI
+  }
 
-  // snake_case → camelCase
-  const camel = name.replace(/_([a-z])/g, (_, c) => c.toUpperCase())
-  const camelMatch = knownTools.find((t) => t.toLowerCase() === camel.toLowerCase())
-  if (camelMatch) return camelMatch
+  // 4. snake_case → camelCase (exact match after conversion)
+  const camel = name.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())
+  if (camel !== name) {
+    const camelLower = camel.toLowerCase()
+    const camelMatch = knownTools.find((t) => t.toLowerCase() === camelLower)
+    if (camelMatch) return camelMatch
+  }
+
+  // 5. Known DeepSeek hallucination mappings
+  const mapped = DEEPSEEK_HALLUCINATION_MAP[lower]
+  if (mapped) {
+    if (knownTools.includes(mapped)) return mapped
+    const mappedCI = knownTools.find((t) => t.toLowerCase() === mapped.toLowerCase())
+    if (mappedCI) return mappedCI
+  }
 
   return null
 }

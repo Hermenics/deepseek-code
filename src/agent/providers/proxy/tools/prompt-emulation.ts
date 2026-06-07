@@ -21,9 +21,10 @@ You have access to tools. When you decide to use a tool, your ENTIRE response mu
 1. Your response is EITHER a tool call OR normal text. NEVER both.
 2. When calling a tool: output ONLY the raw JSON. No text before. No text after. No markdown fences. No explanation.
 3. When NOT calling a tool: respond normally with text. Never include the JSON format in a text response.
-4. You may call multiple tools in a single response when they are independent of each other. For write operations that depend on each other, call them sequentially. After you receive results, you may call additional tools or respond with text.
+4. You may call multiple tools by outputting multiple JSON objects on separate lines. Each must be a complete {"tool_use": ...} object.
 5. NEVER wrap the JSON in \`\`\`json, \`\`\`text, or any code block.
 6. NEVER prefix with "I'll use..." or "Let me..." — just output the JSON directly.
+7. NEVER output the tool call JSON inside a code block or after explaining what you'll do. The JSON must be the VERY FIRST thing in your response.
 
 ## EXAMPLES
 
@@ -68,7 +69,7 @@ A Promise is an object representing the eventual completion or failure of an asy
 ❌ "I'll read the file for you: {"tool_use": ...}"
 ❌ "\`\`\`json\n{"tool_use": ...}\n\`\`\`"
 ❌ "Let me check that.\n{"tool_use": ...}"
-❌ Calling multiple tools in one response
+❌ Explaining what you'll do, then outputting the JSON
 
 ## AVAILABLE TOOLS
 
@@ -128,6 +129,10 @@ export function parseToolResponses(
     if (result) results.push(result)
   }
 
+  // If the ENTIRE response is a code fence wrapping tool call JSON, the model is
+  // attempting a tool call but formatted it wrong. Strip the fence and parse.
+  // But if there's significant text BEFORE the code fence (explanation paragraph),
+  // it's likely an example — don't strip.
   const source = trimmed.startsWith('```')
     ? trimmed.replace(/^```(?:json|text|typescript|js)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim()
     : trimmed
@@ -189,7 +194,7 @@ export function parseToolResponses(
     try { pushIfValid(robustParseJSON(wrappedJson), true) } catch { }
   }
 
-  const MAX_PREFIX_LENGTH = 500
+  const MAX_PREFIX_LENGTH = 200
   const toolUseRe = /\{\s*"tool_use"\s*:/g
   let useMatch: RegExpExecArray | null
   while ((useMatch = toolUseRe.exec(normalized)) !== null) {
@@ -199,6 +204,8 @@ export function parseToolResponses(
     // Reject tool calls that are inside an inline code fence (```...```) embedded in prose.
     const prefix = normalized.slice(0, useMatch.index)
     if (/```/.test(prefix)) continue
+    // Reject if prefix looks like an explanation paragraph (2+ newlines and long text)
+    if (prefix.length > 50 && (prefix.match(/\n/g) || []).length >= 2) continue
     const extracted = extractBalancedJson(normalized.slice(useMatch.index))
     if (!extracted) continue
     try { pushIfValid(robustParseJSON(extracted)) } catch { }
