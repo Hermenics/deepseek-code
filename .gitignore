@@ -1,0 +1,14 @@
+node_modules/
+.env.*
+.env
+.kiro
+.claude
+.codex
+kiro.json
+DEEPSEEK.md
+.deepseek/
+dist/
+.claude/
+.agent
+deepseek-code2
+deepseek-code-public

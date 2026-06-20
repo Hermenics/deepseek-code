@@ -1,0 +1,11 @@
+src/
+tests/
+.claude/
+*.ts
+*.tsx
+tsconfig.json
+bunfig.toml
+bun.lock
+CLAUDE.md
+.env*
+.gitignore
