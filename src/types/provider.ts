@@ -6,7 +6,8 @@ export type ThemeName =
   | 'dark-ansi'
   | 'light-ansi'
 
-export type ProviderName = 'deepseek' | 'bedrock' | 'vertex' | 'local' | 'oauth'
+// [OAUTH-DISABLED] OAuth authentication temporarily disabled
+export type ProviderName = 'deepseek' | 'bedrock' | 'vertex' | 'local'
 
 export interface ProviderConfig {
   provider: ProviderName

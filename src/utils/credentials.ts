@@ -93,14 +93,20 @@ export function generateProxyApiKey(): string {
   return randomBytes(32).toString('hex')
 }
 
+// [OAUTH-DISABLED] OAuth authentication temporarily disabled
+// export async function getOrCreateProxyApiKey(
+//   configPath: string = CONFIG_PATH,
+// ): Promise<string> {
+//   const config = await loadFullConfig(configPath)
+//   if (config.PROXY_API_KEY) return config.PROXY_API_KEY
+//   const key = generateProxyApiKey()
+//   await saveFullConfig({ ...config, PROXY_API_KEY: key }, configPath)
+//   return key
+// }
 export async function getOrCreateProxyApiKey(
-  configPath: string = CONFIG_PATH,
+  _configPath: string = CONFIG_PATH,
 ): Promise<string> {
-  const config = await loadFullConfig(configPath)
-  if (config.PROXY_API_KEY) return config.PROXY_API_KEY
-  const key = generateProxyApiKey()
-  await saveFullConfig({ ...config, PROXY_API_KEY: key }, configPath)
-  return key
+  return ''
 }
 
 // ─── Logout ─────────────────────────────────────────────────────
@@ -111,10 +117,11 @@ export async function logout(
   const deleted: string[] = []
   const configDir = dirname(configPath)
   const legacyEnvPath = join(configDir, '.env')
-  const oauthStoragePath = join(configDir, 'oauth-storage.json')
-  const browserProfilePath = join(homedir(), '.deepseek', 'browser-profile')
+  // [OAUTH-DISABLED] OAuth authentication temporarily disabled
+  // const oauthStoragePath = join(configDir, 'oauth-storage.json')
+  // const browserProfilePath = join(homedir(), '.deepseek', 'browser-profile')
 
-  for (const filePath of [configPath, legacyEnvPath, oauthStoragePath]) {
+  for (const filePath of [configPath, legacyEnvPath]) {
     try {
       await rm(filePath)
       deleted.push(filePath)
@@ -123,12 +130,13 @@ export async function logout(
     }
   }
 
-  try {
-    await rm(browserProfilePath, { recursive: true })
-    deleted.push(browserProfilePath)
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
-  }
+  // [OAUTH-DISABLED] OAuth authentication temporarily disabled
+  // try {
+  //   await rm(browserProfilePath, { recursive: true })
+  //   deleted.push(browserProfilePath)
+  // } catch (err: unknown) {
+  //   if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+  // }
 
   return deleted
 }

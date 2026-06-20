@@ -50,7 +50,8 @@ async function loadSavedConfigFromPath(
     (provider === 'bedrock' && !!providerConfig.awsRegion) ||
     (provider === 'vertex' && !!providerConfig.gcpProject && !!providerConfig.gcpCredentials) ||
     (provider === 'local' && !!providerConfig.localBaseUrl) ||
-    (provider === 'oauth')
+    // [OAUTH-DISABLED] cast needed because 'oauth' was removed from ProviderName
+    ((provider as string) === 'oauth')
 
   return {
     providerConfig: isReady ? providerConfig : null,
@@ -178,7 +179,8 @@ describe('loadSavedConfig — readiness de provider', () => {
       const result = await loadSavedConfigFromPath(configPath)
 
       expect(result.providerConfig).not.toBeNull()
-      expect(result.providerConfig?.provider).toBe('oauth')
+      // [OAUTH-DISABLED] cast needed because 'oauth' was removed from ProviderName
+      expect(result.providerConfig?.provider as string).toBe('oauth')
     })
   })
 })

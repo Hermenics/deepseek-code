@@ -1,6 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test'
 import { Agent } from '../src/agent/agent.js'
 import type { AgentCallbacks } from '../src/agent/agent.js'
+import type { ProviderConfig } from '../src/ui/setup/ApiKeySetup.js'
 import { parseToolResponse } from '../src/agent/providers/proxy/tools/prompt-emulation.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -74,12 +75,14 @@ function injectTool(agent: Agent, tool: ReturnType<typeof makeToolMock>) {
 // em vez de tratar como resposta final.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('OAuth tool fallback — Agent', () => {
+// [OAUTH-DISABLED] Skipped — OAuth feature temporarily disabled
+describe.skip('OAuth tool fallback — Agent', () => {
 
   describe('Cenário 1: delta.content contém JSON tool_use limpo', () => {
     it('should detect tool call in delta.content, execute the tool, and not call onDone prematurely', async () => {
       // Arrange
-      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' })
+      // [OAUTH-DISABLED] cast needed because 'oauth' was removed from ProviderName
+      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' } as unknown as ProviderConfig)
       resolveReady(agent)
 
       const toolJson = JSON.stringify({ tool_use: { name: 'read_folder', arguments: { path: '.' } } })
@@ -136,7 +139,8 @@ describe('OAuth tool fallback — Agent', () => {
 
     it('should add tool result to message history before continuing the loop', async () => {
       // Arrange
-      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' })
+      // [OAUTH-DISABLED] cast needed because 'oauth' was removed from ProviderName
+      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' } as unknown as ProviderConfig)
       resolveReady(agent)
 
       const toolJson = JSON.stringify({ tool_use: { name: 'read_folder', arguments: { path: 'src' } } })
@@ -181,7 +185,8 @@ describe('OAuth tool fallback — Agent', () => {
   describe('Cenário 2: delta.content com prefixo de texto curto antes do JSON', () => {
     it('should detect and execute tool when short text precedes the JSON (< 200 chars)', async () => {
       // Arrange
-      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' })
+      // [OAUTH-DISABLED] cast needed because 'oauth' was removed from ProviderName
+      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' } as unknown as ProviderConfig)
       resolveReady(agent)
 
       const toolJson = JSON.stringify({ tool_use: { name: 'read_folder', arguments: { path: '.' } } })
@@ -220,7 +225,8 @@ describe('OAuth tool fallback — Agent', () => {
 
     it('should NOT execute tool when text prefix is longer than 500 chars', async () => {
       // Arrange
-      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' })
+      // [OAUTH-DISABLED] cast needed because 'oauth' was removed from ProviderName
+      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' } as unknown as ProviderConfig)
       resolveReady(agent)
 
       // Prefixo longo (> 500 chars) — modelo está explicando, não chamando tool
@@ -264,7 +270,8 @@ describe('OAuth tool fallback — Agent', () => {
   describe('Cenário 3: delta.content com backticks (proxy não limpou)', () => {
     it('should detect and execute tool when JSON is wrapped in ```json code fence', async () => {
       // Arrange
-      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' })
+      // [OAUTH-DISABLED] cast needed because 'oauth' was removed from ProviderName
+      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' } as unknown as ProviderConfig)
       resolveReady(agent)
 
       const toolJson = JSON.stringify({ tool_use: { name: 'read_folder', arguments: { path: '.' } } })
@@ -303,7 +310,8 @@ describe('OAuth tool fallback — Agent', () => {
 
     it('should detect and execute tool when JSON is wrapped in plain ``` code fence', async () => {
       // Arrange
-      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' })
+      // [OAUTH-DISABLED] cast needed because 'oauth' was removed from ProviderName
+      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' } as unknown as ProviderConfig)
       resolveReady(agent)
 
       const toolJson = JSON.stringify({ tool_use: { name: 'read_folder', arguments: { path: 'src' } } })
@@ -349,7 +357,8 @@ describe('OAuth tool fallback — Agent', () => {
   describe('Cenário 5: texto longo antes do JSON não é tool call', () => {
     it('should treat response as final text when long explanation precedes JSON example', async () => {
       // Arrange
-      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' })
+      // [OAUTH-DISABLED] cast needed because 'oauth' was removed from ProviderName
+      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' } as unknown as ProviderConfig)
       resolveReady(agent)
 
       // Explicação longa (> 500 chars) seguida de JSON de exemplo
@@ -388,7 +397,8 @@ describe('OAuth tool fallback — Agent', () => {
 
     it('should treat response as final text when JSON appears inside a code fence in explanation', async () => {
       // Arrange
-      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' })
+      // [OAUTH-DISABLED] cast needed because 'oauth' was removed from ProviderName
+      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' } as unknown as ProviderConfig)
       resolveReady(agent)
 
       // Modelo mostrando exemplo com code fence — nunca deve executar
@@ -424,7 +434,8 @@ describe('OAuth tool fallback — Agent', () => {
 // contrato esperado após a correção: deve parsear após strip dos backticks.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe('parseToolResponse — strip de code fences (Cenário 4)', () => {
+// [OAUTH-DISABLED] Skipped — OAuth feature temporarily disabled
+describe.skip('parseToolResponse — strip de code fences (Cenário 4)', () => {
 
   describe('comportamento corrigido (code fences são aceitos)', () => {
     it('should parse tool_use inside ```json fence', () => {

@@ -46,7 +46,10 @@ export const Shell: Tool = {
     const timeout = timeoutArg != null && Number.isFinite(timeoutArg) && timeoutArg > 0 ? timeoutArg * 1000 : SHELL_TIMEOUT_MS
 
     const warning = isDestructive(command)
-    if (warning && globalConfirmHandler) {
+    if (warning) {
+      if (!globalConfirmHandler) {
+        return 'Command blocked — no confirmation handler available. Potentially destructive commands require user confirmation.'
+      }
       const confirmed = await globalConfirmHandler(warning)
       if (!confirmed) return 'Command cancelled by user.'
     }

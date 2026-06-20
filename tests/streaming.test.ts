@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, beforeAll } from 'bun:test'
 import { Agent } from '../src/agent/agent.js'
 import type { AgentCallbacks } from '../src/agent/agent.js'
+import type { ProviderConfig } from '../src/ui/setup/ApiKeySetup.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -453,9 +454,11 @@ describe('Agent streaming callbacks', () => {
   })
 
   // ── OAuth: truncate multiple tool calls to single ───────────────────────────
-  describe('OAuth tool truncation', () => {
+  // [OAUTH-DISABLED] Skipped — OAuth feature temporarily disabled
+  describe.skip('OAuth tool truncation', () => {
     it('should execute only the first tool call when provider is oauth and multiple tools are returned', async () => {
-      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' })
+      // [OAUTH-DISABLED] cast needed because 'oauth' was removed from ProviderName
+      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' } as unknown as ProviderConfig)
       resolveReady(agent)
 
       const chunks = [
@@ -507,7 +510,8 @@ describe('Agent streaming callbacks', () => {
     })
 
     it('should append skipped tools notification to tool result message', async () => {
-      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' })
+      // [OAUTH-DISABLED] cast needed because 'oauth' was removed from ProviderName
+      const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' } as unknown as ProviderConfig)
       // Wait for real initialization to complete (prevents race with messages reset)
       await (agent as any).readyPromise
 

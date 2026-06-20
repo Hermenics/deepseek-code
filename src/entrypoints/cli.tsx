@@ -82,7 +82,8 @@ import { ApiKeySetup, loadSavedConfig, type ThemeName, type ProviderConfig } fro
 import { migrateConfigIfNeeded, logout as doLogout } from '../utils/credentials.js'
 import { loadAgentConfig, type LoadedAgent } from '../agent/config.js'
 import { loadSession, newSessionId, type SessionData } from '../agent/session.js'
-import { isOAuthReady } from '../agent/providers/oauth.js'
+// [OAUTH-DISABLED] OAuth authentication temporarily disabled
+// import { isOAuthReady } from '../agent/providers/oauth.js'
 import pkg from '../../package.json' with { type: 'json' }
 
 function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; update: boolean; logout: boolean; help: boolean; version: boolean } {
@@ -228,11 +229,12 @@ function Root() {
         if (saved) {
           setProviderConfig(saved)
           if (saved.provider === 'deepseek' && saved.apiKey) process.env.DEEPSEEK_API_KEY = saved.apiKey
-          if (saved.provider === 'oauth' && !isOAuthReady()) {
-            setReady(false)
-            setProviderConfig(null)
-            return
-          }
+          // [OAUTH-DISABLED] OAuth authentication temporarily disabled
+          // if (saved.provider === 'oauth' && !isOAuthReady()) {
+          //   setReady(false)
+          //   setProviderConfig(null)
+          //   return
+          // }
           setReady(true)
         } else if (process.env.DEEPSEEK_API_KEY) {
           setProviderConfig({ provider: 'deepseek', apiKey: process.env.DEEPSEEK_API_KEY })

@@ -3,7 +3,8 @@ import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
 import DEFAULT_SYSTEM_PROMPT_MD from './system-prompt.md' with { type: 'text' }
-import OAUTH_SYSTEM_PROMPT_MD from './system-prompt-oauth.md' with { type: 'text' }
+// [OAUTH-DISABLED] OAuth authentication temporarily disabled
+// import OAUTH_SYSTEM_PROMPT_MD from './system-prompt-oauth.md' with { type: 'text' }
 import { allTools } from '../tools/index.js'
 import { setShellConfirmHandler } from '../tools/Shell/Shell.js'
 import { setSubAgentProvider, setSubAgentModel } from '../tools/SubAgent/SubAgent.js'
@@ -13,7 +14,9 @@ import type { Model } from '../commands.js'
 import type { AgentConfig } from './config.js'
 import type { Tool } from '../tools/types.js'
 import { resolveAgentFiles } from './files.js'
-import { loadSteering } from './steering.js'
+import { loadSteering, loadDeepSeekMd } from './steering.js'
+import { loadMergedSettings } from '../settings/index.js'
+import type { DeepSeekSettings } from '../settings/types.js'
 import { createLLMClient, defaultModel } from './llmClient.js'
 import { parseToolResponse } from './providers/proxy/tools/prompt-emulation.js'
 import { listBedrockDeepSeekModels, modelSupportsChatCompletions } from './providers/bedrock.js'
@@ -23,9 +26,14 @@ import { saveCheckpoint, listCheckpoints, loadCheckpoint } from './checkpoint.js
 import { createBoundaryMarker, getMessagesAfterBoundary, isBoundaryMarker, type MessageOrBoundary } from './compactBoundary.js'
 import { estimateCost, formatCost, getContextLimit, type TokenUsage } from './cost.js'
 import type { ProviderConfig } from '../ui/setup/ApiKeySetup.js'
-import { UNDO_STACK_MAX, CONTEXT_COMPACT_THRESHOLD } from '../constants.js'
+import { UNDO_STACK_MAX, CONTEXT_COMPACT_THRESHOLD, MICRO_COMPACT_KEEP_LAST } from '../constants.js'
+import { shouldAutoCompact, microCompact, createCompactState, createAutoCompactConfig, type CompactState, type AutoCompactConfig } from '../services/compact/autoCompact.js'
+import { COMPACT_SUMMARY_PROMPT, COMPACT_SYSTEM_PROMPT } from '../services/compact/summaryPrompt.js'
 import { auditLog } from './auditLog.js'
 import { canUseTool, DEFAULT_MODE, getToolsForMode, type InteractionMode } from '../ui/interactionMode.js'
+import { resolvePermission } from '../permissions/index.js'
+import { runPreToolHooks, runPostToolHooks, runSessionStartHooks } from '../hooks/index.js'
+import type { HooksConfig } from '../hooks/types.js'
 
 /** Workaround: OpenAI SDK has not typed reasoning_content yet (exclusive field of deepseek-reasoner) */
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & { reasoning_content?: string }
@@ -38,7 +46,8 @@ class DenyAbortError extends Error {
 const PARALLEL_SAFE = new Set(['subagent', 'shell', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect'])
 
 const DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT_MD
-const OAUTH_SYSTEM_PROMPT = OAUTH_SYSTEM_PROMPT_MD
+// [OAUTH-DISABLED] OAuth authentication temporarily disabled
+// const OAUTH_SYSTEM_PROMPT = OAUTH_SYSTEM_PROMPT_MD
 
 // ── Bedrock prompt-based tool calling ─────────────────────────────────────────
 // DeepSeek R1 on Bedrock does not support native tool calling.
@@ -151,7 +160,7 @@ function toOpenAITools(tools: Tool[]): ChatCompletionTool[] {
   }))
 }
 
-export type ToolPermissionResult = 'once' | 'session' | 'deny'
+export type ToolPermissionResult = 'once' | 'session' | 'always' | 'deny'
 export type ToolPermissionHandler = (toolName: string, args: object) => Promise<ToolPermissionResult>
 
 export interface AgentCallbacks {
@@ -200,6 +209,9 @@ export class Agent {
   private sessionApprovedTools: Set<string> = new Set()
   private allowedTools: string[] | '*' | null = null
   public interactionMode: InteractionMode = DEFAULT_MODE
+  public settings: DeepSeekSettings = {}
+  private compactState: CompactState = createCompactState()
+  private autoCompactConfig: AutoCompactConfig = createAutoCompactConfig({}, CONTEXT_COMPACT_THRESHOLD)
 
   setConfirmHandler(handler: ((message: string) => Promise<boolean>) | null) {
     this.confirmHandler = handler
@@ -223,28 +235,38 @@ export class Agent {
       setSubAgentModel(this.model)
     }
     this.contextLimit = getContextLimit(this.provider, this.model)
-    // Use OAuth-specific system prompt when running via OAuth proxy
-    if (this.provider === 'oauth') {
-      this.systemPrompt = OAUTH_SYSTEM_PROMPT
-      this.messages = [{ role: 'system', content: OAUTH_SYSTEM_PROMPT }]
-    }
+    // [OAUTH-DISABLED] OAuth authentication temporarily disabled
+    // if (this.provider === 'oauth') {
+    //   this.systemPrompt = OAUTH_SYSTEM_PROMPT
+    //   this.messages = [{ role: 'system', content: OAUTH_SYSTEM_PROMPT }]
+    // }
     // Initialize async — readyPromise is awaited in run() to prevent race conditions
     this.readyPromise = this.initialize()
   }
 
   private async initialize(): Promise<void> {
     try {
-      const [steering, deepseekMd, { tools: mcpTools, errors: mcpErrors }] = await Promise.all([
+      const [steering, deepseekMd, settings, { tools: mcpTools, errors: mcpErrors }] = await Promise.all([
         loadSteering(),
-        readFile(join(process.cwd(), 'DEEPSEEK.md'), 'utf-8').catch(() => ''),
+        loadDeepSeekMd(),
+        loadMergedSettings(),
         loadMcpTools(),
       ])
       this.mcpErrors = mcpErrors
+      this.settings = settings
+      this.autoCompactConfig = createAutoCompactConfig(settings, CONTEXT_COMPACT_THRESHOLD)
+
+      // Apply settings overrides
+      if (settings.model && !this.providerConfig.localModel) {
+        this.model = settings.model as Model
+        this.contextLimit = getContextLimit(this.provider, this.model)
+      }
+
       const parts: string[] = []
       if (steering) parts.push(steering)
-      if (deepseekMd) parts.push(`--- DEEPSEEK.md ---\n${deepseekMd.trim()}`)
+      if (deepseekMd) parts.push(`--- DEEPSEEK.md ---\n${deepseekMd}`)
       if (parts.length) {
-        const basePrompt = this.provider === 'oauth' ? OAUTH_SYSTEM_PROMPT : DEFAULT_SYSTEM_PROMPT
+        const basePrompt = DEFAULT_SYSTEM_PROMPT
         this.systemPrompt = `${basePrompt}\n\n${parts.join('\n\n')}`
       }
       // Bedrock R1: inject tool definitions into system prompt (no native tool calling)
@@ -257,6 +279,11 @@ export class Agent {
         this.tools = [...allTools, ...mcpTools]
         this.toolMap = new Map(this.tools.map((t) => [t.name, t]))
         this.openaiTools = toOpenAITools(this.tools)
+      }
+
+      // Run SessionStart hooks
+      if (this.settings.hooks) {
+        await runSessionStartHooks(this.settings.hooks as HooksConfig, randomUUID())
       }
     } catch (e) {
       // Fall back to defaults — agent still works without steering/history
@@ -413,27 +440,40 @@ export class Agent {
     const activeMessages = getMessagesAfterBoundary(this.messages)
     const nonSystem = activeMessages.filter((m) => m.role !== 'system')
     if (nonSystem.length === 0) return 'Nothing to compact.'
+
     const response = await this.withRetry(() =>
       this.client.chat.completions.create(
         {
           model: this.model,
           messages: [
-            { role: 'system', content: 'Summarize the following conversation concisely, preserving all key decisions, code snippets, and context needed to continue the work.' },
-            { role: 'user', content: nonSystem.map((m) => `[${m.role}]: ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`).join('\n\n') },
+            { role: 'system', content: COMPACT_SYSTEM_PROMPT },
+            { role: 'user', content: `${COMPACT_SUMMARY_PROMPT}\n\n---\n\nConversation to summarize:\n\n${nonSystem.map((m) => `[${m.role}]: ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`).join('\n\n')}` },
           ],
+          max_tokens: 4000,
         },
-        { signal: AbortSignal.timeout(30_000) },
+        { signal: AbortSignal.timeout(60_000) },
       )
     )
     const summary = response.choices[0]?.message.content ?? '(no summary)'
 
-    // Reset messages to system + boundary + summary — prunes old history to prevent unbounded growth
+    // Reset messages to system + boundary + summary
     const systemMsg = this.messages[0]!
     this.messages = [
       systemMsg,
       createBoundaryMarker(),
       { role: 'assistant', content: `[Compacted context]\n${summary}` },
     ]
+
+    // Post-compact refresh: re-inject DEEPSEEK.md context
+    try {
+      const deepseekMd = await loadDeepSeekMd()
+      if (deepseekMd) {
+        this.messages.push({
+          role: 'user',
+          content: `[System: Project instructions refreshed after compact]\n\n${deepseekMd}`,
+        })
+      }
+    } catch { /* non-critical */ }
 
     await saveHistory(this.messages)
     return summary
@@ -522,15 +562,23 @@ export class Agent {
     // Reset abort controller so a previous abort doesn't block the new run
     this.abortController = null
 
-    // Auto-compact when context is above threshold
-    if (this.contextUsage > 0 && this.contextUsage / this.contextLimit > CONTEXT_COMPACT_THRESHOLD) {
+    // MicroCompact: clear old tool results before checking threshold
+    this.messages = microCompact(this.messages, MICRO_COMPACT_KEEP_LAST) as MessageOrBoundary[]
+
+    // Auto-compact when context is above threshold (with circuit breaker)
+    if (shouldAutoCompact(this.contextUsage, this.contextLimit, this.autoCompactConfig, this.compactState)) {
       try {
         const summary = await this.compact()
+        this.compactState.consecutiveFailures = 0
+        this.compactState.lastCompactTimestamp = Date.now()
         auditLog({ type: 'compact', reason: 'context_threshold' })
         cb.onAutoCompact?.(summary)
       } catch (e) {
+        this.compactState.consecutiveFailures++
         auditLog({ type: 'compact_error', reason: String(e) })
-        cb.onAutoCompact?.(`⚠ Auto-compact failed: ${(e as Error).message}. Use /compact manually.`)
+        if (this.compactState.consecutiveFailures >= this.autoCompactConfig.maxConsecutiveFailures) {
+          cb.onAutoCompact?.(`⚠ Auto-compact disabled after ${this.compactState.consecutiveFailures} failures. Use /compact manually.`)
+        }
       }
     }
 
@@ -834,44 +882,45 @@ export class Agent {
         throw e
       }
 
-      // ── OAuth fallback: detect tool calls in accumulated text ────────────
-      // When provider is 'oauth', the proxy may deliver tool calls as plain text
-      // in delta.content (format: {"tool_use": {...}}) instead of delta.tool_calls.
-      if (toolCalls.size === 0 && this.provider === 'oauth' && assistantText) {
-        const parsedTool = parseToolResponse(assistantText)
-        if (parsedTool) {
-          const fakeId = parsedTool.id || `call_${randomUUID()}`
-          const tc = {
-            id: fakeId,
-            type: 'function' as const,
-            function: {
-              name: parsedTool.name,
-              arguments: typeof parsedTool.arguments === 'string'
-                ? parsedTool.arguments
-                : JSON.stringify(parsedTool.arguments),
-            },
-          }
-
-          const parsedArgs = typeof parsedTool.arguments === 'string'
-            ? JSON.parse(parsedTool.arguments)
-            : parsedTool.arguments
-
-          const assistantMsg: AssistantMessageWithReasoning = {
-            role: 'assistant',
-            content: null,
-            tool_calls: [tc],
-          }
-          if (reasoningText) assistantMsg.reasoning_content = reasoningText
-          this.messages.push(assistantMsg)
-
-          // Execute the tool
-          const { result } = await this.checkAndExecuteTool(tc, parsedArgs, cb)
-          this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
-
-          // Continue agent loop — model will process tool result
-          continue
-        }
-      }
+      // [OAUTH-DISABLED] OAuth authentication temporarily disabled
+      // // ── OAuth fallback: detect tool calls in accumulated text ────────────
+      // // When provider is 'oauth', the proxy may deliver tool calls as plain text
+      // // in delta.content (format: {"tool_use": {...}}) instead of delta.tool_calls.
+      // if (toolCalls.size === 0 && this.provider === 'oauth' && assistantText) {
+      //   const parsedTool = parseToolResponse(assistantText)
+      //   if (parsedTool) {
+      //     const fakeId = parsedTool.id || `call_${randomUUID()}`
+      //     const tc = {
+      //       id: fakeId,
+      //       type: 'function' as const,
+      //       function: {
+      //         name: parsedTool.name,
+      //         arguments: typeof parsedTool.arguments === 'string'
+      //           ? parsedTool.arguments
+      //           : JSON.stringify(parsedTool.arguments),
+      //       },
+      //     }
+      //
+      //     const parsedArgs = typeof parsedTool.arguments === 'string'
+      //       ? JSON.parse(parsedTool.arguments)
+      //       : parsedTool.arguments
+      //
+      //     const assistantMsg: AssistantMessageWithReasoning = {
+      //       role: 'assistant',
+      //       content: null,
+      //       tool_calls: [tc],
+      //     }
+      //     if (reasoningText) assistantMsg.reasoning_content = reasoningText
+      //     this.messages.push(assistantMsg)
+      //
+      //     // Execute the tool
+      //     const { result } = await this.checkAndExecuteTool(tc, parsedArgs, cb)
+      //     this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
+      //
+      //     // Continue agent loop — model will process tool result
+      //     continue
+      //   }
+      // }
 
       if (toolCalls.size === 0) {
         const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText }
@@ -889,14 +938,14 @@ export class Agent {
         function: { name: tc.name, arguments: tc.args },
       }))
 
-      // ── OAuth: truncate to single tool call ────────────────────────────────
-      // The OAuth proxy uses prompt-emulated tools and the model may return
-      // multiple tool calls at once. Truncate to the first and notify the model.
-      let skippedToolNames: string[] = []
-      if (this.provider === 'oauth' && tcArray.length > 1) {
-        skippedToolNames = tcArray.slice(1).map((tc) => tc.function.name)
-        tcArray = tcArray.slice(0, 1)
-      }
+      // [OAUTH-DISABLED] OAuth authentication temporarily disabled
+      // // ── OAuth: truncate to single tool call ────────────────────────────────
+      // // The OAuth proxy uses prompt-emulated tools and the model may return
+      // // multiple tool calls at once. Truncate to the first and notify the model.
+      // if (this.provider === 'oauth' && tcArray.length > 1) {
+      //   skippedToolNames = tcArray.slice(1).map((tc) => tc.function.name)
+      //   tcArray = tcArray.slice(0, 1)
+      // }
 
 
       const assistantMsg: AssistantMessageWithReasoning = {
@@ -952,24 +1001,20 @@ export class Agent {
         // Sequential execution (file writes, or mixed batch)
         for (const { tc, parsedArgs } of parsedList) {
           const { result } = await this.checkAndExecuteTool(tc, parsedArgs, cb)
-          let content = result
-          if (skippedToolNames.length > 0 && tc.id === tcArray[0]!.id) {
-            content += `\n[System: You called ${skippedToolNames.length + 1} tools at once. Only the first was executed. Skipped: ${skippedToolNames.join(', ')}. Call one tool at a time.]`
-          }
-          this.messages.push({ role: 'tool', tool_call_id: tc.id, content })
+          this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
         }
       }
 
     }
   }
 
-  /** Unified tool execution: mode check → permission check → audit → execute */
+  /** Unified tool execution: mode check → permission rules → legacy permission → audit → execute */
   private async checkAndExecuteTool(
     tc: { id: string; type: 'function'; function: { name: string; arguments: string } },
     parsedArgs: Record<string, unknown>,
     cb: AgentCallbacks,
   ): Promise<{ tc: typeof tc; result: string }> {
-    // ── Interaction mode restriction ──────────────────────────────────────────
+    // ── 1. Interaction mode restriction ──────────────────────────────────────
     if (!canUseTool(this.interactionMode, tc.function.name)) {
       const blockMsg = `Tool '${tc.function.name}' is not available in ${this.interactionMode} mode. Switch to Agent mode to use this tool.`
       auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __blocked_by_mode: this.interactionMode } })
@@ -978,10 +1023,35 @@ export class Agent {
       return { tc, result: blockMsg }
     }
 
-    // ── Tool permission check ─────────────────────────────────────────────────
-    // allowedTools === '*'  → all tools require permission
-    // allowedTools = string[] → only listed tools require permission
-    // allowedTools === null  → no permission prompts (default)
+    // ── 2. Permission rules from settings (skip in auto-accept mode) ─────────
+    if (this.interactionMode !== 'auto-accept') {
+      const ruleDecision = resolvePermission(this.settings.permissions, tc.function.name, parsedArgs)
+      if (ruleDecision === 'deny') {
+        const blockMsg = `Tool '${tc.function.name}' blocked by permission rule.`
+        auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied_by_rule: true } })
+        cb.onToolCall(tc.function.name, parsedArgs)
+        cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
+        return { tc, result: blockMsg }
+      }
+      if (ruleDecision === 'ask' && !this.sessionApprovedTools.has(tc.function.name) && this.toolPermissionHandler) {
+        const userDecision = await this.toolPermissionHandler(tc.function.name, parsedArgs)
+        if (userDecision === 'deny') {
+          auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied: true } })
+          throw new DenyAbortError()
+        }
+        if (userDecision === 'session') {
+          this.sessionApprovedTools.add(tc.function.name)
+        }
+        if (userDecision === 'always') {
+          this.sessionApprovedTools.add(tc.function.name)
+          const { saveUserSettings } = await import('../settings/writer.js')
+          const currentAllow = this.settings.permissions?.allow ?? []
+          await saveUserSettings({ permissions: { allow: [...currentAllow, tc.function.name] } })
+        }
+      }
+    }
+
+    // ── 3. Legacy allowedTools check (agent-config level) ────────────────────
     const needsPermission = this.allowedTools !== null && (
       this.allowedTools === '*' ||
       (Array.isArray(this.allowedTools) && this.allowedTools.includes(tc.function.name))
@@ -997,13 +1067,41 @@ export class Agent {
       }
     }
 
-    cb.onToolCall(tc.function.name, parsedArgs)
-    auditLog({ type: 'tool_call', tool: tc.function.name, args: parsedArgs })
+    // ── 3.5. PreToolUse hooks ────────────────────────────────────────────────
+    let effectiveArgs = parsedArgs
+    if (this.settings.hooks) {
+      const hookResult = await runPreToolHooks(
+        this.settings.hooks as HooksConfig,
+        tc.function.name,
+        parsedArgs,
+        randomUUID(),
+      )
+      if (hookResult.decision === 'block') {
+        const blockMsg = hookResult.reason ?? `Tool '${tc.function.name}' blocked by PreToolUse hook.`
+        auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __blocked_by_hook: true } })
+        cb.onToolCall(tc.function.name, parsedArgs)
+        cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
+        return { tc, result: blockMsg }
+      }
+      if (hookResult.modifiedInput) {
+        effectiveArgs = hookResult.modifiedInput
+      }
+    }
+
+    // ── 4. Execute tool ──────────────────────────────────────────────────────
+    cb.onToolCall(tc.function.name, effectiveArgs)
+    auditLog({ type: 'tool_call', tool: tc.function.name, args: effectiveArgs })
     this.toolCallTotal++
     const t0 = Date.now()
-    const result = await this.executeTool(tc.function.name, parsedArgs)
+    const result = await this.executeTool(tc.function.name, effectiveArgs)
     auditLog({ type: 'tool_result', tool: tc.function.name, result: result.slice(0, 200), durationMs: Date.now() - t0 })
-    cb.onToolResult(tc.function.name, result, parsedArgs)
+
+    // PostToolUse hooks (fire-and-forget)
+    if (this.settings.hooks) {
+      runPostToolHooks(this.settings.hooks as HooksConfig, tc.function.name, effectiveArgs, result, randomUUID()).catch(() => {})
+    }
+
+    cb.onToolResult(tc.function.name, result, effectiveArgs)
     return { tc, result }
   }
 
