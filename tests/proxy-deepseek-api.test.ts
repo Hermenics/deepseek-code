@@ -20,6 +20,11 @@ mock.module('../src/agent/providers/proxy/browser/headers.js', () => ({
   getSessionParent: mock(() => null),
 }))
 
+mock.module('../src/agent/providers/proxy/browser/sessionParent.js', () => ({
+  updateSessionParent: mock(() => {}),
+  getSessionParent: mock(() => null),
+}))
+
 // Mock global de fetch para não fazer requisições reais.
 // Retorna um ReadableStream fake com um chunk de dados mínimo.
 const fakeStreamBody = new ReadableStream({
