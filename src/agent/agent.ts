@@ -28,7 +28,7 @@ import { UNDO_STACK_MAX, CONTEXT_COMPACT_THRESHOLD, MICRO_COMPACT_KEEP_LAST } fr
 import { shouldAutoCompact, microCompact, createCompactState, createAutoCompactConfig, type CompactState, type AutoCompactConfig } from '../services/compact/autoCompact.js'
 import { COMPACT_SUMMARY_PROMPT, COMPACT_SYSTEM_PROMPT } from '../services/compact/summaryPrompt.js'
 import { auditLog } from './auditLog.js'
-import { canUseTool, DEFAULT_MODE, getToolsForMode, type InteractionMode } from '../ui/interactionMode.js'
+import { canUseTool, DEFAULT_MODE, getToolsForMode, isBuildMode, isAutoMode, isDestructiveShell, isConfigWrite, type InteractionMode } from '../ui/interactionMode.js'
 import { resolvePermission } from '../permissions/index.js'
 import { runPreToolHooks, runPostToolHooks, runSessionStartHooks } from '../hooks/index.js'
 import type { HooksConfig } from '../hooks/types.js'
@@ -916,17 +916,39 @@ export class Agent {
     parsedArgs: Record<string, unknown>,
     cb: AgentCallbacks,
   ): Promise<{ tc: typeof tc; result: string }> {
+    // ── 0. Auto mode: bypass ALL permission checks ─────────────────────────
+    if (isAutoMode(this.interactionMode)) {
+      // Auto mode = zero restrictions. Skip mode check, permission rules, everything.
+      // Jump straight to hooks + execution.
+    } else {
     // ── 1. Interaction mode restriction ──────────────────────────────────────
     if (!canUseTool(this.interactionMode, tc.function.name)) {
-      const blockMsg = `Tool '${tc.function.name}' is not available in ${this.interactionMode} mode. Switch to Agent mode to use this tool.`
+      const blockMsg = `Tool '${tc.function.name}' is not available in ${this.interactionMode} mode. Switch to Build mode to use this tool.`
       auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __blocked_by_mode: this.interactionMode } })
       cb.onToolCall(tc.function.name, parsedArgs)
       cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
       return { tc, result: blockMsg }
     }
 
-    // ── 2. Permission rules from settings (skip in auto-accept mode) ─────────
-    if (this.interactionMode !== 'auto-accept') {
+    // ── 1.5. Build mode: ask permission for sensitive operations ─────────────
+    if (isBuildMode(this.interactionMode) && this.toolPermissionHandler) {
+      const needsPermission =
+        isConfigWrite(tc.function.name, parsedArgs) ||
+        (tc.function.name === 'shell' && typeof parsedArgs.command === 'string' && isDestructiveShell(parsedArgs.command))
+      if (needsPermission && !this.sessionApprovedTools.has(`${tc.function.name}:sensitive`)) {
+        const userDecision = await this.toolPermissionHandler(tc.function.name, parsedArgs)
+        if (userDecision === 'deny') {
+          auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied_sensitive: true } })
+          throw new DenyAbortError()
+        }
+        if (userDecision === 'session') {
+          this.sessionApprovedTools.add(`${tc.function.name}:sensitive`)
+        }
+      }
+    }
+
+    // ── 2. Permission rules from settings (skip in build mode — auto-accept behavior) ─────────
+    if (!isBuildMode(this.interactionMode)) {
       const ruleDecision = resolvePermission(this.settings.permissions, tc.function.name, parsedArgs)
       if (ruleDecision === 'deny') {
         const blockMsg = `Tool '${tc.function.name}' blocked by permission rule.`
@@ -981,6 +1003,7 @@ export class Agent {
         this.sessionApprovedTools.add(tc.function.name)
       }
     }
+    } // end of: } else { (non-auto permission checks)
 
     // ── 3.5. PreToolUse hooks ────────────────────────────────────────────────
     let effectiveArgs = parsedArgs

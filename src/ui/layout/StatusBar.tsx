@@ -33,7 +33,7 @@ function ProgressBar({ percent, width = 20, theme = 'dark' }: { percent: number;
   )
 }
 
-export function StatusBar({ tokenCount, model, activeAgent, provider, contextPct = 0, interactionMode = 'chat', theme = 'dark' }: {
+export function StatusBar({ tokenCount, model, activeAgent, provider, contextPct = 0, interactionMode = 'build', theme = 'dark' }: {
   tokenCount: number
   model: Model
   activeAgent: string | null

@@ -80,7 +80,7 @@ export function InputBox({
   phase = 'idle',
   contextPct = 0,
   agentLabel = 'deepseek',
-  interactionMode = 'chat',
+  interactionMode = 'build',
   onModeChange,
   sessionId,
   vimEnabled = false,
