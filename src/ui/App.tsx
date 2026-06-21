@@ -20,7 +20,7 @@ import type { ThemeName, ProviderConfig } from '../types/provider.js'
 import { saveConfig } from './setup/ApiKeySetup.js'
 import { formatChatError } from '../utils/chatError.js'
 import { saveSession, type SessionData } from '../agent/session.js'
-import { DEFAULT_MODE, nextMode, isAutoAccept, type InteractionMode } from './interactionMode.js'
+import { DEFAULT_MODE, nextMode, isBuildMode, isAutoMode, type InteractionMode } from './interactionMode.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
 
@@ -111,7 +111,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   useEffect(() => {
     agent.setConfirmHandler((message) => {
-      if (isAutoAccept(interactionMode)) {
+      if (isBuildMode(interactionMode) || isAutoMode(interactionMode)) {
         return Promise.resolve(true)
       }
       return new Promise<boolean>((resolve) => {

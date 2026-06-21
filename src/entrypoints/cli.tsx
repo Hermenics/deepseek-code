@@ -197,11 +197,23 @@ if (logout) {
 const SESSION_ID = newSessionId()
 
 // ── Auto-update check (non-blocking, notify only) ───────────────────────────
+// Store update message for React to render inside Ink tree (avoids raw stdout writes)
+let _updateMessage: string | null = null
+const _updateListeners: Array<(msg: string) => void> = []
+
+function onUpdateMessage(cb: (msg: string) => void): () => void {
+  if (_updateMessage) { cb(_updateMessage); return () => {} }
+  _updateListeners.push(cb)
+  return () => { const idx = _updateListeners.indexOf(cb); if (idx >= 0) _updateListeners.splice(idx, 1) }
+}
+
 if (!ARGV.update) {
   import('../utils/auto-update.js').then(({ checkForUpdate }) =>
     checkForUpdate().then((result: { updateAvailable: boolean; message?: string }) => {
       if (result.updateAvailable && result.message) {
-        process.stdout.write(`\x1b[2m  ℹ ${result.message}\x1b[0m\n`)
+        _updateMessage = result.message
+        for (const cb of _updateListeners) cb(result.message)
+        _updateListeners.length = 0
       }
     })
   )
@@ -216,6 +228,11 @@ function Root() {
   const [initialMessage, setInitialMessage] = useState<string | null>(null)
   const [initialSession, setInitialSession] = useState<SessionData | null>(null)
   const [resumeNotFound, setResumeNotFound] = useState(false)
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null)
+
+  useEffect(() => {
+    return onUpdateMessage((msg) => setUpdateMessage(msg))
+  }, [])
 
   useEffect(() => {
     const init = async () => {
@@ -277,17 +294,22 @@ function Root() {
   }
 
   return (
-    <App
-      initialAgent={initialAgent}
-      initialMessage={initialMessage}
-      theme={theme}
-      providerConfig={providerConfig}
-      onThemeChange={setTheme}
-      sessionId={SESSION_ID}
-      initialSession={initialSession}
-      headerProvider={providerConfig?.provider ?? 'deepseek'}
-      headerAgent={initialAgent?.config.name ?? null}
-    />
+    <Box flexDirection="column" width="100%" height="100%">
+      {updateMessage && (
+        <Text dimColor>{'  ℹ ' + updateMessage}</Text>
+      )}
+      <App
+        initialAgent={initialAgent}
+        initialMessage={initialMessage}
+        theme={theme}
+        providerConfig={providerConfig}
+        onThemeChange={setTheme}
+        sessionId={SESSION_ID}
+        initialSession={initialSession}
+        headerProvider={providerConfig?.provider ?? 'deepseek'}
+        headerAgent={initialAgent?.config.name ?? null}
+      />
+    </Box>
   )
 }
 
