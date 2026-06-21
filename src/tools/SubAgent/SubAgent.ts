@@ -2,9 +2,11 @@ import { Tool } from '../types.js'
 import OpenAI from 'openai'
 import { join } from 'path'
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
-import type { ProviderConfig } from '../../ui/setup/ApiKeySetup.js'
+import type { ProviderConfig } from '../../types/provider.js'
 import { createLLMClient, defaultModel } from '../../agent/llmClient.js'
 import { SUBAGENT_MAX_ITERATIONS } from '../../constants.js'
+import { resolvePermission } from '../../permissions/matcher.js'
+import { loadMergedSettings } from '../../settings/loader.js'
 
 // Provider config and model inherited from the parent Agent
 let subAgentProvider: ProviderConfig = { provider: 'deepseek' }
@@ -107,11 +109,21 @@ export const SubAgent: Tool = {
       }
       messages.push(assistantMsg)
 
+      // Load permissions once per iteration (cached after first load)
+      const settings = await loadMergedSettings()
+
       for (const tc of msg.tool_calls) {
         let parsedArgs: Record<string, unknown> = {}
         const fn = 'function' in tc ? tc.function : undefined
         if (!fn) continue
         try { parsedArgs = JSON.parse(fn.arguments) } catch {}
+
+        // Inherit parent permission rules — deny rules block execution
+        const permDecision = resolvePermission(settings.permissions, fn.name, parsedArgs)
+        if (permDecision === 'deny') {
+          messages.push({ role: 'tool', tool_call_id: tc.id, content: `Tool '${fn.name}' blocked by permission rule.` })
+          continue
+        }
 
         const tool = toolMap.get(fn.name)
         let result: string

@@ -5,46 +5,23 @@ import { execSync } from 'child_process'
 import { homedir } from 'os'
 import { join } from 'path'
 import { mkdir } from 'fs/promises'
-// [OAUTH-DISABLED] OAuth authentication temporarily disabled
-// import { existsSync } from 'fs'
 import { readJson, writeRaw } from '../../utils/fs.js'
 import { saveFullConfig, loadFullConfig } from '../../utils/credentials.js'
-// [OAUTH-DISABLED] getOrCreateProxyApiKey removed — used only by OAuth flow
 import { WelcomeScreen } from '../layout/WelcomeScreen.js'
-// [OAUTH-DISABLED] OAuth authentication temporarily disabled
-// import { installPlaywright, runOAuthLogin, OAUTH_STORAGE_PATH } from '../../agent/providers/oauth.js'
 import { getThemeColors } from '../theme.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 
 const CONFIG_PATH = join(homedir(), '.deepseek', 'config.json')
 
-export type ThemeName = 'dark' | 'light' | 'dark-daltonized' | 'light-daltonized' | 'dark-ansi' | 'light-ansi'
-
-// [OAUTH-DISABLED] OAuth authentication temporarily disabled
-export type ProviderName = 'deepseek' | 'bedrock' | 'vertex' | 'local'
-
-export interface ProviderConfig {
-  provider: ProviderName
-  apiKey?: string
-  baseURL?: string
-  awsRegion?: string
-  awsProfile?: string
-  gcpProject?: string
-  gcpLocation?: string
-  gcpCredentials?: string
-  localBaseUrl?: string
-  localModel?: string
-  proxyApiKey?: string
-}
+export type { ThemeName, ProviderName, ProviderConfig } from '../../types/provider.js'
+import type { ThemeName, ProviderName, ProviderConfig } from '../../types/provider.js'
 
 export const PROVIDERS: { label: string; value: ProviderName; hint: string }[] = [
   { value: 'deepseek', label: 'DeepSeek API',          hint: 'platform.deepseek.com/api_keys' },
   { value: 'bedrock',  label: 'Amazon Bedrock',         hint: 'AWS profile from ~/.aws/credentials' },
   { value: 'vertex',   label: 'Google Vertex AI',       hint: 'GCP project + service account JSON' },
   { value: 'local',    label: 'Local model (Ollama / LM Studio)', hint: 'Any OpenAI-compatible endpoint' },
-  // [OAUTH-DISABLED] OAuth authentication temporarily disabled
-  // { value: 'oauth',    label: 'OAuth (Beta, unofficial, MAY GET YOU BANNED)', hint: 'Log in via browser — no API key needed' },
 ]
 
 const THEMES: { label: string; value: ThemeName }[] = [
@@ -85,16 +62,11 @@ export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfi
       providerConfig.localBaseUrl = cfg.LOCAL_BASE_URL
       providerConfig.localModel = cfg.LOCAL_MODEL
     }
-    // [OAUTH-DISABLED] OAuth authentication temporarily disabled
-    // if (provider === 'oauth') {
-    //   providerConfig.proxyApiKey = cfg.PROXY_API_KEY
-    // }
     const isReady =
       (provider === 'deepseek' && !!providerConfig.apiKey) ||
       (provider === 'bedrock' && !!providerConfig.awsRegion) ||
       (provider === 'vertex' && !!providerConfig.gcpProject && !!providerConfig.gcpCredentials) ||
       (provider === 'local' && !!providerConfig.localBaseUrl)
-      // [OAUTH-DISABLED] || (provider === 'oauth' && existsSync(OAUTH_STORAGE_PATH) && !!cfg.PROXY_API_KEY)
     return {
       providerConfig: isReady ? providerConfig : null,
       theme: (cfg.THEME ?? 'dark') as ThemeName,
@@ -123,12 +95,8 @@ const PROVIDER_FIELDS: Record<ProviderName, { key: string; label: string; hint: 
     { key: 'LOCAL_BASE_URL', label: 'Base URL', hint: 'e.g. http://localhost:11434/v1' },
     { key: 'LOCAL_MODEL',    label: 'Model name', hint: 'e.g. deepseek-r1:8b, llama3, mistral' },
   ],
-  // [OAUTH-DISABLED] OAuth authentication temporarily disabled
-  // oauth: [],
 }
 
-// [OAUTH-DISABLED] OAuth authentication temporarily disabled
-// type Step = 'theme' | 'provider' | 'fields' | 'oauth-setup' | 'done'
 type Step = 'theme' | 'provider' | 'fields' | 'done'
 
 interface Props {
@@ -144,8 +112,6 @@ export function ApiKeySetup({ onDone }: Props) {
   const [currentInput, setCurrentInput] = useState('')
   const [error, setError] = useState('')
   const [donePayload, setDonePayload] = useState<{ theme: ThemeName; config: ProviderConfig } | null>(null)
-  // [OAUTH-DISABLED] OAuth authentication temporarily disabled
-  // const [oauthStatus, setOauthStatus] = useState('')
 
   const selectedTheme = THEMES[themeIdx]!.value
   const selectedProvider = PROVIDERS[providerIdx]!.value
@@ -158,31 +124,6 @@ export function ApiKeySetup({ onDone }: Props) {
       return () => clearTimeout(t)
     }
   }, [donePayload, onDone])
-
-  // [OAUTH-DISABLED] OAuth authentication temporarily disabled
-  // useEffect(() => {
-  //   if (step !== 'oauth-setup') return
-  //   let cancelled = false
-  //   const run = async () => {
-  //     try {
-  //       setOauthStatus('Installing Playwright...')
-  //       await installPlaywright()
-  //       if (cancelled) return
-  //       setOauthStatus('Opening browser for login...')
-  //       await runOAuthLogin()
-  //       if (cancelled) return
-  //       setOauthStatus('Generating secure proxy key...')
-  //       const proxyApiKey = await getOrCreateProxyApiKey()
-  //       await saveConfig({ PROVIDER: 'oauth', THEME: selectedTheme })
-  //       setStep('done')
-  //       setDonePayload({ theme: selectedTheme, config: { provider: 'oauth', proxyApiKey } })
-  //     } catch (e: unknown) {
-  //       if (!cancelled) setError((e as Error).message)
-  //     }
-  //   }
-  //   run()
-  //   return () => { cancelled = true }
-  // }, [step])
 
   useInput((input: string, key: Key) => {
     if (key.ctrl && input === 'c') process.exit(0)
@@ -199,20 +140,12 @@ export function ApiKeySetup({ onDone }: Props) {
       if (key.upArrow) { setProviderIdx((i) => (i - 1 + PROVIDERS.length) % PROVIDERS.length); return }
       if (key.downArrow) { setProviderIdx((i) => (i + 1) % PROVIDERS.length); return }
       if (key.return) {
-        // [OAUTH-DISABLED] OAuth authentication temporarily disabled
-        // if (selectedProvider === 'oauth') { setStep('oauth-setup'); return }
         setFieldIdx(0); setCurrentInput(''); setStep('fields')
         return
       }
       if (key.escape) { setStep('theme'); return }
       return
     }
-
-    // [OAUTH-DISABLED] OAuth authentication temporarily disabled
-    // if (step === 'oauth-setup') {
-    //   if (key.escape && error) { setError(''); setStep('provider') }
-    //   return
-    // }
 
     if (step === 'fields') {
       if (key.return) {
@@ -268,29 +201,6 @@ export function ApiKeySetup({ onDone }: Props) {
   if (step === 'done') {
     return <Box marginTop={1}><Text color="green">{'✓ Saved! Starting DeepSeek Code…'}</Text></Box>
   }
-
-  // [OAUTH-DISABLED] OAuth authentication temporarily disabled
-  // if (step === 'oauth-setup') {
-  //   return (
-  //     <Box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
-  //       <WelcomeScreen>
-  //         <Box flexDirection="column" marginTop={1}>
-  //           {error ? (
-  //             <>
-  //               <Text color="red">{'✘ ' + error}</Text>
-  //               <Text color="#888888">{'Press Esc to go back and try again.'}</Text>
-  //             </>
-  //           ) : (
-  //             <>
-  //               <Text color="cyan">{'⟳ ' + oauthStatus}</Text>
-  //               <Text color="#888888">{'Please wait...'}</Text>
-  //             </>
-  //           )}
-  //         </Box>
-  //       </WelcomeScreen>
-  //     </Box>
-  //   )
-  // }
 
   let content: React.ReactNode = null
 

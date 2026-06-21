@@ -135,7 +135,17 @@ export async function loadMcpTools(): Promise<{ tools: Tool[]; errors: string[] 
           description: `[MCP:${serverName}] ${mcpTool.description ?? ''}`,
           parameters: mcpTool.inputSchema as object,
           async execute(args) {
-            const result = await client.callTool({ name: mcpTool.name, arguments: args })
+            // Add timeout to prevent hanging on unresponsive MCP servers
+            const timeoutMs = 30_000
+            const result = await Promise.race([
+              client.callTool({ name: mcpTool.name, arguments: args }),
+              new Promise((_, reject) =>
+                setTimeout(
+                  () => reject(new Error(`MCP tool '${mcpTool.name}' timed out after ${timeoutMs / 1000}s`)),
+                  timeoutMs,
+                ),
+              ),
+            ]) as Awaited<ReturnType<typeof client.callTool>>
             const content = result.content as { type: string; text?: string }[]
             return content
               .filter((c) => c.type === 'text' && c.text)

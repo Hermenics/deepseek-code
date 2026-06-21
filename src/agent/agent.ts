@@ -3,8 +3,6 @@ import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
 import DEFAULT_SYSTEM_PROMPT_MD from './system-prompt.md' with { type: 'text' }
-// [OAUTH-DISABLED] OAuth authentication temporarily disabled
-// import OAUTH_SYSTEM_PROMPT_MD from './system-prompt-oauth.md' with { type: 'text' }
 import { allTools } from '../tools/index.js'
 import { setShellConfirmHandler } from '../tools/Shell/Shell.js'
 import { setSubAgentProvider, setSubAgentModel } from '../tools/SubAgent/SubAgent.js'
@@ -25,7 +23,7 @@ import { saveHistory } from './history.js'
 import { saveCheckpoint, listCheckpoints, loadCheckpoint } from './checkpoint.js'
 import { createBoundaryMarker, getMessagesAfterBoundary, isBoundaryMarker, type MessageOrBoundary } from './compactBoundary.js'
 import { estimateCost, formatCost, getContextLimit, type TokenUsage } from './cost.js'
-import type { ProviderConfig } from '../ui/setup/ApiKeySetup.js'
+import type { ProviderConfig } from '../types/provider.js'
 import { UNDO_STACK_MAX, CONTEXT_COMPACT_THRESHOLD, MICRO_COMPACT_KEEP_LAST } from '../constants.js'
 import { shouldAutoCompact, microCompact, createCompactState, createAutoCompactConfig, type CompactState, type AutoCompactConfig } from '../services/compact/autoCompact.js'
 import { COMPACT_SUMMARY_PROMPT, COMPACT_SYSTEM_PROMPT } from '../services/compact/summaryPrompt.js'
@@ -46,8 +44,6 @@ class DenyAbortError extends Error {
 const PARALLEL_SAFE = new Set(['subagent', 'shell', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect'])
 
 const DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT_MD
-// [OAUTH-DISABLED] OAuth authentication temporarily disabled
-// const OAUTH_SYSTEM_PROMPT = OAUTH_SYSTEM_PROMPT_MD
 
 // ── Bedrock prompt-based tool calling ─────────────────────────────────────────
 // DeepSeek R1 on Bedrock does not support native tool calling.
@@ -196,6 +192,7 @@ export class Agent {
   public initErrors: string[] = []
   private sessionStartTime: number = Date.now()
   private toolCallTotal: number = 0
+  private readonly hookSessionId = randomUUID()
 
   public tokenCount = 0
   public model: Model = 'deepseek-v4-flash'
@@ -235,11 +232,6 @@ export class Agent {
       setSubAgentModel(this.model)
     }
     this.contextLimit = getContextLimit(this.provider, this.model)
-    // [OAUTH-DISABLED] OAuth authentication temporarily disabled
-    // if (this.provider === 'oauth') {
-    //   this.systemPrompt = OAUTH_SYSTEM_PROMPT
-    //   this.messages = [{ role: 'system', content: OAUTH_SYSTEM_PROMPT }]
-    // }
     // Initialize async — readyPromise is awaited in run() to prevent race conditions
     this.readyPromise = this.initialize()
   }
@@ -283,7 +275,7 @@ export class Agent {
 
       // Run SessionStart hooks
       if (this.settings.hooks) {
-        await runSessionStartHooks(this.settings.hooks as HooksConfig, randomUUID())
+        await runSessionStartHooks(this.settings.hooks as HooksConfig, this.hookSessionId)
       }
     } catch (e) {
       // Fall back to defaults — agent still works without steering/history
@@ -706,17 +698,6 @@ export class Agent {
             // Execute each tool and append results as user messages
             for (const tc of toolCalls) {
               const fakeTc = { id: `bedrock-${Date.now()}`, type: 'function' as const, function: { name: tc.name, arguments: JSON.stringify(tc.args) } }
-              if ((tc.name === 'write_file' || tc.name === 'patch_file') && tc.args.path) {
-                const filePath = tc.args.path as string
-                this.filesModified.add(filePath)
-                try {
-                  const oldContent = await readFile(filePath, 'utf-8')
-                  this.undoStack.push({ path: filePath, content: oldContent })
-                } catch {
-                  this.undoStack.push({ path: filePath, content: '' })
-                }
-                if (this.undoStack.length > UNDO_STACK_MAX) this.undoStack.shift()
-              }
               const { result } = await this.checkAndExecuteTool(fakeTc, tc.args, cb)
               this.messages.push({ role: 'user', content: `<tool_result>\n<name>${tc.name}</name>\n<result>${result}</result>\n</tool_result>` })
             }
@@ -766,20 +747,6 @@ export class Agent {
           try { parsedArgs = JSON.parse(tc.function.arguments) } catch { }
           return { tc, parsedArgs }
         })
-
-        for (const { tc, parsedArgs } of parsedList) {
-          if ((tc.function.name === 'write_file' || tc.function.name === 'patch_file') && parsedArgs.path) {
-            const filePath = parsedArgs.path as string
-            this.filesModified.add(filePath)
-            try {
-              const oldContent = await readFile(filePath, 'utf-8')
-              this.undoStack.push({ path: filePath, content: oldContent })
-            } catch {
-              this.undoStack.push({ path: filePath, content: '' })
-            }
-            if (this.undoStack.length > UNDO_STACK_MAX) this.undoStack.shift()
-          }
-        }
 
         for (const { tc, parsedArgs } of parsedList) {
           const { result } = await this.checkAndExecuteTool(tc, parsedArgs, cb)
@@ -882,46 +849,6 @@ export class Agent {
         throw e
       }
 
-      // [OAUTH-DISABLED] OAuth authentication temporarily disabled
-      // // ── OAuth fallback: detect tool calls in accumulated text ────────────
-      // // When provider is 'oauth', the proxy may deliver tool calls as plain text
-      // // in delta.content (format: {"tool_use": {...}}) instead of delta.tool_calls.
-      // if (toolCalls.size === 0 && this.provider === 'oauth' && assistantText) {
-      //   const parsedTool = parseToolResponse(assistantText)
-      //   if (parsedTool) {
-      //     const fakeId = parsedTool.id || `call_${randomUUID()}`
-      //     const tc = {
-      //       id: fakeId,
-      //       type: 'function' as const,
-      //       function: {
-      //         name: parsedTool.name,
-      //         arguments: typeof parsedTool.arguments === 'string'
-      //           ? parsedTool.arguments
-      //           : JSON.stringify(parsedTool.arguments),
-      //       },
-      //     }
-      //
-      //     const parsedArgs = typeof parsedTool.arguments === 'string'
-      //       ? JSON.parse(parsedTool.arguments)
-      //       : parsedTool.arguments
-      //
-      //     const assistantMsg: AssistantMessageWithReasoning = {
-      //       role: 'assistant',
-      //       content: null,
-      //       tool_calls: [tc],
-      //     }
-      //     if (reasoningText) assistantMsg.reasoning_content = reasoningText
-      //     this.messages.push(assistantMsg)
-      //
-      //     // Execute the tool
-      //     const { result } = await this.checkAndExecuteTool(tc, parsedArgs, cb)
-      //     this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
-      //
-      //     // Continue agent loop — model will process tool result
-      //     continue
-      //   }
-      // }
-
       if (toolCalls.size === 0) {
         const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText }
         // Always preserve reasoning_content — DeepSeek-V4-Flash has built-in thinking mode
@@ -937,15 +864,6 @@ export class Agent {
         type: 'function' as const,
         function: { name: tc.name, arguments: tc.args },
       }))
-
-      // [OAUTH-DISABLED] OAuth authentication temporarily disabled
-      // // ── OAuth: truncate to single tool call ────────────────────────────────
-      // // The OAuth proxy uses prompt-emulated tools and the model may return
-      // // multiple tool calls at once. Truncate to the first and notify the model.
-      // if (this.provider === 'oauth' && tcArray.length > 1) {
-      //   skippedToolNames = tcArray.slice(1).map((tc) => tc.function.name)
-      //   tcArray = tcArray.slice(0, 1)
-      // }
 
 
       const assistantMsg: AssistantMessageWithReasoning = {
@@ -963,22 +881,6 @@ export class Agent {
         try { parsedArgs = JSON.parse(tc.function.arguments) } catch { }
         return { tc, parsedArgs }
       })
-
-      // ── Undo snapshots for file writes (always sequential) ─────────────────
-      for (const { tc, parsedArgs } of parsedList) {
-        if ((tc.function.name === 'write_file' || tc.function.name === 'patch_file') && parsedArgs.path) {
-          const filePath = parsedArgs.path as string
-          this.filesModified.add(filePath)
-          try {
-            const oldContent = await readFile(filePath, 'utf-8')
-            this.undoStack.push({ path: filePath, content: oldContent })
-          } catch {
-            this.undoStack.push({ path: filePath, content: '' })
-          }
-          // Keep stack bounded
-          if (this.undoStack.length > UNDO_STACK_MAX) this.undoStack.shift()
-        }
-      }
 
       // ── Partition: parallel-safe vs sequential ─────────────────────────────
       const canParallelize = parsedList.every(({ tc }) => PARALLEL_SAFE.has(tc.function.name))
@@ -1046,17 +948,30 @@ export class Agent {
           this.sessionApprovedTools.add(tc.function.name)
           const { saveUserSettings } = await import('../settings/writer.js')
           const currentAllow = this.settings.permissions?.allow ?? []
-          await saveUserSettings({ permissions: { allow: [...currentAllow, tc.function.name] } })
+          if (!currentAllow.includes(tc.function.name)) {
+            const newAllow = [...currentAllow, tc.function.name]
+            await saveUserSettings({ permissions: { allow: newAllow } })
+            // Keep in-memory settings in sync with disk
+            if (!this.settings.permissions) this.settings.permissions = {}
+            this.settings.permissions.allow = newAllow
+          }
         }
       }
     }
 
     // ── 3. Legacy allowedTools check (agent-config level) ────────────────────
-    const needsPermission = this.allowedTools !== null && (
-      this.allowedTools === '*' ||
-      (Array.isArray(this.allowedTools) && this.allowedTools.includes(tc.function.name))
-    )
-    if (needsPermission && !this.sessionApprovedTools.has(tc.function.name) && this.toolPermissionHandler) {
+    if (this.allowedTools !== null && this.allowedTools !== '*') {
+      // Array whitelist: block tools not in the list
+      if (Array.isArray(this.allowedTools) && !this.allowedTools.includes(tc.function.name)) {
+        const blockMsg = `Tool '${tc.function.name}' is not allowed by the current agent configuration.`
+        auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __blocked_by_allowlist: true } })
+        cb.onToolCall(tc.function.name, parsedArgs)
+        cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
+        return { tc, result: blockMsg }
+      }
+    }
+    // allowedTools === '*' means all tools require permission confirmation
+    if (this.allowedTools === '*' && !this.sessionApprovedTools.has(tc.function.name) && this.toolPermissionHandler) {
       const decision = await this.toolPermissionHandler(tc.function.name, parsedArgs)
       if (decision === 'deny') {
         auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied: true } })
@@ -1074,7 +989,7 @@ export class Agent {
         this.settings.hooks as HooksConfig,
         tc.function.name,
         parsedArgs,
-        randomUUID(),
+        this.hookSessionId,
       )
       if (hookResult.decision === 'block') {
         const blockMsg = hookResult.reason ?? `Tool '${tc.function.name}' blocked by PreToolUse hook.`
@@ -1088,6 +1003,19 @@ export class Agent {
       }
     }
 
+    // ── Undo snapshot (only for file-writing tools that passed all checks) ──
+    if ((tc.function.name === 'write_file' || tc.function.name === 'patch_file') && effectiveArgs.path) {
+      const filePath = effectiveArgs.path as string
+      this.filesModified.add(filePath)
+      try {
+        const oldContent = await readFile(filePath, 'utf-8')
+        this.undoStack.push({ path: filePath, content: oldContent })
+      } catch {
+        this.undoStack.push({ path: filePath, content: '' })
+      }
+      if (this.undoStack.length > UNDO_STACK_MAX) this.undoStack.shift()
+    }
+
     // ── 4. Execute tool ──────────────────────────────────────────────────────
     cb.onToolCall(tc.function.name, effectiveArgs)
     auditLog({ type: 'tool_call', tool: tc.function.name, args: effectiveArgs })
@@ -1098,7 +1026,7 @@ export class Agent {
 
     // PostToolUse hooks (fire-and-forget)
     if (this.settings.hooks) {
-      runPostToolHooks(this.settings.hooks as HooksConfig, tc.function.name, effectiveArgs, result, randomUUID()).catch(() => {})
+      runPostToolHooks(this.settings.hooks as HooksConfig, tc.function.name, effectiveArgs, result, this.hookSessionId).catch(() => {})
     }
 
     cb.onToolResult(tc.function.name, result, effectiveArgs)

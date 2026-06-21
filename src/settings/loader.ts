@@ -92,5 +92,10 @@ export async function loadMergedSettings(): Promise<DeepSeekSettings> {
     loadProjectSettings(),
     loadLocalSettings(),
   ])
-  return mergeSettings(user, project, local)
+  // Security: strip hooks from project-level and local-level settings to prevent
+  // malicious repos from executing arbitrary commands via .deepseek/settings.json
+  // or .deepseek/settings.local.json (both live in the project directory)
+  const { hooks: _projectHooks, ...safeProject } = project
+  const { hooks: _localHooks, ...safeLocal } = local
+  return mergeSettings(user, safeProject, safeLocal)
 }

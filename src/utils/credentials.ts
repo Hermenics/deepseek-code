@@ -9,7 +9,6 @@ import { readJson, writeRaw } from './fs'
 const CONFIG_DIR = join(homedir(), '.deepseek')
 const CONFIG_PATH = join(CONFIG_DIR, 'config.json')
 const LEGACY_ENV_PATH = join(CONFIG_DIR, '.env')
-const OAUTH_STORAGE = join(CONFIG_DIR, 'oauth-storage.json')
 
 // Legacy keys that should be removed entirely
 const LEGACY_KEYS = new Set([
@@ -93,16 +92,6 @@ export function generateProxyApiKey(): string {
   return randomBytes(32).toString('hex')
 }
 
-// [OAUTH-DISABLED] OAuth authentication temporarily disabled
-// export async function getOrCreateProxyApiKey(
-//   configPath: string = CONFIG_PATH,
-// ): Promise<string> {
-//   const config = await loadFullConfig(configPath)
-//   if (config.PROXY_API_KEY) return config.PROXY_API_KEY
-//   const key = generateProxyApiKey()
-//   await saveFullConfig({ ...config, PROXY_API_KEY: key }, configPath)
-//   return key
-// }
 export async function getOrCreateProxyApiKey(
   _configPath: string = CONFIG_PATH,
 ): Promise<string> {
@@ -117,9 +106,6 @@ export async function logout(
   const deleted: string[] = []
   const configDir = dirname(configPath)
   const legacyEnvPath = join(configDir, '.env')
-  // [OAUTH-DISABLED] OAuth authentication temporarily disabled
-  // const oauthStoragePath = join(configDir, 'oauth-storage.json')
-  // const browserProfilePath = join(homedir(), '.deepseek', 'browser-profile')
 
   for (const filePath of [configPath, legacyEnvPath]) {
     try {
@@ -129,14 +115,6 @@ export async function logout(
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
     }
   }
-
-  // [OAUTH-DISABLED] OAuth authentication temporarily disabled
-  // try {
-  //   await rm(browserProfilePath, { recursive: true })
-  //   deleted.push(browserProfilePath)
-  // } catch (err: unknown) {
-  //   if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
-  // }
 
   return deleted
 }
