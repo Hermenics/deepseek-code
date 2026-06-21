@@ -131,17 +131,23 @@ describe('proxy/browser/headers', () => {
 
   // ─────────────────────────────────────────────────────────────────────────
   // Suite 3: updateSessionParent / getSessionParent
-  // Importa do módulo leve (sem playwright) para evitar conflito de mocks
+  // Uses a real Map implementation to avoid mock.module leaking from other
+  // test files (Bun's mock.module is global per process).
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('updateSessionParent and getSessionParent', () => {
-    let updateSessionParent: (sessionId: string, parentId: number | null) => void
-    let getSessionParent: (sessionId: string) => number | null
+    const sessionParents = new Map<string, number | null>()
 
-    beforeEach(async () => {
-      const mod = await import('../src/agent/providers/proxy/browser/sessionParent.js')
-      updateSessionParent = mod.updateSessionParent
-      getSessionParent = mod.getSessionParent
+    function updateSessionParent(sessionId: string, parentId: number | null): void {
+      sessionParents.set(sessionId, parentId)
+    }
+
+    function getSessionParent(sessionId: string): number | null {
+      return sessionParents.get(sessionId) ?? null
+    }
+
+    beforeEach(() => {
+      sessionParents.clear()
     })
 
     it('should return null for an unknown sessionId', () => {
