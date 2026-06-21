@@ -131,97 +131,53 @@ describe('proxy/browser/headers', () => {
 
   // ─────────────────────────────────────────────────────────────────────────
   // Suite 3: updateSessionParent / getSessionParent
+  // Importa do módulo leve (sem playwright) para evitar conflito de mocks
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('updateSessionParent and getSessionParent', () => {
-    beforeEach(() => {
-      // Garantir estado limpo entre testes — se o módulo expõe reset, use-o.
-      // Caso contrário, usamos sessionIds únicos por teste para evitar colisão.
+    let updateSessionParent: (sessionId: string, parentId: number | null) => void
+    let getSessionParent: (sessionId: string) => number | null
+
+    beforeEach(async () => {
+      const mod = await import('../src/agent/providers/proxy/browser/sessionParent.js')
+      updateSessionParent = mod.updateSessionParent
+      getSessionParent = mod.getSessionParent
     })
 
     it('should return null for an unknown sessionId', () => {
-      const getSessionParent = getExport('getSessionParent') as
-        | ((sessionId: string) => number | null)
-        | undefined
-
-      expect(getSessionParent).toBeDefined()
-
-      const result = getSessionParent!('session-that-does-not-exist-xyz')
+      const result = getSessionParent('session-that-does-not-exist-xyz')
       expect(result).toBeNull()
     })
 
     it('should store parentId and return it for the same sessionId', () => {
-      const updateSessionParent = getExport('updateSessionParent') as
-        | ((sessionId: string, parentId: number | null) => void)
-        | undefined
-      const getSessionParent = getExport('getSessionParent') as
-        | ((sessionId: string) => number | null)
-        | undefined
-
-      expect(updateSessionParent).toBeDefined()
-      expect(getSessionParent).toBeDefined()
-
       const sessionId = 'test-session-store-001'
-      updateSessionParent!(sessionId, 42)
-
-      expect(getSessionParent!(sessionId)).toBe(42)
+      updateSessionParent(sessionId, 42)
+      expect(getSessionParent(sessionId)).toBe(42)
     })
 
     it('should return the value set by updateSessionParent (not a stale value)', () => {
-      const updateSessionParent = getExport('updateSessionParent') as
-        | ((sessionId: string, parentId: number | null) => void)
-        | undefined
-      const getSessionParent = getExport('getSessionParent') as
-        | ((sessionId: string) => number | null)
-        | undefined
-
-      expect(updateSessionParent).toBeDefined()
-      expect(getSessionParent).toBeDefined()
-
       const sessionId = 'test-session-update-002'
-      updateSessionParent!(sessionId, 10)
-      updateSessionParent!(sessionId, 99)
-
-      expect(getSessionParent!(sessionId)).toBe(99)
+      updateSessionParent(sessionId, 10)
+      updateSessionParent(sessionId, 99)
+      expect(getSessionParent(sessionId)).toBe(99)
     })
 
     it('should allow storing null as parentId (reset)', () => {
-      const updateSessionParent = getExport('updateSessionParent') as
-        | ((sessionId: string, parentId: number | null) => void)
-        | undefined
-      const getSessionParent = getExport('getSessionParent') as
-        | ((sessionId: string) => number | null)
-        | undefined
-
-      expect(updateSessionParent).toBeDefined()
-      expect(getSessionParent).toBeDefined()
-
       const sessionId = 'test-session-null-003'
-      updateSessionParent!(sessionId, 7)
-      updateSessionParent!(sessionId, null)
-
-      expect(getSessionParent!(sessionId)).toBeNull()
+      updateSessionParent(sessionId, 7)
+      updateSessionParent(sessionId, null)
+      expect(getSessionParent(sessionId)).toBeNull()
     })
 
     it('should isolate parentId per sessionId (no cross-contamination)', () => {
-      const updateSessionParent = getExport('updateSessionParent') as
-        | ((sessionId: string, parentId: number | null) => void)
-        | undefined
-      const getSessionParent = getExport('getSessionParent') as
-        | ((sessionId: string) => number | null)
-        | undefined
-
-      expect(updateSessionParent).toBeDefined()
-      expect(getSessionParent).toBeDefined()
-
       const sessionA = 'test-session-isolate-A'
       const sessionB = 'test-session-isolate-B'
 
-      updateSessionParent!(sessionA, 100)
-      updateSessionParent!(sessionB, 200)
+      updateSessionParent(sessionA, 100)
+      updateSessionParent(sessionB, 200)
 
-      expect(getSessionParent!(sessionA)).toBe(100)
-      expect(getSessionParent!(sessionB)).toBe(200)
+      expect(getSessionParent(sessionA)).toBe(100)
+      expect(getSessionParent(sessionB)).toBe(200)
     })
   })
 })
