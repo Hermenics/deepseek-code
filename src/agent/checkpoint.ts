@@ -6,7 +6,9 @@ import { readJson, writeJson } from '../utils/fs.js'
 import type { MessageOrBoundary } from './compactBoundary.js'
 import { CHECKPOINT_MAX } from '../constants.js'
 
-const DIR = join(homedir(), '.deepseek', 'checkpoints')
+function getDir(): string {
+  return join(process.env.HOME || homedir(), '.deepseek', 'checkpoints')
+}
 
 export interface Checkpoint {
   id: string
@@ -21,7 +23,8 @@ export async function saveCheckpoint(
   filesModified: string[],
   label?: string,
 ): Promise<string> {
-  await mkdir(DIR, { recursive: true })
+  const dir = getDir()
+  await mkdir(dir, { recursive: true })
   const id = `${Date.now()}-${randomBytes(3).toString('hex')}`
   const cp: Checkpoint = {
     id,
@@ -30,17 +33,18 @@ export async function saveCheckpoint(
     messages,
     filesModified,
   }
-  await writeJson(join(DIR, `${id}.json`), cp)
+  await writeJson(join(dir, `${id}.json`), cp)
   await prune()
   return id
 }
 
 export async function listCheckpoints(): Promise<Checkpoint[]> {
   try {
-    const files = (await readdir(DIR)).filter((f) => f.endsWith('.json')).sort().reverse()
+    const dir = getDir()
+    const files = (await readdir(dir)).filter((f) => f.endsWith('.json')).sort().reverse()
     const result: Checkpoint[] = []
     for (const f of files) {
-      try { result.push(await readJson<Checkpoint>(join(DIR, f))) } catch { /* skip */ }
+      try { result.push(await readJson<Checkpoint>(join(dir, f))) } catch { /* skip */ }
     }
     return result
   } catch {
@@ -49,14 +53,15 @@ export async function listCheckpoints(): Promise<Checkpoint[]> {
 }
 
 export async function loadCheckpoint(id: string): Promise<Checkpoint | null> {
-  try { return await readJson<Checkpoint>(join(DIR, `${id}.json`)) } catch { return null }
+  try { return await readJson<Checkpoint>(join(getDir(), `${id}.json`)) } catch { return null }
 }
 
 async function prune() {
   try {
-    const files = (await readdir(DIR)).filter((f) => f.endsWith('.json')).sort()
+    const dir = getDir()
+    const files = (await readdir(dir)).filter((f) => f.endsWith('.json')).sort()
     for (const f of files.slice(0, Math.max(0, files.length - CHECKPOINT_MAX))) {
-      await unlink(join(DIR, f)).catch(() => {})
+      await unlink(join(dir, f)).catch(() => {})
     }
   } catch { /* ignore */ }
 }

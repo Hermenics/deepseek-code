@@ -3,24 +3,26 @@ import { homedir } from 'os'
 import { mkdir } from 'fs/promises'
 import { readJson, writeJson } from '../utils/fs.js'
 
-const HISTORY_PATH = join(homedir(), '.deepseek', 'input_history.json')
+function getHistoryPath(): string {
+  return join(process.env.HOME || homedir(), '.deepseek', 'input_history.json')
+}
 const MAX_ENTRIES = 200
 
 export async function loadInputHistory(): Promise<string[]> {
   try {
-    return await readJson<string[]>(HISTORY_PATH)
+    return await readJson<string[]>(getHistoryPath())
   } catch {
     return []
   }
 }
 
 export async function appendInputHistory(entry: string): Promise<void> {
-  // Don't save commands (/) or shell shortcuts (!) to history
   const trimmed = entry.trim()
   if (trimmed.startsWith('/') || trimmed.startsWith('!')) return
   const history = await loadInputHistory()
-  if (history[history.length - 1] === trimmed) return // no duplicates consecutivos
+  if (history[history.length - 1] === trimmed) return
   history.push(trimmed)
-  await mkdir(join(homedir(), '.deepseek'), { recursive: true })
-  await writeJson(HISTORY_PATH, history.slice(-MAX_ENTRIES))
+  const historyPath = getHistoryPath()
+  await mkdir(join(process.env.HOME || homedir(), '.deepseek'), { recursive: true })
+  await writeJson(historyPath, history.slice(-MAX_ENTRIES))
 }

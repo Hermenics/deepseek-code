@@ -6,7 +6,9 @@ import { readJson, writeRaw } from '../utils/fs.js'
 import type { MessageOrBoundary } from './compactBoundary.js'
 import type { Message } from '../ui/App.js'
 
-const SESSIONS_DIR = join(homedir(), '.deepseek', 'sessions')
+function getSessionsDir(): string {
+  return join(process.env.HOME || homedir(), '.deepseek', 'sessions')
+}
 const MAX_SESSIONS = 50
 
 export interface SessionData {
@@ -29,8 +31,9 @@ export function newSessionId(): string {
 
 export async function saveSession(data: SessionData): Promise<void> {
   try {
-    await mkdir(SESSIONS_DIR, { recursive: true })
-    const path = join(SESSIONS_DIR, `${data.id}.json`)
+    const dir = getSessionsDir()
+    await mkdir(dir, { recursive: true })
+    const path = join(dir, `${data.id}.json`)
     await writeRaw(path, JSON.stringify({ ...data, updatedAt: new Date().toISOString() }, null, 2))
     await pruneOldSessions()
   } catch {
@@ -40,7 +43,7 @@ export async function saveSession(data: SessionData): Promise<void> {
 
 export async function loadSession(id: string): Promise<SessionData | null> {
   try {
-    return await readJson<SessionData>(join(SESSIONS_DIR, `${id}.json`))
+    return await readJson<SessionData>(join(getSessionsDir(), `${id}.json`))
   } catch {
     return null
   }
@@ -48,12 +51,13 @@ export async function loadSession(id: string): Promise<SessionData | null> {
 
 export async function listSessions(): Promise<SessionData[]> {
   try {
-    await mkdir(SESSIONS_DIR, { recursive: true })
-    const files = await readdir(SESSIONS_DIR)
+    const dir = getSessionsDir()
+    await mkdir(dir, { recursive: true })
+    const files = await readdir(dir)
     const sessions = await Promise.all(
       files
         .filter((f) => f.endsWith('.json'))
-        .map((f) => readJson<SessionData>(join(SESSIONS_DIR, f)).catch(() => null))
+        .map((f) => readJson<SessionData>(join(dir, f)).catch(() => null))
     )
     return (sessions.filter(Boolean) as SessionData[])
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
@@ -64,11 +68,12 @@ export async function listSessions(): Promise<SessionData[]> {
 
 async function pruneOldSessions(): Promise<void> {
   try {
+    const dir = getSessionsDir()
     const sessions = await listSessions()
     if (sessions.length <= MAX_SESSIONS) return
     const toDelete = sessions.slice(MAX_SESSIONS)
     await Promise.all(
-      toDelete.map((s) => unlink(join(SESSIONS_DIR, `${s.id}.json`)).catch(() => {}))
+      toDelete.map((s) => unlink(join(dir, `${s.id}.json`)).catch(() => {}))
     )
   } catch {}
 }
