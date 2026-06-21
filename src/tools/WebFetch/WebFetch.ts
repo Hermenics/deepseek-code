@@ -7,6 +7,29 @@ function isValidUrl(url: string): boolean {
   return /^https?:\/\//i.test(url)
 }
 
+function isBlockedUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase()
+    // Block localhost
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '0.0.0.0') return true
+    // Block AWS/GCP/Azure metadata
+    if (host === '169.254.169.254' || host === 'metadata.google.internal') return true
+    // Block private networks
+    if (host.startsWith('10.')) return true
+    if (host.startsWith('192.168.')) return true
+    if (host.startsWith('172.')) {
+      const second = parseInt(host.split('.')[1] || '0', 10)
+      if (second >= 16 && second <= 31) return true
+    }
+    // Block link-local
+    if (host.startsWith('169.254.')) return true
+    return false
+  } catch {
+    return true
+  }
+}
+
 function stripHtml(html: string): string {
   return html
     // Remove scripts e styles completos (conteúdo + tag)
@@ -42,6 +65,10 @@ export const WebFetch: Tool = {
 
     if (!isValidUrl(url)) {
       return `Error: invalid URL "${url}". Must start with http:// or https://`
+    }
+
+    if (isBlockedUrl(url)) {
+      return 'Error: URL points to a private/internal network address which is blocked for security reasons.'
     }
 
     try {

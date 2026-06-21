@@ -92,11 +92,11 @@ Actions:
       }
       case 'branch': {
         if (create) {
-          const { out, code } = await git(['checkout', '-b', create])
+          const { out, code } = await git(['checkout', '-b', '--', create])
           return code === 0 ? `Created and switched to branch '${create}'` : `Error: ${out}`
         }
         if (switchBranch) {
-          const { out, code } = await git(['checkout', switchBranch])
+          const { out, code } = await git(['checkout', '--', switchBranch])
           return code === 0 ? `Switched to branch '${switchBranch}'` : `Error: ${out}`
         }
         const { out } = await git(['branch', '-a'])

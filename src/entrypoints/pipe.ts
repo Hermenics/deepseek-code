@@ -15,8 +15,8 @@ async function readStdin(): Promise<string> {
 }
 
 export default async function runPipe() {
-  // Auto-confirm destructive commands in pipe mode (non-interactive)
-  setShellConfirmHandler(async () => true)
+  // Pipe mode: deny destructive commands — user cannot interactively confirm
+  setShellConfirmHandler(async () => false)
 
   // Migrate legacy config.json → .env + config.json split
   await migrateConfigIfNeeded()

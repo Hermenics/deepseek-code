@@ -23,8 +23,12 @@ export async function runHookCommand(cmd: HookCommand, input: HookInput): Promis
 
     proc.on('error', () => resolve(''))
     proc.on('close', (code) => {
-      if (code !== 0 && stderr) {
-        console.error(`[hooks] Hook "${cmd.command}" exited with code ${code}: ${stderr.trim()}`)
+      if (code !== 0) {
+        const errInfo = stderr.trim() || `exited with code ${code}`
+        console.error(`[hooks] Hook "${cmd.command}" failed: ${errInfo}`)
+        // Return a JSON error so callers can detect hook failure
+        resolve(JSON.stringify({ decision: 'block', reason: `Hook failed: ${errInfo}` }))
+        return
       }
       resolve(stdout.trim())
     })

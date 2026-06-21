@@ -30,6 +30,11 @@ export const UpdateKnowledge: Tool = {
     const section = (args.section as string).trim()
     const content = (args.content as string).trim()
 
+    // Validate section name to prevent injection via regex or content manipulation
+    if (!/^[\p{L}\p{N}\s\-\/().,:]+$/u.test(section)) {
+      return 'Error: section name contains invalid characters. Use only letters, numbers, spaces, hyphens, slashes, parentheses, periods, commas, and colons.'
+    }
+
     let existing = ''
     try {
       existing = await readFile(DEEPSEEK_MD, 'utf-8')

@@ -13,12 +13,42 @@ export function parseRule(raw: string): PermissionRule {
 
 /**
  * Glob-style pattern matching. Supports * as wildcard for any characters.
+ * Uses iterative matching to avoid ReDoS with complex patterns.
  */
 export function globMatch(pattern: string, value: string): boolean {
-  const regexStr = pattern
-    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*/g, '.*')
-  return new RegExp(`^${regexStr}$`, 'i').test(value)
+  // Safety: limit wildcards to prevent pathological patterns
+  const wildcardCount = (pattern.match(/\*/g) || []).length
+  if (wildcardCount > 10) return false
+
+  // Iterative glob matching (no regex) — immune to backtracking
+  const lowerValue = value.toLowerCase()
+  const lowerPattern = pattern.toLowerCase()
+  return iterativeGlob(lowerPattern, lowerValue)
+}
+
+function iterativeGlob(pattern: string, str: string): boolean {
+  let pi = 0, si = 0
+  let starPi = -1, starSi = -1
+
+  while (si < str.length) {
+    if (pi < pattern.length && (pattern[pi] === str[si] || pattern[pi] === '?')) {
+      pi++
+      si++
+    } else if (pi < pattern.length && pattern[pi] === '*') {
+      starPi = pi
+      starSi = si
+      pi++
+    } else if (starPi !== -1) {
+      pi = starPi + 1
+      starSi++
+      si = starSi
+    } else {
+      return false
+    }
+  }
+
+  while (pi < pattern.length && pattern[pi] === '*') pi++
+  return pi === pattern.length
 }
 
 /**
@@ -32,6 +62,10 @@ function getMatchContent(toolName: string, args: Record<string, unknown>): strin
     case 'write_file':
     case 'patch_file':
       return typeof args.path === 'string' ? args.path : undefined
+    case 'web_fetch':
+      return typeof args.url === 'string' ? args.url : undefined
+    case 'grep':
+      return typeof args.pattern === 'string' ? args.pattern : undefined
     default:
       return undefined
   }
@@ -44,7 +78,7 @@ export function matchesRule(rule: PermissionRule, toolName: string, args: Record
   if (rule.toolName !== toolName.toLowerCase()) return false
   if (!rule.pattern) return true
   const content = getMatchContent(toolName.toLowerCase(), args)
-  if (content === undefined) return true
+  if (content === undefined) return false  // Can't match pattern without content
   return globMatch(rule.pattern, content)
 }
 

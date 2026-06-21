@@ -1,8 +1,9 @@
 import { join } from 'path'
+import { homedir } from 'os'
 import { mkdir, appendFile } from 'fs/promises'
 import { randomBytes } from 'crypto'
 
-const LOG_DIR = join(process.cwd(), '.deepseek', 'logs')
+const LOG_DIR = join(homedir(), '.deepseek', 'logs')
 const SESSION_ID = `${Date.now()}-${randomBytes(3).toString('hex')}`
 const LOG_FILE = join(LOG_DIR, `session-${SESSION_ID}.jsonl`)
 
@@ -15,8 +16,6 @@ export type AuditEvent =
   | { type: 'checkpoint'; id: string; label?: string }
   | { type: 'session_end'; totalTokens: number }
   | { type: 'mcp_server_load'; serverName: string; transport: string }
-  | { type: 'oauth_tool_truncate'; skipped: string[] }
-  | { type: 'oauth_text_tool_fallback'; tool: string }
 
 let initialized = false
 

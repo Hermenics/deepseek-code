@@ -6,7 +6,12 @@ import { assertSafePath } from '../shared/pathSafety.js'
 
 type DiffLine = { type: 'added' | 'removed' | 'context'; text: string; lineNo: number }
 
-function computeDiff(oldLines: string[], newLines: string[]): DiffLine[] {
+function computeDiff(oldLines: string[], newLines: string[], filePath?: string): DiffLine[] {
+  // Guard: skip expensive diff for very large files to prevent OOM
+  if (oldLines.length > 5000 || newLines.length > 5000) {
+    return []
+  }
+
   const m = oldLines.length, n = newLines.length
   const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
   for (let i = m - 1; i >= 0; i--)
@@ -50,7 +55,20 @@ export const WriteFile: Tool = {
     await fs.mkdir(path.dirname(filePath), { recursive: true })
     await fs.writeFile(filePath, content, 'utf-8')
 
-    const diff = computeDiff(oldContent.split('\n'), content.split('\n'))
+    const oldLines = oldContent.split('\n')
+    const newLines = content.split('\n')
+    const diff = computeDiff(oldLines, newLines)
+
+    // Large file guard triggered — return summary instead of full diff
+    if (diff.length === 0 && (oldLines.length > 5000 || newLines.length > 5000)) {
+      return JSON.stringify({
+        path: filePath,
+        summary: `File too large for detailed diff (old: ${oldLines.length} lines, new: ${newLines.length} lines). Written successfully.`,
+        linesAdded: newLines.length,
+        linesRemoved: oldLines.length,
+      })
+    }
+
     const added = diff.filter((l) => l.type === 'added').length
     const removed = diff.filter((l) => l.type === 'removed').length
     const firstChanged = diff.find((l) => l.type !== 'context')?.lineNo ?? 1

@@ -1,4 +1,4 @@
-import type { ProviderName } from '../ui/setup/ApiKeySetup.js'
+import type { ProviderName } from '../types/provider.js'
 
 /**
  * Formats a chat error message based on the provider.

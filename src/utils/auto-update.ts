@@ -1,13 +1,13 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
-import { execSync } from 'child_process'
 import pkg from '../../package.json' with { type: 'json' }
 
 export interface UpdateResult {
-  updated: boolean
-  from?: string
-  to?: string
+  updateAvailable: boolean
+  current: string
+  latest?: string
+  message?: string
 }
 
 const COOLDOWN_MS = 60 * 60 * 1000 // 1 hour
@@ -38,9 +38,11 @@ function saveCooldown(): void {
   }
 }
 
-export async function checkAndUpdate(): Promise<UpdateResult> {
+export async function checkForUpdate(): Promise<UpdateResult> {
+  const current = pkg.version
+
   try {
-    if (!shouldCheck()) return { updated: false }
+    if (!shouldCheck()) return { updateAvailable: false, current }
 
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
@@ -52,29 +54,24 @@ export async function checkAndUpdate(): Promise<UpdateResult> {
 
     if (!res.ok) {
       saveCooldown()
-      return { updated: false }
+      return { updateAvailable: false, current }
     }
 
     const data = (await res.json()) as { version: string }
     const latest = data.version
-    const current = pkg.version
 
     saveCooldown()
 
-    if (latest === current) return { updated: false }
+    if (latest === current) return { updateAvailable: false, current, latest }
 
-    // Detect package manager
-    const isBun = typeof Bun !== 'undefined' || process.versions?.bun != null
-    const pm = isBun ? 'bun' : 'npm'
-
-    execSync(`${pm} install -g ${pkg.name}@${latest}`, {
-      stdio: 'ignore',
-      timeout: 30000,
-    })
-
-    return { updated: true, from: current, to: latest }
+    return {
+      updateAvailable: true,
+      current,
+      latest,
+      message: `Update available: v${latest}. Run 'npm install -g ${pkg.name}@${latest}' to update.`,
+    }
   } catch {
     saveCooldown()
-    return { updated: false }
+    return { updateAvailable: false, current }
   }
 }

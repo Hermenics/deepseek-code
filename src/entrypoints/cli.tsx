@@ -78,12 +78,11 @@ import { createRoot } from '../ink/root.js'
 import { App } from '../ui/App.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
-import { ApiKeySetup, loadSavedConfig, type ThemeName, type ProviderConfig } from '../ui/setup/ApiKeySetup.js'
+import { ApiKeySetup, loadSavedConfig } from '../ui/setup/ApiKeySetup.js'
+import type { ThemeName, ProviderConfig } from '../types/provider.js'
 import { migrateConfigIfNeeded, logout as doLogout } from '../utils/credentials.js'
 import { loadAgentConfig, type LoadedAgent } from '../agent/config.js'
 import { loadSession, newSessionId, type SessionData } from '../agent/session.js'
-// [OAUTH-DISABLED] OAuth authentication temporarily disabled
-// import { isOAuthReady } from '../agent/providers/oauth.js'
 import pkg from '../../package.json' with { type: 'json' }
 
 function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; update: boolean; logout: boolean; help: boolean; version: boolean } {
@@ -197,12 +196,12 @@ if (logout) {
 
 const SESSION_ID = newSessionId()
 
-// ── Auto-update check (non-blocking) ─────────────────────────────────────────
+// ── Auto-update check (non-blocking, notify only) ───────────────────────────
 if (!ARGV.update) {
-  import('../utils/auto-update.js').then(({ checkAndUpdate }) =>
-    checkAndUpdate().then(result => {
-      if (result.updated) {
-        process.stdout.write(`\x1b[2m  ✓ Atualizado: v${result.from} → v${result.to}\x1b[0m\n`)
+  import('../utils/auto-update.js').then(({ checkForUpdate }) =>
+    checkForUpdate().then((result: { updateAvailable: boolean; message?: string }) => {
+      if (result.updateAvailable && result.message) {
+        process.stdout.write(`\x1b[2m  ℹ ${result.message}\x1b[0m\n`)
       }
     })
   )
@@ -229,12 +228,6 @@ function Root() {
         if (saved) {
           setProviderConfig(saved)
           if (saved.provider === 'deepseek' && saved.apiKey) process.env.DEEPSEEK_API_KEY = saved.apiKey
-          // [OAUTH-DISABLED] OAuth authentication temporarily disabled
-          // if (saved.provider === 'oauth' && !isOAuthReady()) {
-          //   setReady(false)
-          //   setProviderConfig(null)
-          //   return
-          // }
           setReady(true)
         } else if (process.env.DEEPSEEK_API_KEY) {
           setProviderConfig({ provider: 'deepseek', apiKey: process.env.DEEPSEEK_API_KEY })
