@@ -1,50 +1,36 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
-import * as path from 'path'
-import * as os from 'os'
-import * as fs from 'fs/promises'
+import { mkdtemp, rm } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
 
-const HISTORY_PATH = path.join(os.homedir(), '.deepseek', 'input_history.json')
+let testDir: string
 
-async function backupAndClear() {
-  let backup: string | null = null
-  try { backup = await fs.readFile(HISTORY_PATH, 'utf-8') } catch { /* não existe */ }
-  await fs.rm(HISTORY_PATH, { force: true })
-  return backup
-}
+beforeEach(async () => {
+  testDir = await mkdtemp(join(tmpdir(), 'dsk-history-test-'))
+  process.env.HOME = testDir
+})
 
-async function restore(backup: string | null) {
-  await fs.rm(HISTORY_PATH, { force: true })
-  if (backup !== null) {
-    await fs.mkdir(path.dirname(HISTORY_PATH), { recursive: true })
-    await fs.writeFile(HISTORY_PATH, backup, 'utf-8')
-  }
-}
+afterEach(async () => {
+  await rm(testDir, { recursive: true, force: true })
+})
 
 describe('loadInputHistory', () => {
-  let backup: string | null = null
-
-  beforeEach(async () => { backup = await backupAndClear() })
-  afterEach(async () => { await restore(backup) })
-
   it('retorna [] se arquivo não existe', async () => {
     const { loadInputHistory } = await import('../src/agent/inputHistory.js')
     expect(await loadInputHistory()).toEqual([])
   })
 
   it('retorna entradas salvas', async () => {
-    await fs.mkdir(path.dirname(HISTORY_PATH), { recursive: true })
-    await fs.writeFile(HISTORY_PATH, JSON.stringify(['entrada1', 'entrada2']), 'utf-8')
+    const fs = await import('fs/promises')
+    const historyPath = join(testDir, '.deepseek', 'input_history.json')
+    await fs.mkdir(join(testDir, '.deepseek'), { recursive: true })
+    await fs.writeFile(historyPath, JSON.stringify(['entrada1', 'entrada2']), 'utf-8')
     const { loadInputHistory } = await import('../src/agent/inputHistory.js')
     expect(await loadInputHistory()).toEqual(['entrada1', 'entrada2'])
   })
 })
 
 describe('appendInputHistory', () => {
-  let backup: string | null = null
-
-  beforeEach(async () => { backup = await backupAndClear() })
-  afterEach(async () => { await restore(backup) })
-
   it('persiste nova entrada', async () => {
     const { appendInputHistory, loadInputHistory } = await import('../src/agent/inputHistory.js')
     await appendInputHistory('nova entrada')
@@ -53,8 +39,10 @@ describe('appendInputHistory', () => {
   })
 
   it('não duplica entrada consecutiva igual', async () => {
-    await fs.mkdir(path.dirname(HISTORY_PATH), { recursive: true })
-    await fs.writeFile(HISTORY_PATH, JSON.stringify(['entrada repetida']), 'utf-8')
+    const fs = await import('fs/promises')
+    const historyPath = join(testDir, '.deepseek', 'input_history.json')
+    await fs.mkdir(join(testDir, '.deepseek'), { recursive: true })
+    await fs.writeFile(historyPath, JSON.stringify(['entrada repetida']), 'utf-8')
     const { appendInputHistory, loadInputHistory } = await import('../src/agent/inputHistory.js')
     await appendInputHistory('entrada repetida')
     const history = await loadInputHistory()
@@ -62,9 +50,11 @@ describe('appendInputHistory', () => {
   })
 
   it('respeita limite de 200 entradas', async () => {
+    const fs = await import('fs/promises')
+    const historyPath = join(testDir, '.deepseek', 'input_history.json')
     const entries = Array.from({ length: 250 }, (_, i) => `entrada-${i}`)
-    await fs.mkdir(path.dirname(HISTORY_PATH), { recursive: true })
-    await fs.writeFile(HISTORY_PATH, JSON.stringify(entries), 'utf-8')
+    await fs.mkdir(join(testDir, '.deepseek'), { recursive: true })
+    await fs.writeFile(historyPath, JSON.stringify(entries), 'utf-8')
     const { appendInputHistory, loadInputHistory } = await import('../src/agent/inputHistory.js')
     await appendInputHistory('nova')
     const history = await loadInputHistory()
