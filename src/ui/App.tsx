@@ -325,7 +325,15 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             setThinkingText('')
           }
           setToolCallCount((c) => c + 1)
-          setToolStatus({ name, args: JSON.stringify(args).slice(0, 100), done: false })
+          // For subagent, show the task text instead of raw JSON
+          const argsPreview = name === 'subagent' && typeof (args as Record<string, unknown>)?.task === 'string'
+            ? (() => {
+                const task = (args as Record<string, unknown>).task as string
+                const firstLine = task.split('\n').map(l => l.replace(/^#+\s*/, '').trim()).find(l => l.length > 0) ?? task
+                return firstLine.length > 80 ? firstLine.slice(0, 80) + '…' : firstLine
+              })()
+            : JSON.stringify(args).slice(0, 100)
+          setToolStatus({ name, args: argsPreview, done: false })
         },
         onToolResult(name, result, args) {
           // Mark tool as done (shows checkmark briefly) then clear

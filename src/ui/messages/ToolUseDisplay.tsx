@@ -13,7 +13,25 @@ export function ToolUseDisplay({ tool, theme = 'dark' }: { tool: ToolStatus; the
   const colors = getThemeColors(theme)
   const display = TOOL_DISPLAY[tool.name] ?? tool.name
   const rawArg = tool.done ? (tool.result ?? '') : (tool.args ?? '')
-  const arg = rawArg.length > 60 ? rawArg.slice(0, 60) + '…' : rawArg
+
+  // For subagent tool, extract the 'task' field from the JSON args instead of showing raw JSON
+  let arg: string
+  if (tool.name === 'subagent' && !tool.done && tool.args) {
+    try {
+      const parsed = JSON.parse(tool.args) as Record<string, unknown>
+      const task = typeof parsed.task === 'string' ? parsed.task : rawArg
+      // Take first non-empty line, strip markdown headers and extra whitespace
+      const firstLine = task
+        .split('\n')
+        .map(l => l.replace(/^#+\s*/, '').trim())
+        .find(l => l.length > 0) ?? task
+      arg = firstLine.length > 60 ? firstLine.slice(0, 60) + '…' : firstLine
+    } catch {
+      arg = rawArg.length > 60 ? rawArg.slice(0, 60) + '…' : rawArg
+    }
+  } else {
+    arg = rawArg.length > 60 ? rawArg.slice(0, 60) + '…' : rawArg
+  }
 
   const tick = useClock()
   const [elapsed, setElapsed] = useState(0)
