@@ -78,6 +78,39 @@ ${task}
 - Return the final result directly`
 }
 
+function buildToolPreview(toolName: string, args: Record<string, unknown>): string {
+  // Extract the most meaningful field per tool instead of dumping raw JSON
+  const str = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v))
+  const truncate = (s: string, n = 50) => s.length > n ? s.slice(0, n) + '…' : s
+
+  switch (toolName) {
+    case 'read_file':
+    case 'write_file':
+    case 'patch_file':
+    case 'read_folder':
+      return truncate(str(args.path ?? args.file ?? ''))
+    case 'shell':
+      return truncate(str(args.command ?? ''))
+    case 'grep':
+      return truncate(`${args.pattern ?? ''} in ${args.path ?? '.'}`)
+    case 'glob':
+      return truncate(str(args.pattern ?? ''))
+    case 'web_fetch':
+      return truncate(str(args.url ?? ''))
+    case 'subagent': {
+      const task = str(args.task ?? '')
+      const firstLine = task.split('\n').map((l: string) => l.replace(/^#+\s*/, '').trim()).find((l: string) => l.length > 0) ?? task
+      return truncate(firstLine)
+    }
+    default: {
+      // Generic: show first string value found, or nothing
+      const first = Object.values(args).find(v => typeof v === 'string') as string | undefined
+      return first ? truncate(first) : ''
+    }
+  }
+}
+
+
 export const SubAgent: Tool = {
   name: 'subagent',
   description: 'Spawn a specialized subagent to handle a focused subtask independently with its own context and access to all tools (filesystem, shell, grep, etc.). Use this to delegate focused subtasks like analyzing a directory, refactoring a file, running tests, or researching something. Multiple subagent calls in the same response are executed in parallel. Returns the subagent\'s final result.',
@@ -160,7 +193,7 @@ export const SubAgent: Tool = {
           if (!fn) continue
           try { parsedArgs = JSON.parse(fn.arguments) } catch {}
 
-          subAgentCallbacks?.onToolUse(agentId, fn.name, JSON.stringify(parsedArgs).slice(0, 60))
+          subAgentCallbacks?.onToolUse(agentId, fn.name, buildToolPreview(fn.name, parsedArgs))
 
           const permDecision = resolvePermission(settings.permissions, fn.name, parsedArgs)
           if (permDecision === 'deny') {
