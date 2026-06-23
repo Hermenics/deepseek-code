@@ -6,6 +6,8 @@ import { Agent, type ToolPermissionResult } from '../agent/agent.js'
 import { MessageList } from './messages/MessageList.js'
 import { TodoPanel } from './messages/TodoPanel.js'
 import { ToolUseDisplay } from './messages/ToolUseDisplay.js'
+import { SubagentList, useSubagents } from './subagent/index.js'
+import { setSubAgentCallbacks } from '../tools/SubAgent/SubAgent.js'
 import { InputBox, LoadingSpinner } from './input/InputBox.js'
 import { QueuedMessagesList } from './input/QueuedMessagesList.js'
 import { enqueue } from './queueLogic.js'
@@ -98,6 +100,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [agent] = useState(() => new Agent(providerConfig ?? undefined))
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
   const [showThemeSelector, setShowThemeSelector] = useState(false)
+  const subagentsRef = useRef(useSubagents())
+  const [subagentTick, setSubagentTick] = useState(0)
   const [showModelSelector, setShowModelSelector] = useState(false)
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [showLanguageInput, setShowLanguageInput] = useState(false)
@@ -108,6 +112,29 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   useEffect(() => {
     agent.interactionMode = interactionMode
   }, [agent, interactionMode])
+
+  useEffect(() => {
+    const subs = subagentsRef.current
+    setSubAgentCallbacks({
+      onStart(id: string, task: string) {
+        subs.onSubagentStart({ id, task })
+        setSubagentTick((t) => t + 1)
+      },
+      onToolUse(id: string, tool: string, info?: string) {
+        subs.onSubagentToolUse({ id, tool, info })
+        setSubagentTick((t) => t + 1)
+      },
+      onDone(id: string, result: string) {
+        subs.onSubagentDone({ id, result })
+        setSubagentTick((t) => t + 1)
+      },
+      onError(id: string, error: string) {
+        subs.onSubagentError({ id, error })
+        setSubagentTick((t) => t + 1)
+      },
+    })
+    return () => setSubAgentCallbacks(null)
+  }, [])
 
   useEffect(() => {
     agent.setConfirmHandler((message) => {
@@ -344,6 +371,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setIsLoading(false)
           setAgentPhase('idle')
           setTokenCount(agent.tokenCount)
+          subagentsRef.current.clearResolved()
+          setSubagentTick((t) => t + 1)
           setQueuedMessages((q) => {
             if (q.length === 0) return q
             const [first, ...rest] = q
@@ -397,6 +426,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       setToolStatus(null)
       setIsLoading(false)
       setAgentPhase('idle')
+      subagentsRef.current.clearResolved()
+      setSubagentTick((t) => t + 1)
       const provider = providerConfig?.provider ?? 'deepseek'
       const message = e instanceof Error
         ? formatChatError(e, provider)
@@ -667,6 +698,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         <Box flexDirection="column">
           <MessageList messages={messages} streamText={streamText} thinkingText={thinkingText} streamRole={streamRole} theme={theme} activeAgent={activeAgent} headerProvider={headerProvider} headerAgent={headerAgent} />
           {toolStatus && <ToolUseDisplay tool={toolStatus} />}
+          {subagentsRef.current.agents.length > 0 && <SubagentList agents={subagentsRef.current.agents} theme={theme} />}
           <TodoPanel />
           {isLoading && <LoadingSpinner toolCallCount={toolCallCount} phase={agentPhase} />}
           {queuedMessages.length > 0 && <QueuedMessagesList messages={queuedMessages} />}

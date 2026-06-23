@@ -1,6 +1,7 @@
 import { Tool } from '../types.js'
 import OpenAI from 'openai'
 import { join } from 'path'
+import { randomUUID } from 'node:crypto'
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
 import type { ProviderConfig } from '../../types/provider.js'
 import { createLLMClient, defaultModel } from '../../agent/llmClient.js'
@@ -18,6 +19,19 @@ export function setSubAgentProvider(cfg: ProviderConfig) {
 
 export function setSubAgentModel(model: string) {
   subAgentModel = model
+}
+
+export interface SubAgentCallbacks {
+  onStart(id: string, task: string): void
+  onToolUse(id: string, tool: string, info?: string): void
+  onDone(id: string, result: string): void
+  onError(id: string, error: string): void
+}
+
+let subAgentCallbacks: SubAgentCallbacks | null = null
+
+export function setSubAgentCallbacks(cb: SubAgentCallbacks | null) {
+  subAgentCallbacks = cb
 }
 
 function buildSubAgentPrompt(task: string): string {
@@ -65,80 +79,90 @@ export const SubAgent: Tool = {
   async execute(args) {
     const task = args.task as string
     const modelOverride = args.model as string | undefined
+    const agentId = randomUUID().slice(0, 8)
 
-    // Lazy import to avoid circular dependency
-    const { allTools, toolMap } = await import('../index.js')
-    const subagentTools = allTools.filter((t) => t.name !== 'subagent')
-    const openaiTools: ChatCompletionTool[] = subagentTools.map((t) => ({
-      type: 'function' as const,
-      function: { name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown> },
-    }))
+    subAgentCallbacks?.onStart(agentId, task)
 
-    const client = createLLMClient(subAgentProvider)
-    const model = modelOverride ?? subAgentModel ?? defaultModel(subAgentProvider.provider)
+    try {
+      // Lazy import to avoid circular dependency
+      const { allTools, toolMap } = await import('../index.js')
+      const subagentTools = allTools.filter((t) => t.name !== 'subagent')
+      const openaiTools: ChatCompletionTool[] = subagentTools.map((t) => ({
+        type: 'function' as const,
+        function: { name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown> },
+      }))
 
-    const messages: ChatCompletionMessageParam[] = [
-      { role: 'system', content: buildSubAgentPrompt(task) },
-      { role: 'user', content: task },
-    ]
+      const client = createLLMClient(subAgentProvider)
+      const model = modelOverride ?? subAgentModel ?? defaultModel(subAgentProvider.provider)
 
-    for (let i = 0; i < SUBAGENT_MAX_ITERATIONS; i++) {
-      // Pass messages as-is — reasoning_content must be preserved for all models.
-      // DeepSeek-V4-Flash has built-in thinking mode and the API requires the field back when present.
-      const response = await client.chat.completions.create({
-        model,
-        messages,
-        tools: openaiTools,
-      })
+      const messages: ChatCompletionMessageParam[] = [
+        { role: 'system', content: buildSubAgentPrompt(task) },
+        { role: 'user', content: task },
+      ]
 
-      const msg = response.choices[0]!.message
+      for (let i = 0; i < SUBAGENT_MAX_ITERATIONS; i++) {
+        const response = await client.chat.completions.create({
+          model,
+          messages,
+          tools: openaiTools,
+        })
 
-      if (!msg.tool_calls?.length) {
-        return msg.content ?? '(no output)'
-      }
+        const msg = response.choices[0]!.message
 
-      const assistantMsg: ChatCompletionMessageParam & { reasoning_content?: string } = {
-        role: 'assistant',
-        content: msg.content ?? null,
-        tool_calls: msg.tool_calls,
-      }
-      // Preserves reasoning_content always — the API requires it to be passed back when present
-      const msgReasoning = (msg as unknown as Record<string, unknown>).reasoning_content
-      if (typeof msgReasoning === 'string' && msgReasoning) {
-        assistantMsg.reasoning_content = msgReasoning
-      }
-      messages.push(assistantMsg)
-
-      // Load permissions once per iteration (cached after first load)
-      const settings = await loadMergedSettings()
-
-      for (const tc of msg.tool_calls) {
-        let parsedArgs: Record<string, unknown> = {}
-        const fn = 'function' in tc ? tc.function : undefined
-        if (!fn) continue
-        try { parsedArgs = JSON.parse(fn.arguments) } catch {}
-
-        // Inherit parent permission rules — deny rules block execution
-        const permDecision = resolvePermission(settings.permissions, fn.name, parsedArgs)
-        if (permDecision === 'deny') {
-          messages.push({ role: 'tool', tool_call_id: tc.id, content: `Tool '${fn.name}' blocked by permission rule.` })
-          continue
+        if (!msg.tool_calls?.length) {
+          const result = msg.content ?? '(no output)'
+          subAgentCallbacks?.onDone(agentId, result.slice(0, 200))
+          return result
         }
 
-        const tool = toolMap.get(fn.name)
-        let result: string
-        if (tool) {
-          try { result = await tool.execute(parsedArgs) } catch (e: unknown) {
-            result = `Error: ${(e as Error).message}`
+        const assistantMsg: ChatCompletionMessageParam & { reasoning_content?: string } = {
+          role: 'assistant',
+          content: msg.content ?? null,
+          tool_calls: msg.tool_calls,
+        }
+        const msgReasoning = (msg as unknown as Record<string, unknown>).reasoning_content
+        if (typeof msgReasoning === 'string' && msgReasoning) {
+          assistantMsg.reasoning_content = msgReasoning
+        }
+        messages.push(assistantMsg)
+
+        const settings = await loadMergedSettings()
+
+        for (const tc of msg.tool_calls) {
+          let parsedArgs: Record<string, unknown> = {}
+          const fn = 'function' in tc ? tc.function : undefined
+          if (!fn) continue
+          try { parsedArgs = JSON.parse(fn.arguments) } catch {}
+
+          subAgentCallbacks?.onToolUse(agentId, fn.name, JSON.stringify(parsedArgs).slice(0, 60))
+
+          const permDecision = resolvePermission(settings.permissions, fn.name, parsedArgs)
+          if (permDecision === 'deny') {
+            messages.push({ role: 'tool', tool_call_id: tc.id, content: `Tool '${fn.name}' blocked by permission rule.` })
+            continue
           }
-        } else {
-          result = `Unknown tool: ${fn.name}`
+
+          const tool = toolMap.get(fn.name)
+          let result: string
+          if (tool) {
+            try { result = await tool.execute(parsedArgs) } catch (e: unknown) {
+              result = `Error: ${(e as Error).message}`
+            }
+          } else {
+            result = `Unknown tool: ${fn.name}`
+          }
+
+          messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
         }
-
-        messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
       }
-    }
 
-    return '(subagent reached max iterations)'
+      const maxResult = '(subagent reached max iterations)'
+      subAgentCallbacks?.onDone(agentId, maxResult)
+      return maxResult
+    } catch (e: unknown) {
+      const errMsg = (e as Error).message ?? String(e)
+      subAgentCallbacks?.onError(agentId, errMsg)
+      throw e
+    }
   },
 }
