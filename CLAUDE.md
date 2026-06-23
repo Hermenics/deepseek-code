@@ -64,17 +64,4 @@ Você não é apenas um modelo de linguagem; você é o **parceiro de programaç
 
 ## Como usar
 
-Digite `/reversa` para ativar o Reversa e iniciar ou retomar a análise do projeto.
-
-## Comportamento ao ativar
-
-Quando o usuário digitar `/reversa` ou a palavra `reversa` sozinha em uma mensagem:
-
-1. Ative o skill `reversa` disponível em `.claude/skills/reversa/SKILL.md`
-2. Se não encontrar em `.claude/skills/`, tente `.agents/skills/reversa/SKILL.md`
-3. Leia o SKILL.md na íntegra e siga exatamente as instruções do Reversa
-
-## Regra não-negociável
-
-Nunca apague, modifique ou sobrescreva arquivos pré-existentes do projeto legado.
-O Reversa escreve **apenas** em `.reversa/` e `_reversa_sdd/`.
+Antes de implementar qualquer mudança, consulte a documentação em `_reversa_sdd/` para entender a arquitetura, módulos afetados e suas dependências. Use `traceability/spec-impact-matrix.md` para avaliar o blast radius da mudança.
