@@ -327,7 +327,7 @@ export function InputBox({
           columns={cols}
           placeholder={pastedBlock ? '' : placeholder}
           ghostText={ghost?.text}
-          prefix={hasExclamation ? '! ' : '❯ '}
+          prefix={''}
           prefixColor={hasExclamation ? 'magenta' : 'cyan'}
         />
         {ctrlCDouble.armed && (
