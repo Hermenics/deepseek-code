@@ -1,0 +1,56 @@
+installation:
+  version: 1.2.43
+  installDate: 2026-06-23T16:23:28.345Z
+  lastUpdated: 2026-06-23T16:23:28.345Z
+
+engines:
+  - claude-code
+
+agents:
+  - reversa
+  - reversa-scout
+  - reversa-archaeologist
+  - reversa-detective
+  - reversa-architect
+  - reversa-writer
+  - reversa-reviewer
+  - reversa-visor
+  - reversa-data-master
+  - reversa-design-system
+  - reversa-agents-help
+  - reversa-reconstructor
+  - reversa-migrate
+  - reversa-paradigm-advisor
+  - reversa-curator
+  - reversa-strategist
+  - reversa-designer
+  - reversa-screen-translator
+  - reversa-inspector
+  - reversa-forward
+  - reversa-requirements
+  - reversa-clarify
+  - reversa-plan
+  - reversa-to-do
+  - reversa-audit
+  - reversa-quality
+  - reversa-coding
+  - reversa-principles
+  - reversa-resume
+  - reversa-new
+  - reversa-ideator
+  - reversa-researcher
+  - reversa-drafter
+  - reversa-spec-sdd
+  - reversa-pricing-profile
+  - reversa-pricing-size
+  - reversa-pricing-estimate
+  - reversa-docs
+  - reversa-docs-mapper
+  - reversa-docs-analyst
+  - reversa-docs-storyteller
+  - reversa-docs-publisher
+  - reversa-arquitetura-3d
+  - reversa-selo-generativo
+  - reversa-highcharts-visualizer
+  - reversa-especialista-d3
+  - reversa-image-prompt-json

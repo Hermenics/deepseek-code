@@ -1,0 +1,420 @@
+{
+  "generated_at": "2026-06-23T00:00:00Z",
+  "modules": [
+    {
+      "name": "agent",
+      "path": "src/agent/",
+      "purpose": "Core do agente LLM: loop de conversação, providers, steering, sessões, checkpoints, compactação, custo e auditoria",
+      "primary_files": [
+        "src/agent/agent.ts",
+        "src/agent/llmClient.ts",
+        "src/agent/mcp.ts",
+        "src/agent/steering.ts",
+        "src/agent/config.ts",
+        "src/agent/session.ts",
+        "src/agent/checkpoint.ts",
+        "src/agent/compactBoundary.ts",
+        "src/agent/cost.ts",
+        "src/agent/auditLog.ts",
+        "src/agent/todoStore.ts",
+        "src/agent/history.ts"
+      ],
+      "functions": [
+        { "name": "Agent.run", "file": "src/agent/agent.ts", "params": ["userMessage: string", "cb: AgentCallbacks"], "returns": "Promise<void>", "confidence": "confirmed" },
+        { "name": "Agent.loop", "file": "src/agent/agent.ts", "params": ["cb: AgentCallbacks"], "returns": "Promise<void>", "confidence": "confirmed" },
+        { "name": "Agent.runLoop", "file": "src/agent/agent.ts", "params": ["cb: AgentCallbacks"], "returns": "Promise<void>", "confidence": "confirmed" },
+        { "name": "Agent.checkAndExecuteTool", "file": "src/agent/agent.ts", "params": ["tc", "parsedArgs", "cb"], "returns": "Promise<{tc, result}>", "confidence": "confirmed" },
+        { "name": "Agent.compact", "file": "src/agent/agent.ts", "params": [], "returns": "Promise<string>", "confidence": "confirmed" },
+        { "name": "Agent.initialize", "file": "src/agent/agent.ts", "params": [], "returns": "Promise<void>", "confidence": "confirmed" },
+        { "name": "createLLMClient", "file": "src/agent/llmClient.ts", "params": ["cfg: ProviderConfig", "model?: string"], "returns": "OpenAI", "confidence": "confirmed" },
+        { "name": "defaultModel", "file": "src/agent/llmClient.ts", "params": ["provider"], "returns": "string", "confidence": "confirmed" },
+        { "name": "loadMcpTools", "file": "src/agent/mcp.ts", "params": [], "returns": "Promise<{tools, errors}>", "confidence": "confirmed" },
+        { "name": "sanitizeMcpEnv", "file": "src/agent/mcp.ts", "params": ["base", "override"], "returns": "Record<string, string>", "confidence": "confirmed" },
+        { "name": "loadSteering", "file": "src/agent/steering.ts", "params": [], "returns": "Promise<string>", "confidence": "confirmed" },
+        { "name": "loadDeepSeekMd", "file": "src/agent/steering.ts", "params": [], "returns": "Promise<string>", "confidence": "confirmed" },
+        { "name": "saveCheckpoint", "file": "src/agent/checkpoint.ts", "params": ["messages", "filesModified", "label?"], "returns": "Promise<string>", "confidence": "confirmed" },
+        { "name": "saveSession", "file": "src/agent/session.ts", "params": ["data: SessionData"], "returns": "Promise<void>", "confidence": "confirmed" },
+        { "name": "estimateCost", "file": "src/agent/cost.ts", "params": ["model", "usage: TokenUsage"], "returns": "number", "confidence": "confirmed" },
+        { "name": "auditLog", "file": "src/agent/auditLog.ts", "params": ["event: AuditEvent"], "returns": "Promise<void>", "confidence": "confirmed" }
+      ],
+      "entities": [
+        {
+          "name": "Agent",
+          "fields": [
+            { "name": "client", "type": "OpenAI", "required": true },
+            { "name": "messages", "type": "MessageOrBoundary[]", "required": true },
+            { "name": "tools", "type": "Tool[]", "required": true },
+            { "name": "model", "type": "Model", "required": true },
+            { "name": "provider", "type": "ProviderConfig['provider']", "required": true },
+            { "name": "interactionMode", "type": "InteractionMode", "required": true },
+            { "name": "tokenUsage", "type": "TokenUsage", "required": true },
+            { "name": "undoStack", "type": "UndoEntry[]", "required": true },
+            { "name": "contextUsage", "type": "number", "required": true },
+            { "name": "contextLimit", "type": "number", "required": true }
+          ],
+          "confidence": "confirmed"
+        },
+        {
+          "name": "SessionData",
+          "fields": [
+            { "name": "id", "type": "string", "required": true },
+            { "name": "cwd", "type": "string", "required": true },
+            { "name": "model", "type": "string", "required": true },
+            { "name": "provider", "type": "string", "required": true },
+            { "name": "agentMessages", "type": "MessageOrBoundary[]", "required": true },
+            { "name": "uiMessages", "type": "Message[]", "required": true },
+            { "name": "filesModified", "type": "string[]", "required": true }
+          ],
+          "confidence": "confirmed"
+        },
+        {
+          "name": "Checkpoint",
+          "fields": [
+            { "name": "id", "type": "string", "required": true },
+            { "name": "timestamp", "type": "string", "required": true },
+            { "name": "label", "type": "string", "required": true },
+            { "name": "messages", "type": "MessageOrBoundary[]", "required": true },
+            { "name": "filesModified", "type": "string[]", "required": true }
+          ],
+          "confidence": "confirmed"
+        }
+      ],
+      "business_rules": [
+        { "description": "Auto-compact dispara quando contextUsage/contextLimit > 0.85", "location": "src/agent/agent.ts:561", "confidence": "confirmed" },
+        { "description": "Circuit breaker: auto-compact desativa após 3 falhas consecutivas", "location": "src/services/compact/autoCompact.ts:43", "confidence": "confirmed" },
+        { "description": "MicroCompact mantém apenas os 5 últimos tool results intactos", "location": "src/services/compact/autoCompact.ts:57", "confidence": "confirmed" },
+        { "description": "Retry com backoff exponencial (1s, 2s, 4s) em HTTP 429/503", "location": "src/agent/agent.ts:596", "confidence": "confirmed" },
+        { "description": "Sessões são pruned quando excedem 50 (mais antigas removidas)", "location": "src/agent/session.ts:69", "confidence": "confirmed" },
+        { "description": "Checkpoints são pruned quando excedem 20", "location": "src/agent/checkpoint.ts:59", "confidence": "confirmed" },
+        { "description": "Undo stack máximo de 10 entries (FIFO)", "location": "src/agent/agent.ts:1039", "confidence": "confirmed" },
+        { "description": "Hooks de project-level são stripados por segurança (só user-level aceito)", "location": "src/settings/loader.ts:98", "confidence": "confirmed" },
+        { "description": "Auto mode bypassa TODAS as verificações de permissão", "location": "src/agent/agent.ts:920", "confidence": "confirmed" },
+        { "description": "Tools parallel-safe executam concorrentemente: subagent, shell, grep, glob, read_file, read_folder, web_fetch, introspect", "location": "src/agent/agent.ts:44", "confidence": "confirmed" }
+      ],
+      "dependencies": ["tools", "commands", "hooks", "permissions", "settings", "services", "state", "utils", "constants"],
+      "algorithms": [
+        { "name": "Bedrock prompt-based tool calling", "description": "Injeta tool definitions como XML no system prompt e parseia <tool_call> blocks na resposta", "location": "src/agent/agent.ts:52-61" },
+        { "name": "CompactBoundary", "description": "Marca ponto de compactação no histórico; getMessagesAfterBoundary retorna só mensagens relevantes + system prompt", "location": "src/agent/compactBoundary.ts" }
+      ],
+      "complexity": "high"
+    },
+    {
+      "name": "tools",
+      "path": "src/tools/",
+      "purpose": "13 ferramentas que o agente pode invocar: filesystem, shell, git, web, sub-agent, todo",
+      "primary_files": [
+        "src/tools/index.ts",
+        "src/tools/types.ts",
+        "src/tools/Shell/Shell.ts",
+        "src/tools/WriteFile/WriteFile.ts",
+        "src/tools/PatchFile/PatchFile.ts",
+        "src/tools/SubAgent/SubAgent.ts",
+        "src/tools/WebFetch/WebFetch.ts",
+        "src/tools/Git/Git.ts",
+        "src/tools/Todo/Todo.ts",
+        "src/tools/shared/pathSafety.ts"
+      ],
+      "functions": [
+        { "name": "Shell.execute", "file": "src/tools/Shell/Shell.ts", "params": ["args: {command, timeout?}"], "returns": "Promise<string>", "confidence": "confirmed" },
+        { "name": "WriteFile.execute", "file": "src/tools/WriteFile/WriteFile.ts", "params": ["args: {path, content}"], "returns": "Promise<string>", "confidence": "confirmed" },
+        { "name": "PatchFile.execute", "file": "src/tools/PatchFile/PatchFile.ts", "params": ["args: {path, old_content, new_content}"], "returns": "Promise<string>", "confidence": "confirmed" },
+        { "name": "SubAgent.execute", "file": "src/tools/SubAgent/SubAgent.ts", "params": ["args: {task, model?}"], "returns": "Promise<string>", "confidence": "confirmed" },
+        { "name": "assertSafePath", "file": "src/tools/shared/pathSafety.ts", "params": ["filePath: string"], "returns": "Promise<void>", "confidence": "confirmed" }
+      ],
+      "entities": [
+        {
+          "name": "Tool",
+          "fields": [
+            { "name": "name", "type": "string", "required": true },
+            { "name": "description", "type": "string", "required": true },
+            { "name": "parameters", "type": "object", "required": true },
+            { "name": "execute", "type": "(args) => Promise<string>", "required": true }
+          ],
+          "confidence": "confirmed"
+        }
+      ],
+      "business_rules": [
+        { "description": "Paths devem estar dentro do cwd (sandbox)", "location": "src/tools/shared/pathSafety.ts:63", "confidence": "confirmed" },
+        { "description": "Symlink traversal é bloqueado via realpath", "location": "src/tools/shared/pathSafety.ts:70", "confidence": "confirmed" },
+        { "description": "Arquivos sensíveis (.env, .pem, credentials) são bloqueados", "location": "src/tools/shared/pathSafety.ts:87", "confidence": "confirmed" },
+        { "description": "Shell: patterns destrutivos requerem confirmação do user", "location": "src/tools/Shell/Shell.ts:17", "confidence": "confirmed" },
+        { "description": "WebFetch: SSRF protection bloqueia localhost, private IPs, metadata endpoints", "location": "src/tools/WebFetch/WebFetch.ts:12", "confidence": "confirmed" },
+        { "description": "SubAgent herda provider e permissions do parent, max 15 iterations", "location": "src/tools/SubAgent/SubAgent.ts:85", "confidence": "confirmed" },
+        { "description": "Diff LCS não executa para arquivos > 5000 linhas (guard OOM)", "location": "src/tools/WriteFile/WriteFile.ts:9", "confidence": "confirmed" }
+      ],
+      "dependencies": ["constants", "permissions", "settings", "agent"],
+      "algorithms": [
+        { "name": "LCS Diff", "description": "Longest Common Subsequence via DP para gerar diff line-by-line", "location": "src/tools/WriteFile/WriteFile.ts:7-31" }
+      ],
+      "complexity": "medium"
+    },
+    {
+      "name": "commands",
+      "path": "src/commands/",
+      "purpose": "22 slash commands da CLI interativa (parseCommand, COMMAND_SUGGESTIONS)",
+      "primary_files": ["src/commands/index.ts", "src/commands/types.ts"],
+      "functions": [
+        { "name": "parseCommand", "file": "src/commands/index.ts", "params": ["input: string"], "returns": "CommandResult | null", "confidence": "confirmed" }
+      ],
+      "entities": [],
+      "business_rules": [
+        { "description": "Commands são reconhecidos por name ou aliases", "location": "src/commands/index.ts:61", "confidence": "confirmed" }
+      ],
+      "dependencies": ["agent"],
+      "algorithms": [],
+      "complexity": "low"
+    },
+    {
+      "name": "ink",
+      "path": "src/ink/",
+      "purpose": "Fork customizado do Ink — React TUI renderer com layout Yoga, event system e terminal I/O",
+      "primary_files": [
+        "src/ink/ink.tsx",
+        "src/ink/reconciler.ts",
+        "src/ink/renderer.ts",
+        "src/ink/render-to-screen.ts",
+        "src/ink/layout/engine.ts",
+        "src/ink/events/dispatcher.ts",
+        "src/ink/parse-keypress.ts"
+      ],
+      "functions": [
+        { "name": "createRoot", "file": "src/ink/root.ts", "params": ["options"], "returns": "Promise<InkRoot>", "confidence": "confirmed" }
+      ],
+      "entities": [],
+      "business_rules": [],
+      "dependencies": ["native-ts"],
+      "algorithms": [
+        { "name": "Yoga Flexbox Layout", "description": "Layout engine baseado em Yoga (bindings TS puro) para cálculo de posição/tamanho de boxes no terminal", "location": "src/ink/layout/" },
+        { "name": "Hit Testing", "description": "Detecção de cliques em nodes via coordenadas de terminal", "location": "src/ink/hit-test.ts" },
+        { "name": "Log Update", "description": "Re-renderização otimizada — só reescreve linhas alteradas", "location": "src/ink/log-update.ts" }
+      ],
+      "complexity": "high"
+    },
+    {
+      "name": "ui",
+      "path": "src/ui/",
+      "purpose": "Componentes de aplicação: App, Input, Messages, Layout, Setup, Interaction Modes",
+      "primary_files": [
+        "src/ui/App.tsx",
+        "src/ui/interactionMode.ts",
+        "src/ui/input/InputBox.tsx",
+        "src/ui/input/hooks/useVimMode.ts",
+        "src/ui/layout/StatusBar.tsx",
+        "src/ui/messages/MessageList.tsx"
+      ],
+      "functions": [
+        { "name": "App", "file": "src/ui/App.tsx", "params": ["props"], "returns": "JSX.Element", "confidence": "confirmed" },
+        { "name": "nextMode", "file": "src/ui/interactionMode.ts", "params": ["current: InteractionMode"], "returns": "InteractionMode", "confidence": "confirmed" },
+        { "name": "canUseTool", "file": "src/ui/interactionMode.ts", "params": ["mode", "tool"], "returns": "boolean", "confidence": "confirmed" }
+      ],
+      "entities": [
+        {
+          "name": "Message",
+          "fields": [
+            { "name": "role", "type": "'user'|'assistant'|'tool'|'terminal'|'thinking'", "required": true },
+            { "name": "content", "type": "string", "required": true }
+          ],
+          "confidence": "confirmed"
+        }
+      ],
+      "business_rules": [
+        { "description": "Auto mode só pode ser ativado pelo usuário (Shift+Tab), nunca pelo modelo", "location": "src/ui/interactionMode.ts:63", "confidence": "confirmed" },
+        { "description": "Ciclo de modos: plan → build → auto → plan", "location": "src/ui/interactionMode.ts:10", "confidence": "confirmed" }
+      ],
+      "dependencies": ["agent", "commands", "ink", "state"],
+      "algorithms": [],
+      "complexity": "medium"
+    },
+    {
+      "name": "hooks",
+      "path": "src/hooks/",
+      "purpose": "Sistema extensível de hooks (PreToolUse, PostToolUse, SessionStart) via shell commands",
+      "primary_files": [
+        "src/hooks/index.ts",
+        "src/hooks/executor.ts",
+        "src/hooks/matcher.ts",
+        "src/hooks/types.ts"
+      ],
+      "functions": [
+        { "name": "runPreToolHooks", "file": "src/hooks/executor.ts", "params": ["config", "toolName", "toolInput", "sessionId"], "returns": "Promise<{decision, reason?, modifiedInput?}>", "confidence": "confirmed" },
+        { "name": "runPostToolHooks", "file": "src/hooks/executor.ts", "params": ["config", "toolName", "toolInput", "toolResult", "sessionId"], "returns": "Promise<void>", "confidence": "confirmed" },
+        { "name": "matchesHookPattern", "file": "src/hooks/matcher.ts", "params": ["pattern", "toolName"], "returns": "boolean", "confidence": "confirmed" }
+      ],
+      "entities": [],
+      "business_rules": [
+        { "description": "Hooks são shell commands que recebem JSON stdin e retornam JSON stdout", "location": "src/hooks/executor.ts:9", "confidence": "confirmed" },
+        { "description": "PostToolUse é fire-and-forget (erros ignorados)", "location": "src/hooks/executor.ts:98", "confidence": "confirmed" },
+        { "description": "PreToolUse pode bloquear ou modificar input da tool", "location": "src/hooks/executor.ts:51", "confidence": "confirmed" }
+      ],
+      "dependencies": [],
+      "algorithms": [],
+      "complexity": "low"
+    },
+    {
+      "name": "permissions",
+      "path": "src/permissions/",
+      "purpose": "Sistema de allow/deny rules com glob matching iterativo (anti-ReDoS)",
+      "primary_files": [
+        "src/permissions/index.ts",
+        "src/permissions/matcher.ts",
+        "src/permissions/types.ts"
+      ],
+      "functions": [
+        { "name": "resolvePermission", "file": "src/permissions/matcher.ts", "params": ["permissions", "toolName", "args"], "returns": "PermissionDecision", "confidence": "confirmed" },
+        { "name": "globMatch", "file": "src/permissions/matcher.ts", "params": ["pattern", "value"], "returns": "boolean", "confidence": "confirmed" }
+      ],
+      "entities": [],
+      "business_rules": [
+        { "description": "Deny rules avaliadas primeiro, depois allow, fallback: ask se allow rules existem", "location": "src/permissions/matcher.ts:89", "confidence": "confirmed" },
+        { "description": "Limit de 10 wildcards por pattern (safety)", "location": "src/permissions/matcher.ts:20", "confidence": "confirmed" }
+      ],
+      "dependencies": [],
+      "algorithms": [
+        { "name": "Iterative Glob Match", "description": "Matching iterativo com backtracking limitado, imune a ReDoS", "location": "src/permissions/matcher.ts:29" }
+      ],
+      "complexity": "low"
+    },
+    {
+      "name": "settings",
+      "path": "src/settings/",
+      "purpose": "Carregamento hierárquico de settings (user < project < local) com merge inteligente",
+      "primary_files": [
+        "src/settings/index.ts",
+        "src/settings/loader.ts",
+        "src/settings/types.ts",
+        "src/settings/writer.ts"
+      ],
+      "functions": [
+        { "name": "loadMergedSettings", "file": "src/settings/loader.ts", "params": [], "returns": "Promise<DeepSeekSettings>", "confidence": "confirmed" },
+        { "name": "mergeSettings", "file": "src/settings/loader.ts", "params": ["...levels: DeepSeekSettings[]"], "returns": "DeepSeekSettings", "confidence": "confirmed" }
+      ],
+      "entities": [
+        {
+          "name": "DeepSeekSettings",
+          "fields": [
+            { "name": "permissions", "type": "PermissionsConfig", "required": false },
+            { "name": "hooks", "type": "HooksConfig", "required": false },
+            { "name": "model", "type": "string", "required": false },
+            { "name": "theme", "type": "string", "required": false },
+            { "name": "language", "type": "string", "required": false },
+            { "name": "autoCompact", "type": "boolean", "required": false },
+            { "name": "autoCompactThreshold", "type": "number", "required": false }
+          ],
+          "confidence": "confirmed"
+        }
+      ],
+      "business_rules": [
+        { "description": "Hooks são stripados de project e local level (segurança contra repos maliciosos)", "location": "src/settings/loader.ts:98", "confidence": "confirmed" },
+        { "description": "Arrays: concat + dedup. Objects: deep merge 1 nível. Scalars: higher priority wins", "location": "src/settings/loader.ts:47", "confidence": "confirmed" }
+      ],
+      "dependencies": ["hooks"],
+      "algorithms": [],
+      "complexity": "low"
+    },
+    {
+      "name": "services",
+      "path": "src/services/",
+      "purpose": "Serviços auxiliares: auto-compact com circuit breaker, MCP re-exports, session",
+      "primary_files": [
+        "src/services/compact/autoCompact.ts",
+        "src/services/compact/summaryPrompt.ts",
+        "src/services/mcp/client.ts",
+        "src/services/session/index.ts"
+      ],
+      "functions": [
+        { "name": "shouldAutoCompact", "file": "src/services/compact/autoCompact.ts", "params": ["contextUsage", "contextLimit", "config", "state"], "returns": "boolean", "confidence": "confirmed" },
+        { "name": "microCompact", "file": "src/services/compact/autoCompact.ts", "params": ["messages", "keepLastN"], "returns": "MessageOrBoundary[]", "confidence": "confirmed" }
+      ],
+      "entities": [
+        {
+          "name": "AutoCompactConfig",
+          "fields": [
+            { "name": "enabled", "type": "boolean", "required": true },
+            { "name": "threshold", "type": "number", "required": true },
+            { "name": "bufferTokens", "type": "number", "required": true },
+            { "name": "maxConsecutiveFailures", "type": "number", "required": true }
+          ],
+          "confidence": "confirmed"
+        }
+      ],
+      "business_rules": [
+        { "description": "Circuit breaker desativa auto-compact após 3 falhas consecutivas", "location": "src/services/compact/autoCompact.ts:43", "confidence": "confirmed" }
+      ],
+      "dependencies": ["agent"],
+      "algorithms": [],
+      "complexity": "low"
+    },
+    {
+      "name": "state",
+      "path": "src/state/",
+      "purpose": "State management pub/sub centralizado",
+      "primary_files": ["src/state/store.ts", "src/state/selectors.ts", "src/state/index.ts"],
+      "functions": [
+        { "name": "getState", "file": "src/state/store.ts", "params": [], "returns": "Readonly<AppState>", "confidence": "confirmed" },
+        { "name": "setState", "file": "src/state/store.ts", "params": ["partial: Partial<AppState>"], "returns": "void", "confidence": "confirmed" },
+        { "name": "subscribe", "file": "src/state/store.ts", "params": ["listener"], "returns": "() => void", "confidence": "confirmed" }
+      ],
+      "entities": [
+        {
+          "name": "AppState",
+          "fields": [
+            { "name": "sessionId", "type": "string", "required": true },
+            { "name": "provider", "type": "string", "required": true },
+            { "name": "model", "type": "string", "required": true },
+            { "name": "tokenCount", "type": "number", "required": true },
+            { "name": "contextUsage", "type": "number", "required": true },
+            { "name": "contextLimit", "type": "number", "required": true },
+            { "name": "activeAgent", "type": "string | null", "required": true },
+            { "name": "isProcessing", "type": "boolean", "required": true }
+          ],
+          "confidence": "confirmed"
+        }
+      ],
+      "business_rules": [],
+      "dependencies": [],
+      "algorithms": [],
+      "complexity": "low"
+    },
+    {
+      "name": "utils",
+      "path": "src/utils/",
+      "purpose": "Utilitários compartilhados: fs, credentials, env, debug, semver, auto-update",
+      "primary_files": [
+        "src/utils/credentials.ts",
+        "src/utils/fs.ts",
+        "src/utils/auto-update.ts",
+        "src/utils/chatError.ts",
+        "src/utils/semver.ts",
+        "src/utils/env.ts"
+      ],
+      "functions": [
+        { "name": "readJson", "file": "src/utils/fs.ts", "params": ["path: string"], "returns": "Promise<T>", "confidence": "confirmed" },
+        { "name": "writeJson", "file": "src/utils/fs.ts", "params": ["path", "data"], "returns": "Promise<void>", "confidence": "confirmed" },
+        { "name": "checkForUpdate", "file": "src/utils/auto-update.ts", "params": [], "returns": "Promise<{updateAvailable, message?}>", "confidence": "confirmed" }
+      ],
+      "entities": [],
+      "business_rules": [],
+      "dependencies": [],
+      "algorithms": [],
+      "complexity": "low"
+    },
+    {
+      "name": "constants",
+      "path": "src/constants/",
+      "purpose": "Constantes globais organizadas por domínio: product, agent, tools, UI",
+      "primary_files": [
+        "src/constants/index.ts",
+        "src/constants/product.ts",
+        "src/constants/agent.ts",
+        "src/constants/tools.ts",
+        "src/constants/ui.ts"
+      ],
+      "functions": [],
+      "entities": [],
+      "business_rules": [],
+      "dependencies": [],
+      "algorithms": [],
+      "complexity": "low"
+    }
+  ]
+}
