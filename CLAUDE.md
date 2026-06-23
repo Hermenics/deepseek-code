@@ -58,6 +58,40 @@ Você não é apenas um modelo de linguagem; você é o **parceiro de programaç
 
 ---
 
+# Referência: Claude Code Source (`~/claude-code-source/`)
+
+O código-fonte do Claude Code (`@anthropic-ai/claude-code` v2.1.88) está disponível em `~/claude-code-source/` como **referência de comparação direta**.
+
+## Quando consultar
+
+- **Algo está ruim no DeepSeek Code** → Compare como o Claude Code resolve o mesmo problema
+- **Melhorias visuais/UX** → Veja como `src/components/` e `src/outputStyles/` renderizam
+- **Subagents/orquestração** → `src/coordinator/` é a referência de tree view e progress
+- **Precisa portar um padrão** → Inspire-se na arquitetura, adapte com identidade DeepSeek
+
+## Estrutura relevante do Claude Code
+
+```
+~/claude-code-source/src/
+├── coordinator/     # Orquestração de subagents (tree view, progress)
+├── components/      # Componentes UI (Ink/React)
+├── outputStyles/    # Formatação rica por tipo de tool
+├── context/         # Gestão de contexto da conversa
+├── cost-tracker.ts  # Token counting e custo
+├── hooks/           # Pre/post tool hooks
+├── commands/        # Sistema de slash commands
+├── ink/             # Framework TUI customizado
+└── plugins/         # Sistema de plugins
+```
+
+## Regras de uso
+
+- **Read-only** — nunca modificar `~/claude-code-source/`
+- **Inspiração, não copy-paste** — adaptar padrões com identidade DeepSeek
+- **Sempre comparar** — ao propor melhorias, verificar como o Claude Code faz antes
+
+---
+
 # Reversa
 
 > Framework de Engenharia Reversa instalado neste projeto.
