@@ -18,6 +18,8 @@ export const HELP_TEXT = `Commands:
   /clear                 clear chat history
   /compact               summarize history to save context
   /undo                  restore last file modified by agent
+  /undo all              restore ALL files modified this session
+  /undo list             list file checkpoints this session
   /retry                 re-run last message
   /tools                 list all available tools
   /system                show active system prompt
@@ -33,6 +35,8 @@ export const HELP_TEXT = `Commands:
   /msg <note>            add a note for the agent without interrupting it
   /vim                   toggle vim keybindings (normal/insert mode)
   /stats                 show session statistics
+  /memory                show persistent memory contents
+  /memory clear [agent|user]  clear memory (both or specific)
   /quit  /q              exit`
 
 export default command

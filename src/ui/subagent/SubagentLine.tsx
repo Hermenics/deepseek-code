@@ -15,6 +15,17 @@ function formatDuration(ms: number): string {
   return `${m}m ${s}s`
 }
 
+function formatTokens(n: number): string {
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
+  return String(n)
+}
+
+function formatCost(usd: number): string {
+  if (usd < 0.01) return `$${usd.toFixed(4)}`
+  return `$${usd.toFixed(3)}`
+}
+
 function truncate(str: string, max: number): string {
   return str.length > max ? str.slice(0, max - 1) + '…' : str
 }
@@ -56,9 +67,16 @@ export function SubagentLine({ agent, isLast, theme = 'dark' }: SubagentLineProp
         <>
           <Text color={colors.success}>✓</Text>
           <Text color={colors.textSubtle}>Done</Text>
+          <Text color={colors.textDim}>·</Text>
           <Text color={colors.textDim}>{agent.toolCount} tools</Text>
           {agent.durationMs !== null && (
-            <Text color={colors.textDim}>{formatDuration(agent.durationMs)}</Text>
+            <Text color={colors.textDim}>· {formatDuration(agent.durationMs)}</Text>
+          )}
+          {agent.tokens !== null && (
+            <Text color={colors.textDim}>· {formatTokens(agent.tokens)}</Text>
+          )}
+          {agent.costUsd !== null && (
+            <Text color={colors.warning}>{formatCost(agent.costUsd)}</Text>
           )}
         </>
       )}

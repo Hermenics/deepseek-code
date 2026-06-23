@@ -20,6 +20,8 @@ function makeAgent(id: string, overrides: Partial<SubagentState> = {}): Subagent
     durationMs: null,
     result: null,
     error: null,
+    tokens: null,
+    costUsd: null,
     ...overrides,
   }
 }

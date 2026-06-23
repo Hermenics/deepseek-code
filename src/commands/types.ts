@@ -12,6 +12,8 @@ export type CommandResult =
   | { type: 'agents' }
   | { type: 'theme' }
   | { type: 'undo' }
+  | { type: 'undo'; action: 'all' }
+  | { type: 'undo'; action: 'list' }
   | { type: 'retry' }
   | { type: 'cost' }
   | { type: 'files' }
@@ -27,6 +29,8 @@ export type CommandResult =
   | { type: 'msg'; note: string }
   | { type: 'vim' }
   | { type: 'stats' }
+  | { type: 'memory'; action: 'show' }
+  | { type: 'memory'; action: 'clear'; target?: 'agent' | 'user' }
   | { type: 'unknown'; input: string }
 
 export interface Command {

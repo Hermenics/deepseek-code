@@ -11,6 +11,8 @@ export interface SubagentState {
   durationMs: number | null
   result: string | null
   error: string | null
+  tokens: number | null        // total tokens used
+  costUsd: number | null       // estimated cost in USD
 }
 
 export interface SubagentLineProps {
