@@ -12,7 +12,9 @@ import { PatchFile } from './PatchFile/PatchFile.js'
 import { UpdateKnowledge } from './UpdateKnowledge/UpdateKnowledge.js'
 import { Todo } from './Todo/Todo.js'
 import { Git } from './Git/Git.js'
+import { MemoryTool } from './Memory/MemoryTool.js'
+import { MoATool } from './MoA/MoA.js'
 
-export const allTools: Tool[] = [WriteFile, PatchFile, ReadFile, ReadFolder, Grep, Glob, Shell, Introspect, WebFetch, SubAgent, UpdateKnowledge, Todo, Git]
+export const allTools: Tool[] = [WriteFile, PatchFile, ReadFile, ReadFolder, Grep, Glob, Shell, Introspect, WebFetch, SubAgent, UpdateKnowledge, Todo, Git, MemoryTool, MoATool]
 
 export const toolMap = new Map<string, Tool>(allTools.map((t) => [t.name, t]))

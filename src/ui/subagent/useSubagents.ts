@@ -3,7 +3,7 @@ import type { SubagentState } from './types.js'
 export interface SubagentStartInput { id: string; task: string }
 export interface SubagentProgressInput { id: string; info: string }
 export interface SubagentToolUseInput { id: string; tool: string; info?: string }
-export interface SubagentDoneInput { id: string; result: string }
+export interface SubagentDoneInput { id: string; result: string; tokens?: number; costUsd?: number }
 export interface SubagentErrorInput { id: string; error: string }
 
 export interface UseSubagentsReturn {
@@ -32,6 +32,8 @@ export function useSubagents(): UseSubagentsReturn {
         durationMs: null,
         result: null,
         error: null,
+        tokens: null,
+        costUsd: null,
       }
       hook.agents.push(agent)
     },
@@ -49,12 +51,14 @@ export function useSubagents(): UseSubagentsReturn {
       }
     },
 
-    onSubagentDone({ id, result }) {
+    onSubagentDone({ id, result, tokens, costUsd }) {
       const agent = hook.agents.find(a => a.id === id)
       if (agent) {
         agent.status = 'done'
         agent.result = result
         agent.durationMs = Date.now() - agent.startedAt
+        if (tokens != null) agent.tokens = tokens
+        if (costUsd != null) agent.costUsd = costUsd
       }
     },
 

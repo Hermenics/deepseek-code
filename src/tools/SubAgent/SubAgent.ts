@@ -24,8 +24,27 @@ export function setSubAgentModel(model: string) {
 export interface SubAgentCallbacks {
   onStart(id: string, task: string): void
   onToolUse(id: string, tool: string, info?: string): void
-  onDone(id: string, result: string): void
+  onDone(id: string, result: string, tokens?: number, costUsd?: number): void
   onError(id: string, error: string): void
+}
+
+// Cost per million tokens (input+output averaged) by model prefix
+const COST_PER_M_TOKENS: Record<string, number> = {
+  'deepseek-chat': 0.27,
+  'deepseek-reasoner': 0.55,
+  'deepseek-v4': 0.27,
+  'gpt-4o': 7.5,
+  'gpt-4': 30.0,
+  'gpt-3.5': 0.75,
+  'claude-opus': 45.0,
+  'claude-sonnet': 9.0,
+  'claude-haiku': 0.75,
+}
+
+function estimateCost(model: string, totalTokens: number): number {
+  const key = Object.keys(COST_PER_M_TOKENS).find(k => model.startsWith(k))
+  const rate = key ? COST_PER_M_TOKENS[key]! : 1.0 // fallback $1/M
+  return (totalTokens / 1_000_000) * rate
 }
 
 let subAgentCallbacks: SubAgentCallbacks | null = null
@@ -100,6 +119,8 @@ export const SubAgent: Tool = {
         { role: 'user', content: task },
       ]
 
+      let totalTokens = 0
+
       for (let i = 0; i < SUBAGENT_MAX_ITERATIONS; i++) {
         const response = await client.chat.completions.create({
           model,
@@ -107,11 +128,16 @@ export const SubAgent: Tool = {
           tools: openaiTools,
         })
 
+        if (response.usage?.total_tokens) {
+          totalTokens += response.usage.total_tokens
+        }
+
         const msg = response.choices[0]!.message
 
         if (!msg.tool_calls?.length) {
           const result = msg.content ?? '(no output)'
-          subAgentCallbacks?.onDone(agentId, result.slice(0, 200))
+          const cost = totalTokens > 0 ? estimateCost(model, totalTokens) : undefined
+          subAgentCallbacks?.onDone(agentId, result.slice(0, 200), totalTokens || undefined, cost)
           return result
         }
 
@@ -157,7 +183,8 @@ export const SubAgent: Tool = {
       }
 
       const maxResult = '(subagent reached max iterations)'
-      subAgentCallbacks?.onDone(agentId, maxResult)
+      const cost = totalTokens > 0 ? estimateCost(model, totalTokens) : undefined
+      subAgentCallbacks?.onDone(agentId, maxResult, totalTokens || undefined, cost)
       return maxResult
     } catch (e: unknown) {
       const errMsg = (e as Error).message ?? String(e)

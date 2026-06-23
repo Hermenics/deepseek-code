@@ -124,8 +124,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         subs.onSubagentToolUse({ id, tool, info })
         setSubagentTick((t) => t + 1)
       },
-      onDone(id: string, result: string) {
-        subs.onSubagentDone({ id, result })
+      onDone(id: string, result: string, tokens?: number, costUsd?: number) {
+        subs.onSubagentDone({ id, result, tokens, costUsd })
         setSubagentTick((t) => t + 1)
       },
       onError(id: string, error: string) {
@@ -506,7 +506,14 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           return
         }
         case 'undo': {
-          const result = await agent.undo()
+          let result: string
+          if ('action' in cmd && cmd.action === 'all') {
+            result = await agent.undoAll()
+          } else if ('action' in cmd && cmd.action === 'list') {
+            result = await agent.undoList()
+          } else {
+            result = await agent.undo()
+          }
           setMessages((m) => [...m, { role: 'assistant', content: result }])
           return
         }
@@ -639,6 +646,32 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         case 'stats': {
           const stats = agent.getStats()
           setMessages((m) => [...m, { role: 'assistant', content: stats }])
+          return
+        }
+        case 'memory': {
+          const { loadMemory } = await import('../agent/memory.js')
+          if ((cmd as any).action === 'clear') {
+            const target = (cmd as any).target
+            const { writeFile } = await import('fs/promises')
+            const { join } = await import('path')
+            const { homedir } = await import('os')
+            const dir = join(homedir(), '.deepseek-code', 'memory')
+            if (!target || target === 'agent') await writeFile(join(dir, 'MEMORY.md'), '', 'utf-8').catch(() => {})
+            if (!target || target === 'user') await writeFile(join(dir, 'USER.md'), '', 'utf-8').catch(() => {})
+            setMessages((m) => [...m, { role: 'assistant', content: `Memory cleared${target ? ` (${target})` : ''}.` }])
+          } else {
+            const agentEntries = await loadMemory('agent')
+            const userEntries = await loadMemory('user')
+            const lines: string[] = []
+            lines.push('**Agent Memory** (' + agentEntries.length + ' entries)')
+            if (agentEntries.length) agentEntries.forEach((e, i) => lines.push(`  ${i + 1}. ${e}`))
+            else lines.push('  (empty)')
+            lines.push('')
+            lines.push('**User Preferences** (' + userEntries.length + ' entries)')
+            if (userEntries.length) userEntries.forEach((e, i) => lines.push(`  ${i + 1}. ${e}`))
+            else lines.push('  (empty)')
+            setMessages((m) => [...m, { role: 'assistant', content: lines.join('\n') }])
+          }
           return
         }
         case 'unknown':

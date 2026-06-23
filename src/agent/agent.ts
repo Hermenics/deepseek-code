@@ -13,6 +13,7 @@ import type { AgentConfig } from './config.js'
 import type { Tool } from '../tools/types.js'
 import { resolveAgentFiles } from './files.js'
 import { loadSteering, loadDeepSeekMd } from './steering.js'
+import { getMemorySnapshot } from './memory.js'
 import { loadMergedSettings } from '../settings/index.js'
 import type { DeepSeekSettings } from '../settings/types.js'
 import { createLLMClient, defaultModel } from './llmClient.js'
@@ -21,6 +22,7 @@ import { listBedrockDeepSeekModels, modelSupportsChatCompletions } from './provi
 import { listVertexDeepSeekModels } from './providers/vertex.js'
 import { saveHistory } from './history.js'
 import { saveCheckpoint, listCheckpoints, loadCheckpoint } from './checkpoint.js'
+import { createFileCheckpoint, setCheckpointSession, rollbackLast as fileRollbackLast, rollbackAll as fileRollbackAll, listFileCheckpoints } from './fileCheckpoint.js'
 import { createBoundaryMarker, getMessagesAfterBoundary, isBoundaryMarker, type MessageOrBoundary } from './compactBoundary.js'
 import { estimateCost, formatCost, getContextLimit, type TokenUsage } from './cost.js'
 import type { ProviderConfig } from '../types/provider.js'
@@ -232,6 +234,7 @@ export class Agent {
       setSubAgentModel(this.model)
     }
     this.contextLimit = getContextLimit(this.provider, this.model)
+    setCheckpointSession(this.hookSessionId)
     // Initialize async — readyPromise is awaited in run() to prevent race conditions
     this.readyPromise = this.initialize()
   }
@@ -257,6 +260,9 @@ export class Agent {
       const parts: string[] = []
       if (steering) parts.push(steering)
       if (deepseekMd) parts.push(`--- DEEPSEEK.md ---\n${deepseekMd}`)
+
+      const memorySnapshot = await getMemorySnapshot()
+      if (memorySnapshot) parts.push(`--- MEMORY ---\n${memorySnapshot}`)
       if (parts.length) {
         const basePrompt = DEFAULT_SYSTEM_PROMPT
         this.systemPrompt = `${basePrompt}\n\n${parts.join('\n\n')}`
@@ -300,6 +306,18 @@ export class Agent {
     } catch (e) {
       return `Error restoring ${entry.path}: ${(e as Error).message}`
     }
+  }
+
+  async undoAll(): Promise<string> {
+    return fileRollbackAll(this.hookSessionId)
+  }
+
+  async undoList(): Promise<string> {
+    const entries = await listFileCheckpoints(this.hookSessionId)
+    if (entries.length === 0) return 'No file checkpoints in this session.'
+    return entries
+      .map((e) => `  ${e.id}  ${e.path}  (${e.toolName})`)
+      .join('\n')
   }
 
   // ── Files modified ─────────────────────────────────────────────────────────
@@ -1037,6 +1055,7 @@ export class Agent {
         this.undoStack.push({ path: filePath, content: '' })
       }
       if (this.undoStack.length > UNDO_STACK_MAX) this.undoStack.shift()
+      await createFileCheckpoint(this.hookSessionId, filePath, tc.function.name).catch(() => {})
     }
 
     // ── 4. Execute tool ──────────────────────────────────────────────────────
