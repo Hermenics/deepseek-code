@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepSeek Code</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@700&family=Inter:wght@300;400;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #050505;
+            --card-bg: #0a0a0a;
+            --border-color: #1f1f1f;
+            --text-primary: #ffffff;
+            --text-secondary: #a1a1aa;
+            --accent-color: #4f46e5;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: 'Inter', sans-serif;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        a {
+            color: var(--text-primary);
+            text-decoration: none;
+            border-bottom: 1px solid var(--border-color);
+            transition: border-color 0.3s;
+        }
+
+        a:hover {
+            border-color: var(--text-primary);
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+
+        /* DOBRA 1 - HERO */
+        .hero {
+            min-height: 90vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            position: relative;
+        }
+
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: 20%;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 600px;
+            height: 600px;
+            background: radial-gradient(circle, rgba(79, 70, 229, 0.15) 0%, transparent 70%);
+            z-index: -1;
+        }
+
+        .hero h1 {
+            font-family: 'Caveat', cursive;
+            font-size: 4.5rem;
+            line-height: 1.1;
+            margin-bottom: 24px;
+            max-width: 800px;
+        }
+
+        .hero p {
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin-bottom: 48px;
+        }
+
+        .install-box {
+            display: flex;
+            align-items: center;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1rem;
+            margin-bottom: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+
+        .install-box span {
+            margin-right: 16px;
+            color: var(--text-secondary);
+        }
+
+        .copy-btn {
+            background: transparent;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 4px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-left: 16px;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover {
+            background: var(--border-color);
+            color: var(--text-primary);
+        }
+
+        /* DOBRA 2 - BENEFÍCIOS */
+        .benefits {
+            padding: 100px 0;
+        }
+
+        .grid-2x2 {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 24px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            padding: 32px;
+            border-radius: 12px;
+            transition: transform 0.3s, border-color 0.3s;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            border-color: var(--text-secondary);
+        }
+
+        .card svg {
+            stroke: var(--text-primary);
+            width: 32px;
+            height: 32px;
+            margin-bottom: 16px;
+        }
+
+        .card h3 {
+            font-size: 1.25rem;
+            margin-bottom: 8px;
+        }
+
+        .card p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+        }
+
+        /* DOBRA 3 - COMO FUNCIONA */
+        .how-it-works {
+            padding: 100px 0;
+            text-align: center;
+        }
+
+        .terminal-mockup {
+            background: #000;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.8);
+            max-width: 700px;
+            margin: 40px auto 0;
+            text-align: left;
+            font-family: 'JetBrains Mono', monospace;
+            overflow: hidden;
+        }
+
+        .terminal-header {
+            background: var(--card-bg);
+            padding: 10px 16px;
+            display: flex;
+            gap: 8px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        .dot.red { background: #ff5f56; }
+        .dot.yellow { background: #ffbd2e; }
+        .dot.green { background: #27c93f; }
+
+        .terminal-body {
+            padding: 24px;
+            min-height: 300px;
+        }
+
+        .term-line {
+            margin-bottom: 8px;
+            color: var(--text-secondary);
+            white-space: pre-wrap;
+        }
+        
+        .term-prompt { color: #4f46e5; }
+        .term-user-input { color: #fff; }
+        .term-thinking { color: #555; font-style: italic; }
+
+        /* DOBRAS FINAIS (Simplificadas) */
+        .providers, .architecture, .footer {
+            padding: 80px 0;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .table-style {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 32px;
+            font-size: 0.95rem;
+        }
+
+        .table-style th, .table-style td {
+            text-align: left;
+            padding: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .table-style th {
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        .footer {
+            text-align: center;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 3rem; }
+            .grid-2x2 { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- DOBRA 1 -->
+    <section class="hero container">
+        <h1>Seu agent para automatizar seu código, de forma barata.</h1>
+        <p>Um assistente de código agentic com TUI. Ele não apenas responde: lê, escreve, executa e gerencia seu projeto via linguagem natural.</p>
+        
+        <div class="install-box">
+            <span>$</span>
+            <span id="install-text">npm install -g @aethelics/deepseek-code</span>
+            <button class="copy-btn" onclick="copyInstall()">Copiar</button>
+        </div>
+    </section>
+
+    <!-- DOBRA 2 -->
+    <section class="benefits container">
+        <div class="grid-2x2">
+            <div class="card">
+                <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75ZM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625ZM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125Z" /></svg>
+                <h3>O Agent cresce com você</h3>
+                <p>Entende o contexto completo do seu codebase e evolui junto com o seu projeto.</p>
+            </div>
+            <div class="card">
+                <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18v-5.25m0 0a6.01 6.01 0 001.5-.189m-1.5.189a6.01 6.01 0 01-1.5-.189m3.75 7.478a12.06 12.06 0 01-4.5 0m3.75 2.383a14.406 14.406 0 01-3 0M14.25 18v-.192c0-.983.658-1.823 1.508-2.316a7.5 7.5 0 10-7.517 0c.85.493 1.509 1.333 1.509 2.316V18" /></svg>
+                <h3>CoT inteligente</h3>
+                <p>Raciocínio transparente. Acompanhe a linha de pensamento da IA em tempo real enquanto ela resolve problemas.</p>
+            </div>
+            <div class="card">
+                <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <h3>Imensamente barato</h3>
+                <p>O poder de um agente autônomo de ponta rodando no seu terminal, sem pesar no seu bolso.</p>
+            </div>
+            <div class="card">
+                <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" /></svg>
+                <h3>Sistema de subagents</h3>
+                <p>Delegue tarefas complexas. O agente principal orquestra ferramentas e processos para ler, escrever e executar.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- DOBRA 3 -->
+    <section class="how-it-works container">
+        <h2>Comece em segundos</h2>
+        <div class="terminal-mockup">
+            <div class="terminal-header">
+                <div class="dot red"></div>
+                <div class="dot yellow"></div>
+                <div class="dot green"></div>
+            </div>
+            <div class="terminal-body" id="terminal-body">
+                <!-- A animação JS vai preencher isso -->
+            </div>
+        </div>
+    </section>
+
+    <!-- DOBRA 4 -->
+    <section class="providers container">
+        <h2>Provider-agnostic</h2>
+        <table class="table-style">
+            <thead>
+                <tr>
+                    <th>Provider</th>
+                    <th>Autenticação</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>DeepSeek API (padrão)</td><td>API key</td></tr>
+                <tr><td>Amazon Bedrock</td><td>IAM via ~/.aws/credentials</td></tr>
+                <tr><td>Google Vertex AI</td><td>Service account JSON</td></tr>
+                <tr><td>Local (Ollama / LM Studio)</td><td>Nenhuma</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <!-- FOOTER -->
+    <footer class="footer container">
+        <p>DeepSeek Code &copy; 2026</p>
+    </footer>
+
+    <script>
+        // Função copiar
+        function copyInstall() {
+            navigator.clipboard.writeText("npm install -g @aethelics/deepseek-code");
+            alert("Comando copiado!");
+        }
+
+        // Animação Terminal
+        const terminalBody = document.getElementById('terminal-body');
+        const commands = [
+            { text: 'npm install -g @aethelics/deepseek-code', type: 'cmd', delay: 50 },
+            { text: '\n', type: 'text', delay: 500 },
+            { text: 'added 1 package in 2s', type: 'output', delay: 20 },
+            { text: '\n', type: 'text', delay: 800 },
+            { text: 'deepseek', type: 'cmd', delay: 80 },
+            { text: '\n', type: 'text', delay: 800 },
+            { text: 'inicializando TUI...', type: 'output', delay: 20 },
+            { text: '\n', type: 'text', delay: 1000 },
+            { text: 'arruma o bug no arquivo auth.ts nao to conseguindo logar acho que ta faltando await', type: 'user', delay: 60 },
+            { text: '\n', type: 'text', delay: 500 },
+            { text: 'thinking...', type: 'thinking', delay: 30 }
+        ];
+
+        let cmdIndex = 0;
+        let charIndex = 0;
+        let currentLine = document.createElement('div');
+        currentLine.className = 'term-line';
+        terminalBody.appendChild(currentLine);
+
+        function typeTerminal() {
+            if (cmdIndex >= commands.length) {
+                // Limpa e recomeça após 3s
+                setTimeout(() => {
+                    terminalBody.innerHTML = '';
+                    currentLine = document.createElement('div');
+                    currentLine.className = 'term-line';
+                    terminalBody.appendChild(currentLine);
+                    cmdIndex = 0;
+                    charIndex = 0;
+                    typeTerminal();
+                }, 3000);
+                return;
+            }
+
+            const cmd = commands[cmdIndex];
+            
+            if (cmd.type === 'cmd') {
+                currentLine.innerHTML = '<span class="term-prompt">$</span> ';
+            }
+
+            if (charIndex < cmd.text.length) {
+                if (cmd.type === 'text') {
+                    // Pula instantaneo
+                    charIndex = cmd.text.length;
+                    currentLine = document.createElement('div');
+                    currentLine.className = 'term-line';
+                    terminalBody.appendChild(currentLine);
+                    cmdIndex++;
+                    charIndex = 0;
+                    setTimeout(typeTerminal, cmd.delay);
+                    return;
+                }
+
+                currentLine.innerHTML += cmd.text.charAt(charIndex);
+                charIndex++;
+                setTimeout(typeTerminal, cmd.delay);
+            } else {
+                if (cmd.type === 'user') currentLine.classList.add('term-user-input');
+                if (cmd.type === 'thinking') currentLine.classList.add('term-thinking');
+                if (cmd.type === 'output') currentLine.style.color = '#888';
+                
+                currentLine = document.createElement('div');
+                currentLine.className = 'term-line';
+                terminalBody.appendChild(currentLine);
+                cmdIndex++;
+                charIndex = 0;
+                setTimeout(typeTerminal, 500);
+            }
+        }
+
+        // Inicia a animação quando a página carrega
+        window.onload = typeTerminal;
+    </script>
+</body>
+</html>
