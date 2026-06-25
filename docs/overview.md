@@ -1,6 +1,6 @@
 # DeepSeek Code
 
-DeepSeek Code é uma ferramenta de programação com IA que roda diretamente no terminal. Funciona de forma análoga ao Claude Code, mas usando modelos DeepSeek (ou qualquer provider compatível).
+DeepSeek Code é uma ferramenta de programação com IA que roda diretamente no terminal. Funciona de forma análoga ao Claude Code e ao Hermes Agent, mas usando modelos DeepSeek (ou qualquer provider compatível).
 
 ## O que é
 
