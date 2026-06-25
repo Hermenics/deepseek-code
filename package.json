@@ -1,8 +1,15 @@
 {
   "name": "@hermenics/deepseek-code",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "An AI-powered coding assistant that lives in your terminal",
-  "keywords": ["ai", "cli", "deepseek", "coding-assistant", "terminal", "tui"],
+  "keywords": [
+    "ai",
+    "cli",
+    "deepseek",
+    "coding-assistant",
+    "terminal",
+    "tui"
+  ],
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
