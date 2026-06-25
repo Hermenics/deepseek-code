@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/license-Apache--2.0-22c55e?style=for-the-badge&labelColor=0d1117" alt="Apache 2.0" />
 </p>
 
-<p><strong>An AI-powered coding assistant that lives in your terminal.</strong></p>
+<p><strong>A DeepSeek-powered coding assistant that lives in your terminal.</strong></p>
 
 </div>
 
@@ -30,13 +30,12 @@ Then run `deepseek` inside any project. On first run you'll pick a **provider** 
 
 ## Providers & authentication
 
-| Provider | How to authenticate | Env / config keys |
-|---|---|---|
-| **DeepSeek API** (default) | API key from [platform.deepseek.com](https://platform.deepseek.com/api_keys) | `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL` |
-| **Amazon Bedrock** | AWS IAM credentials via `~/.aws/credentials` | `AWS_REGION`, `AWS_PROFILE` |
-| **Google Vertex AI** | GCP service account JSON key | `GCP_PROJECT`, `GCP_LOCATION`, `GCP_CREDENTIALS` |
-| **Local (Ollama / LM Studio)** | No auth — just point to your local endpoint | `LOCAL_BASE_URL`, `LOCAL_MODEL` |
-| **OAuth (beta)** | Login via browser on chat.deepseek.com | Auto-configured |
+| Provider                       | How to authenticate                                                          | Env / config keys                                |     |
+| --------------------------------| ------------------------------------------------------------------------------| --------------------------------------------------| -----|
+| **DeepSeek API** (default)     | API key from [platform.deepseek.com](https://platform.deepseek.com/api_keys) | `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`          |     |
+| **Amazon Bedrock**             | AWS IAM credentials via `~/.aws/credentials`                                 | `AWS_REGION`, `AWS_PROFILE`                      |     |
+| **Google Vertex AI**           | GCP service account JSON key                                                 | `GCP_PROJECT`, `GCP_LOCATION`, `GCP_CREDENTIALS` |     |
+| **Local (Ollama / LM Studio)** | No auth — just point to your local endpoint                                  | `LOCAL_BASE_URL`, `LOCAL_MODEL`                  |    
 
 All config is saved to `~/.deepseek/config.json`. You can also set any config key as an environment variable.
 
