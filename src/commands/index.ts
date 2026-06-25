@@ -25,6 +25,7 @@ import msg from './msg/index.js'
 import stats from './stats/index.js'
 import models from './models/index.js'
 import memory from './memory/index.js'
+import effort from './effort/index.js'
 
 const commands: Command[] = [
   help,
@@ -52,6 +53,7 @@ const commands: Command[] = [
   stats,
   models,
   memory,
+  effort,
 ]
 
 export function parseCommand(input: string): CommandResult | null {

@@ -16,6 +16,7 @@ import { loadSteering, loadDeepSeekMd } from './steering.js'
 import { getMemorySnapshot } from './memory.js'
 import { loadMergedSettings } from '../settings/index.js'
 import type { DeepSeekSettings } from '../settings/types.js'
+import type { EffortLevel } from '../commands/types.js'
 import { createLLMClient, defaultModel } from './llmClient.js'
 import { parseToolResponse } from './providers/proxy/tools/prompt-emulation.js'
 import { listBedrockDeepSeekModels, modelSupportsChatCompletions } from './providers/bedrock.js'
@@ -208,6 +209,7 @@ export class Agent {
   private sessionApprovedTools: Set<string> = new Set()
   private allowedTools: string[] | '*' | null = null
   public interactionMode: InteractionMode = DEFAULT_MODE
+  public effortLevel: EffortLevel = 'high'
   public settings: DeepSeekSettings = {}
   private compactState: CompactState = createCompactState()
   private autoCompactConfig: AutoCompactConfig = createAutoCompactConfig({}, CONTEXT_COMPACT_THRESHOLD)
@@ -495,6 +497,47 @@ export class Agent {
     setSubAgentModel(m)
   }
 
+  setEffortLevel(level: EffortLevel): void {
+    this.effortLevel = level
+    this.rebuildSystemPromptEffort()
+  }
+
+  private rebuildSystemPromptEffort(): void {
+    // Strip any existing effort hint
+    this.systemPrompt = this.systemPrompt.replace(/\n\n# EFFORT LEVEL\n[\s\S]*?(?=\n\n#|$)/, '')
+    // Append new hint (skip for 'medium' — it's the default behavior)
+    const hint = this.getEffortHint()
+    if (hint) {
+      this.systemPrompt += `\n\n# EFFORT LEVEL\n${hint}`
+    }
+    this.messages = [{ role: 'system', content: this.systemPrompt }, ...this.messages.slice(1)]
+  }
+
+  private getEffortHint(): string | null {
+    switch (this.effortLevel) {
+      case 'low': return 'Be concise and quick. Skip detailed explanations. Give the shortest correct answer.'
+      case 'medium': return null
+      case 'high': return 'Be thorough and comprehensive. Think step by step.'
+      case 'max': return 'Use your deepest reasoning. Think extensively before responding. Consider all edge cases, alternative approaches, and potential issues.'
+    }
+  }
+
+  /** Returns extra API params for DeepSeek V4 thinking mode control based on effortLevel */
+  private getEffortApiParams(): Record<string, unknown> {
+    // Only DeepSeek V4 models support thinking control
+    if (this.provider !== 'deepseek' && this.provider !== 'bedrock') {
+      return {}
+    }
+    if (this.effortLevel === 'low') {
+      return { thinking: { type: 'disabled' } }
+    }
+    if (this.effortLevel === 'max') {
+      return { reasoning_effort: 'max', thinking: { type: 'enabled' } }
+    }
+    // medium and high: thinking enabled, default effort (high)
+    return { reasoning_effort: 'high', thinking: { type: 'enabled' } }
+  }
+
   setLanguage(language: string): void {
     const langInstruction = `\n\n# PREFERRED LANGUAGE\nAlways respond in ${language}. Do NOT switch languages based on what language the user writes in — always use ${language}.`
     if (this.systemPrompt.includes('# PREFERRED LANGUAGE')) {
@@ -670,6 +713,7 @@ export class Agent {
       if (!this.useStreaming) {
         let response: Awaited<ReturnType<typeof this.client.chat.completions.create>>
         try {
+          const effortParams = this.getEffortApiParams()
           response = await this.withRetry(() =>
             this.client.chat.completions.create(
               {
@@ -678,7 +722,8 @@ export class Agent {
                 tools: this.openaiTools,
                 max_tokens: 32768,
                 stream: false,
-              },
+                ...effortParams,
+              } as any,
               { signal: this.abortController!.signal },
             )
           )
@@ -781,19 +826,18 @@ export class Agent {
       }
 
       // ── Streaming path (default for DeepSeek/local) ────────────────────────
-      let stream: Awaited<ReturnType<typeof this.client.chat.completions.create>>
+      let stream: AsyncIterable<any>
       try {
+        const effortParams = this.getEffortApiParams()
         stream = await this.withRetry(() =>
-          this.client.chat.completions.create(
-            {
-              model: this.model,
-              messages: apiMessages,
-              tools: this.openaiTools,
-              stream: true,
-              stream_options: { include_usage: true },
-            },
-            { signal: this.abortController!.signal },
-          )
+          this.client.chat.completions.create({
+            model: this.model,
+            messages: apiMessages,
+            tools: this.openaiTools,
+            stream: true,
+            stream_options: { include_usage: true },
+            ...effortParams,
+          } as any, { signal: this.abortController!.signal }) as any
         )
       } catch (e: unknown) {
         if (this.abortController?.signal.aborted) {
