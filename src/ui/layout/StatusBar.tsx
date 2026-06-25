@@ -60,22 +60,31 @@ export function StatusBar({ tokenCount, model, activeAgent, provider, contextPct
   if (tokenCount === 0 && !branch) return null
 
   const cols = process.stdout.columns ?? 80
+  const isVeryNarrow = cols < 60
+  const isNarrow = cols < 80
   const divider = DIVIDER_CHAR.repeat(Math.max(0, cols - 4))
+  const displayModel = isVeryNarrow ? String(model).slice(0, 15) : String(model)
 
   return (
     <Box flexDirection="column">
       <Text color={colors.textSubtle}>{divider}</Text>
       <Box flexDirection="row" paddingX={2} gap={1}>
-        {tokenCount > 0 && (
-          <Text color={colors.textDim}>{STATUS_ICONS.info + ' ' + tokenCount.toLocaleString() + ' tokens'}</Text>
-        )}
-        {tokenCount > 0 && branch && <Text color={colors.textSubtle}>{'·'}</Text>}
-        {branch && (
-          <Text color={colors.textDim}>{'⎇ ' + branch}</Text>
-        )}
+        <Text color={MODE_COLORS[interactionMode]}>{MODE_LABELS[interactionMode]}</Text>
         <Text color={colors.textSubtle}>{'·'}</Text>
-        <Text color={colors.primary}>{STATUS_ICONS.agent + ' ' + model}</Text>
-        {contextPct > 0 && (
+        <Text color={colors.primary}>{STATUS_ICONS.agent + ' ' + displayModel}</Text>
+        {!isVeryNarrow && tokenCount > 0 && (
+          <>
+            <Text color={colors.textSubtle}>{'·'}</Text>
+            <Text color={colors.textDim}>{STATUS_ICONS.info + ' ' + tokenCount.toLocaleString() + ' tokens'}</Text>
+          </>
+        )}
+        {!isVeryNarrow && branch && (
+          <>
+            <Text color={colors.textSubtle}>{'·'}</Text>
+            <Text color={colors.textDim}>{'⎇ ' + branch}</Text>
+          </>
+        )}
+        {!isNarrow && contextPct > 0 && (
           <>
             <Text color={colors.textSubtle}>{'·'}</Text>
             <Text color={contextPct >= 90 ? colors.error : contextPct >= 70 ? colors.warning : colors.primary}>
@@ -84,8 +93,6 @@ export function StatusBar({ tokenCount, model, activeAgent, provider, contextPct
             <ProgressBar percent={contextPct} width={10} theme={theme} />
           </>
         )}
-        <Text color={colors.textSubtle}>{'·'}</Text>
-        <Text color={MODE_COLORS[interactionMode]}>{MODE_LABELS[interactionMode]}</Text>
       </Box>
     </Box>
   )

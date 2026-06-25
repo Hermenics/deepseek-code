@@ -1,3 +1,4 @@
+import { lookup } from 'dns/promises'
 import { Tool } from '../types.js'
 
 const TIMEOUT_MS = 15_000
@@ -26,6 +27,64 @@ function isBlockedUrl(url: string): boolean {
     if (host.startsWith('169.254.')) return true
     return false
   } catch {
+    return true
+  }
+}
+
+function isPrivateIp(ip: string): boolean {
+  // IPv4 checks
+  if (ip === '127.0.0.1' || ip === '0.0.0.0') return true
+  if (ip.startsWith('10.')) return true
+  if (ip.startsWith('192.168.')) return true
+  if (ip.startsWith('169.254.')) return true
+  if (ip.startsWith('172.')) {
+    const second = parseInt(ip.split('.')[1] || '0', 10)
+    if (second >= 16 && second <= 31) return true
+  }
+
+  // IPv6 checks
+  const lower = ip.toLowerCase()
+  if (lower === '::1') return true
+  // IPv6-mapped IPv4: ::ffff:x.x.x.x
+  if (lower.startsWith('::ffff:')) {
+    const mapped = lower.slice(7) // strip "::ffff:"
+    return isPrivateIp(mapped)
+  }
+  // Link-local fe80::/10
+  if (lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb')) return true
+  // Unique local fc00::/7 (fc00:: and fd00::)
+  if (lower.startsWith('fc') || lower.startsWith('fd')) return true
+
+  return false
+}
+
+const DNS_TIMEOUT_MS = 2000
+
+async function isBlockedResolvedIp(url: string): Promise<boolean> {
+  try {
+    const parsed = new URL(url)
+    const hostname = parsed.hostname
+
+    // If the hostname is already an IP literal, check directly
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname) || hostname.includes(':')) {
+      return isPrivateIp(hostname)
+    }
+
+    const results = await Promise.race([
+      lookup(hostname, { all: true }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('DNS timeout')), DNS_TIMEOUT_MS)
+      ),
+    ])
+
+    // Block if ANY resolved address is private
+    for (const result of results) {
+      if (isPrivateIp(result.address)) return true
+    }
+
+    return false
+  } catch {
+    // Fail-closed: if DNS resolution fails, block the request
     return true
   }
 }
@@ -69,6 +128,10 @@ export const WebFetch: Tool = {
 
     if (isBlockedUrl(url)) {
       return 'Error: URL points to a private/internal network address which is blocked for security reasons.'
+    }
+
+    if (await isBlockedResolvedIp(url)) {
+      return 'Error: URL resolves to a private/internal network address which is blocked for security reasons.'
     }
 
     try {

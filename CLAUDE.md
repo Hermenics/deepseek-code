@@ -92,6 +92,13 @@ O código-fonte do Claude Code (`@anthropic-ai/claude-code` v2.1.88) está dispo
 
 ---
 
+# Limites de Workflow
+
+- **Mínimo de 10 subagents por workflow.** Sempre use pelo menos 10 agents para garantir cobertura e paralelismo adequados.
+- **Máximo de 17 subagents por workflow.** Não ultrapasse esse limite em nenhuma chamada ao Workflow tool, independente da complexidade da tarefa. Priorize e agrupe trabalho se necessário.
+
+---
+
 # Reversa
 
 > Framework de Engenharia Reversa instalado neste projeto.
