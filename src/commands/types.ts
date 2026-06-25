@@ -1,4 +1,5 @@
 export type Model = string
+export type EffortLevel = 'low' | 'medium' | 'high' | 'max'
 
 export type CommandResult =
   | { type: 'quit' }
@@ -31,6 +32,8 @@ export type CommandResult =
   | { type: 'stats' }
   | { type: 'memory'; action: 'show' }
   | { type: 'memory'; action: 'clear'; target?: 'agent' | 'user' }
+  | { type: 'effort'; action: 'status' }
+  | { type: 'effort'; action: 'set'; level: EffortLevel }
   | { type: 'unknown'; input: string }
 
 export interface Command {

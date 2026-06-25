@@ -653,6 +653,22 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           })
           return
         }
+        case 'effort': {
+          const EFFORT_DESCRIPTIONS: Record<string, string> = {
+            low: 'Quick, straightforward responses',
+            medium: 'Balanced approach with standard reasoning',
+            high: 'Comprehensive responses with extensive thinking',
+            max: 'Maximum reasoning depth (best with deepseek-reasoner)',
+          }
+          if (cmd.action === 'status') {
+            const level = agent.effortLevel
+            setMessages((m) => [...m, { role: 'assistant', content: `Effort level: ${level} — ${EFFORT_DESCRIPTIONS[level]}` }])
+          } else {
+            agent.setEffortLevel(cmd.level)
+            setMessages((m) => [...m, { role: 'assistant', content: `Effort: ${cmd.level} — ${EFFORT_DESCRIPTIONS[cmd.level]}` }])
+          }
+          return
+        }
         case 'stats': {
           const stats = agent.getStats()
           setMessages((m) => [...m, { role: 'assistant', content: stats }])
