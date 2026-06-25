@@ -1,11 +1,11 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/Aethelics/deepseek-code/main/src/public/deepseek-code.png" alt="DeepSeek Code" height="250"/>
+<img src="https://raw.githubusercontent.com/Hermenics/deepseek-code/main/src/public/deepseek-code.png" alt="DeepSeek Code" height="250"/>
 
 <br/>
 
 <p>
-  <a href="https://www.npmjs.com/package/@aethelics/deepseek-code"><img src="https://img.shields.io/npm/v/@aethelics/deepseek-code?style=for-the-badge&labelColor=0d1117&color=cyan" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/@hermenics/deepseek-code"><img src="https://img.shields.io/npm/v/@hermenics/deepseek-code?style=for-the-badge&labelColor=0d1117&color=cyan" alt="npm version" /></a>
   <img src="https://img.shields.io/badge/model-DeepSeek-4A90D9?style=for-the-badge&labelColor=0d1117" alt="DeepSeek" />
   <img src="https://img.shields.io/badge/license-Apache--2.0-22c55e?style=for-the-badge&labelColor=0d1117" alt="Apache 2.0" />
 </p>
@@ -17,13 +17,13 @@
 ---
 
 <div align="center">
-  <img src="https://raw.githubusercontent.com/Aethelics/deepseek-code/main/src/public/demo.gif" alt="DeepSeek Code demo" width="80%" />
+  <img src="https://raw.githubusercontent.com/Hermenics/deepseek-code/main/src/public/demo.gif" alt="DeepSeek Code demo" width="80%" />
 </div>
 
 ## Get started
 
 ```bash
-npm install -g @aethelics/deepseek-code
+npm install -g @hermenics/deepseek-code
 ```
 
 Then run `deepseek` inside any project. On first run you'll pick a **provider** and configure authentication.
@@ -63,7 +63,7 @@ DeepSeek Code is an agentic coding tool with a TUI that lives in your terminal. 
 
 ## Reporting bugs
 
-File a [GitHub issue](https://github.com/Aethelics/deepseek-code/issues) or use `/help` inside the TUI.
+File a [GitHub issue](https://github.com/Hermenics/deepseek-code/issues) or use `/help` inside the TUI.
 
 ---
 

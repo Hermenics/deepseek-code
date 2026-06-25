@@ -1,8 +1,29 @@
 {
   "name": "@hermenics/deepseek-code",
   "version": "0.1.0",
+  "description": "An AI-powered coding assistant that lives in your terminal",
+  "keywords": ["ai", "cli", "deepseek", "coding-assistant", "terminal", "tui"],
   "license": "Apache-2.0",
   "type": "module",
+  "bin": {
+    "deepseek": "dist/deepseek"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Hermenics/deepseek-code.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Hermenics/deepseek-code/issues"
+  },
+  "homepage": "https://github.com/Hermenics/deepseek-code#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "engines": {
     "node": ">=18",
     "bun": ">=1.0"
