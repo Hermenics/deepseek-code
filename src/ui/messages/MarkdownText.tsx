@@ -198,7 +198,7 @@ export function MarkdownText({ content, dimmed, theme = 'dark' }: Props) {
           </Text>
         )
       }
-      i++ // skip closing ```
+      if (i < lines.length) i++ // skip closing ``` (may not exist during streaming)
       continue
     }
 

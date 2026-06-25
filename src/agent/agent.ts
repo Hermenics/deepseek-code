@@ -652,7 +652,14 @@ export class Agent {
   }
 
   private async runLoop(cb: AgentCallbacks) {
+    const MAX_AGENT_ITERATIONS = 100
+    let iterations = 0
     while (true) {
+      if (++iterations > MAX_AGENT_ITERATIONS) {
+        this.messages.push({ role: 'assistant', content: '⚠ Agent reached maximum iteration limit (100). Stopping to prevent infinite loop.' })
+        break
+      }
+
       this.abortController = new AbortController()
 
       // Sanitize messages for the API: reasoning_content must be preserved for all models
@@ -715,7 +722,7 @@ export class Agent {
 
             // Execute each tool and append results as user messages
             for (const tc of toolCalls) {
-              const fakeTc = { id: `bedrock-${Date.now()}`, type: 'function' as const, function: { name: tc.name, arguments: JSON.stringify(tc.args) } }
+              const fakeTc = { id: `bedrock-${randomUUID().slice(0, 8)}`, type: 'function' as const, function: { name: tc.name, arguments: JSON.stringify(tc.args) } }
               const { result } = await this.checkAndExecuteTool(fakeTc, tc.args, cb)
               this.messages.push({ role: 'user', content: `<tool_result>\n<name>${tc.name}</name>\n<result>${result}</result>\n</tool_result>` })
             }
@@ -867,6 +874,23 @@ export class Agent {
         throw e
       }
 
+      // Post-response compact check: trigger immediately when threshold crossed mid-turn
+      if (this.contextUsage > 0 && this.contextLimit > 0) {
+        const usageRatio = this.contextUsage / this.contextLimit
+        if (usageRatio >= CONTEXT_COMPACT_THRESHOLD && this.compactState.consecutiveFailures < this.autoCompactConfig.maxConsecutiveFailures) {
+          try {
+            const summary = await this.compact()
+            this.compactState.consecutiveFailures = 0
+            this.compactState.lastCompactTimestamp = Date.now()
+            auditLog({ type: 'compact', reason: 'mid_turn_threshold' })
+            cb.onAutoCompact?.(summary)
+          } catch (e) {
+            this.compactState.consecutiveFailures++
+            auditLog({ type: 'compact_error', reason: String(e) })
+          }
+        }
+      }
+
       if (toolCalls.size === 0) {
         const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText }
         // Always preserve reasoning_content — DeepSeek-V4-Flash has built-in thinking mode
@@ -909,14 +933,19 @@ export class Agent {
         const settled = await Promise.allSettled(
           parsedList.map(({ tc, parsedArgs }) => this.checkAndExecuteTool(tc, parsedArgs, cb))
         )
-        for (const s of settled) {
+        let hasDeny = false
+        for (let idx = 0; idx < settled.length; idx++) {
+          const s = settled[idx]!
+          const tcId = parsedList[idx]!.tc.id
           if (s.status === 'fulfilled') {
             this.messages.push({ role: 'tool', tool_call_id: s.value.tc.id, content: s.value.result })
+          } else {
+            // Fill rejected/denied entries with a placeholder so API stays consistent
+            this.messages.push({ role: 'tool', tool_call_id: tcId, content: '[tool call cancelled by user]' })
+            if (s.reason instanceof DenyAbortError) hasDeny = true
           }
         }
-        // Propagate DenyAbortError after collecting fulfilled results
-        const denied = settled.find((s) => s.status === 'rejected' && s.reason instanceof DenyAbortError)
-        if (denied) throw new DenyAbortError()
+        if (hasDeny) throw new DenyAbortError()
       } else {
         // Sequential execution (file writes, or mixed batch)
         for (const { tc, parsedArgs } of parsedList) {

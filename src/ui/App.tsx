@@ -35,8 +35,11 @@ function processStreamedText(text: string): { thinking: string; content: string 
   if (thinkMatch) thinking = thinkMatch[1]!.trim()
   const content = text
     .replace(/<thinking>[\s\S]*?<\/thinking>/g, '')
+    .replace(/<thinking>[\s\S]*$/g, '')
     .replace(/<think>[\s\S]*?<\/think>/g, '')
+    .replace(/<think>[\s\S]*$/g, '')
     .replace(/<step>[\s\S]*?<\/step>/g, '')
+    .replace(/<step>[\s\S]*$/g, '')
     .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
     .replace(/<tool_call>[\s\S]*$/g, '')
     .replace(/<response>([\s\S]*?)<\/response>/g, '$1')
@@ -309,7 +312,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setThinkingText(thinkingAccum)
         },
         onToolCall(name, args) {
-          clearInterval(flushInterval)
           const pending = (streamTextAccum + tokenBuffer).trim()
           tokenBuffer = ''
           streamTextAccum = ''
@@ -389,7 +391,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             }
             queuedSubmitTimerRef.current = setTimeout(() => {
               queuedSubmitTimerRef.current = null
-              void handleSubmit(first!)
+              void handleSubmitRef.current!(first!)
             }, 0)
             return rest
           })

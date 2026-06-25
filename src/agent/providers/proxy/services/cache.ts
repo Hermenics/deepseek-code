@@ -20,8 +20,8 @@ export function getCached(model: string, messages: ChatMessage[], ttl: number): 
 
 export function setCache(model: string, messages: ChatMessage[], response: string): void {
   if (cache.size >= MAX_ENTRIES) {
-    const oldest = [...cache.entries()].sort((a, b) => a[1].createdAt - b[1].createdAt)[0]
-    if (oldest) cache.delete(oldest[0])
+    const oldestKey = cache.keys().next().value
+    if (oldestKey !== undefined) cache.delete(oldestKey)
   }
   cache.set(makeKey(model, messages), { response, model, createdAt: Date.now() })
 }

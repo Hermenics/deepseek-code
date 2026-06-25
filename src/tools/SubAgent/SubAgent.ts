@@ -133,19 +133,24 @@ export const SubAgent: Tool = {
     const modelOverride = args.model as string | undefined
     const agentId = randomUUID().slice(0, 8)
 
+    // Snapshot provider/model at invocation time to avoid race with parallel subagents
+    const provider = subAgentProvider
+    const modelName = modelOverride ?? subAgentModel ?? defaultModel(provider.provider)
+
     subAgentCallbacks?.onStart(agentId, task)
 
     try {
       // Lazy import to avoid circular dependency
       const { allTools, toolMap } = await import('../index.js')
       const subagentTools = allTools.filter((t) => t.name !== 'subagent')
+      const subagentToolMap = new Map(subagentTools.map((t) => [t.name, t]))
       const openaiTools: ChatCompletionTool[] = subagentTools.map((t) => ({
         type: 'function' as const,
         function: { name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown> },
       }))
 
-      const client = createLLMClient(subAgentProvider)
-      const model = modelOverride ?? subAgentModel ?? defaultModel(subAgentProvider.provider)
+      const client = createLLMClient(provider)
+      const model = modelName
 
       const messages: ChatCompletionMessageParam[] = [
         { role: 'system', content: buildSubAgentPrompt(task) },
@@ -201,7 +206,7 @@ export const SubAgent: Tool = {
             continue
           }
 
-          const tool = toolMap.get(fn.name)
+          const tool = subagentToolMap.get(fn.name)
           let result: string
           if (tool) {
             try { result = await tool.execute(parsedArgs) } catch (e: unknown) {

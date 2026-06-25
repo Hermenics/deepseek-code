@@ -73,8 +73,18 @@ export async function assertSafePath(filePath: string): Promise<void> {
       throw new Error(`Path '${filePath}' resolves outside the working directory (symlink traversal blocked)`)
     }
   } catch (e) {
-    // ENOENT = file doesn't exist yet (e.g. write_file creating new file) — safe to skip realpath
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
+    // File doesn't exist — check parent directory for symlink traversal
+    const parentDir = path.dirname(resolved)
+    try {
+      const realParent = await fs.realpath(parentDir)
+      if (!realParent.startsWith(cwd + path.sep) && realParent !== cwd) {
+        throw new Error(`Path '${filePath}' resolves outside the working directory (symlink traversal via parent directory blocked)`)
+      }
+    } catch (parentErr) {
+      if ((parentErr as NodeJS.ErrnoException).code !== 'ENOENT') throw parentErr
+      // Parent also doesn't exist — will fail at write time anyway, safe
+    }
   }
 
   const relative = path.relative(cwd, resolved)

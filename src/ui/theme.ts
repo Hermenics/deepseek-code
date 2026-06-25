@@ -78,8 +78,8 @@ const darkTheme: ThemeColors = {
 
   text: 'white',
   textDim: '#888888',
-  textSubtle: '#666666',
-  textInactive: '#555555',
+  textSubtle: '#8a8a8a',
+  textInactive: '#6a6a6a',
 
   userMessageBg: '',
   userMessageBgHover: '',

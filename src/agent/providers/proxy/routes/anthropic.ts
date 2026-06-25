@@ -110,22 +110,22 @@ export function createAnthropicRouter(pool: PagePool, config: ProxyConfig) {
           await s.write(`event: error\ndata: ${JSON.stringify({ type: 'error', error: { message: 'Stream interrupted' } })}\n\n`)
         }
       })
-    }
-
-    try {
-      let content = ''
-      let thinking = ''
-      for await (const event of orchestrate(request, pool, config)) {
-        if (event.error) {
-          return c.json({ type: 'error', error: { type: 'api_error', message: event.error } }, 502)
+    } else {
+      try {
+        let content = ''
+        let thinking = ''
+        for await (const event of orchestrate(request, pool, config)) {
+          if (event.error) {
+            return c.json({ type: 'error', error: { type: 'api_error', message: event.error } }, 502)
+          }
+          if (event.thinking) thinking = event.thinking
+          else content += event.token
         }
-        if (event.thinking) thinking = event.thinking
-        else content += event.token
+        return c.json(anthropic.formatResponse(request.model, content, thinking))
+      } catch (err: any) {
+        log('error', `Request failed: ${err.message}`)
+        return c.json({ type: 'error', error: { type: 'api_error', message: 'Backend error: ' + err.message } }, 502)
       }
-      return c.json(anthropic.formatResponse(request.model, content, thinking))
-    } catch (err: any) {
-      log('error', `Request failed: ${err.message}`)
-      return c.json({ type: 'error', error: { type: 'api_error', message: 'Backend error: ' + err.message } }, 502)
     }
   })
 
