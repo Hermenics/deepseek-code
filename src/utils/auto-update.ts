@@ -3,13 +3,6 @@ import { join } from 'path'
 import { homedir } from 'os'
 import pkg from '../../package.json' with { type: 'json' }
 
-export interface UpdateResult {
-  updateAvailable: boolean
-  current: string
-  latest?: string
-  message?: string
-}
-
 const COOLDOWN_MS = 60 * 60 * 1000 // 1 hour
 const FETCH_TIMEOUT_MS = 5000
 
@@ -38,11 +31,11 @@ function saveCooldown(): void {
   }
 }
 
-export async function checkForUpdate(): Promise<UpdateResult> {
-  const current = pkg.version
-
+// Fire-and-forget: checks for a newer version and installs it silently.
+// Never throws, never notifies the user — next launch picks up the update.
+export async function silentAutoUpdate(): Promise<void> {
   try {
-    if (!shouldCheck()) return { updateAvailable: false, current }
+    if (!shouldCheck()) return
 
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
@@ -52,26 +45,18 @@ export async function checkForUpdate(): Promise<UpdateResult> {
     })
     clearTimeout(timeout)
 
-    if (!res.ok) {
-      saveCooldown()
-      return { updateAvailable: false, current }
-    }
+    if (!res.ok) { saveCooldown(); return }
 
     const data = (await res.json()) as { version: string }
-    const latest = data.version
-
     saveCooldown()
 
-    if (latest === current) return { updateAvailable: false, current, latest }
+    if (data.version === pkg.version) return
 
-    return {
-      updateAvailable: true,
-      current,
-      latest,
-      message: `Update available: v${latest}. Run 'npm install -g ${pkg.name}@${latest}' to update.`,
-    }
+    // ponytail: always npm — bun is the runtime, not the package manager used for global install
+    const pm = 'npm'
+    const { execa } = await import('execa')
+    await execa(pm, ['install', '-g', `${pkg.name}@${data.version}`], { reject: false })
   } catch {
-    saveCooldown()
-    return { updateAvailable: false, current }
+    // ponytail: swallow all errors — this runs in background, a failure is not fatal
   }
 }
