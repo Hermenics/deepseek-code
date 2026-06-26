@@ -5,8 +5,27 @@ import { getThemeColors } from '../theme.js'
 import { useClock } from '../clock.js'
 import { getAgentColor } from './colorManager.js'
 import type { SubagentLineProps } from './types.js'
+import type { SubAgentRole } from '../../tools/SubAgent/permissions.js'
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+
+const ROLE_COLORS: Record<string, string> = {
+  reader: 'cyan',
+  writer: 'yellow',
+  executor: 'green',
+  reviewer: 'magenta',
+  unrestricted: 'red',
+}
+
+function getRoleColor(role: SubAgentRole): string {
+  return ROLE_COLORS[role] ?? 'gray'
+}
+
+function getConfidenceColor(confidence: number): string {
+  if (confidence >= 0.8) return 'green'
+  if (confidence >= 0.5) return 'yellow'
+  return 'red'
+}
 
 function formatDuration(ms: number): string {
   if (ms < 60000) return `${Math.round(ms / 1000)}s`
@@ -50,6 +69,9 @@ export function SubagentLine({ agent, isLast, theme = 'dark' }: SubagentLineProp
     <Box flexDirection="row" gap={1}>
       <Text color={colors.textDim}>{treeChar}</Text>
       <Text color={agentColor} bold>Agent</Text>
+      {agent.role && (
+        <Text color={getRoleColor(agent.role)}>[{agent.role}]</Text>
+      )}
       <Text color={colors.textSubtle}>({taskLabel})</Text>
 
       {agent.status === 'running' && (
@@ -72,11 +94,20 @@ export function SubagentLine({ agent, isLast, theme = 'dark' }: SubagentLineProp
           {agent.durationMs !== null && (
             <Text color={colors.textDim}>· {formatDuration(agent.durationMs)}</Text>
           )}
+          {agent.confidence !== null && (
+            <Text color={getConfidenceColor(agent.confidence)}>· {Math.round(agent.confidence * 100)}%</Text>
+          )}
           {agent.tokens !== null && (
             <Text color={colors.textDim}>· {formatTokens(agent.tokens)}</Text>
           )}
           {agent.costUsd !== null && (
             <Text color={colors.warning}>{formatCost(agent.costUsd)}</Text>
+          )}
+          {agent.verified === true && (
+            <Text color="green">✓✓</Text>
+          )}
+          {agent.verified === false && (
+            <Text color="red">⚠ unverified</Text>
           )}
         </>
       )}

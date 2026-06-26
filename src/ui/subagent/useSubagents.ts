@@ -1,9 +1,10 @@
 import type { SubagentState } from './types.js'
+import type { SubAgentResult } from '../../tools/SubAgent/contracts.js'
 
-export interface SubagentStartInput { id: string; task: string }
+export interface SubagentStartInput { id: string; task: string; role?: string | null }
 export interface SubagentProgressInput { id: string; info: string }
 export interface SubagentToolUseInput { id: string; tool: string; info?: string }
-export interface SubagentDoneInput { id: string; result: string; tokens?: number; costUsd?: number }
+export interface SubagentDoneInput { id: string; result: string; tokens?: number; costUsd?: number; structured?: SubAgentResult; confidence?: number | null; verified?: boolean | null }
 export interface SubagentErrorInput { id: string; error: string }
 
 export interface UseSubagentsReturn {
@@ -20,7 +21,7 @@ export function useSubagents(): UseSubagentsReturn {
   const hook: UseSubagentsReturn = {
     agents: [],
 
-    onSubagentStart({ id, task }) {
+    onSubagentStart({ id, task, role }) {
       const agent: SubagentState = {
         id,
         task,
@@ -34,6 +35,9 @@ export function useSubagents(): UseSubagentsReturn {
         error: null,
         tokens: null,
         costUsd: null,
+        role: (role as SubagentState['role']) ?? null,
+        confidence: null,
+        verified: null,
       }
       hook.agents.push(agent)
     },
@@ -51,7 +55,7 @@ export function useSubagents(): UseSubagentsReturn {
       }
     },
 
-    onSubagentDone({ id, result, tokens, costUsd }) {
+    onSubagentDone({ id, result, tokens, costUsd, structured, confidence, verified }) {
       const agent = hook.agents.find(a => a.id === id)
       if (agent) {
         agent.status = 'done'
@@ -59,6 +63,11 @@ export function useSubagents(): UseSubagentsReturn {
         agent.durationMs = Date.now() - agent.startedAt
         if (tokens != null) agent.tokens = tokens
         if (costUsd != null) agent.costUsd = costUsd
+        if (structured) {
+          agent.confidence = structured.confidence
+        }
+        if (confidence != null) agent.confidence = confidence
+        if (verified != null) agent.verified = verified
       }
     },
 

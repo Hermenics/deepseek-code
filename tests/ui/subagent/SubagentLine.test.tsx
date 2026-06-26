@@ -22,6 +22,9 @@ function makeAgent(overrides: Partial<SubagentState> = {}): SubagentState {
     error: null,
     tokens: null,
     costUsd: null,
+    role: null,
+    confidence: null,
+    verified: null,
     ...overrides,
   }
 }
