@@ -9,7 +9,7 @@ NC='\033[0m'
 
 # Caminhos
 PRIVATE_DIR="/home/marcelo/deepseek-code"
-PUBLIC_DIR="/home/marcelo/deepseek-code/dscpublic"
+PUBLIC_DIR="/home/marcelo/deepseek-code/external/dscpublic"
 
 # Bump type (default: patch)
 BUMP="${1:-patch}"
