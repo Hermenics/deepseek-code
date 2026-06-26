@@ -22,6 +22,9 @@ function makeAgent(id: string, overrides: Partial<SubagentState> = {}): Subagent
     error: null,
     tokens: null,
     costUsd: null,
+    role: null,
+    confidence: null,
+    verified: null,
     ...overrides,
   }
 }

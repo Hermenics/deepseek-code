@@ -1,3 +1,5 @@
+import type { SubAgentRole } from '../../tools/SubAgent/permissions.js'
+
 export type SubagentStatus = 'running' | 'done' | 'error'
 
 export interface SubagentState {
@@ -13,6 +15,9 @@ export interface SubagentState {
   error: string | null
   tokens: number | null        // total tokens used
   costUsd: number | null       // estimated cost in USD
+  role: SubAgentRole | null
+  confidence: number | null
+  verified: boolean | null     // null = not verified, true = confirmed, false = flawed
 }
 
 export interface SubagentLineProps {

@@ -6,6 +6,7 @@ import DEFAULT_SYSTEM_PROMPT_MD from './system-prompt.md' with { type: 'text' }
 import { allTools } from '../tools/index.js'
 import { setShellConfirmHandler } from '../tools/Shell/Shell.js'
 import { setSubAgentProvider, setSubAgentModel } from '../tools/SubAgent/SubAgent.js'
+import { resetMemory } from '../tools/SubAgent/memory.js'
 import { loadMcpTools } from './mcp.js'
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
 import type { Model } from '../commands.js'
@@ -609,6 +610,9 @@ export class Agent {
   }
 
   async run(userMessage: string, cb: AgentCallbacks) {
+    // Reset subagent task memory at the start of each user turn
+    resetMemory()
+
     // Wait for async initialization to complete before running
     await this.readyPromise
 
