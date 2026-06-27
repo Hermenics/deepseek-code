@@ -138,7 +138,22 @@ git_has_any_changes() {
 
 git_has_untracked_changes() {
   local dir=$1
-  [[ -n "$(git -C "$dir" ls-files --others --exclude-standard)" ]]
+  local line
+
+  while IFS= read -r line; do
+    [[ "$line" == '?? '* ]] && return 0
+  done < <(git -C "$dir" status --porcelain --untracked-files=all --ignored=no)
+
+  return 1
+}
+
+warn_untracked_changes() {
+  local dir=$1
+  local phase=$2
+
+  if git_has_untracked_changes "$dir"; then
+    warn "Untracked files exist in $dir during ${phase}; they will not be included unless explicitly copied."
+  fi
 }
 
 require_git_repo() {
@@ -170,9 +185,7 @@ require_clean_tracked_tree() {
     fi
   fi
 
-  if git_has_untracked_changes "$dir"; then
-    warn "Untracked files exist in $dir; they will not be included unless explicitly copied."
-  fi
+  warn_untracked_changes "$dir" "preflight"
 }
 
 read_package_field() {
@@ -343,6 +356,8 @@ else
   run_in "$PRIVATE_DIR" bun run build
 fi
 
+warn_untracked_changes "$PRIVATE_DIR" "post-build"
+
 if (( SKIP_TESTS )); then
   warn "[3/9] Tests skipped."
 else
@@ -381,6 +396,8 @@ fi
 
 log "[7/9] Syncing dist and metadata to public repo..."
 sync_public_repo "$VERSION"
+
+warn_untracked_changes "$PUBLIC_DIR" "post-sync"
 
 log "[8/9] Committing public repo changes..."
 commit_if_needed "$PUBLIC_DIR" "v$VERSION"
