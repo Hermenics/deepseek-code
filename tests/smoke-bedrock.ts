@@ -5,11 +5,12 @@
 import { createLLMClient } from '../src/agent/llmClient.js'
 
 const region = process.env.AWS_REGION ?? 'us-east-1'
+const profile = process.env.AWS_PROFILE ?? 'default'
 
 async function smokeTest(model: string, label: string) {
   console.log(`\n🔥 [${label}] model: ${model}`)
 
-  const client = createLLMClient({ provider: 'bedrock', awsRegion: region }, model)
+  const client = createLLMClient({ provider: 'bedrock', awsRegion: region, awsProfile: profile }, model)
 
   const start = Date.now()
   const res = await client.chat.completions.create({
@@ -32,7 +33,7 @@ async function smokeToolsR1() {
   const model = 'us.deepseek.r1-v1:0'
   console.log(`\n🔥 [Bedrock R1 Tools via Prompt Emulation] model: ${model}`)
 
-  const client = createLLMClient({ provider: 'bedrock', awsRegion: region }, model)
+  const client = createLLMClient({ provider: 'bedrock', awsRegion: region, awsProfile: profile }, model)
 
   // Simula o system prompt com tool embutida (igual ao buildBedrockToolsPrompt)
   const systemPrompt = `You have access to the following tools. To use a tool, respond with a <tool_call> block:

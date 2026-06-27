@@ -30,6 +30,11 @@ const { listBedrockDeepSeekModels } = await import('../src/agent/providers/bedro
 
 describe('listBedrockDeepSeekModels', () => {
   beforeEach(() => {
+    // Garante que resolveCredentials sempre use fromIni nos testes
+    delete process.env.AWS_ACCESS_KEY_ID
+    delete process.env.AWS_SECRET_ACCESS_KEY
+    delete process.env.AWS_SESSION_TOKEN
+
     mockSend.mockClear()
     // Restaura implementação padrão após cada teste
     mockSend.mockImplementation(async () => ({
