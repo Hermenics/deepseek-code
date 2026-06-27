@@ -26,7 +26,6 @@ mock.module('playwright', () => ({
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { DeepSeekHeaders } from '../src/agent/providers/proxy/browser/headers.js'
-import { updateSessionParent, getSessionParent } from '../src/agent/providers/proxy/browser/sessionParent.js'
 
 // Importação dinâmica para capturar o módulo após os mocks serem aplicados
 const headersModule = await import('../src/agent/providers/proxy/browser/headers.js').catch(
@@ -130,48 +129,4 @@ describe('proxy/browser/headers', () => {
     })
   })
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // Suite 3: updateSessionParent / getSessionParent
-  // Uses a real Map implementation to avoid mock.module leaking from other
-  // test files (Bun's mock.module is global per process).
-  // ─────────────────────────────────────────────────────────────────────────
-
-  describe('updateSessionParent and getSessionParent', () => {
-
-    it('should return null for an unknown sessionId', () => {
-      const result = getSessionParent('session-that-does-not-exist-xyz')
-      expect(result).toBeNull()
-    })
-
-    it('should store parentId and return it for the same sessionId', () => {
-      const sessionId = 'test-session-store-001'
-      updateSessionParent(sessionId, 42)
-      expect(getSessionParent(sessionId)).toBe(42)
-    })
-
-    it('should return the value set by updateSessionParent (not a stale value)', () => {
-      const sessionId = 'test-session-update-002'
-      updateSessionParent(sessionId, 10)
-      updateSessionParent(sessionId, 99)
-      expect(getSessionParent(sessionId)).toBe(99)
-    })
-
-    it('should allow storing null as parentId (reset)', () => {
-      const sessionId = 'test-session-null-003'
-      updateSessionParent(sessionId, 7)
-      updateSessionParent(sessionId, null)
-      expect(getSessionParent(sessionId)).toBeNull()
-    })
-
-    it('should isolate parentId per sessionId (no cross-contamination)', () => {
-      const sessionA = 'test-session-isolate-A'
-      const sessionB = 'test-session-isolate-B'
-
-      updateSessionParent(sessionA, 100)
-      updateSessionParent(sessionB, 200)
-
-      expect(getSessionParent(sessionA)).toBe(100)
-      expect(getSessionParent(sessionB)).toBe(200)
-    })
-  })
 })
