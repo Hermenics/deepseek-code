@@ -9,10 +9,10 @@ const command: Command = {
     if (!level) return { type: 'effort', action: 'status' }
     if (level === 'status' || level === 'current') return { type: 'effort', action: 'status' }
     if (level === 'auto' || level === 'unset') return { type: 'effort', action: 'set', level: 'high' }
-    if (['low', 'medium', 'high', 'max'].includes(level)) {
-      return { type: 'effort', action: 'set', level: level as 'low' | 'medium' | 'high' | 'max' }
+    if (['low', 'high', 'max'].includes(level)) {
+      return { type: 'effort', action: 'set', level: level as 'low' | 'high' | 'max' }
     }
-    return { type: 'unknown', input: `Invalid effort level: "${level}". Use: /effort [low|medium|high|max|auto]` }
+    return { type: 'unknown', input: `Invalid effort level: "${level}". Use: /effort [low|high|max|auto]` }
   },
 }
 
