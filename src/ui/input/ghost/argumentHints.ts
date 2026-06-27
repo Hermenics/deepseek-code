@@ -9,7 +9,7 @@ const ARGUMENT_HINTS: Record<string, string> = {
   '/language': '<language>',
   '/theme': '<theme>',
   '/checkpoint': '<name>',
-  '/effort': '[low/medium/high/max]',
+  '/effort': '[low/high/max]',
   '/sessions': '',
   '/files': '',
 }

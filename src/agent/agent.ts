@@ -507,7 +507,7 @@ export class Agent {
   private rebuildSystemPromptEffort(): void {
     // Strip any existing effort hint
     this.systemPrompt = this.systemPrompt.replace(/\n\n# EFFORT LEVEL\n[\s\S]*?(?=\n\n#|$)/, '')
-    // Append new hint (skip for 'medium' — it's the default behavior)
+    // Append new hint (skip for 'high' — it's the default behavior)
     const hint = this.getEffortHint()
     if (hint) {
       this.systemPrompt += `\n\n# EFFORT LEVEL\n${hint}`
@@ -518,7 +518,6 @@ export class Agent {
   private getEffortHint(): string | null {
     switch (this.effortLevel) {
       case 'low': return 'Be concise and quick. Skip detailed explanations. Give the shortest correct answer.'
-      case 'medium': return null
       case 'high': return 'Be thorough and comprehensive. Think step by step.'
       case 'max': return 'Use your deepest reasoning. Think extensively before responding. Consider all edge cases, alternative approaches, and potential issues.'
     }
@@ -536,7 +535,7 @@ export class Agent {
     if (this.effortLevel === 'max') {
       return { reasoning_effort: 'max', thinking: { type: 'enabled' } }
     }
-    // medium and high: thinking enabled, default effort (high)
+    // high: thinking enabled, default effort (high)
     return { reasoning_effort: 'high', thinking: { type: 'enabled' } }
   }
 

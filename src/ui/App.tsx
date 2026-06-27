@@ -656,7 +656,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         case 'effort': {
           const EFFORT_DESCRIPTIONS: Record<string, string> = {
             low: 'Quick, straightforward responses',
-            medium: 'Balanced approach with standard reasoning',
             high: 'Comprehensive responses with extensive thinking',
             max: 'Maximum reasoning depth (best with deepseek-reasoner)',
           }
