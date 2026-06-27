@@ -434,6 +434,9 @@ describe('reasoning_content', () => {
         chat: { completions: { create: mockCreate } },
         models: { list: mock(async () => ({ [Symbol.asyncIterator]: async function* () {} })) },
       })
+      // Disable prompt refiner AFTER readyPromise resolves (initialize() overwrites settings)
+      await agent.readyPromise
+      ;(agent as any).settings = { ...(agent as any).settings, promptRefiner: { enabled: false } }
 
       // Mock da tool read_folder
       const toolMap = (agent as unknown as Record<string, unknown>).toolMap as Map<string, { execute: (a: unknown) => Promise<string> }>
