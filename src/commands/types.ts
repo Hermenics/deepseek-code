@@ -1,5 +1,5 @@
 export type Model = string
-export type EffortLevel = 'low' | 'medium' | 'high' | 'max'
+export type EffortLevel = 'low' | 'high' | 'max'
 
 export type CommandResult =
   | { type: 'quit' }

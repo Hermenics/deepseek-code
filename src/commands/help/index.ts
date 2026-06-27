@@ -35,7 +35,7 @@ export const HELP_TEXT = `Commands:
   /msg <note>            add a note for the agent without interrupting it
   /vim                   toggle vim keybindings (normal/insert mode)
   /stats                 show session statistics
-  /effort [level]        set reasoning effort (low/medium/high/max/auto)
+  /effort [level]        set reasoning effort (low/high/max/auto)
   /memory                show persistent memory contents
   /memory clear [agent|user]  clear memory (both or specific)
   /quit  /q              exit`
