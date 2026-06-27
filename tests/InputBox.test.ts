@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { getMatches } from '../src/ui/input/commandMatches.js'
-import { shouldFilterKey, type FilterFilterKeyEvent } from '../src/ui/input/keyFilter.js'
+import { shouldFilterKey, type FilterKeyEvent } from '../src/ui/input/keyFilter.js'
 
 describe('InputBox ghost cursor filter', () => {
   describe('mouse click events — should be filtered', () => {
