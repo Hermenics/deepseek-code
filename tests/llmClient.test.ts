@@ -70,7 +70,7 @@ describe('defaultModel', () => {
   })
 
   it('bedrock retorna modelo deepseek', () => {
-    expect(defaultModel('bedrock')).toBe('deepseek.deepseek-r1-v1:0')
+    expect(defaultModel('bedrock')).toBe('us.deepseek.r1-v1:0')
   })
 
   it('vertex retorna modelo deepseek', () => {
