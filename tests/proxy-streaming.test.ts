@@ -6,28 +6,17 @@ import {
   formatStreamToolCall,
   parseToolCall,
 } from '../src/agent/providers/proxy/formatters/openai.js'
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Replica exata da lógica de decisão de buffering da rota openai.ts.
- * Extraída como função pura para ser testável sem Hono/Playwright.
- *
- * Retorna true quando o token acumulado DEVE ser bufferizado (pode ser tool call).
- * Retorna false quando deve ser emitido imediatamente (texto normal ou flush forçado).
- */
-function shouldBuffer(accumulated: string): boolean {
-  const trimmedStart = accumulated.trimStart()
-  const startsLikeJson = trimmedStart.startsWith('{') || trimmedStart.startsWith('```')
-  const containsToolMarker =
-    accumulated.includes('"tool_use"') ||
-    accumulated.includes('DSML') ||
-    accumulated.includes('<tool_call>')
-
-  return accumulated.length < 2000 && (startsLikeJson || containsToolMarker)
-}
+import { shouldBuffer, BUFFER_MAX_LENGTH } from '../src/agent/providers/proxy/services/should-buffer.js'
+import {
+  buildInjectedScript,
+  IDLE_STREAK_THRESHOLD,
+  GRACE_PERIOD_MS,
+  MUTATION_SILENCE_MS,
+  POLL_INTERVAL_MS,
+  MAX_WAIT_ITERATIONS,
+  WAIT_ITERATION_DELAY_MS,
+  MAX_WAIT_MS,
+} from '../src/agent/providers/proxy/browser/observer.js'
 
 /** Parseia um chunk SSE no formato "data: {...}\n\n" */
 function parseSseChunk(raw: string): any {
@@ -136,32 +125,32 @@ describe('shouldBuffer (streaming buffering decision logic)', () => {
     })
   })
 
-  // ── 5. Flush forçado quando > 2000 chars ──────────────────────────────────
-  describe('forced flush when length >= 2000 — should NOT buffer', () => {
-    it('should return false when accumulated starts with { but length >= 2000', () => {
-      const longJson = '{' + 'x'.repeat(2000)
+  // ── 5. Flush forçado quando >= BUFFER_MAX_LENGTH chars ──────────────────────
+  describe('forced flush when length >= BUFFER_MAX_LENGTH — should NOT buffer', () => {
+    it('should return false when accumulated starts with { but length >= BUFFER_MAX_LENGTH', () => {
+      const longJson = '{' + 'x'.repeat(BUFFER_MAX_LENGTH)
       expect(shouldBuffer(longJson)).toBe(false)
     })
 
-    it('should return false when accumulated contains tool_use but length >= 2000', () => {
-      const longText = '"tool_use"' + 'x'.repeat(2000)
+    it('should return false when accumulated contains tool_use but length >= BUFFER_MAX_LENGTH', () => {
+      const longText = '"tool_use"' + 'x'.repeat(BUFFER_MAX_LENGTH)
       expect(shouldBuffer(longText)).toBe(false)
     })
 
-    it('should return false when accumulated starts with ``` but length >= 2000', () => {
-      const longFence = '```' + 'x'.repeat(2000)
+    it('should return false when accumulated starts with ``` but length >= BUFFER_MAX_LENGTH', () => {
+      const longFence = '```' + 'x'.repeat(BUFFER_MAX_LENGTH)
       expect(shouldBuffer(longFence)).toBe(false)
     })
 
-    it('should return true when accumulated starts with { and length is exactly 1999', () => {
-      const almostLong = '{' + 'x'.repeat(1998)
-      expect(almostLong.length).toBe(1999)
+    it('should return true when accumulated starts with { and length is exactly BUFFER_MAX_LENGTH - 1', () => {
+      const almostLong = '{' + 'x'.repeat(BUFFER_MAX_LENGTH - 2)
+      expect(almostLong.length).toBe(BUFFER_MAX_LENGTH - 1)
       expect(shouldBuffer(almostLong)).toBe(true)
     })
 
-    it('should return false when accumulated starts with { and length is exactly 2000', () => {
-      const exactLimit = '{' + 'x'.repeat(1999)
-      expect(exactLimit.length).toBe(2000)
+    it('should return false when accumulated starts with { and length is exactly BUFFER_MAX_LENGTH', () => {
+      const exactLimit = '{' + 'x'.repeat(BUFFER_MAX_LENGTH - 1)
+      expect(exactLimit.length).toBe(BUFFER_MAX_LENGTH)
       expect(shouldBuffer(exactLimit)).toBe(false)
     })
   })
@@ -433,12 +422,12 @@ describe('streaming loop behavior simulation', () => {
         accumulated.includes('DSML') ||
         accumulated.includes('<tool_call>')
 
-      const couldBeTool = accumulated.length < 2000 && (startsLikeJson || containsToolMarker)
+      const couldBeTool = accumulated.length < BUFFER_MAX_LENGTH && (startsLikeJson || containsToolMarker)
 
       if (!couldBeTool) {
         chunks.push(formatStreamChunk(accumulated, model))
         accumulated = ''
-      } else if (accumulated.length >= 2000) {
+      } else if (accumulated.length >= BUFFER_MAX_LENGTH) {
         chunks.push(formatStreamChunk(accumulated, model))
         accumulated = ''
       }
@@ -576,106 +565,22 @@ describe('streaming loop behavior simulation', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('observer injected script threshold values', () => {
-  /**
-   * Builds the injected script string exactly as observer.ts does,
-   * without requiring Playwright. We replicate the array-join approach
-   * so the thresholds are tested against the real source logic.
-   */
-  function buildInjectedScript(activeSelector: string, initialCount: number, callbackName: string): string {
-    const BT = '`'
-    return [
-      '(function() {',
-      '  var sel = ' + JSON.stringify(activeSelector) + ';',
-      '  var cb = ' + JSON.stringify(callbackName) + ';',
-      '  var baseCount = ' + initialCount + ';',
-      '  var target = document.querySelectorAll(sel)[baseCount];',
-      '  if (!target) return;',
-      '  var lastLen = 0;',
-      '  var htmlToText = function(el) {',
-      '    var clone = el.cloneNode(true);',
-      '    clone.querySelectorAll("button, svg, [class*=action], [class*=copy], [class*=download], [class*=toolbar], [class*=footer]").forEach(function(n) { n.remove(); });',
-      '    var html = clone.innerHTML;',
-      '    return html',
-      '      .replace(/<br\\s*\\/?>/gi, "\\n")',
-      '      .replace(/<\\/p>/gi, "\\n\\n")',
-      '      .replace(/<\\/h[1-6]>/gi, "\\n\\n")',
-      '      .replace(/<\\/li>/gi, "\\n")',
-      '      .replace(/<li[^>]*>/gi, "- ")',
-      '      .replace(/<h1[^>]*>/gi, "# ")',
-      '      .replace(/<h2[^>]*>/gi, "## ")',
-      '      .replace(/<h3[^>]*>/gi, "### ")',
-      '      .replace(/<strong[^>]*>/gi, "**")',
-      '      .replace(/<\\/strong>/gi, "**")',
-      '      .replace(/<em[^>]*>/gi, "*")',
-      '      .replace(/<\\/em>/gi, "*")',
-      '      .replace(/<pre[^>]*><code[^>]*>/gi, ' + JSON.stringify(BT + BT + BT + '\n') + ')',
-      '      .replace(/<\\/code><\\/pre>/gi, ' + JSON.stringify('\n' + BT + BT + BT) + ')',
-      '      .replace(/<code[^>]*>/gi, ' + JSON.stringify(BT) + ')',
-      '      .replace(/<\\/code>/gi, ' + JSON.stringify(BT) + ')',
-      '      .replace(/<[^>]+>/g, "")',
-      '      .replace(/&lt;/g, "<")',
-      '      .replace(/&gt;/g, ">")',
-      '      .replace(/&amp;/g, "&")',
-      '      .replace(/&quot;/g, \'"\')',
-      '      .replace(/\\n{3,}/g, "\\n\\n")',
-      '      .trim();',
-      '  };',
-      '  var flush = function() {',
-      '    var text = htmlToText(target);',
-      '    if (text.length > lastLen) {',
-      '      var delta = text.slice(lastLen);',
-      '      lastLen = text.length;',
-      '      window[cb](delta);',
-      '    }',
-      '  };',
-      '  window[cb + "_flush"] = flush;',
-      '  var observer = new MutationObserver(function() { flush(); });',
-      '  observer.observe(target, { childList: true, subtree: true, characterData: true });',
-      '  var idleStreak = 0;',
-      '  var lastMutationTime = Date.now();',
-      '  var startTime = Date.now();',
-      '  observer.disconnect();',
-      '  var trackedObserver = new MutationObserver(function() { flush(); lastMutationTime = Date.now(); idleStreak = 0; });',
-      '  trackedObserver.observe(target, { childList: true, subtree: true, characterData: true });',
-      '  var checkDone = setInterval(function() {',
-      '    var hasStop = !!document.querySelector("[class*=stop]") ||',
-      '                  !!document.querySelector("[class*=loading]") ||',
-      '                  !!document.querySelector("[class*=typing]");',
-      '    if (hasStop) { idleStreak = 0; lastMutationTime = Date.now(); return; }',
-      '    if (Date.now() - startTime < 4000) return;',
-      '    if (Date.now() - lastMutationTime < 3000) return;',
-      '    idleStreak++;',
-      '    if (idleStreak >= 12) {',
-      '      flush();',
-      '      clearInterval(checkDone);',
-      '      trackedObserver.disconnect();',
-      '      window[cb]("__DONE__");',
-      '    }',
-      '  }, 300);',
-      '  window.__dsProxyCleanup = function() {',
-      '    clearInterval(checkDone);',
-      '    trackedObserver.disconnect();',
-      '  };',
-      '})();',
-    ].join('\n')
-  }
-
   const script = buildInjectedScript('.ds-markdown', 0, '__dsProxy_test')
 
-  it('should use idleStreak >= 12 as the completion threshold', () => {
-    expect(script).toContain('idleStreak >= 12')
+  it('should use idleStreak >= IDLE_STREAK_THRESHOLD as the completion threshold', () => {
+    expect(script).toContain(`idleStreak >= ${IDLE_STREAK_THRESHOLD}`)
   })
 
-  it('should use startTime < 4000ms grace period before checking idle', () => {
-    expect(script).toContain('Date.now() - startTime < 4000')
+  it('should use startTime < GRACE_PERIOD_MS grace period before checking idle', () => {
+    expect(script).toContain(`Date.now() - startTime < ${GRACE_PERIOD_MS}`)
   })
 
-  it('should use lastMutationTime < 3000ms to detect mutation silence', () => {
-    expect(script).toContain('Date.now() - lastMutationTime < 3000')
+  it('should use lastMutationTime < MUTATION_SILENCE_MS to detect mutation silence', () => {
+    expect(script).toContain(`Date.now() - lastMutationTime < ${MUTATION_SILENCE_MS}`)
   })
 
-  it('should use setInterval with 300ms polling interval', () => {
-    expect(script).toContain('}, 300);')
+  it('should use setInterval with POLL_INTERVAL_MS polling interval', () => {
+    expect(script).toContain(`}, ${POLL_INTERVAL_MS});`)
   })
 
   it('should reset idleStreak to 0 when a mutation occurs', () => {
@@ -709,21 +614,16 @@ describe('observer injected script threshold values', () => {
   })
 
   describe('maximum loop iterations — 240 cap', () => {
-    it('should use 240 as the maximum wait loop iterations in observeResponse', () => {
-      // This value is in the for loop: for (let i = 0; !newElementAppeared && i < 240 ...)
-      // We verify it by reading the source as a string (static analysis approach)
-      // The observer.ts source contains this literal — we test the contract value
-      const MAX_ITERATIONS = 240
-      // 240 iterations * 500ms per iteration = 120 seconds max wait
-      expect(MAX_ITERATIONS * 500).toBe(120_000)
-      // Sanity: 240 is the correct value (not 100, not 200)
-      expect(MAX_ITERATIONS).toBe(240)
+    it('should use MAX_WAIT_ITERATIONS as the maximum wait loop iterations in observeResponse', () => {
+      // MAX_WAIT_ITERATIONS * WAIT_ITERATION_DELAY_MS = MAX_WAIT_MS
+      expect(MAX_WAIT_MS).toBe(MAX_WAIT_ITERATIONS * WAIT_ITERATION_DELAY_MS)
+      expect(MAX_WAIT_MS).toBe(120_000)
+      expect(MAX_WAIT_ITERATIONS).toBe(240)
     })
 
-    it('should wait 500ms per iteration (total max wait = 120 seconds)', () => {
-      const iterationsPerSecond = 1000 / 500
-      const maxIterations = 240
-      const maxWaitSeconds = maxIterations / iterationsPerSecond
+    it('should wait WAIT_ITERATION_DELAY_MS per iteration (total max wait = 120 seconds)', () => {
+      const iterationsPerSecond = 1000 / WAIT_ITERATION_DELAY_MS
+      const maxWaitSeconds = MAX_WAIT_ITERATIONS / iterationsPerSecond
       expect(maxWaitSeconds).toBe(120)
     })
   })

@@ -292,33 +292,6 @@ describe('Agent class', () => {
     })
   })
 
-  describe('getAvailableModels', () => {
-    it('should return an array', async () => {
-      const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
-      // Mock to avoid real network call
-      ;(agent as unknown as Record<string, unknown>).getAvailableModels = async () => ['deepseek-chat', 'deepseek-reasoner']
-      const models = await agent.getAvailableModels()
-      expect(models).toBeArray()
-    })
-
-    it('should return empty array on API failure', async () => {
-      const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
-      // Mock to simulate failure
-      ;(agent as unknown as Record<string, unknown>).getAvailableModels = async () => []
-      const models = await agent.getAvailableModels()
-      expect(models).toEqual([])
-    })
-
-    it('should return strings in the array', async () => {
-      const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
-      // Mock to avoid real network call
-      ;(agent as unknown as Record<string, unknown>).getAvailableModels = async () => ['deepseek-chat', 'deepseek-reasoner']
-      const models = await agent.getAvailableModels()
-      for (const m of models) {
-        expect(typeof m).toBe('string')
-      }
-    })
-  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────

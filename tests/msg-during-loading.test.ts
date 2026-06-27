@@ -9,30 +9,7 @@
  */
 
 import { describe, it, expect } from 'bun:test'
-import { enqueue } from '../src/ui/queueLogic.js'
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Replica of the handleQueue /msg detection logic (pure, extracted for testing)
-// ─────────────────────────────────────────────────────────────────────────────
-
-interface HandleQueueResult {
-  /** If set, this note should be passed to agent.addNote() immediately */
-  note: string | null
-  /** If set, this message should be enqueued via enqueue() */
-  queued: string[] | null
-}
-
-/**
- * Pure replica of the handleQueue branching logic from App.tsx.
- * Returns what action should be taken for a given message.
- */
-function handleQueueLogic(msg: string, currentQueue: string[]): HandleQueueResult {
-  const msgMatch = msg.match(/^\/msg\s+(.+)/)
-  if (msgMatch) {
-    return { note: msgMatch[1]!, queued: null }
-  }
-  return { note: null, queued: enqueue(currentQueue, msg) }
-}
+import { handleQueueLogic } from '../src/ui/queueLogic.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // /msg detection — happy path

@@ -136,19 +136,8 @@ describe('proxy/browser/headers', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('updateSessionParent and getSessionParent', () => {
-    const sessionParents = new Map<string, number | null>()
-
-    function updateSessionParent(sessionId: string, parentId: number | null): void {
-      sessionParents.set(sessionId, parentId)
-    }
-
-    function getSessionParent(sessionId: string): number | null {
-      return sessionParents.get(sessionId) ?? null
-    }
-
-    beforeEach(() => {
-      sessionParents.clear()
-    })
+    const updateSessionParent = getExport('updateSessionParent') as (sessionId: string, parentId: number | null) => void
+    const getSessionParent = getExport('getSessionParent') as (sessionId: string) => number | null
 
     it('should return null for an unknown sessionId', () => {
       const result = getSessionParent('session-that-does-not-exist-xyz')
