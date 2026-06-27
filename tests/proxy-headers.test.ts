@@ -26,6 +26,7 @@ mock.module('playwright', () => ({
 // ─────────────────────────────────────────────────────────────────────────────
 
 import type { DeepSeekHeaders } from '../src/agent/providers/proxy/browser/headers.js'
+import { updateSessionParent, getSessionParent } from '../src/agent/providers/proxy/browser/sessionParent.js'
 
 // Importação dinâmica para capturar o módulo após os mocks serem aplicados
 const headersModule = await import('../src/agent/providers/proxy/browser/headers.js').catch(
@@ -136,8 +137,6 @@ describe('proxy/browser/headers', () => {
   // ─────────────────────────────────────────────────────────────────────────
 
   describe('updateSessionParent and getSessionParent', () => {
-    const updateSessionParent = getExport('updateSessionParent') as (sessionId: string, parentId: number | null) => void
-    const getSessionParent = getExport('getSessionParent') as (sessionId: string) => number | null
 
     it('should return null for an unknown sessionId', () => {
       const result = getSessionParent('session-that-does-not-exist-xyz')
