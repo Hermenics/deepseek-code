@@ -22,7 +22,7 @@ Na primeira execução, você escolhe um **provider** e configura a autenticaç�
 | Provider | Autenticação | Variáveis de ambiente |
 |---|---|---|
 | **DeepSeek API** (padrão) | API key | `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL` |
-| **Amazon Bedrock** | IAM via `~/.aws/credentials` | `AWS_REGION`, `AWS_PROFILE` |
+| **Amazon Bedrock** | IAM via `~/.aws/credentials` ou env vars STS | `AWS_REGION`, `AWS_PROFILE`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` |
 | **Google Vertex AI** | Service account JSON | `GCP_PROJECT`, `GCP_LOCATION`, `GCP_CREDENTIALS` |
 | **Local (Ollama / LM Studio)** | Nenhuma | `LOCAL_BASE_URL`, `LOCAL_MODEL` |
 | **OAuth (beta)** | Login via browser | Auto-configurado |
@@ -35,6 +35,13 @@ Troque de modelo a qualquer momento com `/model` dentro do TUI:
 |---|---|---|
 | `deepseek-v4-flash` | Rápido, uso geral (padrão) | 128K |
 | `deepseek-v4-pro` | Raciocínio avançado | 128K |
+
+**Bedrock (modelos disponíveis):**
+
+| Modelo | Endpoint | Model ID |
+|---|---|---|
+| DeepSeek R1 | InvokeModel (inference profile) | `us.deepseek.r1-v1:0` |
+| DeepSeek V3.2 | bedrock-mantle Chat Completions | `deepseek.v3.2` |
 
 Cada provider também expõe seus próprios modelos específicos.
 

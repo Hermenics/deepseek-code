@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, mock } from 'bun:test'
 
 const mockSend = mock(async () => ({
   modelSummaries: [
-    { modelId: 'deepseek.deepseek-r1-v1:0' },
+    { modelId: 'us.deepseek.r1-v1:0' },
     { modelId: 'deepseek.deepseek-v3-0324:0' },
     { modelId: 'amazon.titan-text-express-v1:0' },         // deve ser filtrado
     { modelId: 'meta.llama3-8b-instruct-v1:0' },           // deve ser filtrado
@@ -30,11 +30,16 @@ const { listBedrockDeepSeekModels } = await import('../src/agent/providers/bedro
 
 describe('listBedrockDeepSeekModels', () => {
   beforeEach(() => {
+    // Garante que resolveCredentials sempre use fromIni nos testes
+    delete process.env.AWS_ACCESS_KEY_ID
+    delete process.env.AWS_SECRET_ACCESS_KEY
+    delete process.env.AWS_SESSION_TOKEN
+
     mockSend.mockClear()
     // Restaura implementação padrão após cada teste
     mockSend.mockImplementation(async () => ({
       modelSummaries: [
-        { modelId: 'deepseek.deepseek-r1-v1:0' },
+        { modelId: 'us.deepseek.r1-v1:0' },
         { modelId: 'deepseek.deepseek-v3-0324:0' },
         { modelId: 'amazon.titan-text-express-v1:0' },
         { modelId: 'meta.llama3-8b-instruct-v1:0' },
@@ -46,8 +51,8 @@ describe('listBedrockDeepSeekModels', () => {
   it('retorna apenas modelos com "deepseek" no ID', async () => {
     const models = await listBedrockDeepSeekModels('us-east-1', 'default')
     expect(models).toEqual([
-      'deepseek.deepseek-r1-v1:0',
       'deepseek.deepseek-v3-0324:0',
+      'us.deepseek.r1-v1:0',
     ])
   })
 
@@ -55,13 +60,13 @@ describe('listBedrockDeepSeekModels', () => {
     mockSend.mockImplementationOnce(async () => ({
       modelSummaries: [
         { modelId: 'deepseek.deepseek-v3-0324:0' },
-        { modelId: 'deepseek.deepseek-r1-v1:0' },
+        { modelId: 'us.deepseek.r1-v1:0' },
       ],
     }))
     const models = await listBedrockDeepSeekModels('us-east-1', 'default')
     expect(models).toEqual([
-      'deepseek.deepseek-r1-v1:0',
       'deepseek.deepseek-v3-0324:0',
+      'us.deepseek.r1-v1:0',
     ])
   })
 
