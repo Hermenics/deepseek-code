@@ -32,6 +32,7 @@ import { UNDO_STACK_MAX, CONTEXT_COMPACT_THRESHOLD, MICRO_COMPACT_KEEP_LAST } fr
 import { shouldAutoCompact, microCompact, createCompactState, createAutoCompactConfig, type CompactState, type AutoCompactConfig } from '../services/compact/autoCompact.js'
 import { COMPACT_SUMMARY_PROMPT, COMPACT_SYSTEM_PROMPT } from '../services/compact/summaryPrompt.js'
 import { auditLog } from './auditLog.js'
+import { refinePrompt } from './promptRefiner.js'
 import { canUseTool, DEFAULT_MODE, getToolsForMode, isBuildMode, isAutoMode, isDestructiveShell, isConfigWrite, type InteractionMode } from '../ui/interactionMode.js'
 import { resolvePermission } from '../permissions/index.js'
 import { runPreToolHooks, runPostToolHooks, runSessionStartHooks } from '../hooks/index.js'
@@ -642,8 +643,15 @@ export class Agent {
     const now = new Date().toLocaleString()
     this.lastUserMessage = userMessage
 
+    // Prompt refinement (if enabled)
+    let effectiveMessage = userMessage
+    if (this.settings.promptRefiner?.enabled !== false && userMessage.length >= 30 && !userMessage.startsWith('/')) {
+      cb.onPhaseChange?.('refining')
+      effectiveMessage = await refinePrompt(this.client, this.model, userMessage)
+    }
+
     // Inject any pending /msg notes as a system-level context hint
-    let messageContent = `[${now}]\n${userMessage}`
+    let messageContent = `[${now}]\n${effectiveMessage}`
     if (this.pendingNotes.length > 0) {
       const notes = this.pendingNotes.map((n) => `• ${n}`).join('\n')
       messageContent += `\n\n[Background notes from user — context only, not a new task]\n${notes}`

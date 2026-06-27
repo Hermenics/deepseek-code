@@ -15,5 +15,9 @@ export interface DeepSeekSettings {
   language?: string
   autoCompact?: boolean
   autoCompactThreshold?: number // 0.0-1.0, default 0.90
+  promptRefiner?: {
+    enabled?: boolean
+    model?: string  // optional override — uses main model if not set
+  }
   [key: string]: unknown // extensible
 }
