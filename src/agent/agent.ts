@@ -14,7 +14,7 @@ import type { AgentConfig } from './config.js'
 import type { Tool } from '../tools/types.js'
 import { resolveAgentFiles } from './files.js'
 import { loadSteering, loadDeepSeekMd } from './steering.js'
-import { getMemorySnapshot } from './memory.js'
+import { getMemorySnapshot, addEntry } from './memory.js'
 import { loadMergedSettings } from '../settings/index.js'
 import type { DeepSeekSettings } from '../settings/types.js'
 import type { EffortLevel } from '../commands/types.js'
@@ -791,6 +791,7 @@ export class Agent {
           if (reasoningText) finalMsg.reasoning_content = reasoningText
           this.messages.push(finalMsg)
           await saveHistory(this.messages)
+          this.syncTurn()
           cb.onDone()
           return
         }
@@ -804,6 +805,7 @@ export class Agent {
           if (reasoningText) finalMsg.reasoning_content = reasoningText
           this.messages.push(finalMsg)
           await saveHistory(this.messages)
+          this.syncTurn()
           cb.onDone()
           return
         }
@@ -952,6 +954,7 @@ export class Agent {
         if (reasoningText) finalMsg.reasoning_content = reasoningText
         this.messages.push(finalMsg)
         await saveHistory(this.messages)
+        this.syncTurn()
         cb.onDone()
         return
       }
@@ -1191,5 +1194,35 @@ export class Agent {
     } catch (e: unknown) {
       return `Error: ${(e as Error).message}`
     }
+  }
+
+  // ponytail: auto-learn 0-1 facts per turn, fire-and-forget
+  private syncTurn(): void {
+    const msgs = this.messages.filter(m => typeof m === 'object' && 'role' in m && m.role === 'assistant')
+    if (msgs.length < 2) return // nothing to learn from a short turn
+
+    const recent = this.messages.slice(-10).map(m => {
+      if (typeof m === 'object' && 'role' in m) {
+        return { role: (m as any).role, content: typeof (m as any).content === 'string' ? (m as any).content : '' }
+      }
+      return null
+    }).filter(Boolean)
+
+    this.client.chat.completions.create({
+      model: this.model,
+      messages: [
+        { role: 'system' as const, content: 'Extract 0-1 NEW facts about the user or their project from this conversation. Only facts worth remembering across sessions (preferences, project details, workflow patterns). If nothing new: respond with exactly "NONE". Otherwise respond with just the fact, one line, max 100 chars.' },
+        ...(recent as any[]),
+      ],
+      max_tokens: 100,
+      temperature: 0,
+    }).then(res => {
+      const fact = res.choices?.[0]?.message?.content?.trim()
+      if (fact && fact !== 'NONE' && fact.length > 5 && fact.length <= 100) {
+        addEntry('agent', fact)
+      }
+    }).catch(() => {
+      // ponytail: silent fail — never block user for memory sync
+    })
   }
 }
