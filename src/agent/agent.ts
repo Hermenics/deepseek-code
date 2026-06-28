@@ -1208,21 +1208,27 @@ export class Agent {
       return null
     }).filter(Boolean)
 
-    this.client.chat.completions.create({
-      model: this.model,
-      messages: [
-        { role: 'system' as const, content: 'Extract 0-1 NEW facts about the user or their project from this conversation. Only facts worth remembering across sessions (preferences, project details, workflow patterns). If nothing new: respond with exactly "NONE". Otherwise respond with just the fact, one line, max 100 chars.' },
-        ...(recent as any[]),
-      ],
-      max_tokens: 100,
-      temperature: 0,
-    }).then(res => {
-      const fact = res.choices?.[0]?.message?.content?.trim()
-      if (fact && fact !== 'NONE' && fact.length > 5 && fact.length <= 100) {
-        addEntry('agent', fact)
+    try {
+      const result = this.client.chat.completions.create({
+        model: this.model,
+        messages: [
+          { role: 'system' as const, content: 'Extract 0-1 NEW facts about the user or their project from this conversation. Only facts worth remembering across sessions (preferences, project details, workflow patterns). If nothing new: respond with exactly "NONE". Otherwise respond with just the fact, one line, max 100 chars.' },
+          ...(recent as any[]),
+        ],
+        max_tokens: 100,
+        temperature: 0,
+      })
+      // ponytail: guard against non-thenable return (e.g. test mocks returning iterables)
+      if (result && typeof result.then === 'function') {
+        result.then((res: any) => {
+          const fact = res.choices?.[0]?.message?.content?.trim()
+          if (fact && fact !== 'NONE' && fact.length > 5 && fact.length <= 100) {
+            addEntry('agent', fact)
+          }
+        }).catch(() => {})
       }
-    }).catch(() => {
+    } catch {
       // ponytail: silent fail — never block user for memory sync
-    })
+    }
   }
 }

@@ -447,8 +447,8 @@ describe('reasoning_content', () => {
       // Act — não deve lançar erro 400
       await expect(agent.run('O que podemos adicionar neste projeto?', cb)).resolves.toBeUndefined()
 
-      // Assert 1: duas chamadas foram feitas (turno 1 + turno 2)
-      expect(callCount).toBe(2)
+      // Assert 1: pelo menos duas chamadas foram feitas (turno 1 + turno 2; syncTurn pode fazer extras)
+      expect(callCount).toBeGreaterThanOrEqual(2)
 
       // Assert 2: na segunda chamada, a mensagem do assistente do turno 1
       // DEVE conter reasoning_content — sem isso a API retorna 400
