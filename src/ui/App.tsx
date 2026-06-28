@@ -23,6 +23,7 @@ import { saveConfig } from './setup/ApiKeySetup.js'
 import { formatChatError } from '../utils/chatError.js'
 import { saveSession, type SessionData } from '../agent/session.js'
 import { DEFAULT_MODE, nextMode, isBuildMode, isAutoMode, type InteractionMode } from './interactionMode.js'
+import { useRemoteControl } from '../remote/useRemoteControl.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
 
@@ -100,6 +101,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [agentPhase, setAgentPhase] = useState<AgentPhase>('idle')
   const [interactionMode, setInteractionMode] = useState<InteractionMode>(DEFAULT_MODE)
   const [queuedMessages, setQueuedMessages] = useState<string[]>([])
+  const remoteSeqRef = useRef(0)
+  const remote = useRemoteControl()
   const [agent] = useState(() => new Agent(providerConfig ?? undefined))
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
   const [showThemeSelector, setShowThemeSelector] = useState(false)
@@ -304,14 +307,14 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     }, 50)
 
     try {
-      await agent.run(prompt, {
-        onPhaseChange(phase) { setAgentPhase(phase) },
-        onToken(token) { tokenBuffer += token },
-        onThinking(text) {
+      const baseCallbacks: import('../agent/agent.js').AgentCallbacks = {
+        onPhaseChange(phase: AgentPhase) { setAgentPhase(phase) },
+        onToken(token: string) { tokenBuffer += token },
+        onThinking(text: string) {
           thinkingAccum += text
           setThinkingText(thinkingAccum)
         },
-        onToolCall(name, args) {
+        onToolCall(name: string, args: object) {
           const pending = (streamTextAccum + tokenBuffer).trim()
           tokenBuffer = ''
           streamTextAccum = ''
@@ -337,9 +340,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             : JSON.stringify(args).slice(0, 100)
           setToolStatus({ name, args: argsPreview, done: false })
         },
-        onToolResult(name, result, args) {
+        onToolResult(name: string, result: string, args: Record<string, unknown>) {
           // Mark tool as done (shows checkmark briefly) then clear
-          setToolStatus((prev) => prev?.name === name ? { ...prev, done: true, result: result.slice(0, 200) } : null)
+          setToolStatus((prev) => prev?.name === name ? { ...(prev as ToolStatus), done: true, result: result.slice(0, 200) } : null)
           if (toolStatusClearTimerRef.current) {
             clearTimeout(toolStatusClearTimerRef.current)
           }
@@ -425,10 +428,11 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         onDenyAbort() {
           setMessages((m) => [...m, { role: 'assistant', content: '⛔ Execution aborted by user.' }])
         },
-        onAutoCompact(summary) {
+        onAutoCompact(summary: string) {
           setMessages((m) => [...m, { role: 'assistant', content: `⚡ Context compacted automatically.\n\n${summary}` }])
         },
-      })
+      }
+      await agent.run(prompt, remote.wrapCallbacks(baseCallbacks, () => ++remoteSeqRef.current))
     } catch (e: unknown) {
       clearInterval(flushInterval)
       setStreamText('')
@@ -696,6 +700,25 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             if (userEntries.length) userEntries.forEach((e, i) => lines.push(`  ${i + 1}. ${e}`))
             else lines.push('  (empty)')
             setMessages((m) => [...m, { role: 'assistant', content: lines.join('\n') }])
+          }
+          return
+        }
+        case 'remote-control': {
+          if (cmd.action === 'start') {
+            setMessages((m) => [...m, { role: 'assistant', content: 'Starting remote control pairing...' }])
+            const result = await remote.start()
+            setMessages((m) => [...m, { role: 'assistant', content: result }])
+          } else if (cmd.action === 'stop') {
+            remote.stop()
+            setMessages((m) => [...m, { role: 'assistant', content: 'Remote control stopped.' }])
+          } else if (cmd.action === 'status') {
+            setMessages((m) => [...m, { role: 'assistant', content: remote.getStatus() }])
+          } else if (cmd.action === 'devices') {
+            const list = await remote.getDevices()
+            setMessages((m) => [...m, { role: 'assistant', content: list }])
+          } else if (cmd.action === 'unpair') {
+            const result = await remote.unpair((cmd as { action: 'unpair'; deviceId?: string }).deviceId)
+            setMessages((m) => [...m, { role: 'assistant', content: result }])
           }
           return
         }

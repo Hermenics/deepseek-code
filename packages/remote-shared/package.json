@@ -1,0 +1,18 @@
+{
+  "name": "@deepseek-code/remote-shared",
+  "version": "0.1.0",
+  "description": "Shared types and crypto utilities for DeepSeek Code remote control",
+  "module": "src/index.ts",
+  "type": "module",
+  "scripts": {
+    "typecheck": "bunx tsc --noEmit"
+  },
+  "dependencies": {
+    "tweetnacl": "^1.0.3",
+    "tweetnacl-util": "^0.15.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "@types/node": "^20.0.0"
+  }
+}

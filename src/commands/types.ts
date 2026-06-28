@@ -34,6 +34,11 @@ export type CommandResult =
   | { type: 'memory'; action: 'clear'; target?: 'agent' | 'user' }
   | { type: 'effort'; action: 'status' }
   | { type: 'effort'; action: 'set'; level: EffortLevel }
+  | { type: 'remote-control'; action: 'start' }
+  | { type: 'remote-control'; action: 'status' }
+  | { type: 'remote-control'; action: 'stop' }
+  | { type: 'remote-control'; action: 'unpair'; deviceId?: string }
+  | { type: 'remote-control'; action: 'devices' }
   | { type: 'unknown'; input: string }
 
 export interface Command {

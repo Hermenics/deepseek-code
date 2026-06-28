@@ -9,7 +9,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "types": ["bun-types"],
+    "types": ["@types/bun"],
     "lib": ["ESNext", "DOM"],
     "paths": {
       "src/utils/debug.js": ["./src/utils/debug.ts"],
