@@ -169,9 +169,13 @@ if (update) {
       const { execa } = await import('execa')
       // ponytail: always npm — bun is the runtime, not the package manager used for global install
       const pm = 'npm'
-      const { stdout, stderr } = await execa(pm, ['install', '-g', `${name}@${latest}`], { reject: false })
+      const { stdout, stderr, exitCode } = await execa(pm, ['install', '-g', `${name}@${latest}`], { reject: false })
       if (stdout) process.stdout.write(stdout + '\n')
       if (stderr) process.stderr.write(stderr + '\n')
+      if (exitCode !== 0) {
+        process.stderr.write(`Update failed (exit ${exitCode}). Check the errors above.\n`)
+        process.exit(1)
+      }
       process.stdout.write(`Updated to ${latest}. Restart deepseek to use the new version.\n`)
     }
   } catch (e) {
