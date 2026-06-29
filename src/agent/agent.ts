@@ -35,6 +35,7 @@ import { auditLog } from './auditLog.js'
 import { refinePrompt } from './promptRefiner.js'
 import { canUseTool, DEFAULT_MODE, getToolsForMode, isBuildMode, isAutoMode, isDestructiveShell, isConfigWrite, type InteractionMode } from '../ui/interactionMode.js'
 import { resolvePermission } from '../permissions/index.js'
+import { assessRisk } from '../permissions/risk.js'
 import { runPreToolHooks, runPostToolHooks, runSessionStartHooks } from '../hooks/index.js'
 import type { HooksConfig } from '../hooks/types.js'
 
@@ -209,6 +210,7 @@ export class Agent {
   private confirmHandler: ((message: string) => Promise<boolean>) | null = null
   private toolPermissionHandler: ToolPermissionHandler | null = null
   private sessionApprovedTools: Set<string> = new Set()
+  private turnWriteCount = 0
   private allowedTools: string[] | '*' | null = null
   public interactionMode: InteractionMode = DEFAULT_MODE
   public effortLevel: EffortLevel = 'high'
@@ -612,6 +614,7 @@ export class Agent {
   async run(userMessage: string, cb: AgentCallbacks) {
     // Reset subagent task memory at the start of each user turn
     resetMemory()
+    this.turnWriteCount = 0
 
     // Wait for async initialization to complete before running
     await this.readyPromise
@@ -1035,19 +1038,33 @@ export class Agent {
       return { tc, result: blockMsg }
     }
 
-    // ── 1.5. Build mode: ask permission for sensitive operations ─────────────
-    if (isBuildMode(this.interactionMode) && this.toolPermissionHandler) {
-      const needsPermission =
-        isConfigWrite(tc.function.name, parsedArgs) ||
-        (tc.function.name === 'shell' && typeof parsedArgs.command === 'string' && isDestructiveShell(parsedArgs.command))
-      if (needsPermission && !this.sessionApprovedTools.has(`${tc.function.name}:sensitive`)) {
+    // ── 1.5. Risk-level assessment (Build mode only) ─────────────────────────
+    if (isBuildMode(this.interactionMode)) {
+      // Track write count for burst detection
+      if (tc.function.name === 'write_file' || tc.function.name === 'patch_file') {
+        this.turnWriteCount++
+      }
+
+      const riskResult = assessRisk(tc.function.name, parsedArgs, {
+        isSubAgent: false,
+        recentWriteCount: this.turnWriteCount,
+        config: this.settings.risk ?? {},
+      })
+
+      if (riskResult?.requiresConfirmation && !this.sessionApprovedTools.has(`risk:${riskResult.matchedRule}`)) {
+        if (!this.toolPermissionHandler) {
+          const blockMsg = `⚠️ Tool '${tc.function.name}' requer confirmação (${riskResult.level} risk: ${riskResult.description}). Sem handler de confirmação disponível.`
+          cb.onToolCall(tc.function.name, parsedArgs)
+          cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
+          return { tc, result: blockMsg }
+        }
         const userDecision = await this.toolPermissionHandler(tc.function.name, parsedArgs)
         if (userDecision === 'deny') {
-          auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied_sensitive: true } })
+          auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied_risk: riskResult.level } })
           throw new DenyAbortError()
         }
         if (userDecision === 'session') {
-          this.sessionApprovedTools.add(`${tc.function.name}:sensitive`)
+          this.sessionApprovedTools.add(`risk:${riskResult.matchedRule}`)
         }
       }
     }
