@@ -274,6 +274,28 @@ version_exists_on_npm() {
   npm view "${package_name}@${version}" version >/dev/null 2>&1
 }
 
+require_npm_auth() {
+  # Skip if publish won't happen anyway
+  (( SKIP_PUBLISH )) && return 0
+
+  if (( DRY_RUN )); then
+    log "[dry-run] Would verify npm authentication before version bump."
+    return 0
+  fi
+
+  if npm whoami >/dev/null 2>&1; then
+    ok "npm authenticated as $(npm whoami)."
+    return 0
+  fi
+
+  warn "Not logged in to npm. Running npm login..."
+  npm login
+
+  # Verify login succeeded
+  npm whoami >/dev/null 2>&1 || die "npm login failed or was cancelled. Aborting before version bump."
+  ok "npm authenticated as $(npm whoami)."
+}
+
 while (($#)); do
   case "$1" in
     patch|minor|major)
@@ -375,6 +397,9 @@ elif version_exists_on_npm "$PACKAGE_NAME" "$TARGET_VERSION"; then
 else
   ok "$PACKAGE_NAME@$TARGET_VERSION is available."
 fi
+
+log "[4b/9] Verifying npm authentication..."
+require_npm_auth
 
 log "[5/9] Bumping version ($BUMP)..."
 if (( DRY_RUN )); then

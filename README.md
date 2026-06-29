@@ -69,5 +69,5 @@ File a [GitHub issue](https://github.com/Hermenics/deepseek-code/issues) or use 
 ---
 
 <div align="center">
-  <p>Made with ❤️ by <a href="https://github.com/Marcelo-Henry">Marcelo</a></p>
+  <p>Made with ❤️ by <a href="https://github.com/Hermenics">Hermenics Team</a></p>
 </div>
