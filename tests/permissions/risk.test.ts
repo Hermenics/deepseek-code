@@ -221,14 +221,10 @@ describe('assessRisk', () => {
 
   describe('edge cases', () => {
     it('command with extra whitespace: "  rm  -rf  /" → matches HIGH', () => {
-      // globMatch may or may not normalize whitespace — test actual behavior
       const r = assessRisk('shell', { command: '  rm  -rf  /' }, ctx())
-      // The glob pattern is "rm -rf *" or "rm *", so this depends on globMatch impl
-      // At minimum, "rm" with leading space should still match "rm *" if glob handles it
-      if (r !== null) {
-        expect(r.level).toBe('high')
-        expect(r.requiresConfirmation).toBe(true)
-      }
+      expect(r).not.toBeNull()
+      expect(r!.level).toBe('high')
+      expect(r!.requiresConfirmation).toBe(true)
     })
 
     it('DEFAULT_RISK_RULES is a non-empty array', () => {
@@ -249,6 +245,49 @@ describe('assessRisk', () => {
       const r = assessRisk('write_file', { _existingLineCount: 200 }, ctx())
       expect(r).not.toBeNull()
       expect(r!.matchedRule).toBe('write:large-overwrite')
+    })
+  })
+
+  describe('specificity over level', () => {
+    it('npm install --save-dev is MEDIUM, not HIGH', () => {
+      const r = assessRisk('shell', { command: 'npm install --save-dev lodash' }, ctx())
+      expect(r).not.toBeNull()
+      expect(r!.level).toBe('medium')
+      expect(r!.matchedRule).toBe('shell:npm-install-dev')
+    })
+
+    it('bun add -d is MEDIUM, not HIGH', () => {
+      const r = assessRisk('shell', { command: 'bun add -d vitest' }, ctx())
+      expect(r).not.toBeNull()
+      expect(r!.level).toBe('medium')
+      expect(r!.matchedRule).toBe('shell:bun-add-dev')
+    })
+
+    it('npm install lodash (without --save-dev) is still HIGH', () => {
+      const r = assessRisk('shell', { command: 'npm install lodash' }, ctx())
+      expect(r).not.toBeNull()
+      expect(r!.level).toBe('high')
+      expect(r!.matchedRule).toBe('shell:npm-install')
+    })
+  })
+
+  describe('false positive fixes', () => {
+    it('cat deploy-notes.md is NOT high risk', () => {
+      const r = assessRisk('shell', { command: 'cat deploy-notes.md' }, ctx())
+      expect(r).toBeNull()
+    })
+
+    it('git push --follow-tags is MEDIUM (not HIGH force push)', () => {
+      const r = assessRisk('shell', { command: 'git push --follow-tags' }, ctx())
+      expect(r).not.toBeNull()
+      expect(r!.level).toBe('medium')
+      expect(r!.matchedRule).toBe('shell:git-push')
+    })
+
+    it('git push -f is still HIGH', () => {
+      const r = assessRisk('shell', { command: 'git push -f origin main' }, ctx())
+      expect(r).not.toBeNull()
+      expect(r!.level).toBe('high')
     })
   })
 })

@@ -1051,20 +1051,28 @@ export class Agent {
         config: this.settings.risk ?? {},
       })
 
-      if (riskResult?.requiresConfirmation && !this.sessionApprovedTools.has(`risk:${riskResult.matchedRule}`)) {
-        if (!this.toolPermissionHandler) {
-          const blockMsg = `⚠️ Tool '${tc.function.name}' requer confirmação (${riskResult.level} risk: ${riskResult.description}). Sem handler de confirmação disponível.`
-          cb.onToolCall(tc.function.name, parsedArgs)
-          cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
-          return { tc, result: blockMsg }
-        }
-        const userDecision = await this.toolPermissionHandler(tc.function.name, parsedArgs)
-        if (userDecision === 'deny') {
-          auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied_risk: riskResult.level } })
-          throw new DenyAbortError()
-        }
-        if (userDecision === 'session') {
-          this.sessionApprovedTools.add(`risk:${riskResult.matchedRule}`)
+      if (riskResult?.requiresConfirmation) {
+        // Include actual command/path content in the session key to prevent over-broad approval
+        const riskContentKey = tc.function.name === 'shell'
+          ? (parsedArgs.command as string ?? '')
+          : (parsedArgs.path as string ?? '')
+        const riskSessionKey = `risk:${riskResult.matchedRule}:${riskContentKey}`
+
+        if (!this.sessionApprovedTools.has(riskSessionKey)) {
+          if (!this.toolPermissionHandler) {
+            const blockMsg = `⚠️ Tool '${tc.function.name}' requer confirmação (${riskResult.level} risk: ${riskResult.description}). Sem handler de confirmação disponível.`
+            cb.onToolCall(tc.function.name, parsedArgs)
+            cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
+            return { tc, result: blockMsg }
+          }
+          const userDecision = await this.toolPermissionHandler(tc.function.name, parsedArgs)
+          if (userDecision === 'deny') {
+            auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied_risk: riskResult.level } })
+            throw new DenyAbortError()
+          }
+          if (userDecision === 'session') {
+            this.sessionApprovedTools.add(riskSessionKey)
+          }
         }
       }
     }
