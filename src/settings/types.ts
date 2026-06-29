@@ -1,4 +1,5 @@
 import type { HooksConfig } from '../hooks/types.js'
+import type { RiskConfig } from '../permissions/types.js'
 
 export type SettingsLevel = 'user' | 'project' | 'local'
 
@@ -19,5 +20,6 @@ export interface DeepSeekSettings {
     enabled?: boolean
     model?: string  // optional override — uses main model if not set
   }
+  risk?: RiskConfig
   [key: string]: unknown // extensible
 }

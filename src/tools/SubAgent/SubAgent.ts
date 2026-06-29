@@ -7,6 +7,8 @@ import type { ProviderConfig } from '../../types/provider.js'
 import { createLLMClient, defaultModel } from '../../agent/llmClient.js'
 import { SUBAGENT_MAX_ITERATIONS } from '../../constants.js'
 import { resolvePermission } from '../../permissions/matcher.js'
+import { assessRisk } from '../../permissions/risk.js'
+import type { RiskConfig } from '../../permissions/types.js'
 import { loadMergedSettings } from '../../settings/loader.js'
 import { parseSubAgentResult, formatResultForParent, type SubAgentResult } from './contracts.js'
 import { getToolsForRole, inferRole, describeRole, type SubAgentRole } from './permissions.js'
@@ -160,6 +162,7 @@ async function runSubAgentLoop(
   ]
 
   let totalTokens = 0
+  let subAgentWriteCount = 0
 
   for (let i = 0; i < SUBAGENT_MAX_ITERATIONS; i++) {
     const response = await client.chat.completions.create({
@@ -202,6 +205,24 @@ async function runSubAgentLoop(
       const permDecision = resolvePermission(settings.permissions, fn.name, parsedArgs)
       if (permDecision === 'deny') {
         messages.push({ role: 'tool', tool_call_id: tc.id, content: `Tool '${fn.name}' blocked by permission rule.` })
+        continue
+      }
+
+      // Risk-level check: subagents are blocked on HIGH and MEDIUM
+      if (fn.name === 'write_file' || fn.name === 'patch_file') {
+        subAgentWriteCount++
+      }
+      const riskResult = assessRisk(fn.name, parsedArgs, {
+        isSubAgent: true,
+        recentWriteCount: subAgentWriteCount,
+        config: settings.risk ?? {},
+      })
+      if (riskResult?.requiresConfirmation) {
+        messages.push({
+          role: 'tool',
+          tool_call_id: tc.id,
+          content: `⚠️ Tool '${fn.name}' bloqueada: ${riskResult.level} risk em contexto de subagent (${riskResult.description}). O agent principal deve executar esta operação diretamente.`,
+        })
         continue
       }
 
