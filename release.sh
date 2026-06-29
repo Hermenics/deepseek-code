@@ -411,12 +411,8 @@ else
     die "npm version produced $VERSION, expected $TARGET_VERSION."
 fi
 
-if (( SKIP_BUILD )); then
-  warn "[5b] Build after version bump skipped."
-else
-  log "[5b] Rebuilding with new version..."
-  run_in "$PRIVATE_DIR" bun run build
-fi
+log "[5b] Building with new version..."
+run_in "$PRIVATE_DIR" bun run build
 
 if (( SKIP_PUBLISH )); then
   warn "[6/9] Publishing skipped."
