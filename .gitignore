@@ -13,3 +13,7 @@ deepseek-code-public
 dscpublic/
 .env.test.bedrock
 CLAUDE.md
+.claude/skills/
+.claude/agents/ceo/done/
+.claude/agents/ceo/doing/
+.claude/agents/ceo/task-*

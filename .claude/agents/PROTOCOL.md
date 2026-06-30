@@ -1,560 +1,560 @@
-# 🔗 PROTOCOLO DE COMUNICAÇÃO INTER-AGENT
+# 🔗 INTER-AGENT COMMUNICATION PROTOCOL
 
-> Este documento é a **lei fundamental** do sistema multi-agente do DeepSeek Code.
-> Todo agent DEVE ler este arquivo antes de qualquer ação.
-
----
-
-## 1. MODELO DE DECISÃO COLABORATIVA
-
-### 1.1 Princípio: Nenhum Agent Decide Sozinho
-
-Decisões arquiteturais, de design ou que impactam mais de um módulo **DEVEM** passar por consenso:
-
-```
-CEO propõe → Agents relevantes opinam → CEO decide com base nas opiniões
-```
-
-### 1.2 Protocolo de Consulta Rápida
-
-Quando um agent precisa de input de outro:
-
-```markdown
-## 📡 CONSULTA: [agent_destino]
-**De:** [agent_origem]
-**Sobre:** [tema em 1 linha]
-**Contexto:** [2-3 linhas de contexto]
-**Pergunta:** [pergunta específica]
-**Impacto se ignorado:** [consequência]
-```
-
-### 1.3 Protocolo de Veto
-
-Qualquer agent pode vetar uma decisão se identificar:
-- 🔴 Risco de segurança
-- 🔴 Quebra de testes existentes
-- 🔴 Violação de arquitetura estabelecida
-- 🔴 Regressão de performance > 20%
-
-Formato de veto:
-```markdown
-## 🚫 VETO: [motivo em 1 linha]
-**Agent:** [quem veta]
-**Evidência:** [prova concreta — log, teste, benchmark]
-**Alternativa proposta:** [solução que resolve o veto]
-```
+> This document is the **fundamental law** of the DeepSeek Code multi-agent system.
+> Every agent MUST read this file before any action.
 
 ---
 
-## 2. FORMATO DE MENSAGEM INTER-AGENT (OBRIGATÓRIO)
+## 1. COLLABORATIVE DECISION MODEL
 
-### 2.1 Delegação de Tarefa (CEO → Agent)
+### 1.1 Principle: No Agent Decides Alone
 
-```markdown
-## 🎯 TASK: [ID]-[nome-curto]
+Architectural, design, or multi-module impact decisions **MUST** go through consensus:
 
-### Contexto
-[O que está sendo feito, por quê, e como se encaixa no todo]
-
-### Pré-condições
-- [x] [dependência já satisfeita]
-- [ ] [dependência pendente — quem resolve]
-
-### Escopo Exato
-**Criar:** [arquivos novos]
-**Modificar:** [arquivos existentes]
-**NÃO tocar:** [arquivos fora do escopo]
-
-### Contrato de Entrada
-[Interfaces/tipos que o código deve respeitar]
-
-### Contrato de Saída
-[O que deve ser verdade quando a tarefa terminar]
-
-### Critérios de Aceitação
-- [ ] [critério verificável 1]
-- [ ] [critério verificável 2]
-
-### Testes Esperados (do Tester)
-- [ ] [cenário de teste 1]
-- [ ] [cenário de teste 2]
-
-### Deadline de Qualidade
-- `bun test` 100% verde
-- Zero `any` sem justificativa
-- Zero warnings do TypeScript
+```
+CEO proposes → Relevant agents opine → CEO decides based on opinions
 ```
 
-### 2.2 Relatório de Conclusão (Agent → CEO)
+### 1.2 Quick Consultation Protocol
+
+When an agent needs input from another:
 
 ```markdown
-## ✅ DONE: [ID]-[nome-curto]
-
-### Resultado
-[1-2 frases sobre o que foi feito]
-
-### Arquivos Tocados
-- `path/file.ts` — [o que mudou]
-
-### Decisões Tomadas
-- [decisão 1]: [justificativa]
-
-### Riscos Identificados
-- [risco]: [mitigação sugerida]
-
-### Status dos Testes
-- Total: X | Passando: X | Falhando: 0
-
-### Próximo Passo Sugerido
-[O que o próximo agent deve fazer]
+## 📡 CONSULTATION: [target_agent]
+**From:** [source_agent]
+**About:** [topic in 1 line]
+**Context:** [2-3 lines of context]
+**Question:** [specific question]
+**Impact if ignored:** [consequence]
 ```
 
-### 2.3 Relatório de Bloqueio (Agent → CEO)
+### 1.3 Veto Protocol
 
+Any agent can veto a decision if they identify:
+- 🔴 Security risk
+- 🔴 Existing test breakage
+- 🔴 Violation of established architecture
+- 🔴 Performance regression > 20%
+
+Veto format:
 ```markdown
-## 🚨 BLOCKED: [ID]-[nome-curto]
-
-### Problema
-[Descrição precisa do bloqueio]
-
-### Já Tentei
-1. [abordagem 1] → [resultado]
-2. [abordagem 2] → [resultado]
-
-### Preciso De
-- [ ] [recurso/decisão/informação necessária]
-- [ ] [agent que pode desbloquear: @agent_name]
-
-### Impacto do Bloqueio
-[O que não avança enquanto isso não for resolvido]
+## 🚫 VETO: [reason in 1 line]
+**Agent:** [who vetos]
+**Evidence:** [concrete proof — log, test, benchmark]
+**Proposed alternative:** [solution that resolves the veto]
 ```
 
 ---
 
-## 3. PROTOCOLO TDD UNIFICADO
+## 2. INTER-AGENT MESSAGE FORMAT (MANDATORY)
 
-### 3.1 Fluxo TDD Obrigatório (Todos os Agents)
+### 2.1 Task Delegation (CEO → Agent)
+
+```markdown
+## 🎯 TASK: [ID]-[short-name]
+
+### Context
+[What is being done, why, and how it fits in the whole]
+
+### Pre-conditions
+- [x] [dependency already satisfied]
+- [ ] [pending dependency — who resolves it]
+
+### Exact Scope
+**Create:** [new files]
+**Modify:** [existing files]
+**DO NOT touch:** [files out of scope]
+
+### Input Contract
+[Interfaces/types the code must respect]
+
+### Output Contract
+[What must be true when the task is done]
+
+### Acceptance Criteria
+- [ ] [verifiable criterion 1]
+- [ ] [verifiable criterion 2]
+
+### Expected Tests (from Tester)
+- [ ] [test scenario 1]
+- [ ] [test scenario 2]
+
+### Quality Deadline
+- `bun test` 100% green
+- Zero `any` without justification
+- Zero TypeScript warnings
+```
+
+### 2.2 Completion Report (Agent → CEO)
+
+```markdown
+## ✅ DONE: [ID]-[short-name]
+
+### Result
+[1-2 sentences about what was done]
+
+### Files Touched
+- `path/file.ts` — [what changed]
+
+### Decisions Made
+- [decision 1]: [justification]
+
+### Risks Identified
+- [risk]: [suggested mitigation]
+
+### Test Status
+- Total: X | Passing: X | Failing: 0
+
+### Suggested Next Step
+[What the next agent should do]
+```
+
+### 2.3 Blocker Report (Agent → CEO)
+
+```markdown
+## 🚨 BLOCKED: [ID]-[short-name]
+
+### Problem
+[Precise description of the blocker]
+
+### Already Tried
+1. [approach 1] → [result]
+2. [approach 2] → [result]
+
+### I Need
+- [ ] [resource/decision/information needed]
+- [ ] [agent that can unblock: @agent_name]
+
+### Blocker Impact
+[What doesn't progress while this isn't resolved]
+```
+
+---
+
+## 3. UNIFIED TDD PROTOCOL
+
+### 3.1 Mandatory TDD Flow (All Agents)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  CEO: Define contratos + critérios de aceitação         │
+│  CEO: Defines contracts + acceptance criteria            │
 │    ↓                                                     │
-│  TESTER: Escreve testes (RED) → confirma que falham     │
+│  TESTER: Writes tests (RED) → confirms they fail        │
 │    ↓                                                     │
-│  CODER/DESIGNER: Implementa mínimo para GREEN          │
+│  CODER/DESIGNER: Implements minimum for GREEN           │
 │    ↓                                                     │
-│  TESTER: Valida GREEN + adiciona edge cases             │
+│  TESTER: Validates GREEN + adds edge cases              │
 │    ↓                                                     │
-│  REVIEWER: Analisa qualidade + segurança                │
+│  REVIEWER: Analyzes quality + security                  │
 │    ↓                                                     │
-│  CEO: Confirma gates + entrega                          │
+│  CEO: Confirms gates + delivers                         │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### 3.2 Regra de Ouro do TDD
+### 3.2 Golden Rule of TDD
 
-> **Se não tem teste, não existe. Se o teste não falhou primeiro, não é TDD.**
+> **If there's no test, it doesn't exist. If the test didn't fail first, it's not TDD.**
 
-### 3.3 Contrato de Teste (Tester → Coder)
+### 3.3 Test Contract (Tester → Coder)
 
-O Tester DEVE entregar ao Coder:
-1. Arquivo de teste completo e executável
-2. Lista de `it()` blocks com comportamento esperado
-3. Mocks necessários já configurados
-4. Comando exato para rodar: `bun test tests/[arquivo].test.ts`
+The Tester MUST deliver to the Coder:
+1. Complete and executable test file
+2. List of `it()` blocks with expected behavior
+3. Necessary mocks already configured
+4. Exact command to run: `bun test tests/[file].test.ts`
 
-### 3.4 Validação Cruzada
+### 3.4 Cross Validation
 
-Após implementação, o Tester DEVE:
-1. Rodar `bun test` e confirmar 100% verde
-2. Adicionar pelo menos 2 edge cases não previstos
-3. Verificar que remover o código faz os testes falharem (prova de cobertura real)
+After implementation, the Tester MUST:
+1. Run `bun test` and confirm 100% green
+2. Add at least 2 unforeseen edge cases
+3. Verify that removing the code makes tests fail (proof of real coverage)
 
 ---
 
-## 4. PROTOCOLO DE RESOLUÇÃO DE ERROS EM PROMPT ÚNICO
+## 4. SINGLE-PROMPT ERROR RESOLUTION PROTOCOL
 
-### 4.1 Filosofia: Zero Loops de Erro
+### 4.1 Philosophy: Zero Error Loops
 
-> Um erro DEVE ser resolvido completamente na primeira tentativa de correção.
-> Isso exige: diagnóstico profundo ANTES de agir.
+> An error MUST be resolved completely on the first fix attempt.
+> This requires: deep diagnosis BEFORE acting.
 
-### 4.2 Protocolo de Diagnóstico (OBRIGATÓRIO antes de corrigir)
+### 4.2 Diagnostic Protocol (MANDATORY before fixing)
 
 ```markdown
-## 🔍 DIAGNÓSTICO: [erro em 1 linha]
+## 🔍 DIAGNOSIS: [error in 1 line]
 
-### 1. Sintoma
-[O que está acontecendo — mensagem de erro exata]
+### 1. Symptom
+[What is happening — exact error message]
 
-### 2. Localização
-[Arquivo:linha exata onde o erro se manifesta]
+### 2. Location
+[Exact file:line where the error manifests]
 
-### 3. Causa Raiz (NÃO o sintoma)
-[Por que isso acontece — trace completo]
+### 3. Root Cause (NOT the symptom)
+[Why this happens — complete trace]
 
-### 4. Impacto
-[Outros módulos/testes afetados]
+### 4. Impact
+[Other modules/tests affected]
 
-### 5. Fix Proposto
-[Mudança exata — com diff mental]
+### 5. Proposed Fix
+[Exact change — with mental diff]
 
-### 6. Efeitos Colaterais do Fix
-[O que mais pode quebrar com essa mudança]
+### 6. Side Effects of the Fix
+[What else might break with this change]
 
-### 7. Testes que Validam o Fix
-[Quais testes devem passar após o fix]
+### 7. Tests that Validate the Fix
+[Which tests should pass after the fix]
 ```
 
-### 4.3 Regra Anti-Loop
+### 4.3 Anti-Loop Rule
 
 ```
-SE erro persiste após 1 tentativa de fix:
-  → PARE imediatamente
-  → Refaça o diagnóstico do zero (a causa raiz estava errada)
-  → Considere abordagem completamente diferente
-  → NUNCA aplique o mesmo fix com variação mínima
+IF error persists after 1 fix attempt:
+  → STOP immediately
+  → Redo the diagnosis from scratch (root cause was wrong)
+  → Consider a completely different approach
+  → NEVER apply the same fix with minimal variation
 
-SE erro persiste após 2 tentativas:
-  → Escale para o CEO com relatório completo
-  → CEO convoca reunião multi-agent para decisão colaborativa
+IF error persists after 2 attempts:
+  → Escalate to CEO with complete report
+  → CEO convenes multi-agent meeting for collaborative decision
 ```
 
-### 4.4 Reunião de Emergência Multi-Agent
+### 4.4 Emergency Multi-Agent Meeting
 
-Quando um erro resiste a 2 tentativas:
+When an error resists 2 attempts:
 
 ```markdown
-## 🆘 REUNIÃO DE EMERGÊNCIA
+## 🆘 EMERGENCY MEETING
 
-### Problema
-[Descrição completa]
+### Problem
+[Complete description]
 
-### Histórico de Tentativas
-1. [tentativa 1] → [por que falhou]
-2. [tentativa 2] → [por que falhou]
+### Attempt History
+1. [attempt 1] → [why it failed]
+2. [attempt 2] → [why it failed]
 
-### Análise por Agent
-- **Coder:** [perspectiva de implementação]
-- **Tester:** [perspectiva de cobertura]
-- **Reviewer:** [perspectiva de arquitetura]
-- **Designer:** [perspectiva de UI, se aplicável]
+### Analysis by Agent
+- **Coder:** [implementation perspective]
+- **Tester:** [coverage perspective]
+- **Reviewer:** [architecture perspective]
+- **Designer:** [UI perspective, if applicable]
 
-### Decisão Consensual
-[Abordagem escolhida com justificativa]
+### Consensual Decision
+[Chosen approach with justification]
 
-### Responsável pela Execução
-[Agent designado]
+### Responsible for Execution
+[Designated agent]
 ```
 
 ---
 
-## 5. QUALITY GATES EXPANDIDOS
+## 5. EXPANDED QUALITY GATES
 
-| Gate | Nome | Condição | Validador | Bloqueante |
-|------|------|----------|-----------|------------|
-| G0 | Contrato | Interfaces definidas e aprovadas | CEO | ✅ |
-| G1 | Red | Testes escritos e falhando | Tester | ✅ |
-| G2 | Green | Testes passando (mínimo) | Coder + Tester | ✅ |
-| G3 | Edge | Edge cases adicionados e passando | Tester | ✅ |
-| G4 | Review | Zero issues CRÍTICOS | Reviewer | ✅ |
-| G5 | Integration | `bun test` completo 100% verde | CEO | ✅ |
-| G6 | Types | `bunx tsc --noEmit` sem erros | Coder | ✅ |
+| Gate | Name | Condition | Validator | Blocking |
+|------|------|-----------|-----------|----------|
+| G0 | Contract | Interfaces defined and approved | CEO | ✅ |
+| G1 | Red | Tests written and failing | Tester | ✅ |
+| G2 | Green | Tests passing (minimum) | Coder + Tester | ✅ |
+| G3 | Edge | Edge cases added and passing | Tester | ✅ |
+| G4 | Review | Zero CRITICAL issues | Reviewer | ✅ |
+| G5 | Integration | `bun test` complete 100% green | CEO | ✅ |
+| G6 | Types | `bunx tsc --noEmit` no errors | Coder | ✅ |
 
-**Regra: Se QUALQUER gate falhar, a pipeline PARA. Não há exceções.**
-
----
-
-## 6. SELEÇÃO DE MODELO POR TAREFA
-
-### Tabela de Modelos Ótimos
-
-| Agent/Tarefa | Modelo | Justificativa |
-|--------|--------|---------------|
-| CEO — Orquestração, planejamento | `claude-opus-4-6` | Raciocínio profundo, visão sistêmica |
-| Architect — Design de sistema | `claude-opus-4-6` | Pensamento estrutural, contratos |
-| Coder — Implementação de código | `gpt-5.3-codex` | Otimizado para geração de código |
-| Tester — Testes e QA | `claude-sonnet-4-6` | Equilíbrio velocidade/qualidade |
-| Reviewer — Análise crítica | `gpt-5.5` | Chain-of-thought para encontrar falhas |
-| Debugger — Diagnóstico de bugs | `gpt-5.5` | Raciocínio profundo para trace de erros |
-| Designer — UI/UX | `claude-sonnet-4-6` | Criatividade + velocidade |
-| Tarefas simples/repetitivas | `claude-haiku-4-5` | Velocidade máxima, custo mínimo |
-
-### Regra de Escalação de Modelo
-
-```
-SE tarefa simples (rename, format, move) → claude-haiku-4-5
-SE tarefa média (implementar feature isolada) → claude-sonnet-4-6
-SE tarefa complexa (arquitetura, multi-módulo) → claude-opus-4-6
-SE raciocínio profundo necessário → gpt-5.5
-SE codificação pura em massa → gpt-5.3-codex
-```
+**Rule: If ANY gate fails, the pipeline STOPS. No exceptions.**
 
 ---
 
-## 7. PROTOCOLO REGRESSION-FIRST (Bugs sem Teste)
+## 6. MODEL SELECTION BY TASK
 
-### Quando um bug é reportado mas nenhum teste o detecta:
+### Optimal Model Table
+
+| Agent/Task | Model | Justification |
+|------------|-------|---------------|
+| CEO — Orchestration, planning | `claude-opus-4-6` | Deep reasoning, systemic vision |
+| Architect — System design | `claude-opus-4-6` | Structural thinking, contracts |
+| Coder — Code implementation | `gpt-5.3-codex` | Optimized for code generation |
+| Tester — Tests and QA | `claude-sonnet-4-6` | Speed/quality balance |
+| Reviewer — Critical analysis | `gpt-5.5` | Chain-of-thought for finding flaws |
+| Debugger — Bug diagnosis | `gpt-5.5` | Deep reasoning for error tracing |
+| Designer — UI/UX | `claude-sonnet-4-6` | Creativity + speed |
+| Simple/repetitive tasks | `claude-haiku-4-5` | Maximum speed, minimum cost |
+
+### Model Escalation Rule
+
+```
+IF simple task (rename, format, move) → claude-haiku-4-5
+IF medium task (implement isolated feature) → claude-sonnet-4-6
+IF complex task (architecture, multi-module) → claude-opus-4-6
+IF deep reasoning needed → gpt-5.5
+IF pure mass coding → gpt-5.3-codex
+```
+
+---
+
+## 7. REGRESSION-FIRST PROTOCOL (Bugs Without Tests)
+
+### When a bug is reported but no test detects it:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  1. CEO identifica: "bug existe, nenhum teste pega"     │
+│  1. CEO identifies: "bug exists, no test catches it"    │
 │    ↓                                                     │
-│  2. TESTER escreve teste que REPRODUZ o bug             │
+│  2. TESTER writes test that REPRODUCES the bug          │
 │    ↓                                                     │
-│  3. Confirma: teste FALHA (prova que o bug é real)      │
+│  3. Confirms: test FAILS (proof the bug is real)        │
 │    ↓                                                     │
-│  4. CODER corrige o bug                                 │
+│  4. CODER fixes the bug                                 │
 │    ↓                                                     │
-│  5. Confirma: teste PASSA (prova que o fix funciona)    │
+│  5. Confirms: test PASSES (proof the fix works)         │
 │    ↓                                                     │
-│  6. Teste permanece na suite (previne regressão)        │
+│  6. Test remains in the suite (prevents regression)     │
 │    ↓                                                     │
-│  7. REVIEWER valida que o fix não introduz novos bugs   │
+│  7. REVIEWER validates the fix doesn't introduce bugs   │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Regra Inviolável
-> **NUNCA corrija um bug sem antes ter um teste que o reproduza.**
-> **Se não consegue reproduzir em teste, não entendeu o bug.**
+### Inviolable Rule
+> **NEVER fix a bug without first having a test that reproduces it.**
+> **If you can't reproduce it in a test, you don't understand the bug.**
 
-### Formato de Report
+### Report Format
 ```markdown
-## 🐛 BUG REPORT: [descrição curta]
+## 🐛 BUG REPORT: [short description]
 
-### Reprodução
-[Passos exatos para reproduzir]
+### Reproduction
+[Exact steps to reproduce]
 
-### Comportamento Esperado
-[O que deveria acontecer]
+### Expected Behavior
+[What should happen]
 
-### Comportamento Atual
-[O que está acontecendo]
+### Actual Behavior
+[What is happening]
 
-### Teste de Reprodução
-`tests/regression/[nome].test.ts`
+### Reproduction Test
+`tests/regression/[name].test.ts`
 
-### Hipótese de Causa
-[Onde provavelmente está o problema]
+### Cause Hypothesis
+[Where the problem probably is]
 ```
 
 ---
 
-## 8. PRE-MORTEM ANALYSIS (Antecipar Falhas)
+## 8. PRE-MORTEM ANALYSIS (Anticipate Failures)
 
-### Antes de implementar qualquer feature complexa:
+### Before implementing any complex feature:
 
-O CEO DEVE conduzir um **pre-mortem** — imaginar que a feature já foi implementada e FALHOU. Perguntar:
+The CEO MUST conduct a **pre-mortem** — imagine the feature has already been implemented and FAILED. Ask:
 
 ```markdown
 ## 💀 PRE-MORTEM: [feature]
 
-### "A feature falhou. Por quê?"
-1. [cenário de falha 1] → [mitigação]
-2. [cenário de falha 2] → [mitigação]
-3. [cenário de falha 3] → [mitigação]
+### "The feature failed. Why?"
+1. [failure scenario 1] → [mitigation]
+2. [failure scenario 2] → [mitigation]
+3. [failure scenario 3] → [mitigation]
 
-### Pontos Cegos
-- [algo que não sabemos e pode nos surpreender]
+### Blind Spots
+- [something we don't know and could surprise us]
 
-### Dependências Frágeis
-- [módulo/API/serviço que pode falhar]
+### Fragile Dependencies
+- [module/API/service that might fail]
 
-### Plano B
-- [o que fazer se a abordagem principal não funcionar]
+### Plan B
+- [what to do if the main approach doesn't work]
 ```
 
-Isso PREVINE erros em vez de apenas reagir a eles.
+This PREVENTS errors instead of just reacting to them.
 
 ---
 
-## 9. CONFIDENCE SCORING (Nível de Confiança)
+## 9. CONFIDENCE SCORING
 
-### Todo agent DEVE declarar sua confiança ao entregar:
+### Every agent MUST declare their confidence when delivering:
 
 ```markdown
-### Confiança: [ALTA | MÉDIA | BAIXA]
-- **ALTA** (90%+): Testei, verifiquei, entendo completamente
-- **MÉDIA** (60-90%): Funciona mas há incertezas que não pude verificar
-- **BAIXA** (<60%): Solução parcial, precisa de validação adicional
+### Confidence: [HIGH | MEDIUM | LOW]
+- **HIGH** (90%+): Tested, verified, completely understood
+- **MEDIUM** (60-90%): Works but there are uncertainties I couldn't verify
+- **LOW** (<60%): Partial solution, needs additional validation
 ```
 
-### Regras de Confiança
-- Se confiança BAIXA → CEO deve solicitar validação extra antes de avançar
-- Se confiança MÉDIA → Reviewer deve prestar atenção extra nessa área
-- Se confiança ALTA → fluxo normal
+### Confidence Rules
+- If LOW confidence → CEO should request extra validation before proceeding
+- If MEDIUM confidence → Reviewer should pay extra attention to that area
+- If HIGH confidence → normal flow
 
-### Quando Declarar Confiança BAIXA (obrigatório)
-- Código que interage com APIs externas sem mock disponível
-- Lógica de concorrência/timing
-- Código que depende de comportamento não-documentado
-- Primeira vez trabalhando com esse módulo
+### When to Declare LOW Confidence (mandatory)
+- Code that interacts with external APIs without available mock
+- Concurrency/timing logic
+- Code that depends on undocumented behavior
+- First time working with this module
 
 ---
 
-## 10. KNOWLEDGE ACCUMULATION (Aprendizado Contínuo)
+## 10. KNOWLEDGE ACCUMULATION (Continuous Learning)
 
-### Após resolver qualquer bug ou problema não-trivial:
+### After resolving any non-trivial bug or problem:
 
-O agent responsável DEVE registrar o aprendizado em `CLAUDE.md`:
+The responsible agent MUST register the learning in `CLAUDE.md`:
 
 ```markdown
-## Aprendizado: [data]
-**Problema:** [o que aconteceu]
-**Causa:** [por que aconteceu]
-**Solução:** [como resolveu]
-**Prevenção:** [como evitar no futuro]
+## Learning: [date]
+**Problem:** [what happened]
+**Cause:** [why it happened]
+**Solution:** [how it was resolved]
+**Prevention:** [how to avoid in the future]
 ```
 
-### Padrões de Erro Conhecidos (atualizar continuamente)
-- Se o mesmo tipo de erro ocorrer 2+ vezes → criar regra preventiva
-- Se um módulo causa problemas frequentes → marcar para refatoração
-- Se uma dependência é instável → documentar workarounds
+### Known Error Patterns (update continuously)
+- If the same type of error occurs 2+ times → create preventive rule
+- If a module causes frequent problems → mark for refactoring
+- If a dependency is unstable → document workarounds
 
 ---
 
-## 11. ROLLBACK PROTOCOL (Quando o Fix Piora)
+## 11. ROLLBACK PROTOCOL (When the Fix Makes Things Worse)
 
-### Se uma correção introduz mais problemas do que resolve:
+### If a fix introduces more problems than it solves:
 
 ```
-1. PARE imediatamente
-2. Reverta TODAS as mudanças (git checkout ou undo manual)
-3. Confirme que o estado anterior está restaurado (bun test)
-4. Documente: "abordagem X falhou porque Y"
-5. CEO convoca análise com abordagem completamente diferente
+1. STOP immediately
+2. Revert ALL changes (git checkout or manual undo)
+3. Confirm previous state is restored (bun test)
+4. Document: "approach X failed because Y"
+5. CEO convenes analysis with completely different approach
 ```
 
-### Sinais de que deve fazer rollback:
-- Mais testes falhando DEPOIS do fix do que antes
-- Fix resolve 1 problema mas cria 2 novos
-- Complexidade do fix é desproporcional ao problema
-- Fix requer mudanças em 5+ arquivos para um bug simples
+### Signs you should rollback:
+- More tests failing AFTER the fix than before
+- Fix resolves 1 problem but creates 2 new ones
+- Fix complexity is disproportionate to the problem
+- Fix requires changes in 5+ files for a simple bug
 
 ---
 
 ## 12. PARALLEL EXECUTION HINTS
 
-### O que PODE rodar em paralelo:
-- Tester escrevendo testes + Designer criando UI (se independentes)
-- Reviewer analisando módulo A + Coder implementando módulo B
-- Múltiplos testes de módulos diferentes
+### What CAN run in parallel:
+- Tester writing tests + Designer creating UI (if independent)
+- Reviewer analyzing module A + Coder implementing module B
+- Multiple tests from different modules
 
-### O que NUNCA roda em paralelo:
-- Implementação ANTES dos testes existirem
-- Review ANTES da implementação terminar
-- Dois agents modificando o MESMO arquivo
-- Fix de bug ANTES do teste de reprodução
+### What NEVER runs in parallel:
+- Implementation BEFORE tests exist
+- Review BEFORE implementation is done
+- Two agents modifying the SAME file
+- Bug fix BEFORE the reproduction test
 
 ---
 
 ## 13. SELF-HEALING PATTERNS
 
-### Padrões que os agents devem seguir para auto-correção:
+### Patterns that agents should follow for self-correction:
 
 **Pattern 1: Verify-Before-Report**
 ```
-Antes de reportar "feito":
-  1. Rode bun test (módulo)
-  2. Rode bun test (suite completa)
-  3. Rode bunx tsc --noEmit
-  4. SE qualquer falha → corrija ANTES de reportar
+Before reporting "done":
+  1. Run bun test (module)
+  2. Run bun test (complete suite)
+  3. Run bunx tsc --noEmit
+  4. IF any failure → fix BEFORE reporting
 ```
 
 **Pattern 2: Read-Before-Write**
 ```
-Antes de modificar qualquer arquivo:
-  1. Leia o arquivo INTEIRO
-  2. Entenda o contexto (imports, exports, dependências)
-  3. Identifique testes que cobrem esse arquivo
-  4. SÓ ENTÃO modifique
+Before modifying any file:
+  1. Read the ENTIRE file
+  2. Understand the context (imports, exports, dependencies)
+  3. Identify tests that cover this file
+  4. ONLY THEN modify
 ```
 
 **Pattern 3: Minimal-Change**
 ```
-Para qualquer correção:
-  1. Identifique a MENOR mudança que resolve
-  2. Não refatore código adjacente no mesmo PR
-  3. Não "melhore" coisas que não estão quebradas
-  4. Uma mudança, um propósito
+For any fix:
+  1. Identify the SMALLEST change that resolves it
+  2. Don't refactor adjacent code in the same PR
+  3. Don't "improve" things that aren't broken
+  4. One change, one purpose
 ```
 
 **Pattern 4: Blast-Radius-Check**
 ```
-Antes de qualquer mudança em módulo compartilhado:
-  1. Grep por todos os imports desse módulo
-  2. Liste todos os consumidores
-  3. Verifique que a mudança é backward-compatible
-  4. Se não for → atualize TODOS os consumidores
+Before any change to a shared module:
+  1. Grep for all imports of this module
+  2. List all consumers
+  3. Verify the change is backward-compatible
+  4. If not → update ALL consumers
 ```
 
 ---
 
-## 14. GIT WORKFLOW (BRANCH + PR OBRIGATÓRIO)
+## 14. GIT WORKFLOW (BRANCH + PR MANDATORY)
 
-### Regra: NUNCA trabalhar direto na main.
+### Rule: NEVER work directly on main.
 
-Todo trabalho — feature, bugfix, refatoração — DEVE seguir:
-
-```
-1. Criar branch descritiva: feat/nome, fix/nome, refactor/nome, chore/nome
-2. Fazer commits na branch (mensagens em português ou inglês, ambos ok)
-3. Ao finalizar: push com -u para origin
-4. Abrir PR no GitHub via `gh pr create`
-5. NUNCA fazer push direto na main
-6. NUNCA fazer merge local na main
-```
-
-### Nomenclatura de Branch
-
-| Tipo | Prefixo | Exemplo |
-|------|---------|---------|
-| Feature nova | `feat/` | `feat/mcp-http-transport` |
-| Correção de bug | `fix/` | `fix/streaming-hang` |
-| Refatoração | `refactor/` | `refactor/tool-registry` |
-| Manutenção/config | `chore/` | `chore/update-deps` |
-| Testes | `test/` | `test/coverage-edge-cases` |
-
-### Fluxo do CEO ao Finalizar Pipeline
+All work — feature, bugfix, refactoring — MUST follow:
 
 ```
-Gates G0-G6 passaram?
-  → git add (arquivos específicos, NUNCA -A)
-  → git commit com mensagem descritiva
+1. Create descriptive branch: feat/name, fix/name, refactor/name, chore/name
+2. Make commits on the branch (clear messages)
+3. When done: push with -u to origin
+4. Open PR on GitHub via `gh pr create`
+5. NEVER push directly to main
+6. NEVER merge locally to main
+```
+
+### Branch Naming
+
+| Type | Prefix | Example |
+|------|--------|---------|
+| New feature | `feat/` | `feat/mcp-http-transport` |
+| Bug fix | `fix/` | `fix/streaming-hang` |
+| Refactoring | `refactor/` | `refactor/tool-registry` |
+| Maintenance/config | `chore/` | `chore/update-deps` |
+| Tests | `test/` | `test/coverage-edge-cases` |
+
+### CEO Flow When Finishing Pipeline
+
+```
+Gates G0-G6 passed?
+  → git add (specific files, NEVER -A)
+  → git commit with descriptive message
   → git push -u origin <branch>
   → gh pr create --title "..." --body "..."
-  → Reportar URL do PR ao usuário
+  → Report PR URL to user
 ```
 
-### Regras de Segurança Git
+### Git Safety Rules
 
-- NUNCA `git push --force` sem permissão explícita do usuário
-- NUNCA `git reset --hard` sem permissão explícita
-- NUNCA commitar .env, secrets ou credentials
-- Preferir commits atômicos (1 propósito por commit)
-- Se pre-commit hook falhar: corrigir e criar NOVO commit (nunca --amend)
-
----
-
-## 15. REGRAS UNIVERSAIS
-
-1. **Idioma:** Toda comunicação inter-agent é em Português (Brasil).
-2. **Localização de testes:** SEMPRE em `tests/` na raiz. NUNCA em `src/`.
-3. **Verificação:** Todo agent DEVE rodar `bun test` antes de reportar conclusão.
-4. **Transparência:** Decisões não-óbvias DEVEM ser documentadas com justificativa.
-5. **Autonomia com responsabilidade:** Agents podem agir dentro do escopo delegado, mas DEVEM escalar quando fora do escopo.
-6. **Zero tolerância a regressão:** Se um teste que passava começa a falhar, é prioridade MÁXIMA.
-7. **Leitura obrigatória:** Todo agent lê `CLAUDE.md` + `PROTOCOL.md` antes de agir.
+- NEVER `git push --force` without explicit user permission
+- NEVER `git reset --hard` without explicit permission
+- NEVER commit .env, secrets or credentials
+- Prefer atomic commits (1 purpose per commit)
+- If pre-commit hook fails: fix and create NEW commit (never --amend)
 
 ---
 
-## 16. ANTI-PATTERNS (PROIBIDO NO SISTEMA)
+## 15. UNIVERSAL RULES
 
-- ❌ Agent implementa sem testes existirem
-- ❌ Agent modifica teste de outro agent sem autorização do CEO
-- ❌ Agent ignora veto de segurança
-- ❌ Agent reporta "feito" sem rodar `bun test`
-- ❌ Agent aplica fix sem diagnóstico completo
-- ❌ Agent toma decisão arquitetural sem consultar CEO
-- ❌ CEO avança pipeline com gate falhando
-- ❌ Qualquer agent usa inglês em comunicação com o usuário
+1. **Language:** All inter-agent communication is in English.
+2. **Test location:** ALWAYS in `tests/` at root. NEVER in `src/`.
+3. **Verification:** Every agent MUST run `bun test` before reporting completion.
+4. **Transparency:** Non-obvious decisions MUST be documented with justification.
+5. **Autonomy with responsibility:** Agents can act within delegated scope, but MUST escalate when out of scope.
+6. **Zero tolerance for regression:** If a passing test starts failing, it is MAXIMUM priority.
+7. **Mandatory reading:** Every agent reads `CLAUDE.md` + `PROTOCOL.md` before acting.
+
+---
+
+## 16. ANTI-PATTERNS (FORBIDDEN IN THE SYSTEM)
+
+- ❌ Agent implements without tests existing
+- ❌ Agent modifies another agent's test without CEO authorization
+- ❌ Agent ignores security veto
+- ❌ Agent reports "done" without running `bun test`
+- ❌ Agent applies fix without complete diagnosis
+- ❌ Agent makes architectural decision without consulting CEO
+- ❌ CEO advances pipeline with failing gate
+- ❌ Any agent uses a language other than English in communication
