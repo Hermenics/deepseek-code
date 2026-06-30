@@ -12,3 +12,4 @@ deepseek-code2
 deepseek-code-public
 dscpublic/
 .env.test.bedrock
+CLAUDE.md
