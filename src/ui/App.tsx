@@ -15,6 +15,7 @@ import { StatusBar } from './layout/StatusBar.js'
 import { ThemeSelector } from './setup/ThemeSelector.js'
 import { ModelSelector } from './setup/ModelSelector.js'
 import { LanguageInput } from './setup/LanguageInput.js'
+import { EnchantConfirm } from './setup/EnchantConfirm.js'
 import { parseCommand, HELP_TEXT, PLAN_PROMPT, REVIEW_PROMPT } from '../commands.js'
 import { loadAgentConfig, listAgents, type LoadedAgent } from '../agent/config.js'
 import { appendInputHistory } from '../agent/inputHistory.js'
@@ -108,6 +109,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [showModelSelector, setShowModelSelector] = useState(false)
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [showLanguageInput, setShowLanguageInput] = useState(false)
+  const [showEnchantConfirm, setShowEnchantConfirm] = useState(false)
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   const [toolPermissionState, setToolPermissionState] = useState<ToolPermissionState | null>(null)
   const [vimEnabled, setVimEnabled] = useState(false)
@@ -493,6 +495,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         case 'language':
           setShowLanguageInput(true)
           return
+        case 'enchant-prompt':
+          setShowEnchantConfirm(true)
+          return
         case 'agents': {
           const agents = await listAgents()
           if (!agents.length) {
@@ -792,6 +797,15 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               setShowLanguageInput(false)
             }}
             onCancel={() => setShowLanguageInput(false)}
+          />
+        ) : showEnchantConfirm ? (
+          <EnchantConfirm
+            currentlyEnabled={agent.promptRefinerEnabled}
+            onConfirm={(enabled) => {
+              agent.setPromptRefinerEnabled(enabled)
+              setShowEnchantConfirm(false)
+              setMessages((m) => [...m, { role: 'assistant', content: `Prompt enchantment ${enabled ? 'enabled' : 'disabled'}.` }])
+            }}
           />
         ) : toolPermissionState ? (
           <ToolPermissionPrompt

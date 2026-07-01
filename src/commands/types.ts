@@ -34,6 +34,7 @@ export type CommandResult =
   | { type: 'memory'; action: 'clear'; target?: 'agent' | 'user' }
   | { type: 'effort'; action: 'status' }
   | { type: 'effort'; action: 'set'; level: EffortLevel }
+  | { type: 'enchant-prompt' }
   | { type: 'unknown'; input: string }
 
 export interface Command {
