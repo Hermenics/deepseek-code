@@ -1,34 +1,25 @@
-# Design — Módulo Utils
+# Utils Module — Design
 
-> Gerado pelo Redator (Reversa) em 2026-06-23
-> Escala de confiança: 🟢 CONFIRMADO | 🟡 INFERIDO | 🔴 LACUNA
+> Confidence: 🟢 CONFIRMED  
+> Generated at: 2026-07-01
 
----
+## Architecture
 
-## Catálogo de Utilitários
+Minimal utility module providing filesystem helpers consumed by other modules.
 
-| Arquivo | API | Função |
-|---------|-----|--------|
-| `fs.ts` | readJson, writeJson, writeRaw, globFiles | Filesystem JSON helpers |
-| `credentials.ts` | logout(), migrate() | Gestão de credenciais |
-| `env.ts` | getEnv(key), isCI() | Helpers para variáveis de ambiente |
-| `debug.ts` | debug(msg) | Log condicional (DEBUG env) |
-| `semver.ts` | compare(a,b), isNewer(a,b) | Comparação semântica de versões |
-| `auto-update.ts` | checkUpdate() | Fetch npm registry, compara versão |
-| `chatError.ts` | formatApiError(err) | Formata erros HTTP da API para display |
-| `sliceAnsi.ts` | sliceAnsi(str, start, end) | Slice preservando ANSI escapes |
-| `intl.ts` | t(key), setLocale(lang) | Internacionalização |
-| `fullscreen.ts` | enterFullscreen(), exitFullscreen() | Alternate screen buffer |
-| `earlyInput.ts` | captureEarly(), flush(target) | Buffer pre-mount keystrokes |
-| `ink-shims.ts` | shimInkApis() | Compatibilidade com Ink fork |
+## Structure
 
----
+```
+utils/
+└── fs.ts    — readJson(), globFiles()
+```
 
-## Decisões de Design
+## Key Functions
 
-| Decisão | Rationale | Confiança |
-|---------|-----------|-----------|
-| Módulo flat (sem subpastas) | Utilitários simples, não justificam hierarquia | 🟢 |
-| readJson retorna null (não throws) | Caller decide o que fazer com ausência | 🟢 |
-| Auto-update só informa (não instala) | Evita side-effects surpresa durante sessão | 🟢 |
-| Early input buffer | Bun + React mount tem delay; sem buffer, keystrokes iniciais se perdem | 🟢 |
+```typescript
+async function readJson<T>(path: string): Promise<T | null>
+// Read file, JSON.parse, return typed. Returns null on error.
+
+async function globFiles(pattern: RegExp, dir: string): Promise<string[]>
+// List files in dir matching regex pattern.
+```

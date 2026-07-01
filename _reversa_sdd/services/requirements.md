@@ -1,53 +1,37 @@
-# Requirements — Módulo Services
+# Services Module — Requirements
 
-> Gerado pelo Redator (Reversa) em 2026-06-23
-> Escala de confiança: 🟢 CONFIRMADO | 🟡 INFERIDO | 🔴 LACUNA
+> Confidence: 🟢 CONFIRMED  
+> Generated at: 2026-07-01
 
----
+## Overview
 
-## Visão Geral
+The Services module contains the context compaction service — the logic for automatically summarizing conversations when context usage grows too high.
 
-O módulo **Services** agrupa serviços auxiliares: auto-compact (summary prompt + circuit breaker), MCP re-export e session management.
+## Functional Requirements
 
-**Caminho:** `src/services/`
+### FR-01: Auto-Compact Detection 🟢
+- **Must** evaluate `shouldAutoCompact()` using contextUsage/contextLimit ratio
+- **Must** trigger at configurable threshold (default 0.85)
+- **Must** respect `autoCompact: false` setting to disable
+- **Must** track consecutive failures for backoff
 
----
+### FR-02: Micro-Compact 🟢
+- **Must** clear old tool result contents (keep structure, clear body)
+- **Must** preserve the last 5 tool results (MICRO_COMPACT_KEEP_LAST)
+- **Must** not touch messages after the last boundary marker
 
-## Requisitos Funcionais
+### FR-03: Full Compact (LLM Summarization) 🟢
+- **Must** use a structured 9-section summary prompt
+- **Must** call the LLM to generate the summary
+- **Must** insert a boundary marker after summarization
+- **Must** preserve messages after the boundary verbatim
 
-### RF-01: Auto-Compact Service 🟢
+### FR-04: Summary Prompt 🟢
+- **Must** instruct the LLM to preserve: primary request, technical concepts, file paths, errors, problem-solving state, user messages, pending tasks, current work, next steps
 
-**Prioridade:** Must
-**Descrição:** Compactar contexto automaticamente quando threshold é atingido.
+## Non-Functional Requirements
 
-**Critérios de Aceitação:**
-- Dado que `contextUsage/contextLimit > 0.85`, quando chamado, então executa compactação
-- Dado que compact falha, quando counter atinge 3, então desativa (circuit breaker)
-- Dado que compact falha e counter < 3, quando incrementa, então retenta na próxima iteração
-
-### RF-02: MicroCompact 🟢
-
-**Prioridade:** Must
-**Descrição:** Truncar tool results antigos para liberar tokens.
-
-**Critérios de Aceitação:**
-- Dado mais de 5 tool results no histórico, quando executa, então trunca os anteriores aos últimos 5
-- Dado tool result truncado, quando armazenado, então substitui content por "[truncated]"
-
-### RF-03: MCP Service 🟢
-
-**Prioridade:** Should
-**Descrição:** Re-export da integração MCP para uso pelo agent.
-
-**Critérios de Aceitação:**
-- Dado servidores MCP em settings, quando agent inicializa, então MCP service conecta e lista tools
-
----
-
-## Dependências
-
-| Depende de | Motivo |
-|------------|--------|
-| `agent` | Acesso ao histórico de mensagens e LLM client |
-| `settings` | Threshold e config de MCP servers |
-| `state` | contextUsage e contextLimit |
+### NFR-01: Reliability 🟢
+- Failed compaction tracked (consecutiveFailures)
+- Never loses messages after boundary
+- 13,000 token buffer reserved for compact decision

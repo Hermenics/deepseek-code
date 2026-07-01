@@ -1,46 +1,24 @@
-# Tasks — Módulo Settings
+# Settings Module — Tasks
 
-> Gerado pelo Redator (Reversa) em 2026-06-23
-> Escala de confiança: 🟢 CONFIRMADO | 🟡 INFERIDO | 🔴 LACUNA
+> Confidence: 🟢 CONFIRMED  
+> Generated at: 2026-07-01
 
----
+## Tasks for Reimplementation
 
-### T-ST-01: Settings Loader 🟢
+### T-01: Implement Settings Types
+- **Source:** `src/settings/types.ts`
+- **Description:** Define DeepSeekSettings interface with all optional fields. PermissionsConfig, SettingsLevel.
+- **Done when:** Types cover all known settings fields.
+- **Confidence:** 🟢
 
-**Fonte:** `src/settings/loader.ts`
-**Descrição:** Implementar carregamento de 3 níveis com strip e merge.
+### T-02: Implement Settings Loader
+- **Source:** `src/settings/index.ts`
+- **Description:** Load from 3 paths in parallel. Strip hooks from project/local. Merge with priority.
+- **Done when:** All levels load, hooks stripped from untrusted, merge correct.
+- **Confidence:** 🟢
 
-**Critério de pronto:**
-- Lê user (~/.deepseek/settings.json)
-- Lê project ({cwd}/.deepseek/settings.json)
-- Lê local ({cwd}/.deepseek/settings.local.json)
-- Strip hooks de project e local
-- Merge: arrays=concat+dedup, objects=shallow merge, scalars=override
-
-**Confiança:** 🟢
-
----
-
-### T-ST-02: Merge Function 🟢
-
-**Fonte:** `src/settings/loader.ts` (merge logic)
-**Descrição:** Implementar merge strategy com regras por tipo.
-
-**Critério de pronto:**
-- Detecta tipo do valor (array, object, scalar)
-- Array: concat + dedup
-- Object: spread 1 nível
-- Scalar: último vence
-- Null/undefined em override não sobrescreve
-
-**Confiança:** 🟢
-
----
-
-## Estimativa de Complexidade
-
-| Task | Complexidade | LOC estimado |
-|------|-------------|--------------|
-| T-ST-01 | Média | ~60 |
-| T-ST-02 | Baixa | ~30 |
-| **Total** | — | **~90** |
+### T-03: Implement Merge Algorithm
+- **Source:** `src/settings/index.ts`
+- **Description:** Arrays: concat+dedup. Objects: deep merge one level. Scalars: override.
+- **Done when:** All merge cases handled correctly.
+- **Confidence:** 🟢

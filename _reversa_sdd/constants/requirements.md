@@ -1,63 +1,34 @@
-# Requirements — Módulo Constants
+# Constants Module — Requirements
 
-> Gerado pelo Redator (Reversa) em 2026-06-23
-> Escala de confiança: 🟢 CONFIRMADO | 🟡 INFERIDO | 🔴 LACUNA
+> Confidence: 🟢 CONFIRMED  
+> Generated at: 2026-07-01
 
----
+## Overview
 
-## Visão Geral
+The Constants module centralizes all magic numbers and configuration defaults used across the system.
 
-O módulo **Constants** define constantes globais organizadas por domínio: product identity, tool limits, UI defaults e agent configuration.
+## Functional Requirements
 
-**Caminho:** `src/constants/`
+### FR-01: Agent Constants 🟢
+- `UNDO_STACK_MAX` = 10 (file checkpoints)
+- `CONTEXT_COMPACT_THRESHOLD` = 0.85 (85%)
+- `AUTO_COMPACT_BUFFER_TOKENS` = 13,000
+- `MICRO_COMPACT_KEEP_LAST` = 5
+- `CHECKPOINT_MAX` = 20
+- `REFINER_MAX_TOKENS` = 1024
+- `REFINER_MIN_LENGTH` = 30
 
----
-
-## Requisitos Funcionais
-
-### RF-01: Product Constants 🟢
-
-**Prioridade:** Must
-**Descrição:** Identidade do produto.
-
-**Valores:**
-- `PRODUCT_NAME` = "DeepSeek Code"
-- `PRODUCT_CLI_NAME` = "deepseek"
-- `CONFIG_DIR` = ".deepseek"
-
-### RF-02: Tool Constants 🟢
-
-**Prioridade:** Must
-**Descrição:** Limites operacionais das tools.
-
-**Valores:**
+### FR-02: Tool Constants 🟢
 - `SHELL_OUTPUT_MAX_CHARS` = 50,000
 - `SHELL_TIMEOUT_MS` = 30,000
 - `GREP_MAX_LINES` = 200
 - `GLOB_MAX_FILES` = 500
 - `SUBAGENT_MAX_ITERATIONS` = 15
 
-### RF-03: Agent Constants 🟢
+### FR-03: Product Constants 🟢
+- `PRODUCT_NAME` = 'DeepSeek Code'
+- `PRODUCT_CLI_NAME` = 'deepseek'
+- `CONFIG_DIR` = '.deepseek'
 
-**Prioridade:** Must
-**Descrição:** Configurações do agente.
-
-**Valores:**
-- `UNDO_STACK_MAX` = 10
-- `CONTEXT_COMPACT_THRESHOLD` = 0.85
-- `MICRO_COMPACT_KEEP_LAST` = 5
-- `CHECKPOINT_MAX` = 20
-
-### RF-04: UI Constants 🟢
-
-**Prioridade:** Should
-**Descrição:** Limites visuais.
-
-**Valores:**
+### FR-04: UI Constants 🟢
 - `DIFF_MAX_LINES` = 50
-
----
-
-## Dependências
-
-Nenhuma (módulo leaf — importado por todos os outros).

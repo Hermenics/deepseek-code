@@ -1,27 +1,18 @@
-# Tasks — Módulo State
+# State Module — Tasks
 
-> Gerado pelo Redator (Reversa) em 2026-06-23
-> Escala de confiança: 🟢 CONFIRMADO | 🟡 INFERIDO | 🔴 LACUNA
+> Confidence: 🟢 CONFIRMED  
+> Generated at: 2026-07-01
 
----
+## Tasks for Reimplementation
 
-### T-SA-01: Store Implementation 🟢
+### T-01: Implement State Store
+- **Source:** `src/state/store.ts`
+- **Description:** Singleton with getState, setState (partial merge + notify), subscribe (returns unsubscribe), resetState.
+- **Done when:** State updates propagate to all subscribers, unsubscribe works.
+- **Confidence:** 🟢
 
-**Fonte:** `src/state/store.ts`
-**Descrição:** Implementar store pub/sub com getState, setState, subscribe, resetState.
-
-**Critério de pronto:**
-- setState faz shallow merge e notifica listeners
-- subscribe retorna unsubscribe function
-- resetState volta ao initialState
-- Sem dependências externas
-
-**Confiança:** 🟢
-
----
-
-## Estimativa de Complexidade
-
-| Task | Complexidade | LOC estimado |
-|------|-------------|--------------|
-| T-SA-01 | Baixa | ~35 |
+### T-02: Implement Selectors
+- **Source:** `src/state/selectors.ts`
+- **Description:** Derived state helpers for common queries.
+- **Done when:** Selectors return correct derived values.
+- **Confidence:** 🟢

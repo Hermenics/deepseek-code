@@ -1,163 +1,157 @@
-# Permissões — deepseek-code
+# Permissions Matrix
 
-> Gerado pelo Detetive (Reversa) em 2026-06-23
-> Escala de confiança: 🟢 CONFIRMADO | 🟡 INFERIDO | 🔴 LACUNA
+> Confidence: 🟢 CONFIRMED (extracted from source code)  
+> Generated at: 2026-07-01
 
----
-
-## Modelo de Permissões
-
-O sistema não possui papéis de usuário (RBAC) tradicionais — é uma CLI single-user. O controle de acesso opera em **três camadas ortogonais**:
-
-1. **Interaction Mode** — controla quais categorias de tools são permitidas
-2. **Permission Rules** — allow/deny com glob matching sobre tools específicas
-3. **Hooks** — shell commands externos que podem bloquear ou modificar tool calls
-
----
-
-## Camada 1: Interaction Modes
-
-🟢 CONFIRMADO — `src/ui/interactionMode.ts`
+## Interaction Mode × Tool Access
 
 | Tool | Plan | Build | Auto |
-|------|------|-------|------|
-| read_file | ✅ | ✅ | ✅ |
-| read_folder | ✅ | ✅ | ✅ |
-| glob | ✅ | ✅ | ✅ |
-| grep | ✅ | ✅ | ✅ |
-| git | ✅ | ✅ | ✅ |
-| web_fetch | ✅ | ✅ | ✅ |
-| introspect | ✅ | ✅ | ✅ |
-| todo | ✅ | ✅ | ✅ |
-| subagent | ✅ | ✅ | ✅ |
-| shell | ❌ | ✅ | ✅ |
-| write_file | ❌ | ✅ | ✅ |
-| patch_file | ❌ | ✅ | ✅ |
-| update_knowledge | ❌ | ✅ | ✅ |
-| MCP tools (contém `__`) | ❌ | ✅ | ✅ |
+|------|:----:|:-----:|:----:|
+| `read_file` | ✅ | ✅ | ✅ |
+| `read_folder` | ✅ | ✅ | ✅ |
+| `glob` | ✅ | ✅ | ✅ |
+| `grep` | ✅ | ✅ | ✅ |
+| `git` | ✅ | ✅ | ✅ |
+| `web_fetch` | ✅ | ✅ | ✅ |
+| `introspect` | ✅ | ✅ | ✅ |
+| `todo` | ✅ | ✅ | ✅ |
+| `subagent` | ✅ | ✅ | ✅ |
+| `shell` | ❌ | ✅ | ✅ |
+| `write_file` | ❌ | ✅ | ✅ |
+| `patch_file` | ❌ | ✅ | ✅ |
+| `update_knowledge` | ❌ | ✅ | ✅ |
+| MCP tools (`*__*`) | ❌ | ✅ | ✅ |
 
-**Nota:** Auto mode não consulta esta tabela — retorna `true` para qualquer tool.
-
----
-
-## Camada 2: Permission Rules (settings.json)
-
-🟢 CONFIRMADO — `src/permissions/matcher.ts`
-
-### Sintaxe
-
-```
-"Shell(git *)"      → tool Shell, pattern "git *" matchado contra o command
-"ReadFile"          → tool ReadFile, qualquer argumento
-"WriteFile(*.env)"  → tool WriteFile, pattern "*.env" matchado contra o path
-```
-
-### Resolução
-
-```
-1. Parse deny rules
-2. Parse allow rules
-3. Para cada deny rule: se match → DENY (para imediatamente)
-4. Para cada allow rule: se match → ALLOW
-5. Fallback:
-   - Se allow rules existem mas nenhuma matchou → ASK (pede confirmação)
-   - Se só deny rules existem e nenhuma matchou → ALLOW
-   - Se nenhuma rule existe → ALLOW
-```
-
-### Content Matching por Tool
-
-| Tool | Campo matchado |
-|------|----------------|
-| shell | `args.command` |
-| read_file / write_file / patch_file | `args.path` |
-| web_fetch | `args.url` |
-| grep | `args.pattern` |
-| outras | Sem pattern matching (match por nome apenas) |
-
-### Decisões do Usuário
-
-| Decisão | Efeito |
-|---------|--------|
-| `once` | Permite esta execução apenas |
-| `session` | Adiciona ao sessionApprovedTools (válido até fim da sessão) |
-| `always` | Persiste em `~/.deepseek/settings.json` → `permissions.allow[]` |
-| `deny` | Throws DenyAbortError → aborta o turno do agente |
+**Note:** Auto mode bypasses the matrix entirely — `canUseTool()` returns `true` for everything when `mode === 'auto'`.
 
 ---
 
-## Camada 3: Hooks (PreToolUse)
+## SubAgent Role × Tool Access
 
-🟢 CONFIRMADO — `src/hooks/executor.ts`
-
-### Decisões possíveis de um hook
-
-| Decisão | Efeito |
-|---------|--------|
-| `approve` | Permite execução (pode incluir `modified_input`) |
-| `block` | Bloqueia execução com reason |
-| _(stdout vazio/não-JSON)_ | Ignora, prossegue |
-
-### Segurança de Hooks
-
-| Regra | Implementação |
-|-------|---------------|
-| Hooks só de user-level | `settings/loader.ts` stripa hooks de project/local |
-| Timeout | Default 30s por hook command |
-| Falha de hook | Retorna JSON `{decision: "block", reason: "..."}` |
-| PostToolUse | Fire-and-forget, erros ignorados |
-| tool_result no PostToolUse | Truncado a 10k chars |
+| Tool | reader | reviewer | writer | executor | unrestricted |
+|------|:------:|:--------:|:------:|:--------:|:------------:|
+| `read_file` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `read_folder` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `grep` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `glob` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `introspect` | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `web_fetch` | ✅ | ❌ | ❌ | ✅ | ✅ |
+| `write_file` | ❌ | ❌ | ✅ | ✅ | ✅ |
+| `patch_file` | ❌ | ❌ | ✅ | ✅ | ✅ |
+| `shell` | ❌ | ❌ | ❌ | ✅ | ✅ |
+| All others | ❌ | ❌ | ❌ | ❌ | ✅ |
 
 ---
 
-## Camada Especial: Agent-level allowedTools
+## Risk Level Matrix
 
-🟢 CONFIRMADO — `src/agent/config.ts` + `src/agent/agent.ts:984-1005`
+### High Risk (always requires confirmation in Build mode)
 
-Custom agents podem definir `allowedTools`:
-- `null` ou omitido → sem restrição adicional
-- `string[]` → whitelist: tools fora da lista são bloqueadas
-- `'*'` → todas as tools requerem confirmação individual
+| Rule ID | Tool | Pattern/Condition | Description |
+|---------|------|-------------------|-------------|
+| `shell:rm` | shell | `rm *` | File deletion |
+| `shell:rm-rf` | shell | `rm -rf *` | Recursive forced deletion |
+| `shell:force-push` | shell | `git push *--force*` | Force push |
+| `shell:reset-hard` | shell | `git reset --hard*` | Destructive git reset |
+| `shell:checkout-destructive` | shell | `git checkout -- *` | Discard changes |
+| `shell:clean` | shell | `git clean *` | Remove untracked files |
+| `shell:npm-install` | shell | `npm install*` | Package installation |
+| `shell:bun-add` | shell | `bun add*` | Package installation |
+| `shell:pip-install` | shell | `pip install*` | Package installation |
+| `shell:apt-install` | shell | `apt install*` | System package install |
+| `shell:sudo` | shell | `sudo *` | Privilege escalation |
+| `shell:systemctl` | shell | `systemctl *` | Service management |
+| `shell:docker-rm` | shell | `docker *--rm*` | Container removal |
+| `shell:chmod` | shell | `chmod *` | Permission change |
+| `shell:deploy-*` | shell | `*deploy*` (various) | Deployment commands |
+| `shell:build` | shell | `bun run build*` | Production build |
+| `write:deepseek-config` | write_file | `*.deepseek/*` | Config modification |
+| `patch:deepseek-config` | patch_file | `*.deepseek/*` | Config modification |
+| `write:steering` | write_file | `*.deepseek/steering/*` | Steering override |
+| `write:large-overwrite` | write_file | `large_overwrite` condition | File ≥ 100 existing lines |
+
+### Medium Risk (requires confirmation only for subagents)
+
+| Rule ID | Tool | Pattern/Condition | Description |
+|---------|------|-------------------|-------------|
+| `shell:git-push` | shell | `git push*` | Push to remote |
+| `shell:git-commit` | shell | `git commit*` | Create commit |
+| `write:config-package` | write_file | `*package.json` | Package manifest |
+| `write:config-tsconfig` | write_file | `*tsconfig*` | TypeScript config |
+| `write:config-dockerfile` | write_file | `*Dockerfile*` | Container config |
+| `write:burst` | write_file | `multi_edit_burst` condition | ≥ 3 writes this turn |
+| `patch:burst` | patch_file | `multi_edit_burst` condition | ≥ 3 patches this turn |
+| `shell:npm-install-dev` | shell | `npm install --save-dev*` | Dev dependency |
+| `shell:bun-add-dev` | shell | `bun add -d*` | Dev dependency |
 
 ---
 
-## Ordem de Avaliação Completa
+## Path Sandbox — Blocked Directories
 
-🟢 CONFIRMADO — `src/agent/agent.ts:914-1057`
+| Directory | Reason |
+|-----------|--------|
+| `.agent` | Agent internal config |
+| `.claude` | Claude Code config |
+| `.kiro` | Kiro config |
+| `.github` | GitHub workflows/actions |
+| `.deepseek` | DeepSeek Code config |
+| `node_modules` | Dependencies (large, untrusted) |
+| `dist` | Build output |
+| `build` | Build output |
+| `.git` | Git internals |
+
+---
+
+## Path Sandbox — Sensitive File Patterns
+
+| Pattern | Examples |
+|---------|----------|
+| `.env*` | `.env`, `.env.local`, `.env.production` |
+| `*.pem` | Private keys |
+| `*.key` | Key files |
+| `*.p12`, `*.pfx` | PKCS#12 certificates |
+| `credentials*` | `credentials.json` |
+| `secrets*` | `secrets.yaml`, `secrets.toml` |
+| `.netrc`, `.npmrc`, `.pypirc` | Registry tokens |
+| `id_rsa*`, `id_ed25519*`, `id_ecdsa*`, `id_dsa*` | SSH keys |
+| `service*account*.json` | GCP service accounts |
+| `gcloud*.json` | GCP credentials |
+| `.aws/credentials`, `.aws/config` | AWS credentials |
+
+---
+
+## SSRF Protection — Blocked Targets
+
+| Category | Blocked Values |
+|----------|---------------|
+| Loopback | `localhost`, `127.0.0.1`, `::1`, `0.0.0.0` |
+| Cloud Metadata | `169.254.169.254`, `metadata.google.internal` |
+| Private IPv4 | `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` |
+| Link-local | `169.254.0.0/16` |
+| Private IPv6 | `::1`, `fe80::/10`, `fc00::/7`, `::ffff:` mapped private |
+
+DNS resolution is performed and the resolved IP is re-checked against the same private ranges (prevents DNS rebinding).
+
+---
+
+## Settings Security Model
+
+| Setting Level | Path | Hooks Allowed | Priority |
+|---------------|------|:-------------:|:--------:|
+| User | `~/.deepseek/settings.json` | ✅ | Low |
+| Project | `.deepseek/settings.json` | ❌ (stripped) | Medium |
+| Local | `.deepseek/settings.local.json` | ❌ (stripped) | High |
+
+**Rationale:** A cloned repository could contain a malicious `.deepseek/settings.json` with hooks that execute arbitrary commands. Stripping hooks from non-user sources prevents this attack vector.
+
+---
+
+## Permission Rule Syntax
 
 ```
-1. Auto mode? → SKIP TUDO, vai direto para hooks
-2. canUseTool(mode, tool)? → Bloqueia se mode não permite
-3. Build mode + sensitive? → Pede confirmação para shell destrutivo ou config write
-4. Permission rules (deny → allow → ask)
-5. allowedTools agent config (whitelist ou '*')
-6. PreToolUse hooks (pode bloquear ou modificar)
-7. Undo snapshot (se write/patch)
-8. Execute tool
-9. PostToolUse hooks (fire-and-forget)
+"Shell(git *)"     → tool=shell, pattern="git *"
+"WriteFile"        → tool=write_file, pattern=undefined (matches all)
+"ReadFile(*.env)"  → tool=read_file, pattern="*.env"
 ```
 
----
-
-## Operações Sensíveis no Build Mode
-
-🟢 CONFIRMADO — `src/ui/interactionMode.ts:69-83`
-
-Patterns que requerem confirmação explícita:
-
-| Pattern | Exemplo |
-|---------|---------|
-| `rm -rf` / `rm -r` / `rm -f` | `rm -rf node_modules` |
-| `rmdir` | `rmdir old_dir` |
-| `git reset --hard` | - |
-| `git clean` | `git clean -fd` |
-| `git push --force` / `-f` | - |
-| `git checkout -- .` | - |
-| `git restore .` | - |
-| `chmod -R` | `chmod -R 777 /tmp` |
-| `chown -R` | - |
-| `dd` | `dd if=/dev/zero of=...` |
-| `mkfs` | - |
-| `fdisk` | - |
-
-Além disso: qualquer write em `.deepseek/` (config write) requer confirmação.
+Resolution: `deny` rules first → `allow` rules → fallback (`ask` if allow rules exist, `allow` if only deny rules exist).
