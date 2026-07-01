@@ -1,43 +1,30 @@
-# Tasks — Módulo Services
+# Services Module — Tasks
 
-> Gerado pelo Redator (Reversa) em 2026-06-23
-> Escala de confiança: 🟢 CONFIRMADO | 🟡 INFERIDO | 🔴 LACUNA
+> Confidence: 🟢 CONFIRMED  
+> Generated at: 2026-07-01
 
----
+## Tasks for Reimplementation
 
-### T-SV-01: Auto-Compact 🟢
+### T-01: Implement shouldAutoCompact()
+- **Source:** `src/services/compact/autoCompact.ts`
+- **Description:** Check if ratio exceeds threshold, respect enabled flag and cooldown.
+- **Done when:** Returns true at 85%+ usage, respects disabled setting.
+- **Confidence:** 🟢
 
-**Fonte:** `src/services/compact/autoCompact.ts`
-**Descrição:** Implementar compactação com threshold, summary prompt e circuit breaker.
+### T-02: Implement microCompact()
+- **Source:** `src/services/compact/autoCompact.ts`
+- **Description:** Clear old tool result bodies, keep last 5, respect boundary markers.
+- **Done when:** Old results cleared, recent preserved, boundary honored.
+- **Confidence:** 🟢
 
-**Critério de pronto:**
-- Check: contextUsage/contextLimit > threshold
-- Compact: envia histórico ao LLM com COMPACT_PROMPT
-- Circuit breaker: 3 falhas → disabled
-- Integração com boundary markers
+### T-03: Implement Full Compact (Summary Prompt)
+- **Source:** `src/services/compact/summaryPrompt.ts`
+- **Description:** Define 9-section summary prompt and system prompt for the compaction LLM call.
+- **Done when:** Prompt covers all 9 sections, system prompt is concise.
+- **Confidence:** 🟢
 
-**Confiança:** 🟢
-
----
-
-### T-SV-02: MicroCompact 🟢
-
-**Fonte:** `src/services/compact/autoCompact.ts`
-**Descrição:** Implementar truncamento de tool results antigos.
-
-**Critério de pronto:**
-- Filtra mensagens role=tool
-- Mantém 5 mais recentes
-- Substitui content das anteriores por "[truncated]"
-
-**Confiança:** 🟢
-
----
-
-## Estimativa de Complexidade
-
-| Task | Complexidade | LOC estimado |
-|------|-------------|--------------|
-| T-SV-01 | Média | ~60 |
-| T-SV-02 | Baixa | ~25 |
-| **Total** | — | **~85** |
+### T-04: Integrate Compaction in Agent Loop
+- **Source:** `src/agent/agent.ts` (compact check points)
+- **Description:** After tool execution, check shouldAutoCompact. Run micro then full if needed. Insert boundary. Update state.
+- **Done when:** Compaction triggers correctly mid-loop, conversation continues.
+- **Confidence:** 🟢

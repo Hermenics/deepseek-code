@@ -1,84 +1,98 @@
-# Matriz de Impacto — Spec × Componente
+# Spec Impact Matrix
 
-> Gerado pelo Arquiteto (Reversa) em 2026-06-23
-> Use para avaliar blast radius de mudanças e priorizar testes de regressão.
+> Confidence: 🟢 CONFIRMED  
+> Generated at: 2026-07-01
 
-## Legenda
+## Component × Component Impact Matrix
 
-- **P** = Primário (componente implementa diretamente a regra)
-- **S** = Secundário (componente é afetado indiretamente)
-- **—** = Sem impacto
+Changes to a component in a **row** impact the components marked in the same **column**.
 
-## Regras de Negócio × Componentes
+| Changed ↓ / Impacts → | Agent | Tools | Permissions | Hooks | Settings | TUI | Proxy | Compact | Memory | Commands | SubAgent | Remote |
+|------------------------|:-----:|:-----:|:-----------:|:-----:|:--------:|:---:|:-----:|:-------:|:------:|:--------:|:--------:|:------:|
+| **Agent** | — | ✅ | ✅ | ✅ | ✅ | ✅ | ⚪ | ✅ | ✅ | ⚪ | ✅ | ⚪ |
+| **Tools** | ✅ | — | ⚪ | ⚪ | ⚪ | ✅ | ⚪ | ⚪ | ⚪ | ⚪ | ✅ | ⚪ |
+| **Permissions** | ✅ | ✅ | — | ⚪ | ✅ | ✅ | ⚪ | ⚪ | ⚪ | ⚪ | ✅ | ⚪ |
+| **Hooks** | ✅ | ✅ | ⚪ | — | ✅ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
+| **Settings** | ✅ | ⚪ | ✅ | ✅ | — | ⚪ | ⚪ | ✅ | ⚪ | ⚪ | ⚪ | ⚪ |
+| **TUI** | ✅ | ⚪ | ⚪ | ⚪ | ⚪ | — | ⚪ | ⚪ | ⚪ | ✅ | ✅ | ⚪ |
+| **Proxy** | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | — | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ |
+| **Compact** | ✅ | ⚪ | ⚪ | ⚪ | ✅ | ⚪ | ⚪ | — | ⚪ | ⚪ | ⚪ | ⚪ |
+| **Memory** | ✅ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | — | ⚪ | ✅ | ⚪ |
+| **Commands** | ✅ | ⚪ | ⚪ | ⚪ | ⚪ | ✅ | ⚪ | ⚪ | ⚪ | — | ⚪ | ✅ |
+| **SubAgent** | ✅ | ✅ | ✅ | ⚪ | ⚪ | ✅ | ⚪ | ⚪ | ✅ | ⚪ | — | ⚪ |
+| **Remote** | ✅ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ⚪ | ✅ | ⚪ | — |
 
-| Regra | Agent | Tools | UI | Proxy | Settings | Persistence | State |
-|-------|-------|-------|-----|-------|----------|-------------|-------|
-| **S1** Path sandbox | S | P | — | — | — | — | — |
-| **S2** Sensitive file block | S | P | — | — | — | — | — |
-| **S3** Destructive cmd detect | S | P | — | — | — | — | — |
-| **S4** SSRF protection | — | P | — | — | — | — | — |
-| **S5** Anti-ReDoS glob | — | P | — | — | — | — | — |
-| **S6** Permission system | P | S | S | — | P | — | — |
-| **S7** Hook execution | P | S | — | — | P | — | — |
-| **S8** MCP env protection | P | — | — | — | P | — | — |
-| **S9** Audit logging | P | — | — | — | — | P | — |
-| **S10** Session isolation | P | — | — | — | — | P | — |
-| **C1** Auto-compact 85% | P | — | S | — | S | — | S |
-| **C2** Micro-compact | P | — | — | — | — | — | — |
-| **C3** Compact boundary | P | — | — | — | — | — | S |
-| **C4** Max 50 sessions | — | — | — | — | — | P | — |
-| **C5** Max 20 checkpoints | — | — | — | — | — | P | — |
-| **C6** History 500 msgs | — | — | — | — | — | P | — |
-| **M1** Plan mode (read-only) | P | S | P | — | S | — | P |
-| **M2** Build mode (confirm) | P | S | P | — | S | — | P |
-| **M3** Auto mode (unrestricted) | P | S | P | — | S | — | P |
-| **M4** Mode switching | P | — | P | — | — | — | P |
-| **M5** Mode-based tool filter | P | P | — | — | — | — | — |
-| **T1** WriteFile LCS diff | — | P | S | — | — | — | — |
-| **T2** PatchFile single replace | — | P | S | — | — | — | — |
-| **T3** Shell execa | — | P | — | — | — | — | — |
-| **T4** SubAgent loop | P | P | — | — | — | — | — |
-| **T5** Git operations | — | P | — | — | — | — | — |
-| **T6** WebFetch HTML strip | — | P | — | — | — | — | — |
-| **T7** Todo CRUD | — | P | S | — | — | — | S |
-| **T8** ReadFile/ReadFolder | — | P | — | — | — | — | — |
-| **T9** Grep/Glob | — | P | — | — | — | — | — |
-| **P1** DeepSeek native | P | — | — | — | S | — | — |
-| **P2** AWS Bedrock SigV4 | P | — | — | — | S | — | — |
-| **P3** Vertex OAuth2 | P | — | — | — | S | — | — |
-| **P4** Local (Ollama) | P | — | — | — | S | — | — |
-| **P5** Proxy (Playwright) | P | — | — | P | S | — | — |
-| **P6** Model resolution | P | — | — | P | — | — | — |
-| **X1** Page pool warmup | — | — | — | P | — | — | — |
-| **X2** SSE streaming parse | — | — | — | P | — | — | — |
-| **X3** Robust JSON parse | — | — | — | P | — | — | — |
+**Legend:** ✅ = direct impact | ⚪ = no direct impact
 
-## Análise de Blast Radius
+---
 
-| Componente | Regras Primárias | Regras Secundárias | Risco de mudança |
-|------------|-----------------|-------------------|------------------|
-| **Agent** | 12 | 4 | 🔴 Alto — core loop, impacta quase tudo |
-| **Tools** | 16 | 5 | 🔴 Alto — maior superfície de regras |
-| **UI** | 3 | 6 | 🟡 Médio — afeta UX mas não lógica core |
-| **Proxy** | 6 | 0 | 🟡 Médio — isolado mas complexo internamente |
-| **Settings** | 3 | 10 | 🟡 Médio — configura muitos comportamentos |
-| **Persistence** | 5 | 0 | 🟢 Baixo — simples CRUD, bem isolado |
-| **State** | 0 | 6 | 🟢 Baixo — pub/sub passivo |
+## Impact Analysis (High-Coupling Components)
 
-## Dependências Críticas (Chains)
+| Component | Fan-In (others depend on it) | Fan-Out (it depends on others) | Coupling Assessment |
+|-----------|:----------------------------:|:------------------------------:|:-------------------:|
+| **Agent** | 5 | 9 | **Critical hub** — changes ripple everywhere |
+| **Tools** | 3 | 2 | Moderate — well-encapsulated |
+| **Permissions** | 3 | 2 | Moderate — consumed by Agent and SubAgent |
+| **Settings** | 4 | 0 | **Configuration root** — consumed by many, depends on none |
+| **TUI** | 2 | 4 | High fan-out (renders Agent, Commands, SubAgent state) |
+| **Proxy** | 0 | 0 | **Isolated** — fully decoupled, no impact chain |
+| **SubAgent** | 2 | 4 | Moderate fan-out (reuses Tools, Permissions, Memory) |
 
+---
+
+## Change Scenarios
+
+| Scenario | Components Affected | Risk |
+|----------|--------------------:|:----:|
+| Add a new tool | Tools, Agent (tool map), TUI (display) | Low |
+| Change interaction mode semantics | Permissions, Agent, TUI, SubAgent | High |
+| Add new risk rule | Permissions, Settings | Low |
+| Modify compaction logic | Compact, Agent | Medium |
+| Change provider API format | Providers, Agent, Proxy (if browser) | Medium |
+| Add new slash command | Commands, TUI | Low |
+| Modify path sandbox rules | Tools (pathSafety), all file tools | Medium |
+| Change memory format/cap | Memory, Agent, SubAgent, UpdateKnowledge tool | Medium |
+| Modify hook execution model | Hooks, Agent, Settings | Medium |
+| Add new subagent role | SubAgent (permissions.ts), TUI (display) | Low |
+
+---
+
+## Module Dependency Graph (simplified)
+
+```mermaid
+graph TD
+    CLI[CLI Entrypoint] --> TUI
+    CLI --> Agent
+    TUI --> Agent
+    TUI --> Commands
+    TUI --> SubAgentUI[SubAgent Display]
+
+    Agent --> Providers
+    Agent --> Tools
+    Agent --> Permissions
+    Agent --> Hooks
+    Agent --> Settings
+    Agent --> Compact
+    Agent --> Memory
+    Agent --> Audit
+
+    Tools --> PathSafety
+    Tools --> SubAgent
+    SubAgent --> Permissions
+    SubAgent --> Memory
+    SubAgent --> Tools
+
+    Permissions --> Settings
+    Hooks --> Settings
+    Compact --> Settings
+
+    Commands --> Agent
+    Commands --> Remote
+    Remote --> Crypto
+
+    Providers --> DeepSeekAPI[DeepSeek API]
+    Providers --> Bedrock[AWS Bedrock]
+    Providers --> Vertex[GCP Vertex]
+    Providers --> Local[Ollama/LM Studio]
+    Proxy --> Providers
 ```
-Permission Rule → Settings → Agent → Tools (chain de autorização)
-Mode Switch → State → UI + Agent + Tools (chain de modo)
-Auto-compact → Agent → Persistence (chain de contexto)
-Provider Config → Settings → Agent → Proxy|API (chain de provider)
-Hook Config → Settings → Agent → Shell (chain de hooks)
-```
-
-## Recomendações para Testes de Regressão
-
-1. **Mudanças em Agent**: testar modos, compact, permissions, providers
-2. **Mudanças em Tools**: testar path safety, tool-specific behavior, permission check
-3. **Mudanças em Settings**: testar merge hierarchy, permission resolution, hook loading
-4. **Mudanças em Proxy**: testar SSE parsing, page pool, model resolution (isolado)
-5. **Mudanças em UI**: testar mode display, input handling, tool output rendering

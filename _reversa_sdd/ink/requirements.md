@@ -1,122 +1,46 @@
-# Requirements — Módulo Ink (Fork)
+# Ink Module — Requirements
 
-> Gerado pelo Redator (Reversa) em 2026-06-23
-> Escala de confiança: 🟢 CONFIRMADO | 🟡 INFERIDO | 🔴 LACUNA
+> Confidence: 🟢 CONFIRMED  
+> Generated at: 2026-07-01
 
----
+## Overview
 
-## Visão Geral
+The Ink module is a custom fork of the Ink terminal UI framework, providing React-based rendering for the terminal. It includes the layout engine, reconciler, component library, and terminal I/O utilities.
 
-O módulo **Ink** é um fork customizado do framework Ink — um React renderer para terminal (TUI). Fornece componentes primitivos, layout engine (Yoga/Flexbox), event system, ANSI parsing e rendering pipeline.
+## Functional Requirements
 
-**Caminho:** `src/ink/`
+### FR-01: React Reconciler 🟢
+- **Must** implement custom React reconciler for terminal rendering
+- **Must** support component lifecycle (mount, update, unmount)
+- **Must** integrate with yoga-layout for flexbox-based terminal layout
 
----
+### FR-02: Terminal Rendering 🟢
+- **Must** render React component tree to terminal output
+- **Must** support ANSI colors, styles (bold, italic, underline)
+- **Must** handle terminal resize events
+- **Must** implement efficient diff-based re-rendering
 
-## Requisitos Funcionais
+### FR-03: Component Library 🟢
+- **Must** provide Box component (flexbox container)
+- **Must** provide Text component (styled text)
+- **Must** provide ScrollBox component (scrollable content)
+- **Must** provide Button component (interactive)
+- **Must** provide App wrapper component
 
-### RF-01: React Reconciler Customizado 🟢
+### FR-04: Input Handling 🟢
+- **Must** capture raw stdin key events
+- **Must** parse escape sequences into structured key events
+- **Must** support focus management between components
 
-**Prioridade:** Must
-**Descrição:** Reconciler React que traduz componentes em nós de layout para terminal.
+### FR-05: Terminal I/O 🟢
+- **Must** implement CSI (Control Sequence Introducer) escape sequences
+- **Must** implement DEC private mode sequences
+- **Must** support alternate screen buffer
+- **Must** handle bidirectional text (via bidi-js)
 
-**Critérios de Aceitação:**
-- Dado componentes React (Box, Text), quando reconciler processa, então cria tree de nós Yoga
-- Dado atualização de props, quando reconciler reconcilia, então aplica diff minimal
+## Non-Functional Requirements
 
-### RF-02: Layout Engine (Yoga/Flexbox) 🟢
-
-**Prioridade:** Must
-**Descrição:** Layout via Yoga com bindings TypeScript puros (sem native addons).
-
-**Critérios de Aceitação:**
-- Dado Box com flexDirection, width, padding, quando layout calcula, então posiciona children corretamente
-- Dado terminal resize, quando dimensions mudam, então re-calcula layout
-
-### RF-03: Componentes Primitivos 🟢
-
-**Prioridade:** Must
-**Descrição:** Box, Text, Button, ScrollBox, Link, Newline, Spacer, RawAnsi, AlternateScreen, NoSelect, ErrorOverview.
-
-**Critérios de Aceitação:**
-- Box: container com flexbox props (direction, wrap, align, justify, padding, margin, border)
-- Text: renderiza string com ANSI styles (bold, italic, color, bg)
-- ScrollBox: scroll vertical com viewport
-- Button: focusable com onClick handler
-
-### RF-04: Event System 🟢
-
-**Prioridade:** Must
-**Descrição:** Sistema de eventos para Click, Focus, Keyboard, Paste, Resize, TerminalFocus.
-
-**Critérios de Aceitação:**
-- Dado click no terminal, quando event dispatcha, então hit-test identifica componente alvo
-- Dado keypress, quando event dispatcha, então componente focused recebe
-- Dado resize do terminal, quando detectado, então re-render com novas dimensions
-
-### RF-05: Terminal I/O (ANSI Parser) 🟢
-
-**Prioridade:** Must
-**Descrição:** Parser e tokenizer completo de sequências ANSI/SGR/CSI/OSC/DEC/ESC.
-
-**Critérios de Aceitação:**
-- Dado input com escape sequences, quando parsed, então tokens são classificados corretamente
-- Dado ANSI colors (16, 256, truecolor), quando processados, então renderizam corretamente
-- Dado mouse tracking sequences, quando recebidos, então geram eventos de click
-
-### RF-06: Rendering Pipeline 🟢
-
-**Prioridade:** Must
-**Descrição:** Pipeline: reconciler → renderer → node-to-output → screen write.
-
-**Critérios de Aceitação:**
-- Dado tree de nós, quando render executa, então produz buffer de strings ANSI
-- Dado buffer anterior e atual, quando diff é calculado, então só linhas alteradas são re-escritas (log-update)
-
-### RF-07: Bidirectional Text (Bidi) 🟢
-
-**Prioridade:** Could
-**Descrição:** Suporte a textos RTL e bidirecionais.
-
-**Critérios de Aceitação:**
-- Dado texto com caracteres árabes/hebraicos, quando renderizado, então direção é resolvida corretamente
-
-### RF-08: East Asian Width 🟢
-
-**Prioridade:** Should
-**Descrição:** Detecção de largura de caracteres CJK (full-width vs half-width).
-
-**Critérios de Aceitação:**
-- Dado caractere CJK, quando width é calculado, então conta como 2 colunas
-
----
-
-## Requisitos Não Funcionais
-
-| # | Categoria | Requisito | Confiança |
-|---|-----------|-----------|-----------|
-| RNF-01 | Performance | Incremental render — só re-escreve linhas alteradas | 🟢 |
-| RNF-02 | Performance | Yoga layout bindings TS puros (sem native addons) | 🟢 |
-| RNF-03 | Compatibilidade | Suporte a terminais: iTerm2, Terminal.app, GNOME Terminal, Windows Terminal | 🟡 |
-| RNF-04 | Performance | Mouse tracking sem polling (event-driven) | 🟢 |
-
----
-
-## MoSCoW Summary
-
-| Prioridade | Requisitos |
-|------------|------------|
-| **Must** | RF-01 a RF-06 (reconciler, layout, components, events, ANSI, render pipeline) |
-| **Should** | RF-08 (East Asian Width) |
-| **Could** | RF-07 (Bidi) |
-
----
-
-## Dependências
-
-| Depende de | Motivo |
-|------------|--------|
-| `react` (19) | Reconciler API |
-| `react-reconciler` | Host config implementation |
-| `yoga-layout` (TS port) | Flexbox calculations |
-| `bidi-js` | Bidirectional text resolution |
+### NFR-01: Performance 🟢
+- Diff-based rendering (only update changed cells)
+- Yoga layout caching for unchanged subtrees
+- Minimal terminal writes per frame
