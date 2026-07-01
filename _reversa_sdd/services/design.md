@@ -1,65 +1,66 @@
-# Design — Módulo Services
+# Services Module — Design
 
-> Gerado pelo Redator (Reversa) em 2026-06-23
-> Escala de confiança: 🟢 CONFIRMADO | 🟡 INFERIDO | 🔴 LACUNA
+> Confidence: 🟢 CONFIRMED  
+> Generated at: 2026-07-01
 
----
+## Architecture
 
-## Componentes
+A focused module for context compaction with two strategies: micro-compact (cheap) and full compact (LLM-based).
 
-### 1. Auto-Compact (`compact/autoCompact.ts`) 🟢
+## Structure
 
-**State:**
-- `failCount: number` — contador de falhas consecutivas
-- `disabled: boolean` — circuit breaker ativo
-
-**Fluxo:**
 ```
-shouldAutoCompact(contextUsage, contextLimit, threshold):
-  se disabled → return false
-  se contextUsage / contextLimit > threshold → return true
-  return false
-
-doCompact(messages, llmClient):
-  try:
-    summary = await llmClient.chat([
-      { role: "system", content: COMPACT_PROMPT },
-      ...messages
-    ])
-    failCount = 0
-    return { summary, boundary: createBoundaryMarker() }
-  catch:
-    failCount++
-    se failCount >= 3 → disabled = true
-    throw
+services/
+└── compact/
+    ├── index.ts          — re-exports
+    ├── autoCompact.ts    — shouldAutoCompact(), microCompact(), config/state types
+    └── summaryPrompt.ts  — COMPACT_SUMMARY_PROMPT, COMPACT_SYSTEM_PROMPT
 ```
 
-**COMPACT_PROMPT:** Instrui o LLM a sumarizar o histórico preservando: decisões tomadas, arquivos modificados, estado atual do trabalho. 🟡
+## Key Types
 
-### 2. MicroCompact 🟢
+```typescript
+interface AutoCompactConfig {
+  enabled: boolean     // default true
+  threshold: number    // default 0.85
+}
 
-**Fluxo:**
-```
-microCompact(messages):
-  toolResults = messages.filter(m => m.role === "tool")
-  se toolResults.length <= 5 → return messages (unchanged)
-  
-  toTruncate = toolResults.slice(0, -5)
-  para cada msg em toTruncate:
-    msg.content = "[truncated]"
-  return messages
+interface CompactState {
+  consecutiveFailures: number
+  lastCompactTimestamp: number
+}
 ```
 
-### 3. MCP Re-export 🟢
+## Compaction Strategy
 
-Re-export de `src/agent/mcp.ts` para acesso via services layer. Sem lógica adicional.
+```
+1. shouldAutoCompact(contextUsage, contextLimit, config, state)?
+   - enabled && (contextUsage / contextLimit >= threshold)
+   - Not within cooldown (lastCompactTimestamp)
 
----
+2. First try: microCompact(messages)
+   - Walk messages backwards
+   - For tool messages older than last 5: replace content with "[compacted]"
+   - Check if freed enough tokens
 
-## Decisões de Design
+3. If still above threshold: full compact
+   - Send conversation to LLM with COMPACT_SUMMARY_PROMPT
+   - Replace pre-boundary messages with summary
+   - Insert new boundary marker
+   - Update lastCompactTimestamp
 
-| Decisão | Rationale | Confiança |
-|---------|-----------|-----------|
-| Circuit breaker (3 falhas) | Evita loop infinito se LLM consistentemente falha ao sumarizar | 🟢 |
-| MicroCompact antes de Auto | Libera tokens baratos (truncate) antes de chamar LLM (caro) | 🟢 |
-| "[truncated]" como placeholder | LLM sabe que havia conteúdo ali sem consumir tokens | 🟢 |
+4. On failure: increment consecutiveFailures
+```
+
+## Summary Prompt (9 sections)
+
+The LLM is asked to preserve:
+1. Primary request and intent
+2. Key technical concepts
+3. Files and code sections referenced
+4. Errors encountered and fixes applied
+5. Problem-solving approach and state
+6. All user messages (verbatim if short)
+7. Pending tasks
+8. Current work in progress
+9. Optional next step

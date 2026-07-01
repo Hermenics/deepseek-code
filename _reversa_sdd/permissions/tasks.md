@@ -1,61 +1,30 @@
-# Tasks — Módulo Permissions
+# Permissions Module — Tasks
 
-> Gerado pelo Redator (Reversa) em 2026-06-23
-> Escala de confiança: 🟢 CONFIRMADO | 🟡 INFERIDO | 🔴 LACUNA
+> Confidence: 🟢 CONFIRMED  
+> Generated at: 2026-07-01
 
----
+## Tasks for Reimplementation
 
-### T-PM-01: Rule Parser 🟢
+### T-01: Implement Permission Types
+- **Source:** `src/permissions/types.ts`
+- **Description:** Define PermissionRule, PermissionDecision, RiskLevel, RiskRule, RiskConfig, RiskContext, RiskAssessment.
+- **Done when:** All types exported and usable by other modules.
+- **Confidence:** 🟢
 
-**Fonte:** `src/permissions/` (parser logic)
-**Descrição:** Implementar parsing de `ToolName(pattern)` string.
+### T-02: Implement Glob Matcher
+- **Source:** `src/permissions/matcher.ts:18-52`
+- **Description:** Iterative glob matching with wildcard limit (10), case-insensitive, O(n) worst-case.
+- **Done when:** Matches correctly, rejects > 10 wildcards, no backtracking.
+- **Confidence:** 🟢
 
-**Critério de pronto:**
-- Parse "Shell(git *)" → { toolName: "shell", pattern: "git *" }
-- Parse "*" → match-all
-- Valida formato (erro se malformado)
+### T-03: Implement Permission Resolution
+- **Source:** `src/permissions/matcher.ts:89-116`
+- **Description:** Parse deny/allow rules, evaluate in order (deny first), return decision.
+- **Done when:** Deny-first semantics correct, fallback logic handles all cases.
+- **Confidence:** 🟢
 
-**Confiança:** 🟢
-
----
-
-### T-PM-02: Iterative Glob Matcher 🟢
-
-**Fonte:** `src/permissions/matcher.ts`
-**Descrição:** Implementar matching iterativo anti-ReDoS.
-
-**Critério de pronto:**
-- Dois ponteiros com backtrack em wildcards
-- O(n*m) worst case
-- Rejeita > 10 wildcards
-- Case-insensitive
-- Suporta `*` (single segment) e `**` (multi-segment)
-
-**Confiança:** 🟢
-
----
-
-### T-PM-03: Permission Resolver 🟢
-
-**Fonte:** `src/permissions/` (resolver logic)
-**Descrição:** Implementar fluxo deny→allow→ask.
-
-**Critério de pronto:**
-- Deny match → DENIED
-- Allow match → ALLOWED
-- Allow exists but no match → ASK
-- No rules → ASK
-- Content extraction per tool type
-
-**Confiança:** 🟢
-
----
-
-## Estimativa de Complexidade
-
-| Task | Complexidade | LOC estimado |
-|------|-------------|--------------|
-| T-PM-01 | Baixa | ~25 |
-| T-PM-02 | Média | ~60 |
-| T-PM-03 | Baixa | ~40 |
-| **Total** | — | **~125** |
+### T-04: Implement Risk Assessment
+- **Source:** `src/permissions/risk.ts`
+- **Description:** 46 default rules, merge with user rules, sort by specificity, evaluate patterns and conditions.
+- **Done when:** All default rules fire correctly, user overrides work, conditions evaluated.
+- **Confidence:** 🟢

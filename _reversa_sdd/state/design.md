@@ -1,56 +1,39 @@
-# Design — Módulo State
+# State Module — Design
 
-> Gerado pelo Redator (Reversa) em 2026-06-23
-> Escala de confiança: 🟢 CONFIRMADO | 🟡 INFERIDO | 🔴 LACUNA
+> Confidence: 🟢 CONFIRMED  
+> Generated at: 2026-07-01
 
----
+## Architecture
 
-## Componente Único: Store (`store.ts`) 🟢
+A simple singleton store in `src/state/store.ts` with pub/sub pattern.
 
-**Pattern:** Pub/Sub simples (sem Redux, sem proxies).
+## Structure
 
-**API:**
-```ts
-getState(): AppState
-setState(partial: Partial<AppState>): void
-subscribe(listener: (state: AppState) => void): () => void  // returns unsubscribe
-resetState(): void
+```
+state/
+├── store.ts       — getState, setState, subscribe, resetState
+└── selectors.ts   — derived state helpers
 ```
 
-**AppState:**
-```ts
-interface AppState {
-  sessionId: string
-  provider: string
-  model: string
-  tokenCount: { input: number; output: number; cached: number }
-  contextUsage: number
-  contextLimit: number
-  activeAgent: string | null
-  isProcessing: boolean
+## Implementation
+
+```typescript
+let state: AppState = { /* defaults */ }
+const listeners: Set<Listener> = new Set()
+
+function setState(partial: Partial<AppState>): void {
+  state = { ...state, ...partial }
+  listeners.forEach(fn => fn(state))
+}
+
+function subscribe(listener: Listener): () => void {
+  listeners.add(listener)
+  return () => listeners.delete(listener)
 }
 ```
 
-**Implementação:**
-```
-let state: AppState = initialState
-const listeners: Set<Function> = new Set()
+## Usage
 
-setState(partial):
-  state = { ...state, ...partial }
-  listeners.forEach(fn => fn(state))
-
-subscribe(fn):
-  listeners.add(fn)
-  return () => listeners.delete(fn)
-```
-
----
-
-## Decisões de Design
-
-| Decisão | Rationale | Confiança |
-|---------|-----------|-----------|
-| Pub/sub simples (sem library) | Projeto single-component, overhead de Redux/Zustand desnecessário | 🟢 |
-| Partial merge no setState | Conveniente: só passar campos que mudaram | 🟢 |
-| Set para listeners | O(1) add/remove, sem duplicatas | 🟢 |
+- Agent updates state after each API call (tokens, context usage)
+- UI components subscribe for re-render triggers
+- AppContext bridges store to React tree

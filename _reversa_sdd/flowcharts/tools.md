@@ -1,89 +1,152 @@
-# Flowchart — Módulo Tools (Execução de Ferramentas)
+# Flowchart: Tools Module
 
-> Gerado pelo Arqueólogo (Reversa) em 2026-06-23
+> Confidence: 🟢 CONFIRMED  
+> Generated at: 2026-07-01
+
+## Tool Execution Pipeline
 
 ```mermaid
 flowchart TD
-    A[Agent chama executeTool] --> B{Tool existe no toolMap?}
-    B -->|não| C[Retorna "Unknown tool: name"]
-    B -->|sim| D[validateToolArguments]
-    D --> E{Validação ok?}
-    E -->|não| F[Retorna erro com params válidos]
-    E -->|sim| G[tool.execute args]
-    G --> H{Exceção?}
-    H -->|sim| I[Retorna "Error: message"]
-    H -->|não| J[Retorna resultado string]
+    A[Agent calls executeTool] --> B[Lookup tool in toolMap]
+    B --> C{Tool found?}
+    C -->|no| D[Return "Unknown tool: name"]
+    C -->|yes| E[validateToolArguments]
+    E --> F{Valid?}
+    F -->|no| G[Return error: invalid/missing params]
+    F -->|yes| H[tool.execute args]
+    H --> I{Success?}
+    I -->|yes| J[Return result string]
+    I -->|no| K[Return "Error: message"]
 ```
 
-## Shell — Fluxo de Segurança
+## Shell Tool — Execution Flow
 
 ```mermaid
 flowchart TD
-    A[Shell.execute] --> B[isDestructive command]
-    B --> C{Match em DESTRUCTIVE_PATTERNS?}
-    C -->|sim| D{confirmHandler existe?}
-    D -->|não| E[Retorna: blocked, no handler]
-    D -->|sim| F[Pede confirmação ao user]
-    F --> G{Confirmado?}
-    G -->|não| H[Retorna: cancelled by user]
-    G -->|sim| I[execa command]
-    C -->|não| I
-    I --> J{Sucesso?}
-    J -->|sim| K[Retorna stdout+stderr truncado 50k chars]
-    J -->|não| L[Retorna erro truncado 50k chars]
+    A[Shell.execute] --> B[isDestructive check]
+    B --> C{Destructive?}
+    C -->|yes| D{confirmHandler exists?}
+    D -->|no| E[Return error: no handler]
+    D -->|yes| F[Ask user confirmation]
+    F --> G{Confirmed?}
+    G -->|no| H[Return "Cancelled"]
+    G -->|yes| I[Execute command]
+    C -->|no| I
+    I --> J[execa with timeout]
+    J --> K{Exit code 0?}
+    K -->|yes| L[Return stdout truncated to 50k chars]
+    K -->|no| M[Return stderr + exit code]
+    J -->|timeout| N[Return timeout error]
 ```
 
-## WriteFile / PatchFile — Fluxo com Diff
+## pathSafety.assertSafePath()
 
 ```mermaid
 flowchart TD
-    A[WriteFile.execute / PatchFile.execute] --> B[assertSafePath]
-    B --> C{Path seguro?}
-    C -->|não| D[throw Error]
-    C -->|sim| E[Lê conteúdo atual]
-    E --> F{PatchFile: old_content encontrado?}
-    F -->|0 matches| G[Erro: not found]
-    F -->|>1 matches| H[Erro: ambíguo]
-    F -->|1 match| I[Aplica substituição]
-    I --> J[fs.writeFile]
-    J --> K{Arquivo > 5000 linhas?}
-    K -->|sim| L[Retorna summary JSON]
-    K -->|não| M[computeDiff LCS]
-    M --> N[Retorna JSON com diff lines]
+    A[assertSafePath filePath] --> B[path.resolve]
+    B --> C{Inside cwd?}
+    C -->|no| D[throw: outside working directory]
+    C -->|yes| E[fs.realpath resolve symlinks]
+    E --> F{Real path inside cwd?}
+    F -->|no| G[throw: symlink traversal blocked]
+    F -->|yes| H[Get relative path]
+    E -->|ENOENT| I[Check parent dir realpath]
+    I --> F2{Parent inside cwd?}
+    F2 -->|no| G
+    F2 -->|yes| H
+    H --> J{Top dir in BLOCKED_DIRS?}
+    J -->|yes| K[throw: directory off-limits]
+    J -->|no| L{isSensitiveFile?}
+    L -->|yes| M[throw: sensitive file blocked]
+    L -->|no| N[OK - path is safe]
 ```
 
-## WebFetch — Proteção SSRF
+## SubAgent — Spawn and Execute
 
 ```mermaid
 flowchart TD
-    A[WebFetch.execute] --> B{URL válida? https?://}
-    B -->|não| C[Erro: invalid URL]
-    B -->|sim| D[isBlockedUrl]
-    D --> E{localhost/privado/metadata?}
-    E -->|sim| F[Erro: blocked for security]
-    E -->|não| G[fetch URL timeout 15s]
-    G --> H{HTTP ok?}
-    H -->|não| I[Erro: HTTP status]
-    H -->|sim| J[stripHtml]
-    J --> K[Retorna texto truncado 20k chars]
+    A[SubAgent.execute] --> B[Parse args: task, context, model]
+    B --> C[inferRole from task]
+    C --> D[getToolsForRole]
+    D --> E[Create child LLM client]
+    E --> F[Build system prompt with role + tools]
+    F --> G[formatMemoryForPrompt]
+    G --> H[Start agent loop max 15 iterations]
+    
+    H --> I[Call LLM]
+    I --> J{Has tool calls?}
+    J -->|no| K[Parse structured result]
+    J -->|yes| L[Execute child tools]
+    L --> M[Push tool results]
+    M --> I
+    
+    K --> N{shouldVerify?}
+    N -->|yes| O[buildVerifierPrompt]
+    O --> P[Second LLM call]
+    P --> Q[parseVerificationResult]
+    Q --> R[formatResultForParent]
+    N -->|no| R
+    
+    R --> S[cb.onDone with result]
+    S --> T[addPreviousResult to memory]
 ```
 
-## SubAgent — Loop Independente
+## WriteFile — File Creation/Overwrite
 
 ```mermaid
 flowchart TD
-    A[SubAgent.execute] --> B[Cria client com mesmo provider]
-    B --> C[Monta system prompt + task]
-    C --> D[Loop max 15 iterações]
-    D --> E[client.chat.completions.create]
-    E --> F{Tem tool_calls?}
-    F -->|não| G[Retorna msg.content]
-    F -->|sim| H[Para cada tool_call]
-    H --> I{Permission deny?}
-    I -->|sim| J[Append: blocked by rule]
-    I -->|não| K[tool.execute]
-    K --> L[Append tool result]
-    L --> D
-    D --> M{Max iterations?}
-    M -->|sim| N[Retorna: max iterations reached]
+    A[WriteFile.execute] --> B[assertSafePath]
+    B --> C{Safe?}
+    C -->|no| D[Return path error]
+    C -->|yes| E[Ensure parent dir exists]
+    E --> F[writeFile content]
+    F --> G{Success?}
+    G -->|yes| H[Return confirmation]
+    G -->|no| I[Return error message]
+```
+
+## PatchFile — LCS Diff Patching
+
+```mermaid
+flowchart TD
+    A[PatchFile.execute] --> B[assertSafePath]
+    B --> C[Read existing file]
+    C --> D{File exists?}
+    D -->|no| E[Return error: file not found]
+    D -->|yes| F[Parse old_string / new_string]
+    F --> G{old_string found in file?}
+    G -->|no| H[Return error: string not found]
+    G -->|yes| I[Replace old with new]
+    I --> J[Write updated content]
+    J --> K[Return diff summary]
+```
+
+## MoA — Mixture of Agents
+
+```mermaid
+flowchart TD
+    A[MoA.execute] --> B[Parse config: models, aggregator]
+    B --> C[Send prompt to all reference models in parallel]
+    C --> D[Collect all responses]
+    D --> E[Build aggregation prompt with all responses]
+    E --> F[Send to aggregator model]
+    F --> G[Return synthesis]
+```
+
+## WebFetch — URL Fetching
+
+```mermaid
+flowchart TD
+    A[WebFetch.execute] --> B[Validate URL format]
+    B --> C{Valid URL?}
+    C -->|no| D[Return error]
+    C -->|yes| E[SSRF check: block private IPs]
+    E --> F{Safe URL?}
+    F -->|no| G[Return SSRF blocked]
+    F -->|yes| H[fetch URL with timeout]
+    H --> I{Success?}
+    I -->|yes| J[Extract text content]
+    I -->|no| K[Return HTTP error]
+    J --> L[Truncate to max chars]
+    L --> M[Return content]
 ```
