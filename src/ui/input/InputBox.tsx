@@ -71,6 +71,8 @@ const DESCRIPTIONS: Record<string, string> = {
   '/vim': 'Toggle vim keybindings (normal/insert mode)', '/stats': 'Show session statistics',
   '/effort': 'Set reasoning effort level', '/effort low': 'Quick responses',
   '/effort high': 'Comprehensive thinking', '/effort max': 'Maximum reasoning depth',
+  '/enchant-prompt': 'Toggle prompt enchantment (AI refinement)',
+  '/enchant': 'Toggle prompt enchantment (AI refinement)',
 }
 
 export function InputBox({
