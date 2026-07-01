@@ -506,6 +506,17 @@ export class Agent {
     this.rebuildSystemPromptEffort()
   }
 
+  get promptRefinerEnabled(): boolean {
+    return this.settings.promptRefiner?.enabled !== false
+  }
+
+  setPromptRefinerEnabled(enabled: boolean): void {
+    if (!this.settings.promptRefiner) {
+      this.settings.promptRefiner = {}
+    }
+    this.settings.promptRefiner.enabled = enabled
+  }
+
   private rebuildSystemPromptEffort(): void {
     // Strip any existing effort hint
     this.systemPrompt = this.systemPrompt.replace(/\n\n# EFFORT LEVEL\n[\s\S]*?(?=\n\n#|$)/, '')
