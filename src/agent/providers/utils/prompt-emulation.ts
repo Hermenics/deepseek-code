@@ -1,6 +1,12 @@
-import type { ChatMessage } from '../types/index.js'
-import { robustParseJSON } from '../services/robust-json.js'
-import { resolveToolName } from '../services/output-sanitizer.js'
+import { robustParseJSON } from './robust-json.js'
+import { resolveToolName } from './output-sanitizer.js'
+
+export interface ChatMessage {
+  role: 'system' | 'user' | 'assistant' | 'tool'
+  content: string
+  tool_call_id?: string
+  tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>
+}
 
 export interface ToolDef {
   name: string

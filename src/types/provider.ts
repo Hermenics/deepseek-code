@@ -19,5 +19,4 @@ export interface ProviderConfig {
   gcpCredentials?: string
   localBaseUrl?: string
   localModel?: string
-  proxyApiKey?: string
 }
