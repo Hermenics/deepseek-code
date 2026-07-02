@@ -22,6 +22,7 @@ export type Key = {
   delete: boolean
   meta: boolean
   super: boolean
+  isPasted: boolean
 }
 
 function parseKey(keypress: ParsedKey): [Key, string] {
@@ -53,6 +54,7 @@ function parseKey(keypress: ParsedKey): [Key, string] {
     // protocol CSI u sequences. Distinct from meta (Alt/Option) so
     // bindings like cmd+c can be expressed separately from opt+c.
     super: keypress.super,
+    isPasted: keypress.isPasted ?? false,
   }
 
   let input = keypress.ctrl ? keypress.name : keypress.sequence

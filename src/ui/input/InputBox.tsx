@@ -105,6 +105,7 @@ export function InputBox({
   const cols = process.stdout.columns ?? 80
   const [cursor, setCursor] = useState(() => Cursor.fromText('', cols))
   const [pastedBlock, setPastedBlock] = useState<string | null>(null)
+  const [pastedTexts, setPastedTexts] = useState<string[]>([])
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [vimMode, setVimMode] = useState<'insert' | 'normal'>('insert')
 
@@ -121,6 +122,7 @@ export function InputBox({
     onDoublePress: () => {
       setCursor(Cursor.fromText('', cols))
       setPastedBlock(null)
+      setPastedTexts([])
       setSelectedIdx(0)
       historyRef.current.reset()
     },
@@ -135,16 +137,30 @@ export function InputBox({
   }, [cursor])
 
   const applyInlinePaste = (text: string) => {
-    const lines = text.replace(/\r\n/g, '\n').split('\n')
-    if (lines.length > 3 || text.length > 200) {
-      setPastedBlock(text)
-      setCursor(Cursor.fromText('', cols))
+    const normalized = text.replace(/\r\n/g, '\n')
+    // Long pastes get a [Text #n] placeholder — real content sent on submit
+    if (normalized.length > 60) {
+      setPastedTexts((prev) => [...prev, normalized])
+      const n = pastedTexts.length + 1
+      setCursor((c) => c.insert(`[Text #${n}]`))
+      setSelectedIdx(0)
+      historyRef.current.reset()
       return
     }
+    const lines = normalized.split('\n')
     const inserted = lines.length > 1 ? lines.join(' ') : text
     setCursor((c) => c.insert(inserted))
     setSelectedIdx(0)
     historyRef.current.reset()
+  }
+
+  // Expand [Text #n] placeholders back to real pasted content
+  const expandPastedTexts = (text: string): string => {
+    if (pastedTexts.length === 0) return text
+    return text.replace(/\[Text #(\d+)\]/g, (_match, n) => {
+      const idx = parseInt(n, 10) - 1
+      return pastedTexts[idx] ?? _match
+    })
   }
 
   const matches = getMatches(cursor.text)
@@ -152,6 +168,11 @@ export function InputBox({
   const ghost = computeGhostText(cursor.text, cursor.offset, COMMAND_SUGGESTIONS, historyRef.current.entries)
 
   useInput((input: string, key: Key) => {
+    // Bracketed paste from terminal (Ctrl+Shift+V or middle-click)
+    if (key.isPasted && input.length > 0) {
+      applyInlinePaste(input)
+      return
+    }
     if (input === '\x1b[Z' || (key.shift && key.tab)) {
       onModeChange?.()
       return
@@ -221,6 +242,7 @@ export function InputBox({
       onSubmit(chosen)
       setCursor(Cursor.fromText('', cols))
       setPastedBlock(null)
+      setPastedTexts([])
       setSelectedIdx(0)
       historyRef.current.reset()
       setVimMode('insert')
@@ -228,11 +250,12 @@ export function InputBox({
     }
 
     if (isLoading && key.return) {
-      const queued = cursor.text.trim()
+      const queued = expandPastedTexts(cursor.text).trim()
       if (queued) {
         onQueue?.(queued)
         setCursor(Cursor.fromText('', cols))
         setPastedBlock(null)
+        setPastedTexts([])
       }
       return
     }
@@ -253,14 +276,16 @@ export function InputBox({
       if (vim.type === 'action') {
         if (vim.action === 'submit') {
           const full = pastedBlock ? `${pastedBlock}\n${cursor.text}` : cursor.text
+          const expanded = expandPastedTexts(full)
           if (isLoading) {
-            const queued = full.trim()
+            const queued = expanded.trim()
             if (queued) onQueue?.(queued)
           } else {
-            onSubmit(full)
+            onSubmit(expanded)
           }
           setCursor(Cursor.fromText('', cols))
           setPastedBlock(null)
+          setPastedTexts([])
           historyRef.current.reset()
           setVimMode('insert')
           return
@@ -282,14 +307,16 @@ export function InputBox({
 
     if (result.action === 'submit') {
       const full = pastedBlock ? `${pastedBlock}\n${cursor.text}` : cursor.text
+      const expanded = expandPastedTexts(full)
       if (isLoading) {
-        const queued = full.trim()
+        const queued = expanded.trim()
         if (queued) onQueue?.(queued)
       } else {
-        onSubmit(full)
+        onSubmit(expanded)
       }
       setCursor(Cursor.fromText('', cols))
       setPastedBlock(null)
+      setPastedTexts([])
       setSelectedIdx(0)
       historyRef.current.reset()
       return
