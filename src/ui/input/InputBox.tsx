@@ -104,7 +104,6 @@ export function InputBox({
 }) {
   const cols = process.stdout.columns ?? 80
   const [cursor, setCursor] = useState(() => Cursor.fromText('', cols))
-  const [pastedBlock, setPastedBlock] = useState<string | null>(null)
   const [pastedTexts, setPastedTexts] = useState<string[]>([])
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [vimMode, setVimMode] = useState<'insert' | 'normal'>('insert')
@@ -121,7 +120,6 @@ export function InputBox({
     timeout: 800,
     onDoublePress: () => {
       setCursor(Cursor.fromText('', cols))
-      setPastedBlock(null)
       setPastedTexts([])
       setSelectedIdx(0)
       historyRef.current.reset()
@@ -140,9 +138,10 @@ export function InputBox({
     const normalized = text.replace(/\r\n/g, '\n')
     // Long pastes get a [Text #n] placeholder — real content sent on submit
     if (normalized.length > 60) {
-      setPastedTexts((prev) => [...prev, normalized])
-      const n = pastedTexts.length + 1
-      setCursor((c) => c.insert(`[Text #${n}]`))
+      let idx = 0
+      setPastedTexts((prev) => { idx = prev.length; return [...prev, normalized] })
+      // Use queueMicrotask to read idx after setPastedTexts updater ran
+      setCursor((c) => c.insert(`[Text #${idx + 1}]`))
       setSelectedIdx(0)
       historyRef.current.reset()
       return
@@ -241,7 +240,6 @@ export function InputBox({
       const chosen = matches[selectedIdx]!
       onSubmit(chosen)
       setCursor(Cursor.fromText('', cols))
-      setPastedBlock(null)
       setPastedTexts([])
       setSelectedIdx(0)
       historyRef.current.reset()
@@ -254,8 +252,7 @@ export function InputBox({
       if (queued) {
         onQueue?.(queued)
         setCursor(Cursor.fromText('', cols))
-        setPastedBlock(null)
-        setPastedTexts([])
+          setPastedTexts([])
       }
       return
     }
@@ -275,7 +272,7 @@ export function InputBox({
       }
       if (vim.type === 'action') {
         if (vim.action === 'submit') {
-          const full = pastedBlock ? `${pastedBlock}\n${cursor.text}` : cursor.text
+          const full = cursor.text
           const expanded = expandPastedTexts(full)
           if (isLoading) {
             const queued = expanded.trim()
@@ -284,8 +281,7 @@ export function InputBox({
             onSubmit(expanded)
           }
           setCursor(Cursor.fromText('', cols))
-          setPastedBlock(null)
-          setPastedTexts([])
+              setPastedTexts([])
           historyRef.current.reset()
           setVimMode('insert')
           return
@@ -306,8 +302,7 @@ export function InputBox({
     }
 
     if (result.action === 'submit') {
-      const full = pastedBlock ? `${pastedBlock}\n${cursor.text}` : cursor.text
-      const expanded = expandPastedTexts(full)
+      const expanded = expandPastedTexts(cursor.text)
       if (isLoading) {
         const queued = expanded.trim()
         if (queued) onQueue?.(queued)
@@ -315,7 +310,6 @@ export function InputBox({
         onSubmit(expanded)
       }
       setCursor(Cursor.fromText('', cols))
-      setPastedBlock(null)
       setPastedTexts([])
       setSelectedIdx(0)
       historyRef.current.reset()
@@ -348,15 +342,15 @@ export function InputBox({
         contextPct={contextPct}
         hasExclamation={hasExclamation}
       >
-        {pastedBlock && (
+        {pastedTexts.length > 0 && (
           <Box border borderStyle="rounded" borderColor="#888888" paddingLeft={1} paddingRight={1} marginRight={1}>
-            <Text color="#888888">{'[Pasted text | ' + pastedBlock.split('\n').length + ' lines]'}</Text>
+            <Text color="#888888">{`[${pastedTexts.length} pasted]`}</Text>
           </Box>
         )}
         <InputLine
           cursor={cursor}
           columns={cols}
-          placeholder={pastedBlock ? '' : placeholder}
+          placeholder={placeholder}
           ghostText={ghost?.text}
           prefix={''}
           prefixColor={hasExclamation ? 'magenta' : 'cyan'}
