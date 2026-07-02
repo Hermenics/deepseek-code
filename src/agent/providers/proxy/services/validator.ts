@@ -1,4 +1,10 @@
-const ALLOWED_MODELS = ['deepseek-v4-flash', 'deepseek-v4-pro', 'deepseek-thinking', 'deepseek-reasoner']
+const ALLOWED_MODELS = [
+  'deepseek-v4-flash',
+  'deepseek-v4-pro',
+  // Deprecated aliases (will be removed after 2026/07/24, both map to deepseek-v4-flash)
+  'deepseek-chat',
+  'deepseek-reasoner',
+]
 
 export function validateRequest(body: any): string | null {
   if (!body.model) return 'Missing required field: model'

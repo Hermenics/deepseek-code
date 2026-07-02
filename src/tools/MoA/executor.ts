@@ -1,8 +1,8 @@
 import type { MoAReferenceModel, MoAAggregatorModel, MoAConfig, MoALayerResult, MoAResult, MoACallbacks } from './types.js'
 
-/** Simple cost estimate using DeepSeek's rate: $0.27 per 1M tokens */
+/** Simple cost estimate using DeepSeek V4 Flash avg rate: $0.21 per 1M tokens */
 function estimateCost(_model: string, tokens: number): number {
-  return (tokens / 1_000_000) * 0.27
+  return (tokens / 1_000_000) * 0.21
 }
 
 /**
