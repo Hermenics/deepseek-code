@@ -299,7 +299,6 @@ root.render(<Root />)
 function cleanExit(code = 0): never {
   // Disable mouse tracking and restore cursor before exit
   process.stdout.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?25h')
-  // Do NOT kill the proxy — keep it alive for the next session
   process.stdout.write(`\n  Resume this session:\n  deepseek --resume ${SESSION_ID}\n\n`)
   process.exit(code)
 }

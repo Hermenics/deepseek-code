@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { parseToolResponse, injectToolPrompt } from '../src/agent/providers/proxy/tools/prompt-emulation.js'
+import { parseToolResponse, injectToolPrompt } from '../src/agent/providers/utils/prompt-emulation.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
 // parseToolResponse — Parser de tool calls do DeepSeek via OAuth proxy
