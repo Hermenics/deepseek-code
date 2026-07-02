@@ -84,7 +84,7 @@ describe('getContextLimit', () => {
     expect(getContextLimit('deepseek', 'deepseek-reasoner')).toBe(1_000_000)
   })
 
-  it('should return 1M as default for unknown model', () => {
-    expect(getContextLimit('deepseek', 'unknown-model')).toBe(1_000_000)
+  it('should return 128K as conservative default for unknown model', () => {
+    expect(getContextLimit('deepseek', 'unknown-model')).toBe(128_000)
   })
 })

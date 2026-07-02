@@ -107,7 +107,7 @@ Agents are JSON files defining a custom persona with system prompt, model, and i
 ### File format
 {
   "name": "rust-expert",
-  "model": "deepseek-reasoner",
+  "model": "deepseek-v4-pro",
   "systemPrompt": "You are a Rust expert. Focus on idiomatic, safe and performant code.",
   "files": ["src/**/*.rs", "Cargo.toml"]
 }

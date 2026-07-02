@@ -21,7 +21,8 @@ const MODEL_CONTEXT: Record<string, number> = {
 export function getContextLimit(provider: string, model: string): number {
   if (provider === 'vertex')  return 128_000  // DeepSeek R1 no Vertex (limited by provider)
   if (provider === 'bedrock') return 128_000  // DeepSeek R1 no Bedrock (limited by provider)
-  return MODEL_CONTEXT[model] ?? 1_000_000
+  // Conservative fallback for unknown/custom models to avoid delaying compaction
+  return MODEL_CONTEXT[model] ?? 128_000
 }
 
 export interface TokenUsage {
