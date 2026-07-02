@@ -26,9 +26,8 @@ DeepSeek Code supports multiple LLM providers:
 Config is saved to ~/.deepseek/config.json. Any config key can also be set as an environment variable.
 
 ## Models
-- deepseek-v4-flash — Fast, general purpose, 128K context (default)
-- deepseek-v4-pro — Advanced reasoning, 128K context
-- deepseek-reasoner — Chain-of-thought reasoning (R1), 128K context
+- deepseek-v4-flash — Fast, general purpose, 1M context (default)
+- deepseek-v4-pro — Advanced reasoning, 1M context
 
 Switch with: /model <name> or /models to pick interactively.
 Each provider also exposes provider-specific models (Bedrock, Vertex, local).

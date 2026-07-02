@@ -1,23 +1,27 @@
-// DeepSeek pricing (USD per million tokens, April 2026)
+// DeepSeek pricing (USD per million tokens, July 2026)
+// Source: https://api-docs.deepseek.com/quick_start/pricing
 const PRICING: Record<string, { input: number; cachedInput: number; output: number }> = {
-  'deepseek-chat':     { input: 0.27, cachedInput: 0.07, output: 1.10 },
-  'deepseek-reasoner': { input: 0.55, cachedInput: 0.14, output: 2.19 },
-  'deepseek-v4-flash': { input: 0.27, cachedInput: 0.07, output: 1.10 },
-  'deepseek-v4-pro':   { input: 0.55, cachedInput: 0.14, output: 2.19 },
+  'deepseek-v4-flash': { input: 0.14, cachedInput: 0.0028, output: 0.28 },
+  'deepseek-v4-pro':   { input: 0.435, cachedInput: 0.003625, output: 0.87 },
+  // Aliases (deprecated 2026/07/24, map to deepseek-v4-flash)
+  'deepseek-chat':     { input: 0.14, cachedInput: 0.0028, output: 0.28 },
+  'deepseek-reasoner': { input: 0.14, cachedInput: 0.0028, output: 0.28 },
 }
 
-// Context window limits per model/provider
+// Context window limits per model/provider (1M = 1,000,000 tokens)
+// Source: https://api-docs.deepseek.com/quick_start/pricing
 const MODEL_CONTEXT: Record<string, number> = {
-  'deepseek-chat':     128_000,
-  'deepseek-reasoner': 128_000,
-  'deepseek-v4-flash': 128_000,
-  'deepseek-v4-pro':   128_000,
+  'deepseek-v4-flash': 1_000_000,
+  'deepseek-v4-pro':   1_000_000,
+  // Aliases (deprecated 2026/07/24, map to deepseek-v4-flash)
+  'deepseek-chat':     1_000_000,
+  'deepseek-reasoner': 1_000_000,
 }
 
 export function getContextLimit(provider: string, model: string): number {
-  if (provider === 'vertex')  return 128_000  // DeepSeek R1 no Vertex
-  if (provider === 'bedrock') return 128_000  // DeepSeek R1 no Bedrock
-  return MODEL_CONTEXT[model] ?? 128_000
+  if (provider === 'vertex')  return 128_000  // DeepSeek R1 no Vertex (limited by provider)
+  if (provider === 'bedrock') return 128_000  // DeepSeek R1 no Bedrock (limited by provider)
+  return MODEL_CONTEXT[model] ?? 1_000_000
 }
 
 export interface TokenUsage {

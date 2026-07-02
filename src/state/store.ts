@@ -28,10 +28,10 @@ const listeners: Set<Listener> = new Set()
 let state: AppState = {
   sessionId: '',
   provider: 'deepseek',
-  model: 'deepseek-chat',
+  model: 'deepseek-v4-flash',
   tokenCount: 0,
   contextUsage: 0,
-  contextLimit: 128_000,
+  contextLimit: 1_000_000,
   activeAgent: null,
   isProcessing: false,
 }
@@ -54,10 +54,10 @@ export function resetState(): void {
   state = {
     sessionId: '',
     provider: 'deepseek',
-    model: 'deepseek-chat',
+    model: 'deepseek-v4-flash',
     tokenCount: 0,
     contextUsage: 0,
-    contextLimit: 128_000,
+    contextLimit: 1_000_000,
     activeAgent: null,
     isProcessing: false,
   }

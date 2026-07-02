@@ -36,9 +36,11 @@ export interface SubAgentCallbacks {
 
 // Cost per million tokens (input+output averaged) by model prefix
 const COST_PER_M_TOKENS: Record<string, number> = {
-  'deepseek-chat': 0.27,
-  'deepseek-reasoner': 0.55,
-  'deepseek-v4': 0.27,
+  'deepseek-v4-flash': 0.21,   // avg of $0.14 input + $0.28 output
+  'deepseek-v4-pro': 0.65,     // avg of $0.435 input + $0.87 output
+  'deepseek-chat': 0.21,       // deprecated alias → v4-flash
+  'deepseek-reasoner': 0.21,   // deprecated alias → v4-flash
+  'deepseek-v4': 0.21,         // prefix fallback
   'gpt-4o': 7.5,
   'gpt-4': 30.0,
   'gpt-3.5': 0.75,

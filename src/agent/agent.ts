@@ -206,7 +206,7 @@ export class Agent {
   public provider: ProviderConfig['provider'] = 'deepseek'
   private providerConfig: ProviderConfig = { provider: 'deepseek' }
   public contextUsage = 0      // last known prompt token count
-  public contextLimit = 128_000
+  public contextLimit = 1_000_000
   private confirmHandler: ((message: string) => Promise<boolean>) | null = null
   private toolPermissionHandler: ToolPermissionHandler | null = null
   private sessionApprovedTools: Set<string> = new Set()

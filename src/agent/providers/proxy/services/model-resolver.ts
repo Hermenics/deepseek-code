@@ -1,6 +1,9 @@
 const MODEL_MAP: Record<string, string> = {
-  'deepseek-v4-flash': 'Instant',
-  'deepseek-v4-pro': 'Expert',
+  'deepseek-v4-flash': 'Flash',
+  'deepseek-v4-pro': 'Pro',
+  // Deprecated aliases (will be removed after 2026/07/24)
+  'deepseek-chat': 'Flash',
+  'deepseek-reasoner': 'Flash',
 }
 
 export function resolveModel(modelId: string): string {

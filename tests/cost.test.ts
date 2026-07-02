@@ -6,32 +6,35 @@ describe('estimateCost', () => {
   it('should calculate cost for deepseek-chat with no cached tokens', () => {
     const usage: TokenUsage = { promptTokens: 1_000_000, completionTokens: 1_000_000, cachedTokens: 0 }
     const cost = estimateCost('deepseek-chat', usage)
-    // input: 1M * $0.27/M = $0.27, output: 1M * $1.10/M = $1.10
-    expect(cost).toBeCloseTo(0.27 + 1.10, 4)
+    // deepseek-chat maps to v4-flash pricing
+    // input: 1M * $0.14/M = $0.14, output: 1M * $0.28/M = $0.28
+    expect(cost).toBeCloseTo(0.14 + 0.28, 4)
   })
 
   it('should calculate cost for deepseek-chat with cached tokens', () => {
     const usage: TokenUsage = { promptTokens: 1_000_000, completionTokens: 500_000, cachedTokens: 600_000 }
     const cost = estimateCost('deepseek-chat', usage)
-    // regular input: (1M - 600K) = 400K * $0.27/M = $0.108
-    // cached: 600K * $0.07/M = $0.042
-    // output: 500K * $1.10/M = $0.55
-    expect(cost).toBeCloseTo(0.108 + 0.042 + 0.55, 4)
+    // regular input: (1M - 600K) = 400K * $0.14/M = $0.056
+    // cached: 600K * $0.0028/M = $0.00168
+    // output: 500K * $0.28/M = $0.14
+    expect(cost).toBeCloseTo(0.056 + 0.00168 + 0.14, 4)
   })
 
   it('should calculate cost for deepseek-reasoner', () => {
     const usage: TokenUsage = { promptTokens: 500_000, completionTokens: 200_000, cachedTokens: 100_000 }
     const cost = estimateCost('deepseek-reasoner', usage)
-    // regular input: 400K * $0.55/M = $0.22
-    // cached: 100K * $0.14/M = $0.014
-    // output: 200K * $2.19/M = $0.438
-    expect(cost).toBeCloseTo(0.22 + 0.014 + 0.438, 4)
+    // deepseek-reasoner maps to v4-flash pricing (deprecated alias)
+    // regular input: 400K * $0.14/M = $0.056
+    // cached: 100K * $0.0028/M = $0.00028
+    // output: 200K * $0.28/M = $0.056
+    expect(cost).toBeCloseTo(0.056 + 0.00028 + 0.056, 4)
   })
 
-  it('should fallback to deepseek-chat pricing for unknown model', () => {
+  it('should fallback to deepseek-v4-flash pricing for unknown model', () => {
     const usage: TokenUsage = { promptTokens: 1_000_000, completionTokens: 1_000_000, cachedTokens: 0 }
     const cost = estimateCost('unknown-model', usage)
-    expect(cost).toBeCloseTo(0.27 + 1.10, 4)
+    // fallback is v4-flash: input $0.14 + output $0.28
+    expect(cost).toBeCloseTo(0.14 + 0.28, 4)
   })
 
   it('should return 0 for zero usage', () => {
@@ -73,15 +76,15 @@ describe('getContextLimit', () => {
     expect(getContextLimit('bedrock', 'any-model')).toBe(128_000)
   })
 
-  it('should return 128K for deepseek-chat', () => {
-    expect(getContextLimit('deepseek', 'deepseek-chat')).toBe(128_000)
+  it('should return 1M for deepseek-chat', () => {
+    expect(getContextLimit('deepseek', 'deepseek-chat')).toBe(1_000_000)
   })
 
-  it('should return 128K for deepseek-reasoner', () => {
-    expect(getContextLimit('deepseek', 'deepseek-reasoner')).toBe(128_000)
+  it('should return 1M for deepseek-reasoner', () => {
+    expect(getContextLimit('deepseek', 'deepseek-reasoner')).toBe(1_000_000)
   })
 
-  it('should return 128K as default for unknown model', () => {
-    expect(getContextLimit('deepseek', 'unknown-model')).toBe(128_000)
+  it('should return 1M as default for unknown model', () => {
+    expect(getContextLimit('deepseek', 'unknown-model')).toBe(1_000_000)
   })
 })
