@@ -1,5 +1,5 @@
 import { robustParseJSON } from './robust-json.js'
-import { resolveToolName } from './output-sanitizer.js'
+import { resolveToolName, isInsideCodeFence } from './output-sanitizer.js'
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
@@ -150,18 +150,19 @@ export function parseToolResponses(
     .replace(/▁/g, '_')  // lower one eighth block → underscore
 
   // ── DSML format: <|DSML|invoke name="..."> (native DeepSeek format)
-  const dsmlInvoke = normalized.match(/<\|{1,2}DSML\|{1,2}invoke\s+name="([^"]+)">/i)
-  if (dsmlInvoke) {
-    const name = dsmlInvoke[1]!
+  const dsmlInvokeRe = /<\|{1,2}DSML\|{1,2}invoke\s+name="([^"]+)">([\s\S]*?)(?:<\/\|{1,2}DSML\|{1,2}invoke>|(?=<\|{1,2}DSML\|{1,2}invoke\s)|$)/gi
+  let dsmlMatch: RegExpExecArray | null
+  while ((dsmlMatch = dsmlInvokeRe.exec(normalized)) !== null) {
+    const name = dsmlMatch[1]!
     const resolvedName = allowedTools
       ? (resolveToolName(name, [...allowedTools]) || name)
       : name
     if (!allowedTools || allowedTools.has(resolvedName)) {
       const args: Record<string, unknown> = {}
-      // Match both ||DSML|| and |DSML| variants
+      const paramBlock = dsmlMatch[2] || ''
       const paramRe = /<\|{1,2}DSML\|{1,2}parameter\s+name="([^"]+)"[^>]*>([\s\S]*?)<\/\|{1,2}DSML\|{1,2}parameter>/gi
       let m
-      while ((m = paramRe.exec(normalized)) !== null) {
+      while ((m = paramRe.exec(paramBlock)) !== null) {
         let val = m[2]!
         // Strip CDATA wrapper if present
         if (val.startsWith('<![CDATA[') && val.endsWith(']]>')) {
@@ -207,14 +208,21 @@ export function parseToolResponses(
     // Reject tool calls where the text prefix before the JSON is too long —
     // a long preamble means the model is explaining/showing an example, not calling a tool.
     if (useMatch.index > MAX_PREFIX_LENGTH) continue
-    // Reject tool calls that are inside an inline code fence (```...```) embedded in prose.
-    const prefix = normalized.slice(0, useMatch.index)
-    if (/```/.test(prefix)) continue
+    // Reject tool calls that are inside a code fence
+    if (isInsideCodeFence(normalized, useMatch.index)) continue
     // Reject if prefix looks like an explanation paragraph (2+ newlines and long text)
+    const prefix = normalized.slice(0, useMatch.index)
     if (prefix.length > 50 && (prefix.match(/\n/g) || []).length >= 2) continue
     const extracted = extractBalancedJson(normalized.slice(useMatch.index))
     if (!extracted) continue
-    try { pushIfValid(robustParseJSON(extracted)) } catch { }
+    try {
+      const parsed = robustParseJSON(extracted)
+      const result = makeResult(parsed)
+      // Dedupe: skip if we already have a call with same name + same args
+      if (result && !results.some(r => r.name === result.name && JSON.stringify(r.arguments) === JSON.stringify(result.arguments))) {
+        results.push(result)
+      }
+    } catch { }
   }
 
   if (results.length === 0 && source.startsWith('{') && source.endsWith('}')) {

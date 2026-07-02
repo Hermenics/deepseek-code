@@ -96,9 +96,9 @@ export function sanitizeStreamChunk(text: string): string {
   result = result.replace(LEAKED_META_MARKERS, '')
 
   // Remove role prefixes at start of text or after newlines
-  result = result.replace(STREAM_ROLE_PREFIX, (match, _role, offset) => {
-    // Preserve the leading newline if the match started after one
-    return offset > 0 && match.startsWith('\n') ? '\n' : ''
+  result = result.replace(STREAM_ROLE_PREFIX, (match) => {
+    // Preserve the leading newline if the match consumed one
+    return match.startsWith('\n') ? '\n' : ''
   })
 
   // Remove citation tags
