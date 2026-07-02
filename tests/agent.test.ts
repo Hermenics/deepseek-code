@@ -81,7 +81,7 @@ describe('Agent class', () => {
     it('should use default context limit for unknown model', () => {
       const agent = new Agent()
       agent.setModel('some-unknown-model-xyz')
-      expect(agent.contextLimit).toBe(1_000_000)
+      expect(agent.contextLimit).toBe(128_000)
     })
 
     it('should accept model with slash (provider/model format)', () => {
