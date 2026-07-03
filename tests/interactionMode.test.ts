@@ -126,6 +126,10 @@ describe('interactionMode', () => {
       it('should allow todo', () => {
         expect(canUseTool('build', 'todo')).toBe(true)
       })
+
+      it('should allow memory', () => {
+        expect(canUseTool('build', 'memory')).toBe(true)
+      })
     })
 
     describe('auto mode', () => {
@@ -189,6 +193,10 @@ describe('interactionMode', () => {
 
       it('should allow subagent', () => {
         expect(canUseTool('plan', 'subagent')).toBe(true)
+      })
+
+      it('should allow memory', () => {
+        expect(canUseTool('plan', 'memory')).toBe(true)
       })
 
       it('should block write_file', () => {

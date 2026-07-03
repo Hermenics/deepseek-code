@@ -2,6 +2,8 @@ import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
 
 describe('WebFetch tool', () => {
   let originalFetch: typeof global.fetch
+  const PUBLIC_HTTP_URL = 'http://93.184.216.34'
+  const PUBLIC_HTTPS_URL = 'https://93.184.216.34'
 
   beforeEach(() => {
     originalFetch = global.fetch
@@ -22,10 +24,10 @@ describe('WebFetch tool', () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     const fetchMock = mock(() => Promise.resolve(okResponse('conteúdo simples')))
     global.fetch = fetchMock as any
-    await WebFetch.execute({ url: 'https://example.com' })
+    await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const call = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    expect(call[0]).toBe('https://example.com')
+    expect(call[0]).toBe(PUBLIC_HTTPS_URL)
     expect(call[1]).toHaveProperty('signal')
   })
 
@@ -34,7 +36,7 @@ describe('WebFetch tool', () => {
     global.fetch = mock(() =>
       Promise.resolve(okResponse('<p>texto limpo</p><b>negrito</b>'))
     ) as any
-    const result = await WebFetch.execute({ url: 'https://example.com' })
+    const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
     expect(result).not.toContain('<p>')
     expect(result).not.toContain('<b>')
     expect(result).toContain('texto limpo')
@@ -45,7 +47,7 @@ describe('WebFetch tool', () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     const longContent = 'a'.repeat(30000)
     global.fetch = mock(() => Promise.resolve(okResponse(longContent))) as any
-    const result = await WebFetch.execute({ url: 'https://example.com' })
+    const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
     expect((result as string).length).toBeLessThanOrEqual(20000)
   })
 
@@ -53,14 +55,14 @@ describe('WebFetch tool', () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     const shortContent = 'conteúdo curto'
     global.fetch = mock(() => Promise.resolve(okResponse(shortContent))) as any
-    const result = await WebFetch.execute({ url: 'https://example.com' })
+    const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
     expect(result).toContain('conteúdo curto')
   })
 
   it('retorna string para resposta válida', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     global.fetch = mock(() => Promise.resolve(okResponse('ok'))) as any
-    const result = await WebFetch.execute({ url: 'https://example.com' })
+    const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
     expect(typeof result).toBe('string')
   })
 
@@ -83,7 +85,7 @@ describe('WebFetch tool', () => {
   it('aceita URL com http://', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     global.fetch = mock(() => Promise.resolve(okResponse('ok'))) as any
-    const result = await WebFetch.execute({ url: 'http://example.com' })
+    const result = await WebFetch.execute({ url: PUBLIC_HTTP_URL })
     expect(result).not.toContain('Error:')
   })
 
@@ -94,7 +96,7 @@ describe('WebFetch tool', () => {
     global.fetch = mock(() =>
       Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve('Not Found') } as Response)
     ) as any
-    const result = await WebFetch.execute({ url: 'https://example.com/nope' })
+    const result = await WebFetch.execute({ url: `${PUBLIC_HTTPS_URL}/nope` })
     expect(result).toContain('Error:')
     expect(result).toContain('404')
   })
@@ -104,7 +106,7 @@ describe('WebFetch tool', () => {
     global.fetch = mock(() =>
       Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve('') } as Response)
     ) as any
-    const result = await WebFetch.execute({ url: 'https://example.com/error' })
+    const result = await WebFetch.execute({ url: `${PUBLIC_HTTPS_URL}/error` })
     expect(result).toContain('Error:')
     expect(result).toContain('500')
   })
@@ -114,7 +116,7 @@ describe('WebFetch tool', () => {
   it('retorna erro amigável para falha de rede', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     global.fetch = mock(() => Promise.reject(new TypeError('fetch failed'))) as any
-    const result = await WebFetch.execute({ url: 'https://example.com' })
+    const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
     expect(result).toContain('Error:')
     expect(result).toContain('network failure')
   })
@@ -125,7 +127,7 @@ describe('WebFetch tool', () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     const timeoutErr = new DOMException('The operation was aborted.', 'TimeoutError')
     global.fetch = mock(() => Promise.reject(timeoutErr)) as any
-    const result = await WebFetch.execute({ url: 'https://example.com' })
+    const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
     expect(result).toContain('Error:')
     expect(result).toContain('timeout')
     expect(result).toContain('15s')
@@ -136,7 +138,7 @@ describe('WebFetch tool', () => {
   it('retorna erro amigável para exceção desconhecida', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     global.fetch = mock(() => Promise.reject(new Error('algo inesperado'))) as any
-    const result = await WebFetch.execute({ url: 'https://example.com' })
+    const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
     expect(result).toContain('Error:')
     expect(result).toContain('algo inesperado')
   })

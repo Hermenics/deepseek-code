@@ -8,13 +8,32 @@ import { loadSavedConfig } from '../ui/setup/ApiKeySetup.js'
 import { migrateConfigIfNeeded } from '../utils/credentials.js'
 import { setShellConfirmHandler } from '../tools/Shell/Shell.js'
 
+export interface PipeOptions {
+  json: boolean
+  promptArgs: string[]
+}
+
+export function parsePipeArgs(argv = process.argv.slice(2)): PipeOptions {
+  return {
+    json: argv.includes('--json'),
+    promptArgs: argv.filter((arg) => arg !== '--pipe' && arg !== '--json'),
+  }
+}
+
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = []
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer)
   return Buffer.concat(chunks).toString('utf-8').trim()
 }
 
+async function writeAndDrain(stream: typeof process.stdout | typeof process.stderr, text: string): Promise<void> {
+  if (stream.write(text)) return
+  await new Promise<void>((resolve) => stream.once('drain', resolve))
+}
+
 export default async function runPipe() {
+  const options = parsePipeArgs()
+
   // Pipe mode: deny destructive commands — user cannot interactively confirm
   setShellConfirmHandler(async () => false)
 
@@ -27,13 +46,19 @@ export default async function runPipe() {
   if (!providerConfig) {
     const apiKey = process.env.DEEPSEEK_API_KEY
     if (!apiKey) {
-      process.stderr.write('Error: DEEPSEEK_API_KEY not set and no saved config found\n')
-      process.exit(1)
+      const message = 'DEEPSEEK_API_KEY not set and no saved config found'
+      if (options.json) {
+        await writeAndDrain(process.stdout, JSON.stringify({ ok: false, error: message }) + '\n')
+      } else {
+        await writeAndDrain(process.stderr, `Error: ${message}\n`)
+      }
+      process.exitCode = 1
+      return
     }
   }
 
   // Build user message: argv args (excluding --pipe flag) as prompt, stdin as context
-  const argPrompt = process.argv.slice(2).filter((a) => a !== '--pipe').join(' ')
+  const argPrompt = options.promptArgs.join(' ')
   const stdinContent = await readStdin()
 
   let userMessage: string
@@ -44,8 +69,14 @@ export default async function runPipe() {
   } else if (argPrompt) {
     userMessage = argPrompt
   } else {
-    process.stderr.write('Usage: echo "task" | deepseek  OR  deepseek "task"\n')
-    process.exit(1)
+    const message = 'Usage: echo "task" | deepseek --pipe OR deepseek --pipe "task"'
+    if (options.json) {
+      await writeAndDrain(process.stdout, JSON.stringify({ ok: false, error: message }) + '\n')
+    } else {
+      await writeAndDrain(process.stderr, `${message}\n`)
+    }
+    process.exitCode = 1
+    return
   }
 
   const agent = new Agent(providerConfig ?? { provider: 'deepseek' })
@@ -57,21 +88,27 @@ export default async function runPipe() {
   if (language) agent.setLanguage(language)
 
   let output = ''
+  const tools: string[] = []
 
   await new Promise<void>((resolve, reject) => {
     agent.run(userMessage, {
       onToken(token) {
         output += token
-        process.stdout.write(token)
+        if (!options.json) process.stdout.write(token)
       },
       onToolCall(name) {
+        tools.push(name)
         process.stderr.write(`[tool] ${name}\n`)
       },
       onToolResult(_name, _result) {
         // tool results go to agent context, not stdout
       },
       onDone() {
-        if (!output.endsWith('\n')) process.stdout.write('\n')
+        if (options.json) {
+          process.stdout.write(JSON.stringify({ ok: true, output, tools }) + '\n')
+        } else if (!output.endsWith('\n')) {
+          process.stdout.write('\n')
+        }
         resolve()
       },
       onPhaseChange() {},
