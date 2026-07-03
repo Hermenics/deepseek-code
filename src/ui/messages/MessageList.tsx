@@ -3,7 +3,7 @@ import type { Message } from '../App.js'
 import { DiffView } from './DiffView.js'
 import { TOOL_DISPLAY, TOOL_STYLE } from './toolDisplay.js'
 import { MarkdownText } from './MarkdownText.js'
-import { getThemeColors, STATUS_ICONS, DIVIDER_CHAR } from '../theme.js'
+import { getThemeColors, STATUS_ICONS } from '../theme.js'
 import type { ThemeName } from '../theme.js'
 import pkg from '../../../package.json' with { type: 'json' }
 import Box from '../../ink/components/Box.js'
@@ -28,7 +28,7 @@ function formatToolLine(rawName: string, detail: string): { display: string; arg
   return { display, arg, output }
 }
 
-function MessageItem({ message: m, theme, agentLabel }: { message: Message; theme: ThemeName; agentLabel: string; key?: React.Key }) {
+function MessageItem({ message: m, theme, agentLabel: _agentLabel }: { message: Message; theme: ThemeName; agentLabel: string; key?: React.Key }) {
   const colors = getThemeColors(theme)
 
   if (m.role === 'user') {
