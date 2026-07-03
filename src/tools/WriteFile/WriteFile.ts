@@ -1,12 +1,11 @@
 import { Tool } from '../types.js'
 import * as fs from 'fs/promises'
 import * as path from 'path'
-import { SHELL_OUTPUT_MAX_CHARS } from '../../constants.js'
 import { assertSafePath } from '../shared/pathSafety.js'
 
 type DiffLine = { type: 'added' | 'removed' | 'context'; text: string; lineNo: number }
 
-function computeDiff(oldLines: string[], newLines: string[], filePath?: string): DiffLine[] {
+function computeDiff(oldLines: string[], newLines: string[], _filePath?: string): DiffLine[] {
   // Guard: skip expensive diff for very large files to prevent OOM
   if (oldLines.length > 5000 || newLines.length > 5000) {
     return []

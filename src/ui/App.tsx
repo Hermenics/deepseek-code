@@ -105,7 +105,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
   const [showThemeSelector, setShowThemeSelector] = useState(false)
   const subagentsRef = useRef(useSubagents())
-  const [subagentTick, setSubagentTick] = useState(0)
+  const [, setSubagentTick] = useState(0)
   const [showModelSelector, setShowModelSelector] = useState(false)
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [showLanguageInput, setShowLanguageInput] = useState(false)

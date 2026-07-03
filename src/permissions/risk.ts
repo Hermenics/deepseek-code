@@ -1,5 +1,5 @@
 import { globMatch } from './matcher.js'
-import type { RiskRule, RiskConfig, RiskContext, RiskAssessment } from './types.js'
+import type { RiskRule, RiskContext, RiskAssessment } from './types.js'
 
 // ── Default Risk Rules ───────────────────────────────────────────────────────
 

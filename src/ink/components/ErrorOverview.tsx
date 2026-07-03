@@ -1,6 +1,5 @@
 import codeExcerpt, { type CodeExcerpt } from 'code-excerpt';
 import { readFileSync } from 'fs';
-import React from 'react';
 import StackUtils from 'stack-utils';
 import Box from './Box.js';
 import Text from './Text.js';
