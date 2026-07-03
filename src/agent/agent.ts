@@ -1,7 +1,6 @@
 import OpenAI from 'openai'
 import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'fs/promises'
-import { join } from 'path'
 import DEFAULT_SYSTEM_PROMPT_MD from './system-prompt.md' with { type: 'text' }
 import { allTools } from '../tools/index.js'
 import { setShellConfirmHandler } from '../tools/Shell/Shell.js'
@@ -19,12 +18,11 @@ import { loadMergedSettings } from '../settings/index.js'
 import type { DeepSeekSettings } from '../settings/types.js'
 import type { EffortLevel } from '../commands/types.js'
 import { createLLMClient, defaultModel } from './llmClient.js'
-import { parseToolResponse } from './providers/utils/prompt-emulation.js'
 import { listBedrockDeepSeekModels, modelSupportsChatCompletions } from './providers/bedrock.js'
 import { listVertexDeepSeekModels } from './providers/vertex.js'
 import { saveHistory } from './history.js'
 import { saveCheckpoint, listCheckpoints, loadCheckpoint } from './checkpoint.js'
-import { createFileCheckpoint, setCheckpointSession, rollbackLast as fileRollbackLast, rollbackAll as fileRollbackAll, listFileCheckpoints } from './fileCheckpoint.js'
+import { createFileCheckpoint, setCheckpointSession, rollbackAll as fileRollbackAll, listFileCheckpoints } from './fileCheckpoint.js'
 import { createBoundaryMarker, getMessagesAfterBoundary, isBoundaryMarker, type MessageOrBoundary } from './compactBoundary.js'
 import { estimateCost, formatCost, getContextLimit, type TokenUsage } from './cost.js'
 import type { ProviderConfig } from '../types/provider.js'
@@ -33,7 +31,7 @@ import { shouldAutoCompact, microCompact, createCompactState, createAutoCompactC
 import { COMPACT_SUMMARY_PROMPT, COMPACT_SYSTEM_PROMPT } from '../services/compact/summaryPrompt.js'
 import { auditLog } from './auditLog.js'
 import { refinePrompt } from './promptRefiner.js'
-import { canUseTool, DEFAULT_MODE, getToolsForMode, isBuildMode, isAutoMode, isDestructiveShell, isConfigWrite, type InteractionMode } from '../ui/interactionMode.js'
+import { canUseTool, DEFAULT_MODE, getToolsForMode, isBuildMode, isAutoMode, type InteractionMode } from '../ui/interactionMode.js'
 import { resolvePermission } from '../permissions/index.js'
 import { assessRisk } from '../permissions/risk.js'
 import { runPreToolHooks, runPostToolHooks, runSessionStartHooks } from '../hooks/index.js'
@@ -207,7 +205,6 @@ export class Agent {
   private providerConfig: ProviderConfig = { provider: 'deepseek' }
   public contextUsage = 0      // last known prompt token count
   public contextLimit = 1_000_000
-  private confirmHandler: ((message: string) => Promise<boolean>) | null = null
   private toolPermissionHandler: ToolPermissionHandler | null = null
   private sessionApprovedTools: Set<string> = new Set()
   private turnWriteCount = 0
@@ -219,7 +216,6 @@ export class Agent {
   private autoCompactConfig: AutoCompactConfig = createAutoCompactConfig({}, CONTEXT_COMPACT_THRESHOLD)
 
   setConfirmHandler(handler: ((message: string) => Promise<boolean>) | null) {
-    this.confirmHandler = handler
     setShellConfirmHandler(handler)
   }
 

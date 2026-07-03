@@ -9,7 +9,7 @@ import type { SubAgentResult } from './contracts.js'
  * Determine whether a verification subagent should be spawned.
  * Auto-enabled for file changes with low confidence, or when explicitly requested.
  */
-export function shouldVerify(task: string, result: SubAgentResult, explicitVerify?: boolean): boolean {
+export function shouldVerify(_task: string, result: SubAgentResult, explicitVerify?: boolean): boolean {
   // Explicit override takes priority
   if (explicitVerify === true) return true
   if (explicitVerify === false) return false

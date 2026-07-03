@@ -78,10 +78,10 @@ const DESCRIPTIONS: Record<string, string> = {
 export function InputBox({
   onSubmit,
   isLoading,
-  toolCallCount,
+  toolCallCount: _toolCallCount,
   onAbort,
   onQueue,
-  phase = 'idle',
+  phase: _phase = 'idle',
   contextPct = 0,
   agentLabel = 'deepseek',
   interactionMode = 'build',
