@@ -18,7 +18,7 @@ export function ModelSelector({ currentModel, models, onSelect, onCancel }: Prop
     return i >= 0 ? i : 0
   })
 
-  useInput((input: string, key: Key) => {
+  useInput((_input: string, key: Key) => {
     if (models.length === 0) {
       if (key.escape) { onCancel(); return }
       return
