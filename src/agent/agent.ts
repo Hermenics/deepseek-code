@@ -336,12 +336,14 @@ export class Agent {
     return this.tools.map((t) => t.name)
   }
 
-  getPermissionsInfo(): { mode: InteractionMode; allowedTools: string[] | '*' | null; sessionApproved: string[]; modeTools: string[] } {
+  getPermissionsInfo(): { mode: InteractionMode; allowedTools: string[] | '*' | null; sessionApproved: string[]; modeTools: string[]; permissions: DeepSeekSettings['permissions']; risk: DeepSeekSettings['risk'] } {
     return {
       mode: this.interactionMode,
       allowedTools: this.allowedTools,
       sessionApproved: [...this.sessionApprovedTools],
       modeTools: getToolsForMode(this.interactionMode),
+      permissions: this.settings.permissions,
+      risk: this.settings.risk,
     }
   }
 

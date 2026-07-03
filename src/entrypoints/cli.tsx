@@ -1,8 +1,9 @@
-// Pipe mode: only when --pipe flag is explicitly passed
+// Pipe mode: only when --pipe flag is explicitly passed.
+// --json keeps assistant text out of stdout until the final JSON object.
 if (process.argv.includes('--pipe')) {
   const { default: runPipe } = await import('./pipe.js')
   await runPipe()
-  process.exit(0)
+  process.exit(Number(process.exitCode ?? 0))
 }
 
 // Suppress noisy react-reconciler dev warnings ASAP — before any imports.
@@ -86,7 +87,7 @@ import { loadSession, newSessionId, type SessionData } from '../agent/session.js
 import pkg from '../../package.json' with { type: 'json' }
 
 function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; update: boolean; logout: boolean; help: boolean; version: boolean } {
-  const args = process.argv.slice(2).filter((a) => a !== '--pipe')
+  const args = process.argv.slice(2).filter((a) => a !== '--pipe' && a !== '--json')
   if (args[0] === 'update') {
     return { agentName: null, initialMessage: null, resumeId: null, update: true, logout: false, help: false, version: false }
   }
@@ -136,8 +137,9 @@ Usage:
   deepseek help                     Show this help
 
 Pipe mode:
-  echo "task" | deepseek            Run headlessly from stdin
-  cat file.ts | deepseek "explain"  Pipe file content with prompt
+  echo "task" | deepseek --pipe             Run headlessly from stdin
+  cat file.ts | deepseek --pipe "explain"   Pipe file content with prompt
+  echo "task" | deepseek --pipe --json      Return {"ok", "output", "tools"} JSON
 
 In-app commands (type / to see all):
   /help        Show all slash commands

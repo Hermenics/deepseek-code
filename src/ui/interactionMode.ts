@@ -23,7 +23,7 @@ export function isAutoMode(mode: InteractionMode): boolean {
 // Ferramentas read-only permitidas em todos os modos
 const READ_ONLY_TOOLS = new Set([
   'read_file', 'read_folder', 'glob', 'grep', 'git',
-  'web_fetch', 'introspect', 'todo', 'subagent',
+  'web_fetch', 'introspect', 'todo', 'subagent', 'memory',
 ])
 
 // Permissões por modo

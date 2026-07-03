@@ -626,23 +626,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           return
         }
         case 'permissions': {
+          const { formatPermissionsReport } = await import('../permissions/index.js')
           const info = agent.getPermissionsInfo()
-          const lines: string[] = []
-          lines.push(`**Current mode:** ${info.mode}`)
-          lines.push(`**Tools allowed in mode:** ${info.modeTools.sort().join(', ')}`)
-          if (info.allowedTools === null) {
-            lines.push(`**Agent permissions:** no agent loaded (no additional restrictions)`)
-          } else if (info.allowedTools === '*') {
-            lines.push(`**Agent permissions:** all tools require confirmation`)
-          } else {
-            lines.push(`**Agent permissions:** ${info.allowedTools.join(', ')}`)
-          }
-          if (info.sessionApproved.length > 0) {
-            lines.push(`**Approved this session:** ${info.sessionApproved.join(', ')}`)
-          } else {
-            lines.push(`**Approved this session:** none`)
-          }
-          setMessages((m) => [...m, { role: 'assistant', content: lines.join('\n') }])
+          setMessages((m) => [...m, { role: 'assistant', content: formatPermissionsReport(info) }])
           return
         }
         case 'msg': {

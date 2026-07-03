@@ -6,11 +6,10 @@ const DOCS = `
 ## What is DeepSeek Code?
 DeepSeek Code is an open-source, terminal-based AI coding assistant built with Bun and React (Ink) for the TUI. It runs an agentic loop with streaming responses and tool calls, understanding your codebase and helping you code faster through natural language.
 
-- **Package:** @aethelics/deepseek-code
-- **Version:** 0.7.4
+- **Package:** @hermenics/deepseek-code
+- **Version:** 0.2.0
 - **License:** Apache-2.0
-- **Repository:** https://github.com/Aethelics/deepseek-code
-- **Author:** Marcelo (https://github.com/Marcelo-Henry)
+- **Repository:** https://github.com/Hermenics/deepseek-code
 
 ## Providers & Authentication
 DeepSeek Code supports multiple LLM providers:
@@ -21,8 +20,6 @@ DeepSeek Code supports multiple LLM providers:
 | Amazon Bedrock | AWS IAM credentials (~/.aws/credentials) |
 | Google Vertex AI | GCP service account JSON key |
 | Local (Ollama / LM Studio) | No auth — point to local endpoint |
-| OAuth (beta) | Browser login on chat.deepseek.com |
-
 Config is saved to ~/.deepseek/config.json. Any config key can also be set as an environment variable.
 
 ## Models
@@ -34,12 +31,11 @@ Each provider also exposes provider-specific models (Bedrock, Vertex, local).
 
 ## Interaction Modes
 Switch modes with Shift+Tab:
-- Agent — full access: read, write, shell (default)
-- Chat — read-only + shell (no file writes)
-- Plan — read-only only (no shell, no writes)
-- Auto — full access, auto-confirms destructive commands
+- Build — read, write, shell and knowledge tools (default)
+- Plan — read-only tools for analysis and planning
+- Auto — full access without interactive confirmations
 
-Cycle: Chat → Plan → Agent → Auto → Chat
+Cycle: Plan -> Build -> Auto -> Plan
 
 ## Slash Commands
 - /agent <name> — Load a custom agent
@@ -60,7 +56,7 @@ Cycle: Chat → Plan → Agent → Auto → Chat
 - /checkpoint [save|list|restore] — Manage session checkpoints
 - /plan <task> — Plan implementation of a task
 - /review [file] — Review project code or a specific file
-- /permissions — Show current tool permission settings
+- /permissions — Explain current mode, allow/deny rules, risk checks and session approvals
 - /msg <note> — Add a background note for the agent without interrupting it
 - /btw <note> — Alias for /msg
 - /vim — Toggle vim keybindings (normal/insert mode)
@@ -81,14 +77,16 @@ The agent has access to these tools:
 - web_fetch — Fetch content from a URL
 - introspect — Get this documentation about DeepSeek Code
 - subagent — Spawn a subagent to handle a subtask independently
+- memory — Manage persistent memory across sessions
 - update_knowledge — Record project-specific knowledge in DEEPSEEK.md
 - todo — Manage a TODO list visible to the user in the UI
+- MoA — Run mixture-of-agents reference/aggregation flows
 
 ### Tool Permissions by Mode
-- **Agent / Auto:** All tools available
-- **Chat:** Read-only tools + shell (no file writes)
-- **Plan:** Read-only tools only (no shell, no writes)
-- MCP tools follow the same rules as shell
+- **Build:** read-only tools plus shell, write_file, patch_file and update_knowledge
+- **Plan:** read-only tools only
+- **Auto:** all tools without interactive confirmations
+- MCP tools follow the same rules as shell outside Auto
 
 ## Subagents
 DeepSeek Code supports subagents — independent mini-agents spawned to handle specific subtasks.
@@ -166,7 +164,8 @@ deepseek "explain closures"                 # with initial message
 deepseek agent rust-expert                  # with custom agent
 deepseek agent rust-expert "explain ownership" # agent + message
 deepseek --resume <session-id>             # resume a previous session
-echo "task" | deepseek                      # pipe mode (headless)
+echo "task" | deepseek --pipe               # pipe mode (headless)
+echo "task" | deepseek --pipe --json        # pipe mode with JSON stdout
 deepseek update                             # update to latest version
 deepseek logout                             # remove saved credentials
 
@@ -178,7 +177,7 @@ Environment variables: DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, AWS_REGION, AWS_PROF
 Available: dark, light, dark-daltonized, light-daltonized, dark-ansi, light-ansi
 
 ## Open Source
-DeepSeek Code is fully open-source under the Apache-2.0 license. Contributions are welcome at https://github.com/Aethelics/deepseek-code
+DeepSeek Code is fully open-source under the Apache-2.0 license. Contributions are welcome at https://github.com/Hermenics/deepseek-code
 `.trim()
 
 export const Introspect: Tool = {

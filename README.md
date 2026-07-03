@@ -42,6 +42,13 @@ npm install -g @hermenics/deepseek-code
 
 Then run `deepseek` inside any project. On first run you'll pick a **provider** and configure authentication.
 
+For automation, use headless pipe mode:
+
+```bash
+echo "explain this project" | deepseek --pipe
+cat src/index.tsx | deepseek --pipe --json "summarize"
+```
+
 ### Requirements
 
 - Node.js 18+ or [Bun](https://bun.sh) 1.1+
@@ -81,6 +88,7 @@ Each provider also exposes provider-specific models (Bedrock, Vertex, local).
 | `/vim` | Toggle vim keybindings |
 | `/theme` | Change color theme |
 | `/tools` | List available tools |
+| `/permissions` | Explain mode, allow/deny rules, risk checks, and session approvals |
 | `/help` | Show all commands |
 
 ## Built-in tools
@@ -128,9 +136,10 @@ bun test             # Run tests
 src/
 ├── agent/           # Core agent loop, providers (DeepSeek, Bedrock, Vertex)
 ├── commands/        # Slash command definitions
-├── components/      # Ink/React TUI components
+├── ui/              # React TUI components and app state
+├── ink/             # Local Ink-compatible terminal renderer
 ├── tools/           # Agent tools (file ops, shell, git, search, etc.)
-├── context/         # Conversation context management
+├── services/        # Cross-cutting services such as compaction
 ├── hooks/           # Pre/post tool execution hooks
 └── index.tsx        # Entry point
 tests/               # Test suite
