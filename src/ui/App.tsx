@@ -754,10 +754,15 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   // Keep ref in sync so the init effect always calls the latest handleSubmit
   handleSubmitRef.current = handleSubmit
 
+  // ponytail: push input to bottom — minHeight on messages area fills terminal height
+  const termRows = process.stdout.rows || 24
+  const footerHeight = 5 // InputChrome (3) + StatusBar (2)
+  const minContentHeight = Math.max(0, termRows - footerHeight)
+
   return (
-    <Box flexDirection="column" width="100%" height="100%">
-      {/* Messages area */}
-      <Box flexGrow={1}>
+    <Box flexDirection="column" width="100%">
+      {/* Messages area — minHeight pushes footer to bottom when content is short */}
+      <Box minHeight={minContentHeight}>
         <Box flexDirection="column">
           <MessageList messages={messages} streamText={streamText} thinkingText={thinkingText} streamRole={streamRole} theme={theme} activeAgent={activeAgent} headerProvider={headerProvider} headerAgent={headerAgent} />
           {toolStatus && <ToolUseDisplay tool={toolStatus} />}
