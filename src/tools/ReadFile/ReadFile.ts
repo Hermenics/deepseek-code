@@ -1,6 +1,5 @@
 import { Tool } from '../types.js'
 import * as fs from 'fs/promises'
-import * as path from 'path'
 import { assertSafePath } from '../shared/pathSafety.js'
 
 const DEFAULT_MAX_LINES = 200

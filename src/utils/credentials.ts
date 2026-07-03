@@ -1,7 +1,6 @@
 import { homedir } from 'os'
 import { join, dirname } from 'path'
 import { mkdir, rm } from 'fs/promises'
-import { randomBytes } from 'crypto'
 import { readJson, writeRaw } from './fs'
 
 // ─── Paths ──────────────────────────────────────────────────────
@@ -84,18 +83,6 @@ export async function migrateConfigIfNeeded(
   if (changed) {
     await saveFullConfig(config, configPath)
   }
-}
-
-// ─── Proxy API Key ──────────────────────────────────────────────
-
-export function generateProxyApiKey(): string {
-  return randomBytes(32).toString('hex')
-}
-
-export async function getOrCreateProxyApiKey(
-  _configPath: string = CONFIG_PATH,
-): Promise<string> {
-  return ''
 }
 
 // ─── Logout ─────────────────────────────────────────────────────

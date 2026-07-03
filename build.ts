@@ -7,7 +7,7 @@ const result = await Bun.build({
   naming: 'cli.mjs',
   target: 'bun',
   minify: true,
-  external: ['@hono/node-server'],
+  external: [],
   alias: {
     'react-devtools-core': resolve('./src/stubs/react-devtools-core.ts'),
   },

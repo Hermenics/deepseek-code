@@ -85,7 +85,7 @@ export function createVertexFetch(
  * Uses the Model Garden REST API filtering by "deepseek" in the name.
  */
 export async function listVertexDeepSeekModels(
-  project: string,
+  _project: string,
   location: string,
   credentialsPath: string,
 ): Promise<string[]> {

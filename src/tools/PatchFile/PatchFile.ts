@@ -4,7 +4,7 @@ import { assertSafePath } from '../shared/pathSafety.js'
 
 type DiffLine = { type: 'added' | 'removed' | 'context'; text: string; lineNo: number }
 
-function computeDiff(oldLines: string[], newLines: string[], filePath?: string): DiffLine[] {
+function computeDiff(oldLines: string[], newLines: string[], _filePath?: string): DiffLine[] {
   // Guard: skip expensive diff for very large files to prevent OOM
   if (oldLines.length > 5000 || newLines.length > 5000) {
     return []

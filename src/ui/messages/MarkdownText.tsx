@@ -3,7 +3,6 @@
  * Uses <Text bold>, <Text italic>, <Text color={...}> instead of HTML elements.
  */
 
-import { Fragment } from 'react'
 import { getThemeColors } from '../theme.js'
 import type { ThemeName } from '../theme.js'
 import Box from '../../ink/components/Box.js'

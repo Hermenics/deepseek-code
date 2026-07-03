@@ -36,7 +36,7 @@ export function ThemeSelector({ currentTheme, onSelect, onCancel }: Props) {
   const preview = THEMES[idx]!.value
   const colors = getThemeColors(preview)
 
-  useInput((input: string, key: Key) => {
+  useInput((_input: string, key: Key) => {
     if (key.upArrow) { setIdx((i) => (i - 1 + THEMES.length) % THEMES.length); return }
     if (key.downArrow) { setIdx((i) => (i + 1) % THEMES.length); return }
     if (key.return) {

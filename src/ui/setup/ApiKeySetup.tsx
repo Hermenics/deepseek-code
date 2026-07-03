@@ -5,14 +5,11 @@ import { execSync } from 'child_process'
 import { homedir } from 'os'
 import { join } from 'path'
 import { mkdir } from 'fs/promises'
-import { readJson, writeRaw } from '../../utils/fs.js'
 import { saveFullConfig, loadFullConfig } from '../../utils/credentials.js'
 import { WelcomeScreen } from '../layout/WelcomeScreen.js'
 import { getThemeColors } from '../theme.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
-
-const CONFIG_PATH = join(homedir(), '.deepseek', 'config.json')
 
 export type { ThemeName, ProviderName, ProviderConfig } from '../../types/provider.js'
 import type { ThemeName, ProviderName, ProviderConfig } from '../../types/provider.js'
