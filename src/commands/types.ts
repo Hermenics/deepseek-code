@@ -35,6 +35,12 @@ export type CommandResult =
   | { type: 'effort'; action: 'status' }
   | { type: 'effort'; action: 'set'; level: EffortLevel }
   | { type: 'enchant-prompt' }
+  | { type: 'skill'; action: 'install'; repo: string }
+  | { type: 'skill'; action: 'list' }
+  | { type: 'skill'; action: 'remove'; name: string }
+  | { type: 'skill'; action: 'update'; name: string }
+  | { type: 'skill'; action: 'help' }
+  | { type: 'skill'; action: 'error'; message: string }
   | { type: 'unknown'; input: string }
 
 export interface Command {

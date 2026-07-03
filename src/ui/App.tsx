@@ -690,6 +690,81 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           }
           return
         }
+        case 'skill': {
+          if (cmd.action === 'help') {
+            setMessages((m) => [...m, { role: 'assistant', content: `Skill commands:\n  /skill install <owner/repo>  install a skill from GitHub\n  /skill list                  list installed skills\n  /skill remove <name>         remove an installed skill\n  /skill update <name>         update a skill to latest` }])
+          } else if (cmd.action === 'error') {
+            setMessages((m) => [...m, { role: 'assistant', content: `Error: ${cmd.message}` }])
+          } else if (cmd.action === 'list') {
+            setIsLoading(true)
+            try {
+              const { listSkills } = await import('../skills/installer.js')
+              const { join } = await import('path')
+              const skills = await listSkills(join(process.cwd(), '.claude', 'skills'))
+              if (!skills.length) {
+                setMessages((m) => [...m, { role: 'assistant', content: 'No skills installed via /skill. Use /skill install <owner/repo> to add one.' }])
+              } else {
+                const lines = skills.map((s) => `  ${s.name}  (${s.repo})  ${s.description}`)
+                setMessages((m) => [...m, { role: 'assistant', content: `Installed skills:\n${lines.join('\n')}` }])
+              }
+            } catch (e) {
+              setMessages((m) => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
+            } finally {
+              setIsLoading(false)
+            }
+          } else if (cmd.action === 'install') {
+            setMessages((m) => [...m, { role: 'assistant', content: `Installing skill from ${cmd.repo}...` }])
+            setIsLoading(true)
+            try {
+              const { installSkill } = await import('../skills/installer.js')
+              const { join } = await import('path')
+              const result = await installSkill(cmd.repo, join(process.cwd(), '.claude', 'skills'))
+              if (result.ok) {
+                setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${result.name}' installed successfully.` }])
+              } else {
+                setMessages((m) => [...m, { role: 'assistant', content: `✗ ${result.error}` }])
+              }
+            } catch (e) {
+              setMessages((m) => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
+            } finally {
+              setIsLoading(false)
+            }
+          } else if (cmd.action === 'remove') {
+            setIsLoading(true)
+            try {
+              const { removeSkill } = await import('../skills/installer.js')
+              const { join } = await import('path')
+              const result = await removeSkill(cmd.name, join(process.cwd(), '.claude', 'skills'))
+              if (result.ok) {
+                setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${result.name}' removed.` }])
+              } else {
+                setMessages((m) => [...m, { role: 'assistant', content: `✗ ${result.error}` }])
+              }
+            } catch (e) {
+              setMessages((m) => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
+            } finally {
+              setIsLoading(false)
+            }
+          } else if (cmd.action === 'update') {
+            setMessages((m) => [...m, { role: 'assistant', content: `Updating skill '${cmd.name}'...` }])
+            setIsLoading(true)
+            try {
+              const { updateSkill } = await import('../skills/installer.js')
+              const { join } = await import('path')
+              const result = await updateSkill(cmd.name, join(process.cwd(), '.claude', 'skills'))
+              if (result.ok) {
+                setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${result.name}' updated.` }])
+              } else {
+                setMessages((m) => [...m, { role: 'assistant', content: `✗ ${result.error}` }])
+              }
+            } catch (e) {
+              setMessages((m) => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
+            } finally {
+              setIsLoading(false)
+            }
+          }
+          return
+        }
         case 'unknown':
           setMessages((m) => [...m, { role: 'assistant', content: cmd.input }])
           return
