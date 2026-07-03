@@ -1,6 +1,6 @@
 import { join } from 'path'
 import { homedir } from 'os'
-import { mkdir, readdir, readFile, writeFile, copyFile, unlink, rm } from 'fs/promises'
+import { mkdir, readFile, writeFile, unlink } from 'fs/promises'
 import { randomBytes, createHash } from 'crypto'
 import { readJson, writeJson } from '../utils/fs.js'
 
