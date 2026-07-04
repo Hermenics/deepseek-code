@@ -113,20 +113,20 @@ export function processTextInputKey(
     case 'end':
       return { type: 'cursor', cursor: cursor.endOfLine() }
     case 'up':
-      if (options?.multiline && cursor.text.includes('\n')) {
-        // Only navigate history when cursor is on the first line
-        const firstNewline = cursor.text.indexOf('\n')
-        if (cursor.offset <= firstNewline) {
+      if (options?.multiline && cursor.measuredText.lineCount > 1) {
+        // Only navigate history when cursor is already on the first visual line
+        const pos = cursor.getPosition()
+        if (pos.line === 0) {
           return { type: 'action', action: 'historyUp' }
         }
         return { type: 'cursor', cursor: cursor.up() }
       }
       return { type: 'action', action: 'historyUp' }
     case 'down':
-      if (options?.multiline && cursor.text.includes('\n')) {
-        // Only navigate history when cursor is on the last line
-        const lastNewline = cursor.text.lastIndexOf('\n')
-        if (cursor.offset > lastNewline) {
+      if (options?.multiline && cursor.measuredText.lineCount > 1) {
+        // Only navigate history when cursor is already on the last visual line
+        const pos = cursor.getPosition()
+        if (pos.line >= cursor.measuredText.lineCount - 1) {
           return { type: 'action', action: 'historyDown' }
         }
         return { type: 'cursor', cursor: cursor.down() }

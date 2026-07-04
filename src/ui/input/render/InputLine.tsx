@@ -14,7 +14,7 @@ interface InputLineProps {
 
 /**
  * Wraps a single line of text into multiple visual lines based on column width.
- * Returns an array of { text, startOffset } for each wrapped segment.
+ * Word-aware: breaks at spaces when possible, force-breaks only if a single word exceeds maxWidth.
  */
 function wrapLine(line: string, maxWidth: number): { text: string; startOffset: number }[] {
   if (maxWidth <= 0) maxWidth = 80
@@ -24,9 +24,19 @@ function wrapLine(line: string, maxWidth: number): { text: string; startOffset: 
   const segments: { text: string; startOffset: number }[] = []
   let pos = 0
   while (pos < line.length) {
-    const chunk = line.slice(pos, pos + maxWidth)
-    segments.push({ text: chunk, startOffset: pos })
-    pos += chunk.length
+    if (pos + maxWidth >= line.length) {
+      segments.push({ text: line.slice(pos), startOffset: pos })
+      break
+    }
+    // ponytail: word-wrap — find last space within maxWidth, fallback to hard break
+    let breakAt = line.lastIndexOf(' ', pos + maxWidth)
+    if (breakAt <= pos) {
+      // Single word longer than maxWidth — force break
+      breakAt = pos + maxWidth
+    }
+    // Segment ends at breakAt (exclusive of the space); advance past the space
+    segments.push({ text: line.slice(pos, breakAt), startOffset: pos })
+    pos = line[breakAt] === ' ' ? breakAt + 1 : breakAt
   }
   return segments
 }
