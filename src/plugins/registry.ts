@@ -1,6 +1,7 @@
-import { readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs'
 import { join } from 'path'
-import { homedir } from 'os'
+import { homedir, tmpdir } from 'os'
+import { randomBytes } from 'crypto'
 import type { PluginEntry, PluginRegistry } from './types.js'
 
 // ponytail: function so env override works at call-time (test isolation)
@@ -30,7 +31,10 @@ export function readPluginRegistry(): PluginRegistry {
 export function writePluginRegistry(registry: PluginRegistry): void {
   const dir = getPluginsDir()
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'registry.json'), JSON.stringify(registry, null, 2))
+  // ponytail: write to temp then rename — atomic on POSIX, prevents partial writes
+  const tmp = join(tmpdir(), `registry-${randomBytes(6).toString('hex')}.json`)
+  writeFileSync(tmp, JSON.stringify(registry, null, 2))
+  renameSync(tmp, join(dir, 'registry.json'))
 }
 
 export function addPluginToRegistry(entry: PluginEntry): void {
