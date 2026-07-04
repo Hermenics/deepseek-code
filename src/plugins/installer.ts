@@ -6,6 +6,7 @@ import { randomBytes } from 'crypto'
 import type { PluginEntry } from './types.js'
 import { readPluginRegistry, addPluginToRegistry, removePluginFromRegistry, getPluginsDir } from './registry.js'
 import { discoverComponents, readPluginManifest } from './loader.js'
+import { REPO_PATTERN, PLUGIN_NAME_PATTERN } from './validation.js'
 
 export interface InstallResult {
   ok: boolean
@@ -13,7 +14,7 @@ export interface InstallResult {
   error?: string
 }
 
-const PLUGIN_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
+const CLONE_TIMEOUT_MS = 60_000
 
 function isPathSafe(name: string): boolean {
   const base = resolve(getPluginsDir())
@@ -26,9 +27,9 @@ function validatePluginName(name: string): boolean {
   return PLUGIN_NAME_PATTERN.test(name)
 }
 
-async function dirExists(path: string): Promise<boolean> {
-  const proc = Bun.spawn(['test', '-d', path], { stdout: 'pipe', stderr: 'pipe' })
-  return (await proc.exited) === 0
+// ponytail: sync existsSync is sufficient; no need to spawn a process for a dir check
+function dirExists(path: string): boolean {
+  return existsSync(path)
 }
 
 function detectPluginDir(tmpDir: string): string | null {
@@ -49,7 +50,41 @@ function detectPluginDir(tmpDir: string): string | null {
   return null
 }
 
-const REPO_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/
+/** Spawn a git clone with a hard timeout. Kills the process if the deadline is reached. */
+async function spawnClone(url: string, dest: string): Promise<{ exitCode: number; stderr: string }> {
+  const proc = Bun.spawn(['git', 'clone', '--depth', '1', url, dest], {
+    stdout: 'pipe', stderr: 'pipe',
+  })
+
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    proc.kill()
+  }, CLONE_TIMEOUT_MS)
+
+  const exitCode = await proc.exited
+  clearTimeout(timer)
+  const stderr = timedOut
+    ? `timed out after ${CLONE_TIMEOUT_MS / 1000}s`
+    : (await new Response(proc.stderr).text()).trim()
+
+  return { exitCode: timedOut ? -1 : exitCode, stderr }
+}
+
+/** Resolve a commit hash from cwd; returns null on failure. */
+async function resolveCommitHash(cwd: string): Promise<string | null> {
+  const proc = Bun.spawn(['git', 'rev-parse', 'HEAD'], { cwd, stdout: 'pipe', stderr: 'pipe' })
+  const exitCode = await proc.exited
+  if (exitCode !== 0) return null
+  const hash = (await new Response(proc.stdout).text()).trim()
+  return hash || null
+}
+
+/** Await a `mv` spawn and return its exit code. */
+async function awaitedMv(src: string, dest: string): Promise<number> {
+  const proc = Bun.spawn(['mv', src, dest], { stdout: 'pipe', stderr: 'pipe' })
+  return proc.exited
+}
 
 export async function installPlugin(repo: string): Promise<InstallResult> {
   if (!REPO_PATTERN.test(repo)) {
@@ -59,14 +94,10 @@ export async function installPlugin(repo: string): Promise<InstallResult> {
   const tmpDir = join(tmpdir(), `dsk-plugin-${randomBytes(6).toString('hex')}`)
 
   try {
-    const clone = Bun.spawn(['git', 'clone', '--depth', '1', url, tmpDir], {
-      stdout: 'pipe', stderr: 'pipe',
-    })
-    const exitCode = await clone.exited
+    const { exitCode, stderr } = await spawnClone(url, tmpDir)
     if (exitCode !== 0) {
-      const stderr = await new Response(clone.stderr).text()
       await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
-      return { ok: false, name: '', error: `git clone failed: ${stderr.trim() || 'exit code ' + exitCode}` }
+      return { ok: false, name: '', error: `git clone failed: ${stderr || 'exit code ' + exitCode}` }
     }
 
     const pluginDir = detectPluginDir(tmpDir)
@@ -93,20 +124,21 @@ export async function installPlugin(repo: string): Promise<InstallResult> {
       await rm(tmpDir, { recursive: true, force: true })
       return { ok: false, name, error: `Plugin '${name}' already installed. Use /plugin update ${name}` }
     }
-    if (await dirExists(targetDir)) {
+    if (dirExists(targetDir)) {
       await rm(tmpDir, { recursive: true, force: true })
       return { ok: false, name, error: `Plugin '${name}' directory already exists. Remove it first.` }
     }
 
-    const hashProc = Bun.spawn(['git', 'rev-parse', 'HEAD'], { cwd: tmpDir, stdout: 'pipe' })
-    await hashProc.exited
-    const commitHash = (await new Response(hashProc.stdout).text()).trim()
+    const commitHash = await resolveCommitHash(tmpDir)
+    if (!commitHash) {
+      await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+      return { ok: false, name, error: 'Failed to read commit hash from cloned repo' }
+    }
 
     await rm(join(tmpDir, '.git'), { recursive: true, force: true })
 
     await mkdir(getPluginsDir(), { recursive: true })
-    const mv = Bun.spawn(['mv', pluginDir, targetDir], { stdout: 'pipe', stderr: 'pipe' })
-    const mvExit = await mv.exited
+    const mvExit = await awaitedMv(pluginDir, targetDir)
     if (mvExit !== 0) {
       await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
       return { ok: false, name, error: 'Failed to move plugin into place' }
@@ -119,7 +151,7 @@ export async function installPlugin(repo: string): Promise<InstallResult> {
     // ponytail: from here on, targetDir exists — clean it up on any failure
     let components
     try {
-      components = discoverComponents(targetDir)
+      components = discoverComponents(targetDir, manifest)
     } catch (discoverErr: any) {
       await rm(targetDir, { recursive: true, force: true }).catch(() => {})
       return { ok: false, name, error: `Failed to discover components: ${discoverErr.message}` }
@@ -161,9 +193,15 @@ export async function removePlugin(name: string): Promise<InstallResult> {
   }
 
   const targetDir = join(getPluginsDir(), name)
-  removePluginFromRegistry(name)
-  await rm(targetDir, { recursive: true, force: true })
 
+  // Delete files first — only update the registry once the disk state is clean
+  try {
+    await rm(targetDir, { recursive: true, force: true })
+  } catch (err: any) {
+    return { ok: false, name, error: `Failed to remove plugin directory: ${err.message}` }
+  }
+
+  removePluginFromRegistry(name)
   return { ok: true, name }
 }
 
@@ -187,14 +225,10 @@ export async function updatePlugin(name: string): Promise<InstallResult> {
 
   try {
     // Clone new version
-    const clone = Bun.spawn(['git', 'clone', '--depth', '1', url, tmpDir], {
-      stdout: 'pipe', stderr: 'pipe',
-    })
-    const exitCode = await clone.exited
+    const { exitCode, stderr } = await spawnClone(url, tmpDir)
     if (exitCode !== 0) {
-      const stderr = await new Response(clone.stderr).text()
       await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
-      return { ok: false, name, error: `git clone failed: ${stderr.trim() || 'exit code ' + exitCode}` }
+      return { ok: false, name, error: `git clone failed: ${stderr || 'exit code ' + exitCode}` }
     }
 
     // Detect layout and validate new version
@@ -216,16 +250,17 @@ export async function updatePlugin(name: string): Promise<InstallResult> {
     }
 
     // Get commit hash
-    const hashProc = Bun.spawn(['git', 'rev-parse', 'HEAD'], { cwd: tmpDir, stdout: 'pipe' })
-    await hashProc.exited
-    const commitHash = (await new Response(hashProc.stdout).text()).trim()
+    const commitHash = await resolveCommitHash(tmpDir)
+    if (!commitHash) {
+      await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
+      return { ok: false, name, error: 'Failed to read commit hash from cloned repo' }
+    }
 
     // Remove .git
     await rm(join(tmpDir, '.git'), { recursive: true, force: true })
 
     // Backup existing → move new → cleanup
-    const mvBackup = Bun.spawn(['mv', targetDir, backupDir], { stdout: 'pipe', stderr: 'pipe' })
-    const mvBackupExit = await mvBackup.exited
+    const mvBackupExit = await awaitedMv(targetDir, backupDir)
     if (mvBackupExit !== 0) {
       await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
       return { ok: false, name, error: 'Failed to backup existing plugin' }
@@ -233,13 +268,13 @@ export async function updatePlugin(name: string): Promise<InstallResult> {
     backupDone = true
 
     // Move new into place
-    const mv = Bun.spawn(['mv', pluginDir, targetDir], { stdout: 'pipe', stderr: 'pipe' })
-    const mvExit = await mv.exited
+    const mvExit = await awaitedMv(pluginDir, targetDir)
     if (mvExit !== 0) {
-      // Restore backup
-      Bun.spawn(['mv', backupDir, targetDir], { stdout: 'pipe', stderr: 'pipe' })
+      // Restore backup — await so we know it succeeded before reporting
+      const restoreExit = await awaitedMv(backupDir, targetDir)
       await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
-      return { ok: false, name, error: 'Failed to move updated plugin into place (original restored)' }
+      const restoreNote = restoreExit === 0 ? ' (original restored)' : ' (restore also failed — backup at ' + backupDir + ')'
+      return { ok: false, name, error: `Failed to move updated plugin into place${restoreNote}` }
     }
 
     if (pluginDir !== tmpDir) {
@@ -247,7 +282,7 @@ export async function updatePlugin(name: string): Promise<InstallResult> {
     }
 
     // Discover components and update registry
-    const components = discoverComponents(targetDir)
+    const components = discoverComponents(targetDir, manifest)
     try {
       addPluginToRegistry({
         name,
@@ -260,10 +295,11 @@ export async function updatePlugin(name: string): Promise<InstallResult> {
         components,
       })
     } catch (regErr: any) {
-      // Restore backup on registry failure
+      // Restore backup on registry failure — await so we know the result
       await rm(targetDir, { recursive: true, force: true }).catch(() => {})
-      Bun.spawn(['mv', backupDir, targetDir], { stdout: 'pipe', stderr: 'pipe' })
-      return { ok: false, name, error: `Update moved but registry failed: ${regErr.message}` }
+      const restoreExit = await awaitedMv(backupDir, targetDir)
+      const restoreNote = restoreExit === 0 ? ' (original restored)' : ' (restore failed — backup at ' + backupDir + ')'
+      return { ok: false, name, error: `Update moved but registry failed: ${regErr.message}${restoreNote}` }
     }
 
     // Cleanup backup
@@ -273,7 +309,10 @@ export async function updatePlugin(name: string): Promise<InstallResult> {
   } catch (err: any) {
     await rm(tmpDir, { recursive: true, force: true }).catch(() => {})
     if (backupDone) {
-      Bun.spawn(['mv', backupDir, targetDir], { stdout: 'pipe', stderr: 'pipe' })
+      // Await restore so caller gets accurate state in the error message
+      const restoreExit = await awaitedMv(backupDir, targetDir)
+      const restoreNote = restoreExit === 0 ? ' (original restored)' : ' (restore failed — backup at ' + backupDir + ')'
+      return { ok: false, name, error: (err.message || String(err)) + restoreNote }
     }
     return { ok: false, name, error: err.message || String(err) }
   }

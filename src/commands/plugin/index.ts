@@ -1,7 +1,5 @@
 import type { Command, CommandResult } from '../types.js'
-
-const REPO_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/
-const PLUGIN_NAME_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
+import { REPO_PATTERN, PLUGIN_NAME_PATTERN } from '../../plugins/validation.js'
 
 export function parsePluginCommand(args: string[]): CommandResult {
   const sub = args[0]?.toLowerCase()
