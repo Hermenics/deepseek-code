@@ -765,6 +765,85 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           }
           return
         }
+        case 'plugin': {
+          if (cmd.action === 'help') {
+            setMessages((m) => [...m, { role: 'assistant', content: `Plugin commands:\n  /plugin install <owner/repo>  install a plugin from GitHub\n  /plugin list                  list installed plugins\n  /plugin remove <name>         remove a plugin\n  /plugin update <name>         update a plugin to latest` }])
+          } else if (cmd.action === 'error') {
+            setMessages((m) => [...m, { role: 'assistant', content: `Error: ${cmd.message}` }])
+          } else if (cmd.action === 'list') {
+            setIsLoading(true)
+            try {
+              const { loadInstalledPlugins } = await import('../plugins/index.js')
+              const plugins = loadInstalledPlugins()
+              if (!plugins.length) {
+                setMessages((m) => [...m, { role: 'assistant', content: 'No plugins installed. Use /plugin install <owner/repo> to add one.' }])
+              } else {
+                const lines = plugins.map((p) => {
+                  const c = p.entry.components
+                  const parts: string[] = []
+                  if (c.commands.length) parts.push(`${c.commands.length} cmd`)
+                  if (c.agents.length) parts.push(`${c.agents.length} agents`)
+                  if (c.skills.length) parts.push(`${c.skills.length} skills`)
+                  if (c.hasHooks) parts.push('hooks')
+                  return `  ${p.entry.name}  (${p.entry.repo})  [${parts.join(', ')}]`
+                })
+                setMessages((m) => [...m, { role: 'assistant', content: `Installed plugins:\n${lines.join('\n')}` }])
+              }
+            } catch (e) {
+              setMessages((m) => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
+            } finally {
+              setIsLoading(false)
+            }
+          } else if (cmd.action === 'install') {
+            setMessages((m) => [...m, { role: 'assistant', content: `Installing plugin from ${cmd.repo}...` }])
+            setIsLoading(true)
+            try {
+              const { installPlugin } = await import('../plugins/index.js')
+              const result = await installPlugin(cmd.repo)
+              if (result.ok) {
+                setMessages((m) => [...m, { role: 'assistant', content: `✓ Plugin '${result.name}' installed successfully.` }])
+              } else {
+                setMessages((m) => [...m, { role: 'assistant', content: `✗ ${result.error}` }])
+              }
+            } catch (e) {
+              setMessages((m) => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
+            } finally {
+              setIsLoading(false)
+            }
+          } else if (cmd.action === 'remove') {
+            setIsLoading(true)
+            try {
+              const { removePlugin } = await import('../plugins/index.js')
+              const result = await removePlugin(cmd.name)
+              if (result.ok) {
+                setMessages((m) => [...m, { role: 'assistant', content: `✓ Plugin '${result.name}' removed.` }])
+              } else {
+                setMessages((m) => [...m, { role: 'assistant', content: `✗ ${result.error}` }])
+              }
+            } catch (e) {
+              setMessages((m) => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
+            } finally {
+              setIsLoading(false)
+            }
+          } else if (cmd.action === 'update') {
+            setMessages((m) => [...m, { role: 'assistant', content: `Updating plugin '${cmd.name}'...` }])
+            setIsLoading(true)
+            try {
+              const { updatePlugin } = await import('../plugins/index.js')
+              const result = await updatePlugin(cmd.name)
+              if (result.ok) {
+                setMessages((m) => [...m, { role: 'assistant', content: `✓ Plugin '${result.name}' updated.` }])
+              } else {
+                setMessages((m) => [...m, { role: 'assistant', content: `✗ ${result.error}` }])
+              }
+            } catch (e) {
+              setMessages((m) => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
+            } finally {
+              setIsLoading(false)
+            }
+          }
+          return
+        }
         case 'unknown':
           setMessages((m) => [...m, { role: 'assistant', content: cmd.input }])
           return

@@ -41,6 +41,12 @@ export type CommandResult =
   | { type: 'skill'; action: 'update'; name: string }
   | { type: 'skill'; action: 'help' }
   | { type: 'skill'; action: 'error'; message: string }
+  | { type: 'plugin'; action: 'install'; repo: string }
+  | { type: 'plugin'; action: 'list' }
+  | { type: 'plugin'; action: 'remove'; name: string }
+  | { type: 'plugin'; action: 'update'; name: string }
+  | { type: 'plugin'; action: 'help' }
+  | { type: 'plugin'; action: 'error'; message: string }
   | { type: 'unknown'; input: string }
 
 export interface Command {
