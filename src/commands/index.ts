@@ -28,6 +28,7 @@ import memory from './memory/index.js'
 import effort from './effort/index.js'
 import enchantPrompt from './enchant-prompt/index.js'
 import skill from './skill/index.js'
+import plugin from './plugin/index.js'
 
 const commands: Command[] = [
   help,
@@ -58,6 +59,7 @@ const commands: Command[] = [
   effort,
   enchantPrompt,
   skill,
+  plugin,
 ]
 
 export function parseCommand(input: string): CommandResult | null {
