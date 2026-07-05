@@ -68,7 +68,8 @@ Cycle: Plan -> Build -> Auto -> Plan
 The agent has access to these tools:
 - read_file — Read file contents (supports line ranges)
 - write_file — Write or create a file (shows diff in UI)
-- patch_file — Edit a file by replacing a specific string (more efficient than write_file)
+- edit_file — Surgical line-level edits by line number (most token-efficient for targeted changes)
+- patch_file — Edit a file by replacing a specific string (good when you know the unique match but not the line number)
 - read_folder — List directory contents (recursive option)
 - grep — Search regex pattern in files
 - glob — Find files by glob pattern
@@ -83,7 +84,7 @@ The agent has access to these tools:
 - MoA — Run mixture-of-agents reference/aggregation flows
 
 ### Tool Permissions by Mode
-- **Build:** read-only tools plus shell, write_file, patch_file and update_knowledge
+- **Build:** read-only tools plus shell, write_file, edit_file, patch_file and update_knowledge
 - **Plan:** read-only tools only
 - **Auto:** all tools without interactive confirmations
 - MCP tools follow the same rules as shell outside Auto
