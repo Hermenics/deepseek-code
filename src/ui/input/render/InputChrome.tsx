@@ -1,17 +1,12 @@
 import { getThemeColors, DIVIDER_CHAR, STATUS_ICONS } from '../../theme.js'
 import type { ThemeName } from '../../theme.js'
-import { MODE_LABELS, MODE_COLORS, type InteractionMode } from '../../interactionMode.js'
 import Box from '../../../ink/components/Box.js'
 import Text from '../../../ink/components/Text.js'
 
 interface InputChromeProps {
   columns: number
   agentLabel?: string
-  interactionMode: string
-  modeLabel: string
-  modeColor: string
-  vimEnabled?: boolean
-  vimMode?: 'insert' | 'normal'
+  agentColor?: string
   contextPct?: number
   hasExclamation?: boolean
   theme?: ThemeName
@@ -21,27 +16,18 @@ interface InputChromeProps {
 export function InputChrome({
   columns,
   agentLabel = 'deepseek',
-  interactionMode,
-  modeLabel,
-  modeColor,
-  vimEnabled = false,
-  vimMode = 'insert',
+  agentColor,
   contextPct = 0,
   hasExclamation = false,
   theme = 'dark',
   children,
 }: InputChromeProps) {
   const colors = getThemeColors(theme)
-  const resolvedModeLabel = modeLabel || MODE_LABELS[interactionMode as InteractionMode]
-  const resolvedModeColor = modeColor || MODE_COLORS[interactionMode as InteractionMode]
-  const vimLabel = vimEnabled ? (vimMode === 'normal' ? ' [N]' : ' [I]') : ''
+  const resolvedAgentColor = agentColor || '#87ceeb' // light blue default
 
-  // Top border with mode indicator (Claude Code style)
-  const modeTag = ` ${resolvedModeLabel} `
+  // Top border with agent label
   const agentTag = ` ${agentLabel} `
-  const rightSection = modeTag + agentTag
-  const topLineWidth = Math.max(0, columns - 4 - rightSection.length)
-  const topDashes = DIVIDER_CHAR.repeat(topLineWidth)
+  const topLineWidth = Math.max(0, columns - 4 - agentTag.length)
 
   // Prompt indicator
   const promptIcon = hasExclamation ? STATUS_ICONS.bash : STATUS_ICONS.user
@@ -51,10 +37,8 @@ export function InputChrome({
     <Box flexDirection="column">
       {/* Top border */}
       <Box flexDirection="row">
-        <Text color={colors.promptBorder}>{topDashes}</Text>
-        <Text color={resolvedModeColor}>{modeTag}</Text>
-        {vimEnabled && <Text color={vimMode === 'normal' ? colors.warning : colors.textDim}>{vimLabel}</Text>}
-        <Text color={colors.textDim}>{agentTag}</Text>
+        <Text color={colors.promptBorder}>{DIVIDER_CHAR.repeat(topLineWidth)}</Text>
+        <Text color={resolvedAgentColor}>{agentTag}</Text>
       </Box>
 
       {/* Input area with prompt indicator */}
@@ -68,8 +52,6 @@ export function InputChrome({
         <Box flexGrow={1}>{children}</Box>
       </Box>
 
-      {/* Bottom border */}
-      <Text color={colors.promptBorder}>{DIVIDER_CHAR.repeat(Math.max(0, columns - 4))}</Text>
     </Box>
   )
 }
