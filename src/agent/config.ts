@@ -8,6 +8,8 @@ export interface AgentConfig {
   model?: Model
   systemPrompt: string
   files?: string[]
+  /** Hex color for the agent label in the input chrome (e.g. "#ff6600") */
+  color?: string
   /**
    * Tools that require user permission before execution.
    * - '*'           → all tools require permission (including dangerous ones)

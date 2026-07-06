@@ -84,6 +84,7 @@ export function InputBox({
   phase: _phase = 'idle',
   contextPct = 0,
   agentLabel = 'deepseek',
+  agentColor,
   interactionMode = 'build',
   onModeChange,
   sessionId,
@@ -97,6 +98,7 @@ export function InputBox({
   phase?: AgentPhase
   contextPct?: number
   agentLabel?: string
+  agentColor?: string
   interactionMode?: InteractionMode
   onModeChange?: () => void
   sessionId?: string
@@ -334,11 +336,7 @@ export function InputBox({
       <InputChrome
         columns={cols}
         agentLabel={agentLabel}
-        interactionMode={interactionMode}
-        modeLabel={`[${MODE_LABELS[interactionMode]}]`}
-        modeColor={MODE_COLORS[interactionMode]}
-        vimEnabled={vimEnabled}
-        vimMode={vimMode}
+        agentColor={agentColor}
         contextPct={contextPct}
         hasExclamation={hasExclamation}
       >
