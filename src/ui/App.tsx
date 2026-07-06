@@ -97,6 +97,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [tokenCount, setTokenCount] = useState(0)
   const [contextPct, setContextPct] = useState(0)
   const [activeAgent, setActiveAgent] = useState<string | null>(null)
+  const [activeAgentColor, setActiveAgentColor] = useState<string | undefined>(undefined)
   const [toolCallCount, setToolCallCount] = useState(0)
   const [agentPhase, setAgentPhase] = useState<AgentPhase>('idle')
   const [interactionMode, setInteractionMode] = useState<InteractionMode>(DEFAULT_MODE)
@@ -197,6 +198,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         const { config, source } = initialAgent
         await agent.applyAgentConfig(config)
         setActiveAgent(config.name)
+        setActiveAgentColor(config.color)
         const sourceMsg = source === 'local' ? 'local (overrides global)' : 'global'
         setMessages((m) => [...m, { role: 'assistant', content: `Agent '${config.name}' loaded from ${sourceMsg}.` }])
       }
@@ -513,6 +515,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             const { config, source } = await loadAgentConfig(cmd.name)
             await agent.applyAgentConfig(config)
             setActiveAgent(config.name)
+            setActiveAgentColor(config.color)
             const sourceMsg = source === 'local' ? 'local (overrides global)' : 'global'
             setMessages((m) => [...m, { role: 'assistant', content: `Agent '${config.name}' loaded from ${sourceMsg}.` }])
           } catch (e) {
@@ -973,6 +976,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             phase={agentPhase}
             contextPct={contextPct}
             agentLabel={activeAgent ?? 'deepseek'}
+            agentColor={activeAgentColor}
             interactionMode={interactionMode}
             onModeChange={handleModeChange}
             sessionId={sessionId}
