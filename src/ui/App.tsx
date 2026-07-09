@@ -122,8 +122,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   useEffect(() => {
     const subs = subagentsRef.current
     setSubAgentCallbacks({
-      onStart(id: string, task: string) {
-        subs.onSubagentStart({ id, task })
+      onStart(id: string, task: string, agentName?: string) {
+        subs.onSubagentStart({ id, task, agentName })
         setSubagentTick((t) => t + 1)
       },
       onToolUse(id: string, tool: string, info?: string) {
