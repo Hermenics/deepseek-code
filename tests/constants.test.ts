@@ -19,9 +19,9 @@ describe('Constants', () => {
     expect(typeof SHELL_OUTPUT_MAX_CHARS).toBe('number')
   })
 
-  it('SHELL_TIMEOUT_MS should be reasonable (5s-120s)', () => {
+  it('SHELL_TIMEOUT_MS should be reasonable (5s-300s)', () => {
     expect(SHELL_TIMEOUT_MS).toBeGreaterThanOrEqual(5_000)
-    expect(SHELL_TIMEOUT_MS).toBeLessThanOrEqual(120_000)
+    expect(SHELL_TIMEOUT_MS).toBeLessThanOrEqual(300_000)
   })
 
   it('GREP_MAX_LINES should be positive', () => {
@@ -65,14 +65,14 @@ describe('Constants', () => {
 
   it('constants should have expected values', () => {
     expect(SHELL_OUTPUT_MAX_CHARS).toBe(50_000)
-    expect(SHELL_TIMEOUT_MS).toBe(30_000)
+    expect(SHELL_TIMEOUT_MS).toBe(300_000)
     expect(GREP_MAX_LINES).toBe(200)
     expect(GLOB_MAX_FILES).toBe(500)
     expect(UNDO_STACK_MAX).toBe(10)
     expect(CONTEXT_COMPACT_THRESHOLD).toBe(0.85)
     expect(DIFF_MAX_LINES).toBe(50)
     expect(CHECKPOINT_MAX).toBe(20)
-    expect(SUBAGENT_MAX_ITERATIONS).toBe(15)
+    expect(SUBAGENT_MAX_ITERATIONS).toBe(50)
     expect(REFINER_MAX_TOKENS).toBe(1024)
     expect(REFINER_MIN_LENGTH).toBe(30)
   })
