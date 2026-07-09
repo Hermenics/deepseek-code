@@ -148,9 +148,9 @@ export const SubAgent: Tool = {
     const role: SubAgentRole = fixedAgent?.role ?? (args.role as SubAgentRole) ?? inferRole(task)
     const agentName = fixedAgent?.displayName ?? undefined
 
+    await acquire()
     subAgentCallbacks?.onStart(agentId, task, agentName)
 
-    await acquire()
     try {
       // Lazy import to avoid circular dependency
       const { allTools } = await import('../index.js')
@@ -176,22 +176,17 @@ export const SubAgent: Tool = {
       // Add to task memory for sibling subagents
       addPreviousResult(getCurrentMemory(), task, structured.summary, structured.confidence)
 
-      // Verification check
+      // Verification check (reuses current concurrency slot — no second acquire)
       let verificationSuffix = ''
       if (shouldVerify(task, structured, args.verify as boolean | undefined)) {
-        await acquire()
-        try {
-          const verifierPrompt = buildVerifierPrompt(task, structured)
-          const verifierTools = getToolsForRole('reader', subagentTools)
-          const { resultText: verifierText } = await runSubAgentLoop(
-            verifierPrompt, verifierPrompt, `${agentId}-v`, verifierTools, provider, modelName,
-            { onToolUse: (id, tool, info) => subAgentCallbacks?.onToolUse(id, tool, info) },
-          )
-          const verification = parseVerificationResult(verifierText)
-          verificationSuffix = `\n${formatVerificationForUser(verification)}`
-        } finally {
-          release()
-        }
+        const verifierPrompt = buildVerifierPrompt(task, structured)
+        const verifierTools = getToolsForRole('reader', subagentTools)
+        const { resultText: verifierText } = await runSubAgentLoop(
+          verifierPrompt, verifierPrompt, `${agentId}-v`, verifierTools, provider, modelName,
+          { onToolUse: (id, tool, info) => subAgentCallbacks?.onToolUse(id, tool, info) },
+        )
+        const verification = parseVerificationResult(verifierText)
+        verificationSuffix = `\n${formatVerificationForUser(verification)}`
       }
 
       const formattedResult = formatResultForParent(structured) + verificationSuffix

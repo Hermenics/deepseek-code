@@ -106,7 +106,12 @@ export async function runSubAgentLoop(
       let parsedArgs: Record<string, unknown> = {}
       const fn = 'function' in tc ? tc.function : undefined
       if (!fn) continue
-      try { parsedArgs = JSON.parse(fn.arguments) } catch {}
+      try {
+        parsedArgs = JSON.parse(fn.arguments)
+      } catch (parseErr: unknown) {
+        messages.push({ role: 'tool', tool_call_id: tc.id, content: `Error: failed to parse tool arguments — ${(parseErr as Error).message ?? 'invalid JSON'}` })
+        continue
+      }
 
       callbacks?.onToolUse?.(agentId, fn.name, buildToolPreview(fn.name, parsedArgs))
 
@@ -129,7 +134,7 @@ export async function runSubAgentLoop(
         messages.push({
           role: 'tool',
           tool_call_id: tc.id,
-          content: `⚠️ Tool '${fn.name}' bloqueada: ${riskResult.level} risk em contexto de subagent (${riskResult.description}). O agent principal deve executar esta operação diretamente.`,
+          content: `⚠️ Tool '${fn.name}' blocked: ${riskResult.level} risk in subagent context (${riskResult.description}). The parent agent must execute this operation directly.`,
         })
         continue
       }

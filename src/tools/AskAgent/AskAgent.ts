@@ -39,6 +39,9 @@ function spawnBackgroundAgent(agentName: FixedAgentName, question: string): void
   const provider = askAgentProvider
   const modelName = askAgentModel ?? defaultModel(provider.provider)
 
+  // Snapshot memory synchronously before the async boundary (memory resets each turn)
+  const memory = formatMemoryForPrompt(getCurrentMemory())
+
   // Fire and forget — no await
   void (async () => {
     await acquire()
@@ -48,7 +51,6 @@ function spawnBackgroundAgent(agentName: FixedAgentName, question: string): void
       const tools = allTools.filter((t) => t.name !== 'subagent' && t.name !== 'ask_agent')
       const filteredTools = getToolsForRole(def.role, tools)
 
-      const memory = formatMemoryForPrompt(getCurrentMemory())
       const prompt = buildFixedAgentPrompt(def, question, memory)
 
       const { resultText } = await runSubAgentLoop(
@@ -58,10 +60,14 @@ function spawnBackgroundAgent(agentName: FixedAgentName, question: string): void
       const structured = parseSubAgentResult(resultText)
       const formatted = formatResultForParent(structured)
 
-      // Deliver response via note callback
-      noteCallback?.(def.displayName, formatted.slice(0, 500))
+      // Deliver response via note callback (with truncation marker if needed)
+      const MAX_NOTE_LEN = 500
+      const note = formatted.length > MAX_NOTE_LEN
+        ? formatted.slice(0, MAX_NOTE_LEN) + ' [truncated]'
+        : formatted
+      noteCallback?.(def.displayName, note)
     } catch (e: unknown) {
-      const errMsg = (e as Error).message ?? String(e)
+      const errMsg = e instanceof Error ? e.message : String(e ?? 'unknown error')
       noteCallback?.(def.displayName, `Error: ${errMsg}`)
     } finally {
       release()
