@@ -57,14 +57,14 @@ describe('parseCommand', () => {
     expect(parseCommand('/model llama3')).toEqual({ type: 'model', model: 'llama3' })
   })
 
-  it('returns unknown for /model without argument', () => {
+  it('returns models selector for /model without argument', () => {
     const result = parseCommand('/model')
-    expect(result?.type).toBe('unknown')
+    expect(result?.type).toBe('models')
   })
 
-  it('returns unknown for /model with empty space', () => {
+  it('returns models selector for /model with empty space', () => {
     const result = parseCommand('/model ')
-    expect(result?.type).toBe('unknown')
+    expect(result?.type).toBe('models')
   })
 
   it('parses /model with special characters (dots, colon, version suffix)', () => {
