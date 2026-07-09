@@ -5,6 +5,7 @@ import DEFAULT_SYSTEM_PROMPT_MD from './system-prompt.md' with { type: 'text' }
 import { allTools } from '../tools/index.js'
 import { setShellConfirmHandler } from '../tools/Shell/Shell.js'
 import { setSubAgentProvider, setSubAgentModel } from '../tools/SubAgent/SubAgent.js'
+import { setAgentNoteCallback, setAskAgentProvider, setAskAgentModel } from '../tools/AskAgent/AskAgent.js'
 import { resetMemory } from '../tools/SubAgent/memory.js'
 import { loadMcpTools } from './mcp.js'
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
@@ -45,7 +46,7 @@ class DenyAbortError extends Error {
 }
 
 // Tools that are safe to run in parallel (read-only or isolated)
-const PARALLEL_SAFE = new Set(['subagent', 'shell', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect'])
+const PARALLEL_SAFE = new Set(['subagent', 'ask_agent', 'shell', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect'])
 
 const DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT_MD
 
@@ -160,6 +161,12 @@ function toOpenAITools(tools: Tool[]): ChatCompletionTool[] {
   }))
 }
 
+interface PendingNote {
+  source: 'user' | 'agent'
+  agentName?: string
+  text: string
+}
+
 export type ToolPermissionResult = 'once' | 'session' | 'always' | 'deny'
 export type ToolPermissionHandler = (toolName: string, args: object) => Promise<ToolPermissionResult>
 
@@ -234,6 +241,9 @@ export class Agent {
       // Propagate provider to SubAgent so it uses the same backend
       setSubAgentProvider(providerConfig)
       setSubAgentModel(this.model)
+      setAskAgentProvider(providerConfig)
+      setAskAgentModel(this.model)
+      setAgentNoteCallback((agentName, text) => this.addAgentNote(agentName, text))
     }
     this.contextLimit = getContextLimit(this.provider, this.model)
     setCheckpointSession(this.hookSessionId)
@@ -497,6 +507,7 @@ export class Agent {
     this.model = m
     this.contextLimit = getContextLimit(this.provider, m)
     setSubAgentModel(m)
+    setAskAgentModel(m)
   }
 
   setEffortLevel(level: EffortLevel): void {
@@ -572,10 +583,14 @@ export class Agent {
    * Similar to /btw in Claude Code.
    */
   addNote(note: string): void {
-    this.pendingNotes.push(note)
+    this.pendingNotes.push({ source: 'user', text: note })
   }
 
-  private pendingNotes: string[] = []
+  addAgentNote(agentName: string, text: string): void {
+    this.pendingNotes.push({ source: 'agent', agentName, text })
+  }
+
+  private pendingNotes: PendingNote[] = []
 
   getMessages(): ChatCompletionMessageParam[] {
     // Backward compatible — external consumers get clean messages without boundary markers
@@ -664,8 +679,14 @@ export class Agent {
     // Inject any pending /msg notes as a system-level context hint
     let messageContent = `[${now}]\n${effectiveMessage}`
     if (this.pendingNotes.length > 0) {
-      const notes = this.pendingNotes.map((n) => `• ${n}`).join('\n')
-      messageContent += `\n\n[Background notes from user — context only, not a new task]\n${notes}`
+      const userNotes = this.pendingNotes.filter(n => n.source === 'user')
+      const agentNotes = this.pendingNotes.filter(n => n.source === 'agent')
+      if (userNotes.length > 0) {
+        messageContent += `\n\n[Background notes from user — context only, not a new task]\n${userNotes.map(n => `• ${n.text}`).join('\n')}`
+      }
+      if (agentNotes.length > 0) {
+        messageContent += `\n\n[Async agent responses — informational, not a new task]\n${agentNotes.map(n => `• @${n.agentName}: ${n.text}`).join('\n')}`
+      }
       this.pendingNotes = []
     }
 
