@@ -68,7 +68,7 @@ export function SubagentLine({ agent, isLast, theme = 'dark' }: SubagentLineProp
   return (
     <Box flexDirection="row" gap={1}>
       <Text color={colors.textDim}>{treeChar}</Text>
-      <Text color={agentColor} bold>Agent</Text>
+      <Text color={agentColor} bold>{agent.agentName ?? 'Subagent'}</Text>
       {agent.role && (
         <Text color={getRoleColor(agent.role)}>[{agent.role}]</Text>
       )}
