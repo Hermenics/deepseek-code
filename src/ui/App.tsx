@@ -14,6 +14,7 @@ import { enqueue } from './queueLogic.js'
 import { StatusBar } from './layout/StatusBar.js'
 import { ThemeSelector } from './setup/ThemeSelector.js'
 import { ModelSelector } from './setup/ModelSelector.js'
+import { EffortSelector } from './setup/EffortSelector.js'
 import { LanguageInput } from './setup/LanguageInput.js'
 import { EnchantConfirm } from './setup/EnchantConfirm.js'
 import { parseCommand, HELP_TEXT, PLAN_PROMPT, REVIEW_PROMPT } from '../commands.js'
@@ -109,6 +110,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [, setSubagentTick] = useState(0)
   const [showModelSelector, setShowModelSelector] = useState(false)
   const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [showEffortSelector, setShowEffortSelector] = useState(false)
   const [showLanguageInput, setShowLanguageInput] = useState(false)
   const [showEnchantConfirm, setShowEnchantConfirm] = useState(false)
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
@@ -654,11 +656,11 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             max: 'Maximum reasoning depth (best with deepseek-reasoner)',
           }
           if (cmd.action === 'status') {
-            const level = agent.effortLevel
-            setMessages((m) => [...m, { role: 'assistant', content: `Effort level: ${level} — ${EFFORT_DESCRIPTIONS[level]}` }])
+            setMessages((m) => [...m, { role: 'user', content: text }])
+            setShowEffortSelector(true)
           } else {
+            setMessages((m) => [...m, { role: 'user', content: text }, { role: 'assistant', content: `Effort: ${cmd.level} — ${EFFORT_DESCRIPTIONS[cmd.level]}` }])
             agent.setEffortLevel(cmd.level)
-            setMessages((m) => [...m, { role: 'assistant', content: `Effort: ${cmd.level} — ${EFFORT_DESCRIPTIONS[cmd.level]}` }])
           }
           return
         }
@@ -900,7 +902,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   // ponytail: push input to bottom — minHeight on messages area fills terminal height
   const termRows = process.stdout.rows || 24
   const footerHeight = 5 // InputChrome (3) + StatusBar (2)
-  const minContentHeight = Math.max(0, termRows - footerHeight)
+  const isOverlayActive = showEffortSelector || showModelSelector || showThemeSelector || showLanguageInput || showEnchantConfirm
+  const minContentHeight = isOverlayActive ? 0 : Math.max(0, termRows - footerHeight)
 
   return (
     <Box flexDirection="column" width="100%">
@@ -934,6 +937,21 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               setShowModelSelector(false)
             }}
             onCancel={() => setShowModelSelector(false)}
+          />
+        ) : showEffortSelector ? (
+          <EffortSelector
+            currentLevel={agent.effortLevel}
+            onSelect={(level) => {
+              const EFFORT_DESCRIPTIONS: Record<string, string> = {
+                low: 'Quick, straightforward responses',
+                high: 'Comprehensive responses with extensive thinking',
+                max: 'Maximum reasoning depth (best with deepseek-reasoner)',
+              }
+              agent.setEffortLevel(level)
+              setMessages((prev) => [...prev, { role: 'assistant', content: `Effort: ${level} — ${EFFORT_DESCRIPTIONS[level]}` }])
+              setShowEffortSelector(false)
+            }}
+            onCancel={() => setShowEffortSelector(false)}
           />
         ) : showLanguageInput ? (
           <LanguageInput
