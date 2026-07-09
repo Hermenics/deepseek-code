@@ -243,8 +243,9 @@ export class Agent {
       setSubAgentModel(this.model)
       setAskAgentProvider(providerConfig)
       setAskAgentModel(this.model)
-      setAgentNoteCallback((agentName, text) => this.addAgentNote(agentName, text))
     }
+    // Always wire the note callback so ask_agent responses route to this instance
+    setAgentNoteCallback((agentName, text) => this.addAgentNote(agentName, text))
     this.contextLimit = getContextLimit(this.provider, this.model)
     setCheckpointSession(this.hookSessionId)
     // Initialize async — readyPromise is awaited in run() to prevent race conditions
