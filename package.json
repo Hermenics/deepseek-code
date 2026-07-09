@@ -1,6 +1,6 @@
 {
   "name": "@hermenics/deepseek-code",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "An AI-powered coding assistant that lives in your terminal",
   "keywords": [
     "ai",
