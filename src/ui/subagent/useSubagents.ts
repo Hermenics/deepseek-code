@@ -1,7 +1,7 @@
 import type { SubagentState } from './types.js'
 import type { SubAgentResult } from '../../tools/SubAgent/contracts.js'
 
-export interface SubagentStartInput { id: string; task: string; role?: string | null }
+export interface SubagentStartInput { id: string; task: string; role?: string | null; agentName?: string | null }
 export interface SubagentProgressInput { id: string; info: string }
 export interface SubagentToolUseInput { id: string; tool: string; info?: string }
 export interface SubagentDoneInput { id: string; result: string; tokens?: number; costUsd?: number; structured?: SubAgentResult; confidence?: number | null; verified?: boolean | null }
@@ -21,7 +21,7 @@ export function useSubagents(): UseSubagentsReturn {
   const hook: UseSubagentsReturn = {
     agents: [],
 
-    onSubagentStart({ id, task, role }) {
+    onSubagentStart({ id, task, role, agentName }) {
       const agent: SubagentState = {
         id,
         task,
@@ -38,6 +38,7 @@ export function useSubagents(): UseSubagentsReturn {
         role: (role as SubagentState['role']) ?? null,
         confidence: null,
         verified: null,
+        agentName: agentName ?? null,
       }
       hook.agents.push(agent)
     },

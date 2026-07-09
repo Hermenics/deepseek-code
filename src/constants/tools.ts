@@ -12,3 +12,6 @@ export const GLOB_MAX_FILES = 500
 
 /** Max subagent iterations */
 export const SUBAGENT_MAX_ITERATIONS = 50
+
+/** Max concurrent subagents (including verifiers and async ask_agent calls) */
+export const MAX_CONCURRENT_AGENTS = 5
