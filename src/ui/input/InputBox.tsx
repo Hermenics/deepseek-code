@@ -213,9 +213,15 @@ export function InputBox({
       return
     }
 
-    if (key.escape && !vimEnabled && cursor.text.length > 0) {
-      escDouble.trigger()
-      return
+    if (key.escape) {
+      if (isLoading) {
+        onAbort?.()
+        return
+      }
+      if (!vimEnabled && cursor.text.length > 0) {
+        escDouble.trigger()
+        return
+      }
     }
 
     if (!showDropdown && ghost && ghost.insertPosition === cursor.offset) {
