@@ -1,12 +1,10 @@
 import { Tool } from '../types.js'
 import { randomUUID } from 'node:crypto'
-import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
 import type { ProviderConfig } from '../../types/provider.js'
-import { createLLMClient, defaultModel } from '../../agent/llmClient.js'
-import { SUBAGENT_MAX_ITERATIONS } from '../../constants.js'
-import { resolvePermission } from '../../permissions/matcher.js'
-import { assessRisk } from '../../permissions/risk.js'
-import { loadMergedSettings } from '../../settings/loader.js'
+import { defaultModel } from '../../agent/llmClient.js'
+import { runSubAgentLoop } from './executor.js'
+import { isFixedAgent, getFixedAgent, buildFixedAgentPrompt, type FixedAgentName } from './fixedAgents.js'
+import { acquire, release } from './concurrency.js'
 import { parseSubAgentResult, formatResultForParent, type SubAgentResult } from './contracts.js'
 import { getToolsForRole, inferRole, describeRole, type SubAgentRole } from './permissions.js'
 import { getCurrentMemory, addPreviousResult, formatMemoryForPrompt } from './memory.js'
@@ -25,7 +23,7 @@ export function setSubAgentModel(model: string) {
 }
 
 export interface SubAgentCallbacks {
-  onStart(id: string, task: string): void
+  onStart(id: string, task: string, agentName?: string): void
   onToolUse(id: string, tool: string, info?: string): void
   onDone(id: string, result: string, tokens?: number, costUsd?: number, structured?: SubAgentResult): void
   onError(id: string, error: string): void
@@ -103,149 +101,10 @@ After completing your task, end your response with a JSON block:
 \`\`\``
 }
 
-function buildToolPreview(toolName: string, args: Record<string, unknown>): string {
-  // Extract the most meaningful field per tool instead of dumping raw JSON
-  const str = (v: unknown) => (typeof v === 'string' ? v : JSON.stringify(v))
-  const truncate = (s: string, n = 50) => s.length > n ? s.slice(0, n) + '…' : s
-
-  switch (toolName) {
-    case 'read_file':
-    case 'write_file':
-    case 'patch_file':
-    case 'read_folder':
-      return truncate(str(args.path ?? args.file ?? ''))
-    case 'shell':
-      return truncate(str(args.command ?? ''))
-    case 'grep':
-      return truncate(`${args.pattern ?? ''} in ${args.path ?? '.'}`)
-    case 'glob':
-      return truncate(str(args.pattern ?? ''))
-    case 'web_fetch':
-      return truncate(str(args.url ?? ''))
-    case 'subagent': {
-      const task = str(args.task ?? '')
-      const firstLine = task.split('\n').map((l: string) => l.replace(/^#+\s*/, '').trim()).find((l: string) => l.length > 0) ?? task
-      return truncate(firstLine)
-    }
-    default: {
-      // Generic: show first string value found, or nothing
-      const first = Object.values(args).find(v => typeof v === 'string') as string | undefined
-      return first ? truncate(first) : ''
-    }
-  }
-}
-
-/**
- * Internal function to run a subagent loop with given prompt, tools, and model.
- * Used by both the main subagent and the verifier.
- */
-async function runSubAgentLoop(
-  prompt: string,
-  task: string,
-  agentId: string,
-  filteredTools: Tool[],
-  provider: ProviderConfig,
-  modelName: string,
-): Promise<{ resultText: string; totalTokens: number }> {
-  const subagentToolMap = new Map(filteredTools.map((t) => [t.name, t]))
-  const openaiTools: ChatCompletionTool[] = filteredTools.map((t) => ({
-    type: 'function' as const,
-    function: { name: t.name, description: t.description, parameters: t.parameters as Record<string, unknown> },
-  }))
-
-  const client = createLLMClient(provider)
-
-  const messages: ChatCompletionMessageParam[] = [
-    { role: 'system', content: prompt },
-    { role: 'user', content: task },
-  ]
-
-  let totalTokens = 0
-  let subAgentWriteCount = 0
-
-  for (let i = 0; i < SUBAGENT_MAX_ITERATIONS; i++) {
-    const response = await client.chat.completions.create({
-      model: modelName,
-      messages,
-      tools: openaiTools.length > 0 ? openaiTools : undefined,
-    })
-
-    if (response.usage?.total_tokens) {
-      totalTokens += response.usage.total_tokens
-    }
-
-    const msg = response.choices[0]!.message
-
-    if (!msg.tool_calls?.length) {
-      return { resultText: msg.content ?? '(no output)', totalTokens }
-    }
-
-    const assistantMsg: ChatCompletionMessageParam & { reasoning_content?: string } = {
-      role: 'assistant',
-      content: msg.content ?? null,
-      tool_calls: msg.tool_calls,
-    }
-    const msgReasoning = (msg as unknown as Record<string, unknown>).reasoning_content
-    if (typeof msgReasoning === 'string' && msgReasoning) {
-      assistantMsg.reasoning_content = msgReasoning
-    }
-    messages.push(assistantMsg)
-
-    const settings = await loadMergedSettings()
-
-    for (const tc of msg.tool_calls) {
-      let parsedArgs: Record<string, unknown> = {}
-      const fn = 'function' in tc ? tc.function : undefined
-      if (!fn) continue
-      try { parsedArgs = JSON.parse(fn.arguments) } catch {}
-
-      subAgentCallbacks?.onToolUse(agentId, fn.name, buildToolPreview(fn.name, parsedArgs))
-
-      const permDecision = resolvePermission(settings.permissions, fn.name, parsedArgs)
-      if (permDecision === 'deny') {
-        messages.push({ role: 'tool', tool_call_id: tc.id, content: `Tool '${fn.name}' blocked by permission rule.` })
-        continue
-      }
-
-      // Risk-level check: subagents are blocked on HIGH and MEDIUM
-      if (fn.name === 'write_file' || fn.name === 'patch_file') {
-        subAgentWriteCount++
-      }
-      const riskResult = assessRisk(fn.name, parsedArgs, {
-        isSubAgent: true,
-        recentWriteCount: subAgentWriteCount,
-        config: settings.risk ?? {},
-      })
-      if (riskResult?.requiresConfirmation) {
-        messages.push({
-          role: 'tool',
-          tool_call_id: tc.id,
-          content: `⚠️ Tool '${fn.name}' bloqueada: ${riskResult.level} risk em contexto de subagent (${riskResult.description}). O agent principal deve executar esta operação diretamente.`,
-        })
-        continue
-      }
-
-      const tool = subagentToolMap.get(fn.name)
-      let result: string
-      if (tool) {
-        try { result = await tool.execute(parsedArgs) } catch (e: unknown) {
-          result = `Error: ${(e as Error).message}`
-        }
-      } else {
-        result = `Unknown tool: ${fn.name}`
-      }
-
-      messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
-    }
-  }
-
-  return { resultText: '(subagent reached max iterations)', totalTokens }
-}
-
 
 export const SubAgent: Tool = {
   name: 'subagent',
-  description: 'Spawn a specialized subagent to handle a focused subtask independently with its own context and access to tools based on its role (filesystem, shell, grep, etc.). Use this to delegate focused subtasks like analyzing a directory, refactoring a file, running tests, or researching something. Multiple subagent calls in the same response are executed in parallel. Returns the subagent\'s final result.',
+  description: 'Spawn a specialized subagent to handle a focused subtask independently. Supports specialist agents (coder, reviewer, tester) with domain expertise, or generic subagents with role-based tool access. Multiple subagent calls in the same response are executed in parallel. Returns the subagent\'s final result.',
   parameters: {
     type: 'object',
     properties: {
@@ -266,6 +125,11 @@ export const SubAgent: Tool = {
         type: 'boolean',
         description: 'If true, spawn a verifier subagent to check the result. Auto-enabled for file changes and low confidence.',
       },
+      agent: {
+        type: 'string',
+        enum: ['coder', 'reviewer', 'tester'],
+        description: 'Invoke a specialist agent with domain expertise. "coder" for implementation, "reviewer" for code review, "tester" for test writing. Uses their specialized system prompt and appropriate tool access.',
+      },
     },
     required: ['task'],
   },
@@ -273,28 +137,37 @@ export const SubAgent: Tool = {
     const task = args.task as string
     const modelOverride = args.model as string | undefined
     const agentId = randomUUID().slice(0, 8)
+    const agentArg = args.agent as string | undefined
 
     // Snapshot provider/model at invocation time to avoid race with parallel subagents
     const provider = subAgentProvider
     const modelName = modelOverride ?? subAgentModel ?? defaultModel(provider.provider)
 
-    // Infer role if not provided
-    const role: SubAgentRole = (args.role as SubAgentRole) ?? inferRole(task)
+    // Determine if this is a fixed agent call
+    const fixedAgent = agentArg && isFixedAgent(agentArg) ? getFixedAgent(agentArg as FixedAgentName) : null
+    const role: SubAgentRole = fixedAgent?.role ?? (args.role as SubAgentRole) ?? inferRole(task)
+    const agentName = fixedAgent?.displayName ?? undefined
 
-    subAgentCallbacks?.onStart(agentId, task)
+    await acquire()
+    subAgentCallbacks?.onStart(agentId, task, agentName)
 
     try {
       // Lazy import to avoid circular dependency
       const { allTools } = await import('../index.js')
-      const subagentTools = allTools.filter((t) => t.name !== 'subagent')
+      const subagentTools = allTools.filter((t) => t.name !== 'subagent' && t.name !== 'ask_agent')
 
       // Filter tools by role
       const filteredTools = getToolsForRole(role, subagentTools)
 
-      const prompt = buildSubAgentPrompt(task, role)
+      // Build prompt: fixed agent uses specialized prompt, generic uses the standard one
+      const memory = formatMemoryForPrompt(getCurrentMemory())
+      const prompt = fixedAgent
+        ? buildFixedAgentPrompt(fixedAgent, task, memory)
+        : buildSubAgentPrompt(task, role)
 
       const { resultText, totalTokens } = await runSubAgentLoop(
-        prompt, task, agentId, filteredTools, provider, modelName
+        prompt, task, agentId, filteredTools, provider, modelName,
+        { onToolUse: (id, tool, info) => subAgentCallbacks?.onToolUse(id, tool, info) },
       )
 
       // Parse structured result
@@ -303,13 +176,14 @@ export const SubAgent: Tool = {
       // Add to task memory for sibling subagents
       addPreviousResult(getCurrentMemory(), task, structured.summary, structured.confidence)
 
-      // Verification check
+      // Verification check (reuses current concurrency slot — no second acquire)
       let verificationSuffix = ''
       if (shouldVerify(task, structured, args.verify as boolean | undefined)) {
         const verifierPrompt = buildVerifierPrompt(task, structured)
         const verifierTools = getToolsForRole('reader', subagentTools)
         const { resultText: verifierText } = await runSubAgentLoop(
-          verifierPrompt, verifierPrompt, `${agentId}-v`, verifierTools, provider, modelName
+          verifierPrompt, verifierPrompt, `${agentId}-v`, verifierTools, provider, modelName,
+          { onToolUse: (id, tool, info) => subAgentCallbacks?.onToolUse(id, tool, info) },
         )
         const verification = parseVerificationResult(verifierText)
         verificationSuffix = `\n${formatVerificationForUser(verification)}`
@@ -323,6 +197,8 @@ export const SubAgent: Tool = {
       const errMsg = (e as Error).message ?? String(e)
       subAgentCallbacks?.onError(agentId, errMsg)
       throw e
+    } finally {
+      release()
     }
   },
 }

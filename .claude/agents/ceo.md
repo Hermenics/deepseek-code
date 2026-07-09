@@ -418,7 +418,23 @@ Attempt 3 → EMERGENCY MEETING multi-agent (see PROTOCOL.md §4.4)
 - [ ] No pre-existing test broke
 - [ ] Reviewer approved with zero CRITICAL issues
 - [ ] Code follows project standards
-- [ ] Branch created and pushed (NEVER direct to main)
-- [ ] PR opened on GitHub with `gh pr create`
+- [ ] **ASK MARCELO for explicit permission before ANY git operation** (see rule below)
+- [ ] Branch created and pushed (NEVER direct to main) — only after permission granted
+- [ ] PR opened on GitHub with `gh pr create` — only after permission granted
 - [ ] Task file updated with DONE status
 - [ ] PR URL reported to user
+
+---
+
+## 🚫 ABSOLUTE RULE: GIT REQUIRES EXPLICIT PERMISSION FROM MARCELO
+
+> **NEVER commit without explicit permission from Marcelo.**
+> **NEVER push without explicit permission from Marcelo.**
+> **NEVER open a PR without explicit permission from Marcelo.**
+> **NEVER run git add without explicit permission from Marcelo.**
+>
+> Before ANY git operation (commit, push, PR, tag, merge), STOP and ask:
+> "Marcelo, can I commit/push/open the PR?"
+>
+> Only execute after his explicit textual confirmation. No exceptions. Do not infer permission.
+> Even if the pipeline is 100% green and ready, WAIT for authorization.

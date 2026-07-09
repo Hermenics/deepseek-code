@@ -18,6 +18,7 @@ export interface SubagentState {
   role: SubAgentRole | null
   confidence: number | null
   verified: boolean | null     // null = not verified, true = confirmed, false = flawed
+  agentName: string | null      // 'Coder', 'Reviewer', 'Tester', or null for generic subagents
 }
 
 export interface SubagentLineProps {

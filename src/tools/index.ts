@@ -15,7 +15,8 @@ import { Git } from './Git/Git.js'
 import { MemoryTool } from './Memory/MemoryTool.js'
 import { MoATool } from './MoA/MoA.js'
 import { EditFile } from './EditFile/EditFile.js'
+import { AskAgent } from './AskAgent/AskAgent.js'
 
-export const allTools: Tool[] = [WriteFile, EditFile, PatchFile, ReadFile, ReadFolder, Grep, Glob, Shell, Introspect, WebFetch, SubAgent, UpdateKnowledge, Todo, Git, MemoryTool, MoATool]
+export const allTools: Tool[] = [WriteFile, EditFile, PatchFile, ReadFile, ReadFolder, Grep, Glob, Shell, Introspect, WebFetch, SubAgent, AskAgent, UpdateKnowledge, Todo, Git, MemoryTool, MoATool]
 
 export const toolMap = new Map<string, Tool>(allTools.map((t) => [t.name, t]))
