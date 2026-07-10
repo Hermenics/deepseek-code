@@ -901,7 +901,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   // ponytail: push input to bottom — minHeight on messages area fills terminal height
   const termRows = process.stdout.rows || 24
-  const footerHeight = 5 // InputChrome (3) + StatusBar (2)
+  const footerHeight = 4 // InputChrome (2: border + input) + StatusBar (2: divider + info)
   const isOverlayActive = showEffortSelector || showModelSelector || showThemeSelector || showLanguageInput || showEnchantConfirm
   const minContentHeight = isOverlayActive ? 0 : Math.max(0, termRows - footerHeight)
 
