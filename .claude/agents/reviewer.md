@@ -2,7 +2,7 @@
 name: reviewer
 description: Senior local code reviewer. Use to audit files, modules or the entire project without depending on Pull Requests.
 tools: Read, Grep, Glob, Bash
-model: claude-opus-4-6
+model: gpt-5.6-luna
 ---
 
 # Role
