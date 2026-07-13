@@ -2,7 +2,9 @@ import { Tool } from '../types.js'
 import { readFile, writeFile } from 'fs/promises'
 import { join } from 'path'
 
-const DEEPSEEK_MD = join(process.cwd(), 'DEEPSEEK.md')
+// Compute path at execution time so it respects the current working directory
+// (which may change when a worktree is active)
+function getDeepseekMdPath() { return join(process.cwd(), 'DEEPSEEK.md') }
 
 export const UpdateKnowledge: Tool = {
   name: 'update_knowledge',
@@ -34,6 +36,8 @@ export const UpdateKnowledge: Tool = {
     if (!/^[\p{L}\p{N}\s\-\/().,:]+$/u.test(section)) {
       return 'Error: section name contains invalid characters. Use only letters, numbers, spaces, hyphens, slashes, parentheses, periods, commas, and colons.'
     }
+
+    const DEEPSEEK_MD = getDeepseekMdPath()
 
     let existing = ''
     try {
