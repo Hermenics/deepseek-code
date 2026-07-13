@@ -1,7 +1,7 @@
 ---
 name: ceo
 description: Supreme orchestrator of DeepSeek Code. Plans, coordinates, decides and ensures the multi-agent system delivers perfect code in a TDD-first flow with single-prompt error resolution.
-model: gpt-5.5
+model: claude-opus-4-6
 effort: max
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob, Agent, WebSearch, WebFetch
 color: purple
