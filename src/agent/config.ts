@@ -24,7 +24,7 @@ export interface LoadedAgent {
   source: 'local' | 'global'
 }
 
-const LOCAL_DIR = join(process.cwd(), '.deepseek', 'agents')
+function getLocalDir() { return join(process.cwd(), '.deepseek', 'agents') }
 const GLOBAL_DIR = join(homedir(), '.deepseek', 'agents')
 
 async function tryLoad(path: string): Promise<AgentConfig | null> {
@@ -39,7 +39,7 @@ async function tryLoad(path: string): Promise<AgentConfig | null> {
 }
 
 export async function loadAgentConfig(name: string): Promise<LoadedAgent> {
-  const localPath = join(LOCAL_DIR, `${name}.json`)
+  const localPath = join(getLocalDir(), `${name}.json`)
   const globalPath = join(GLOBAL_DIR, `${name}.json`)
 
   const local = await tryLoad(localPath)
@@ -55,7 +55,7 @@ export async function listAgents(): Promise<{ name: string; source: 'local' | 'g
   const results: { name: string; source: 'local' | 'global' }[] = []
   const seen = new Set<string>()
 
-  for (const [dir, source] of [[LOCAL_DIR, 'local'], [GLOBAL_DIR, 'global']] as const) {
+  for (const [dir, source] of [[getLocalDir(), 'local'], [GLOBAL_DIR, 'global']] as const) {
     const files = await globFiles(/\.json$/, dir)
     for (const file of files) {
       const name = file.replace(/\.json$/, '')
