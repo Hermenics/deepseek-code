@@ -28,6 +28,8 @@ import effort from './effort/index.js'
 import enchantPrompt from './enchant-prompt/index.js'
 import skill from './skill/index.js'
 import plugin from './plugin/index.js'
+import context from './context/index.js'
+import worktree from './worktree/index.js'
 
 const commands: Command[] = [
   help,
@@ -58,6 +60,8 @@ const commands: Command[] = [
   enchantPrompt,
   skill,
   plugin,
+  context,
+  worktree,
 ]
 
 export function parseCommand(input: string): CommandResult | null {

@@ -83,3 +83,51 @@ describe('parseCommand', () => {
     expect(result?.type).toBe('unknown')
   })
 })
+
+describe('parseCommand — context', () => {
+  it('parses /context', () => {
+    expect(parseCommand('/context')).toEqual({ type: 'context' })
+  })
+
+  it('parses /ctx alias', () => {
+    expect(parseCommand('/ctx')).toEqual({ type: 'context' })
+  })
+})
+
+describe('parseCommand — worktree', () => {
+  it('parses /worktree with no args → create', () => {
+    expect(parseCommand('/worktree')).toEqual({ type: 'worktree', action: 'create' })
+  })
+
+  it('parses /wt alias → create', () => {
+    expect(parseCommand('/wt')).toEqual({ type: 'worktree', action: 'create' })
+  })
+
+  it('parses /worktree exit → keep: false', () => {
+    expect(parseCommand('/worktree exit')).toEqual({ type: 'worktree', action: 'exit', keep: false })
+  })
+
+  it('parses /worktree exit keep → keep: true', () => {
+    expect(parseCommand('/worktree exit keep')).toEqual({ type: 'worktree', action: 'exit', keep: true })
+  })
+
+  it('parses /worktree enter swift-fox', () => {
+    expect(parseCommand('/worktree enter swift-fox')).toEqual({ type: 'worktree', action: 'enter', name: 'swift-fox' })
+  })
+
+  it('parses /worktree list', () => {
+    expect(parseCommand('/worktree list')).toEqual({ type: 'worktree', action: 'list' })
+  })
+
+  it('parses /worktree ls alias', () => {
+    expect(parseCommand('/worktree ls')).toEqual({ type: 'worktree', action: 'list' })
+  })
+
+  it('parses /worktree status', () => {
+    expect(parseCommand('/worktree status')).toEqual({ type: 'worktree', action: 'status' })
+  })
+
+  it('parses /worktree leave as exit', () => {
+    expect(parseCommand('/worktree leave')).toEqual({ type: 'worktree', action: 'exit', keep: false })
+  })
+})

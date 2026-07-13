@@ -47,6 +47,12 @@ export type CommandResult =
   | { type: 'plugin'; action: 'update'; name: string }
   | { type: 'plugin'; action: 'help' }
   | { type: 'plugin'; action: 'error'; message: string }
+  | { type: 'context' }
+  | { type: 'worktree'; action: 'create' }
+  | { type: 'worktree'; action: 'enter'; name: string }
+  | { type: 'worktree'; action: 'exit'; keep: boolean }
+  | { type: 'worktree'; action: 'list' }
+  | { type: 'worktree'; action: 'status' }
   | { type: 'unknown'; input: string }
 
 export interface Command {

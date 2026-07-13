@@ -29,6 +29,7 @@ import { estimateCost, formatCost, getContextLimit, type TokenUsage } from './co
 import type { ProviderConfig } from '../types/provider.js'
 import { UNDO_STACK_MAX, CONTEXT_COMPACT_THRESHOLD, MICRO_COMPACT_KEEP_LAST } from '../constants.js'
 import { shouldAutoCompact, microCompact, createCompactState, createAutoCompactConfig, type CompactState, type AutoCompactConfig } from '../services/compact/autoCompact.js'
+import { estimateContextBreakdown, type ContextBreakdown, type ContextSnapshotInput } from './contextBreakdown.js'
 import { COMPACT_SUMMARY_PROMPT, COMPACT_SYSTEM_PROMPT } from '../services/compact/summaryPrompt.js'
 import { auditLog } from './auditLog.js'
 import { refinePrompt } from './promptRefiner.js'
@@ -212,6 +213,7 @@ export class Agent {
   private providerConfig: ProviderConfig = { provider: 'deepseek' }
   public contextUsage = 0      // last known prompt token count
   public contextLimit = 1_000_000
+  public contextStale = false  // true after compact() until next API response
   private toolPermissionHandler: ToolPermissionHandler | null = null
   private sessionApprovedTools: Set<string> = new Set()
   private turnWriteCount = 0
@@ -434,6 +436,20 @@ export class Agent {
     ].join('\n')
   }
 
+  // ── Context breakdown ─────────────────────────────────────────────────────
+
+  getContextBreakdown(): ContextBreakdown {
+    const rawMessages = this.messages.filter(m => typeof m === 'object' && 'role' in m)
+    const input: ContextSnapshotInput = {
+      systemPrompt: this.systemPrompt,
+      toolsPayload: JSON.stringify(this.tools.map(t => ({ name: t.name, description: t.description, parameters: t.parameters }))),
+      messages: rawMessages as Array<{ role: string; content?: string | null; tool_calls?: unknown[]; reasoning_content?: string | null }>,
+      contextUsage: this.contextStale ? 0 : this.contextUsage,
+      contextLimit: this.contextLimit,
+    }
+    return estimateContextBreakdown(input)
+  }
+
   // ── Retry ──────────────────────────────────────────────────────────────────
 
   getLastUserMessage(): string | null {
@@ -501,6 +517,7 @@ export class Agent {
     } catch { /* non-critical */ }
 
     await saveHistory(this.messages)
+    this.contextStale = true
     return summary
   }
 
@@ -792,6 +809,7 @@ export class Agent {
           this.tokenUsage.completionTokens += usage.completion_tokens ?? 0
           this.tokenUsage.cachedTokens += usage.prompt_cache_hit_tokens ?? 0
           this.contextUsage = usage.prompt_tokens ?? 0
+          this.contextStale = false
         }
 
         // ── Bedrock R1: prompt-based tool calling ────────────────────────────
@@ -919,6 +937,7 @@ export class Agent {
             this.tokenUsage.completionTokens += chunk.usage.completion_tokens
             this.tokenUsage.cachedTokens += (chunk.usage as { prompt_cache_hit_tokens?: number }).prompt_cache_hit_tokens ?? 0
             this.contextUsage = chunk.usage.prompt_tokens
+            this.contextStale = false
           }
 
           const delta = chunk.choices[0]?.delta

@@ -86,6 +86,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 }) {
   const initialSessionRef = useRef(initialSession)
   const handleSubmitRef = useRef<((text: string) => Promise<void>) | null>(null)
+  const projectRootRef = useRef(process.cwd())  // captured at mount, before any worktree cwd changes
   const toolStatusClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const queuedSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveSessionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -843,6 +844,83 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               }
             } catch (e) {
               setMessages((m) => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
+            } finally {
+              setIsLoading(false)
+            }
+          }
+          return
+        }
+        case 'context': {
+          const { formatContextBreakdown } = await import('../agent/contextBreakdown.js')
+          const breakdown = agent.getContextBreakdown()
+          setMessages(m => [...m, { role: 'assistant', content: formatContextBreakdown(breakdown) }])
+          return
+        }
+        case 'worktree': {
+          const projectRoot = projectRootRef.current
+          const { createWorktree, enterWorktree, exitWorktree, listWorktrees, getActiveWorktree } = await import('../agent/worktree.js')
+          if (cmd.action === 'create') {
+            setIsLoading(true)
+            try {
+              const info = await createWorktree(projectRoot)
+              process.chdir(info.path)
+              setMessages(m => [...m, { role: 'assistant', content: `Worktree "${info.name}" created at ${info.path}\nCWD changed to the worktree.` }])
+            } catch (e) {
+              setMessages(m => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
+            } finally {
+              setIsLoading(false)
+            }
+          } else if (cmd.action === 'enter') {
+            if (!cmd.name) {
+              setMessages(m => [...m, { role: 'assistant', content: 'Usage: /worktree enter <name>' }])
+              return
+            }
+            setIsLoading(true)
+            try {
+              const info = await enterWorktree(projectRoot, cmd.name)
+              process.chdir(info.path)
+              setMessages(m => [...m, { role: 'assistant', content: `Entered worktree "${info.name}" at ${info.path}` }])
+            } catch (e) {
+              setMessages(m => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
+            } finally {
+              setIsLoading(false)
+            }
+          } else if (cmd.action === 'exit') {
+            setIsLoading(true)
+            try {
+              const result = await exitWorktree(projectRoot, cmd.keep)
+              setMessages(m => [...m, { role: 'assistant', content: result }])
+            } catch (e) {
+              setMessages(m => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
+            } finally {
+              setIsLoading(false)
+            }
+          } else if (cmd.action === 'list') {
+            setIsLoading(true)
+            try {
+              const worktrees = await listWorktrees(projectRoot)
+              if (!worktrees.length) {
+                setMessages(m => [...m, { role: 'assistant', content: 'No worktrees found.' }])
+              } else {
+                const lines = worktrees.map(w => `  ${w.name}  ${w.path}  (${w.isGitWorktree ? 'git' : 'copy'})`)
+                setMessages(m => [...m, { role: 'assistant', content: `Worktrees:\n${lines.join('\n')}` }])
+              }
+            } catch (e) {
+              setMessages(m => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
+            } finally {
+              setIsLoading(false)
+            }
+          } else if (cmd.action === 'status') {
+            setIsLoading(true)
+            try {
+              const active = await getActiveWorktree(projectRoot)
+              if (!active) {
+                setMessages(m => [...m, { role: 'assistant', content: 'No active worktree.' }])
+              } else {
+                setMessages(m => [...m, { role: 'assistant', content: `Active worktree: "${active.name}"\nPath: ${active.path}\nCreated: ${active.createdAt}` }])
+              }
+            } catch (e) {
+              setMessages(m => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
             } finally {
               setIsLoading(false)
             }

@@ -38,6 +38,13 @@ export const HELP_TEXT = `Commands:
   /effort [level]        set reasoning effort (low/high/max/auto)
   /memory                show persistent memory contents
   /memory clear [agent|user]  clear memory (both or specific)
+  /context (ctx)         show context window usage breakdown (estimated)
+  /worktree (wt)         create or manage an isolated project copy
+                           /worktree               create new worktree
+                           /worktree enter <name>  enter existing worktree
+                           /worktree exit [keep]   return to original project
+                           /worktree list          list all worktrees
+                           /worktree status        show current worktree status
   /quit  /q              exit`
 
 export default command
