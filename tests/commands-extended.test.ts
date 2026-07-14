@@ -35,8 +35,8 @@ describe('parseCommand — extended coverage', () => {
       expect(parseCommand('/models')).toEqual({ type: 'unknown', input: 'Unknown command: /models. Use /help to see available commands.' })
     })
 
-    it('should parse /language', () => {
-      expect(parseCommand('/language')).toEqual({ type: 'language' })
+    it('should parse /config', () => {
+      expect(parseCommand('/config')).toEqual({ type: 'config' })
     })
 
     it('should parse /sessions', () => {
