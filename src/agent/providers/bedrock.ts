@@ -5,7 +5,7 @@ import { Sha256 } from '@aws-crypto/sha256-js'
 import { BedrockClient, ListFoundationModelsCommand } from '@aws-sdk/client-bedrock'
 
 function resolveCredentials(profile: string) {
-  // Usa env vars quando credenciais completas estão disponíveis (ex: STS temporárias)
+  // Use env vars when full credentials are avaiable (ex: temporary STSs)
   if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) return fromEnv()
   return fromIni({ profile })
 }
