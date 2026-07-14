@@ -12,11 +12,9 @@ import { InputBox, LoadingSpinner } from './input/InputBox.js'
 import { QueuedMessagesList } from './input/QueuedMessagesList.js'
 import { enqueue } from './queueLogic.js'
 import { StatusBar } from './layout/StatusBar.js'
-import { ThemeSelector } from './setup/ThemeSelector.js'
 import { ModelSelector } from './setup/ModelSelector.js'
 import { EffortSelector } from './setup/EffortSelector.js'
-import { LanguageInput } from './setup/LanguageInput.js'
-import { EnchantConfirm } from './setup/EnchantConfirm.js'
+import ConfigMenu from './setup/ConfigMenu.js'
 import { parseCommand, HELP_TEXT, PLAN_PROMPT, REVIEW_PROMPT } from '../commands.js'
 import { loadAgentConfig, listAgents, type LoadedAgent } from '../agent/config.js'
 import { appendInputHistory } from '../agent/inputHistory.js'
@@ -106,14 +104,13 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [queuedMessages, setQueuedMessages] = useState<string[]>([])
   const [agent] = useState(() => new Agent(providerConfig ?? undefined))
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
-  const [showThemeSelector, setShowThemeSelector] = useState(false)
+  const [showConfigMenu, setShowConfigMenu] = useState(false)
+  const [currentLanguage, setCurrentLanguage] = useState<string | null>(language ?? null)
   const subagentsRef = useRef(useSubagents())
   const [, setSubagentTick] = useState(0)
   const [showModelSelector, setShowModelSelector] = useState(false)
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [showEffortSelector, setShowEffortSelector] = useState(false)
-  const [showLanguageInput, setShowLanguageInput] = useState(false)
-  const [showEnchantConfirm, setShowEnchantConfirm] = useState(false)
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   const [toolPermissionState, setToolPermissionState] = useState<ToolPermissionState | null>(null)
   const [vimEnabled, setVimEnabled] = useState(false)
@@ -497,11 +494,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setShowModelSelector(true)
           return
         }
-        case 'language':
-          setShowLanguageInput(true)
-          return
-        case 'enchant-prompt':
-          setShowEnchantConfirm(true)
+        case 'config':
+          setShowConfigMenu(true)
           return
         case 'agents': {
           const agents = await listAgents()
@@ -601,9 +595,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           }
           return
         }
-        case 'theme':
-          setShowThemeSelector(true)
-          return
         case 'sessions': {
           const { listSessions } = await import('../agent/session.js')
           const sessions = await listSessions()
@@ -980,7 +971,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   // ponytail: push input to bottom — minHeight on messages area fills terminal height
   const termRows = process.stdout.rows || 24
   const footerHeight = 4 // InputChrome (2: border + input) + StatusBar (2: divider + info)
-  const isOverlayActive = showEffortSelector || showModelSelector || showThemeSelector || showLanguageInput || showEnchantConfirm
+  const isOverlayActive = showEffortSelector || showModelSelector || showConfigMenu
   const minContentHeight = isOverlayActive ? 0 : Math.max(0, termRows - footerHeight)
 
   return (
@@ -999,11 +990,16 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
       {/* Footer */}
       <Box flexDirection="column" flexShrink={0}>
-        {showThemeSelector ? (
-          <ThemeSelector
+        {showConfigMenu ? (
+          <ConfigMenu
             currentTheme={theme}
-            onSelect={(t) => { setTheme(t); onThemeChange?.(t); setShowThemeSelector(false) }}
-            onCancel={() => setShowThemeSelector(false)}
+            currentLanguage={currentLanguage}
+            enchantEnabled={agent.promptRefinerEnabled}
+            onThemeSelect={(t) => { setTheme(t); onThemeChange?.(t) }}
+            onLanguageSet={(lang) => { agent.setLanguage(lang); saveConfig({ LANGUAGE: lang }); setCurrentLanguage(lang) }}
+            onEnchantToggle={(enabled) => { agent.setPromptRefinerEnabled(enabled) }}
+            onClose={() => setShowConfigMenu(false)}
+            onThemeChange={onThemeChange}
           />
         ) : showModelSelector ? (
           <ModelSelector
@@ -1030,26 +1026,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               setShowEffortSelector(false)
             }}
             onCancel={() => setShowEffortSelector(false)}
-          />
-        ) : showLanguageInput ? (
-          <LanguageInput
-            currentLanguage={language ?? null}
-            onDone={(lang) => {
-              agent.setLanguage(lang)
-              saveConfig({ LANGUAGE: lang })
-              setMessages((prev) => [...prev, { role: 'assistant', content: `Language set to ${lang}` }])
-              setShowLanguageInput(false)
-            }}
-            onCancel={() => setShowLanguageInput(false)}
-          />
-        ) : showEnchantConfirm ? (
-          <EnchantConfirm
-            currentlyEnabled={agent.promptRefinerEnabled}
-            onConfirm={(enabled) => {
-              agent.setPromptRefinerEnabled(enabled)
-              setShowEnchantConfirm(false)
-              setMessages((m) => [...m, { role: 'assistant', content: `Prompt enchantment ${enabled ? 'enabled' : 'disabled'}.` }])
-            }}
           />
         ) : toolPermissionState ? (
           <ToolPermissionPrompt
