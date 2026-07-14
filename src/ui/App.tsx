@@ -15,7 +15,7 @@ import { StatusBar } from './layout/StatusBar.js'
 import { ModelSelector } from './setup/ModelSelector.js'
 import { EffortSelector } from './setup/EffortSelector.js'
 import ConfigMenu from './setup/ConfigMenu.js'
-import { parseCommand, HELP_TEXT, PLAN_PROMPT, REVIEW_PROMPT } from '../commands.js'
+import { parseCommand, HELP_TEXT, REVIEW_PROMPT } from '../commands.js'
 import { loadAgentConfig, listAgents, type LoadedAgent } from '../agent/config.js'
 import { appendInputHistory } from '../agent/inputHistory.js'
 import type { ThemeName, ProviderConfig } from '../types/provider.js'
@@ -25,6 +25,8 @@ import { saveSession, type SessionData } from '../agent/session.js'
 import { DEFAULT_MODE, nextMode, isBuildMode, isAutoMode, type InteractionMode } from './interactionMode.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
+import { PlanApprovalPrompt, type PlanApprovalResult } from './plan/PlanApprovalPrompt.js'
+import { newPlanPath, buildPlanModeInjection } from '../agent/planMode.js'
 
 export type AgentPhase = 'idle' | 'refining' | 'executing'
 
@@ -70,6 +72,14 @@ interface ToolPermissionState {
   resolve: (result: ToolPermissionResult) => void
 }
 
+interface PlanApprovalState {
+  planPath: string
+  planContent: string
+  summary?: string
+  resolve(toolResult: string): void
+  reject(reason: string): void
+}
+
 export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, language, sessionId, initialSession, headerProvider, headerAgent }: {
   initialAgent?: LoadedAgent | null
   initialMessage?: string | null
@@ -113,6 +123,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [showEffortSelector, setShowEffortSelector] = useState(false)
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   const [toolPermissionState, setToolPermissionState] = useState<ToolPermissionState | null>(null)
+  const [planApprovalState, setPlanApprovalState] = useState<PlanApprovalState | null>(null)
   const [vimEnabled, setVimEnabled] = useState(false)
 
   useEffect(() => {
@@ -161,6 +172,18 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       })
     })
     return () => agent.setToolPermissionHandler(null)
+  }, [agent])
+
+  useEffect(() => {
+    agent.setPlanSubmitHandler(async (planPath: string, summary?: string) => {
+      const { readFile } = await import('fs/promises')
+      let planContent = ''
+      try { planContent = await readFile(planPath, 'utf-8') } catch { planContent = '(plan file could not be read)' }
+      return new Promise<string>((resolve, reject) => {
+        setPlanApprovalState({ planPath, planContent, summary, resolve, reject })
+      })
+    })
+    return () => agent.setPlanSubmitHandler(null)
   }, [agent])
 
   useEffect(() => {
@@ -263,6 +286,27 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     toolPermissionState.resolve(result)
     setToolPermissionState(null)
   }, [toolPermissionState])
+
+  const handlePlanDecision = useCallback((result: PlanApprovalResult) => {
+    if (!planApprovalState) return
+    if (result.approved) {
+      planApprovalState.resolve(JSON.stringify({ approved: true, message: 'Plan accepted. Now switch to Build mode and implement it.' }))
+      agent.interactionMode = 'build'
+      setInteractionMode('build')
+    } else if ('aborted' in result && result.aborted) {
+      planApprovalState.reject('aborted')
+      agent.interactionMode = 'build'
+      setInteractionMode('build')
+    } else {
+      const feedback = 'feedback' in result ? result.feedback : ''
+      planApprovalState.resolve(JSON.stringify({
+        approved: false,
+        feedback,
+        message: `Plan rejected. User feedback: ${feedback}. Revise the plan file and call submit_plan again when done.`,
+      }))
+    }
+    setPlanApprovalState(null)
+  }, [planApprovalState, agent])
 
   const runAgent = useCallback(async (prompt: string) => {
     let tokenBuffer = ''
@@ -611,9 +655,27 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           return
         }
         case 'plan': {
+          if (isLoading) return
+          const { mkdir } = await import('fs/promises')
+          const { dirname } = await import('path')
+          const planPath = newPlanPath(cmd.task)
+          await mkdir(dirname(planPath), { recursive: true })
+          // Set plan mode synchronously on both agent and React state
+          agent.interactionMode = 'plan'
+          agent.planFilePath = planPath
+          setInteractionMode('plan')
+          const injection = buildPlanModeInjection(cmd.task, planPath)
           const label = `/plan ${cmd.task}`
-          const prompt = PLAN_PROMPT(cmd.task)
-          await runWithPrompt(label, prompt)
+          setMessages((m) => [...m, { role: 'user', content: label }])
+          setIsLoading(true)
+          setAgentPhase('refining')
+          setStreamText('')
+          try {
+            await runAgent(injection)
+          } finally {
+            setIsLoading(false)
+            agent.planFilePath = null
+          }
           return
         }
         case 'review': {
@@ -1032,6 +1094,13 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             toolName={toolPermissionState.toolName}
             args={toolPermissionState.args}
             onDecide={handleToolPermission}
+          />
+        ) : planApprovalState ? (
+          <PlanApprovalPrompt
+            planContent={planApprovalState.planContent}
+            planSummary={planApprovalState.summary}
+            theme={theme}
+            onDecide={handlePlanDecision}
           />
         ) : confirmState ? (
           <ConfirmPrompt

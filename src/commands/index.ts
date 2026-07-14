@@ -77,6 +77,5 @@ export function parseCommand(input: string): CommandResult | null {
 export const COMMAND_SUGGESTIONS = commands.flatMap(c => [`/${c.name}`, ...c.aliases.map(a => `/${a}`)])
 
 export { HELP_TEXT } from './help/index.js'
-export { PLAN_PROMPT } from './plan/index.js'
 export { REVIEW_PROMPT } from './review/index.js'
 export type { CommandResult, Command, Model } from './types.js'
