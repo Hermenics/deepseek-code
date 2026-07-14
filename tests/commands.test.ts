@@ -24,8 +24,8 @@ describe('parseCommand', () => {
     expect(parseCommand('/agents')).toEqual({ type: 'agents' })
   })
 
-  it('parses /theme', () => {
-    expect(parseCommand('/theme')).toEqual({ type: 'theme' })
+  it('parses /config', () => {
+    expect(parseCommand('/config')).toEqual({ type: 'config' })
   })
 
   it('parses /agent <name>', () => {

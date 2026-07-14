@@ -6,14 +6,13 @@ import clear from './clear/index.js'
 import compact from './compact/index.js'
 import plan from './plan/index.js'
 import review from './review/index.js'
-import theme from './theme/index.js'
+import config from './config/index.js'
 import agent from './agent/index.js'
 import agents from './agents/index.js'
 import vim from './vim/index.js'
 import quit from './quit/index.js'
 import checkpoint from './checkpoint/index.js'
 import sessions from './sessions/index.js'
-import language from './language/index.js'
 import undo from './undo/index.js'
 import retry from './retry/index.js'
 import cost from './cost/index.js'
@@ -25,7 +24,6 @@ import msg from './msg/index.js'
 import stats from './stats/index.js'
 import memory from './memory/index.js'
 import effort from './effort/index.js'
-import enchantPrompt from './enchant-prompt/index.js'
 import skill from './skill/index.js'
 import plugin from './plugin/index.js'
 import context from './context/index.js'
@@ -38,14 +36,13 @@ const commands: Command[] = [
   compact,
   plan,
   review,
-  theme,
+  config,
   agent,
   agents,
   vim,
   quit,
   checkpoint,
   sessions,
-  language,
   undo,
   retry,
   cost,
@@ -57,7 +54,6 @@ const commands: Command[] = [
   stats,
   memory,
   effort,
-  enchantPrompt,
   skill,
   plugin,
   context,
