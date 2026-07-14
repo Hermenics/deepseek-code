@@ -224,12 +224,19 @@ export class Agent {
   private compactState: CompactState = createCompactState()
   private autoCompactConfig: AutoCompactConfig = createAutoCompactConfig({}, CONTEXT_COMPACT_THRESHOLD)
 
+  public planFilePath: string | null = null
+  private planSubmitHandler: ((planPath: string, summary?: string) => Promise<string>) | null = null
+
   setConfirmHandler(handler: ((message: string) => Promise<boolean>) | null) {
     setShellConfirmHandler(handler)
   }
 
   setToolPermissionHandler(handler: ToolPermissionHandler | null) {
     this.toolPermissionHandler = handler
+  }
+
+  setPlanSubmitHandler(handler: ((planPath: string, summary?: string) => Promise<string>) | null) {
+    this.planSubmitHandler = handler
   }
 
   constructor(providerConfig?: ProviderConfig) {
@@ -1074,6 +1081,37 @@ export class Agent {
     parsedArgs: Record<string, unknown>,
     cb: AgentCallbacks,
   ): Promise<{ tc: typeof tc; result: string }> {
+    // ── 0a. submit_plan intercept (plan mode only) ────────────────────────────
+    if (tc.function.name === 'submit_plan' && this.interactionMode === 'plan') {
+      const { path: planPath, summary } = parsedArgs as { path: string; summary?: string }
+      cb.onToolCall(tc.function.name, parsedArgs)
+      // Reject if model submits a path other than the one we generated
+      if (planPath !== this.planFilePath) {
+        const blockMsg = `submit_plan rejected: path must be the designated plan file (${this.planFilePath ?? 'not set'}).`
+        cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
+        return { tc, result: blockMsg }
+      }
+      const result = this.planSubmitHandler
+        ? await this.planSubmitHandler(planPath, summary)
+        : JSON.stringify({ approved: false, message: 'No plan approval handler available. Cannot auto-approve.' })
+      cb.onToolResult(tc.function.name, result, parsedArgs)
+      // Caller in runLoop pushes to this.messages — do NOT push here
+      return { tc, result }
+    }
+
+    // ── 0b. write_file path guard in plan mode ────────────────────────────────
+    // Note: validation runs again after hooks (see below), this early check is kept
+    // only to avoid running permission checks on clearly disallowed paths.
+    if (tc.function.name === 'write_file' && this.interactionMode === 'plan') {
+      const targetPath = parsedArgs.path as string
+      if (targetPath !== this.planFilePath) {
+        const blockMsg = `In plan mode, write_file is only allowed for the plan file (${this.planFilePath ?? 'not set'}). Use submit_plan when done.`
+        cb.onToolCall(tc.function.name, parsedArgs)
+        cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
+        return { tc, result: blockMsg }
+      }
+    }
+
     // ── 0. Auto mode: bypass ALL permission checks ─────────────────────────
     if (isAutoMode(this.interactionMode)) {
       // Auto mode = zero restrictions. Skip mode check, permission rules, everything.
@@ -1203,6 +1241,16 @@ export class Agent {
       }
       if (hookResult.modifiedInput) {
         effectiveArgs = hookResult.modifiedInput
+      }
+    }
+
+    // ── 0c. write_file post-hook path guard in plan mode ─────────────────────
+    if (tc.function.name === 'write_file' && this.interactionMode === 'plan') {
+      const effectivePath = effectiveArgs.path as string
+      if (effectivePath !== this.planFilePath) {
+        const blockMsg = `In plan mode, write_file is only allowed for the plan file (${this.planFilePath ?? 'not set'}). Use submit_plan when done.`
+        cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
+        return { tc, result: blockMsg }
       }
     }
 
