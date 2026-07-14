@@ -5,13 +5,12 @@ export type CommandResult =
   | { type: 'quit' }
   | { type: 'model'; model: Model }
   | { type: 'models' }
-  | { type: 'language' }
+  | { type: 'config' }
   | { type: 'clear' }
   | { type: 'compact' }
   | { type: 'help' }
   | { type: 'agent'; name: string }
   | { type: 'agents' }
-  | { type: 'theme' }
   | { type: 'undo' }
   | { type: 'undo'; action: 'all' }
   | { type: 'undo'; action: 'list' }
@@ -34,7 +33,6 @@ export type CommandResult =
   | { type: 'memory'; action: 'clear'; target?: 'agent' | 'user' }
   | { type: 'effort'; action: 'status' }
   | { type: 'effort'; action: 'set'; level: EffortLevel }
-  | { type: 'enchant-prompt' }
   | { type: 'skill'; action: 'install'; repo: string }
   | { type: 'skill'; action: 'list' }
   | { type: 'skill'; action: 'remove'; name: string }
