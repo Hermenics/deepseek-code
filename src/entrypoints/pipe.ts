@@ -41,7 +41,7 @@ export default async function runPipe() {
   await migrateConfigIfNeeded()
 
   // Load saved provider config (respects user's configured provider)
-  const { providerConfig, language } = await loadSavedConfig()
+  const { providerConfig, language, enchant } = await loadSavedConfig()
 
   if (!providerConfig) {
     const apiKey = process.env.DEEPSEEK_API_KEY
@@ -86,6 +86,9 @@ export default async function runPipe() {
 
   // Apply language preference if configured
   if (language) agent.setLanguage(language)
+
+  // Apply enchantment preference if configured
+  if (!enchant) agent.setPromptRefinerEnabled(false)
 
   let output = ''
   const tools: string[] = []

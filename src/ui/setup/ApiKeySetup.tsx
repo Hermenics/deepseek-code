@@ -37,7 +37,7 @@ export async function saveConfig(data: Record<string, string>): Promise<void> {
   await saveFullConfig({ ...existing, ...data })
 }
 
-export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfig | null; theme: ThemeName; language: string | null }> {
+export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfig | null; theme: ThemeName; language: string | null; enchant: boolean }> {
   try {
     const cfg = await loadFullConfig()
     const provider = (cfg.PROVIDER ?? 'deepseek') as ProviderName
@@ -68,9 +68,10 @@ export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfi
       providerConfig: isReady ? providerConfig : null,
       theme: (cfg.THEME ?? 'dark') as ThemeName,
       language: cfg.LANGUAGE ?? null,
+      enchant: cfg.ENCHANT !== 'false',
     }
   } catch {
-    return { providerConfig: null, theme: 'dark', language: null }
+    return { providerConfig: null, theme: 'dark', language: null, enchant: true }
   }
 }
 
