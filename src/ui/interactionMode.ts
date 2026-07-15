@@ -31,7 +31,7 @@ const READ_ONLY_TOOLS = new Set([
 const TOOL_PERMISSIONS: Record<InteractionMode, Set<string>> = {
   build: new Set([...READ_ONLY_TOOLS, 'shell', 'write_file', 'patch_file', 'update_knowledge']),
   auto: new Set([...READ_ONLY_TOOLS, 'shell', 'write_file', 'patch_file', 'update_knowledge']),
-  plan: new Set([...READ_ONLY_TOOLS]),
+  plan: new Set([...READ_ONLY_TOOLS, 'write_plan']),
 }
 
 export function canUseTool(mode: InteractionMode, tool: string): boolean {
