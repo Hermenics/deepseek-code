@@ -1099,17 +1099,9 @@ export class Agent {
       return { tc, result }
     }
 
-    // ── 0b. write_file path guard in plan mode ────────────────────────────────
-    // Note: validation runs again after hooks (see below), this early check is kept
-    // only to avoid running permission checks on clearly disallowed paths.
-    if (tc.function.name === 'write_file' && this.interactionMode === 'plan') {
-      const targetPath = parsedArgs.path as string
-      if (targetPath !== this.planFilePath) {
-        const blockMsg = `In plan mode, write_file is only allowed for the plan file (${this.planFilePath ?? 'not set'}). Use submit_plan when done.`
-        cb.onToolCall(tc.function.name, parsedArgs)
-        cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
-        return { tc, result: blockMsg }
-      }
+    // ── 0b. write_plan: inject __planFilePath before execution ─────────────────
+    if (tc.function.name === 'write_plan') {
+      parsedArgs.__planFilePath = this.planFilePath
     }
 
     // ── 0. Auto mode: bypass ALL permission checks ─────────────────────────
@@ -1241,16 +1233,6 @@ export class Agent {
       }
       if (hookResult.modifiedInput) {
         effectiveArgs = hookResult.modifiedInput
-      }
-    }
-
-    // ── 0c. write_file post-hook path guard in plan mode ─────────────────────
-    if (tc.function.name === 'write_file' && this.interactionMode === 'plan') {
-      const effectivePath = effectiveArgs.path as string
-      if (effectivePath !== this.planFilePath) {
-        const blockMsg = `In plan mode, write_file is only allowed for the plan file (${this.planFilePath ?? 'not set'}). Use submit_plan when done.`
-        cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
-        return { tc, result: blockMsg }
       }
     }
 

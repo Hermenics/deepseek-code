@@ -218,6 +218,24 @@ describe('interactionMode', () => {
       it('should block MCP tools (contain __)', () => {
         expect(canUseTool('plan', 'mcp__server__tool')).toBe(false)
       })
+
+      it('should allow write_plan', () => {
+        expect(canUseTool('plan', 'write_plan')).toBe(true)
+      })
+    })
+
+    describe('write_plan availability', () => {
+      it('should be allowed in plan mode', () => {
+        expect(canUseTool('plan', 'write_plan')).toBe(true)
+      })
+
+      it('should not be allowed in build mode', () => {
+        expect(canUseTool('build', 'write_plan')).toBe(false)
+      })
+
+      it('should be allowed in auto mode (auto allows everything)', () => {
+        expect(canUseTool('auto', 'write_plan')).toBe(true)
+      })
     })
   })
 

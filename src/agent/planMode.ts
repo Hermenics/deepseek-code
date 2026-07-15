@@ -28,7 +28,7 @@ ${task}
 ## Your plan file
 Write your complete plan to: \`${planPath}\`
 
-Use \`write_file\` to create or update that file. You may call it multiple times as you refine your thinking. You MUST NOT use \`write_file\` on any other path.
+Use \`write_plan\` to create or update that file. You may call it multiple times as you refine your thinking.
 
 ## Required plan sections (use these exact headings)
 
@@ -48,11 +48,11 @@ What helpers, types, patterns, or utilities already exist that you will use?
 How will the implementer know the work is done correctly?
 
 ## Allowed tools
-- read_file, read_folder, glob, grep, web_fetch, introspect — for exploration
-- write_file — ONLY to write to \`${planPath}\`
+- read_file, read_folder, glob, grep, git, web_fetch, introspect — for exploration
+- write_plan — to write your plan content
 - submit_plan — call this when your plan is complete
 
-You MUST NOT use: shell, patch_file, edit_file, git, write_file to any other path.
+You MUST NOT use: shell, write_file, patch_file, edit_file.
 
 ## When you are done
 Call \`submit_plan\` with path="${planPath}". Do not call any other tool after that.`
