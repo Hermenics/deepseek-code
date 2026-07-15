@@ -215,15 +215,19 @@ function Root() {
   const [initialMessage, setInitialMessage] = useState<string | null>(null)
   const [initialSession, setInitialSession] = useState<SessionData | null>(null)
   const [resumeNotFound, setResumeNotFound] = useState(false)
+  const [savedLanguage, setSavedLanguage] = useState<string | null>(null)
+  const [savedEnchant, setSavedEnchant] = useState<boolean>(true)
 
   useEffect(() => {
     const init = async () => {
       try {
         const { agentName, initialMessage: msg, resumeId } = ARGV
         await migrateConfigIfNeeded()
-        const { providerConfig: saved, theme: savedTheme } = await loadSavedConfig()
+        const { providerConfig: saved, theme: savedTheme, language, enchant } = await loadSavedConfig()
 
         setTheme(savedTheme)
+        setSavedLanguage(language)
+        setSavedEnchant(enchant)
         if (saved) {
           setProviderConfig(saved)
           if (saved.provider === 'deepseek' && saved.apiKey) process.env.DEEPSEEK_API_KEY = saved.apiKey
@@ -283,6 +287,8 @@ function Root() {
         theme={theme}
         providerConfig={providerConfig}
         onThemeChange={setTheme}
+        language={savedLanguage}
+        enchant={savedEnchant}
         sessionId={SESSION_ID}
         initialSession={initialSession}
         headerProvider={providerConfig?.provider ?? 'deepseek'}

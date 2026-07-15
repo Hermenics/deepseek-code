@@ -80,13 +80,14 @@ interface PlanApprovalState {
   reject(reason: string): void
 }
 
-export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, language, sessionId, initialSession, headerProvider, headerAgent }: {
+export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, language, enchant, sessionId, initialSession, headerProvider, headerAgent }: {
   initialAgent?: LoadedAgent | null
   initialMessage?: string | null
   theme: ThemeName
   providerConfig?: ProviderConfig | null
   onThemeChange?: (t: ThemeName) => void
   language?: string | null
+  enchant?: boolean
   sessionId?: string
   initialSession?: SessionData | null
   headerProvider?: string
@@ -205,6 +206,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       await agent.readyPromise.catch(() => {})
       if (language) {
         agent.setLanguage(language)
+      }
+      if (enchant !== undefined) {
+        agent.setPromptRefinerEnabled(enchant)
       }
       const session = initialSessionRef.current
       if (session?.agentMessages?.length) {
@@ -1057,9 +1061,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             currentTheme={theme}
             currentLanguage={currentLanguage}
             enchantEnabled={agent.promptRefinerEnabled}
-            onThemeSelect={(t) => { setTheme(t); onThemeChange?.(t) }}
+            onThemeSelect={(t) => { setTheme(t); onThemeChange?.(t); saveConfig({ THEME: t }) }}
             onLanguageSet={(lang) => { agent.setLanguage(lang); saveConfig({ LANGUAGE: lang }); setCurrentLanguage(lang) }}
-            onEnchantToggle={(enabled) => { agent.setPromptRefinerEnabled(enabled) }}
+            onEnchantToggle={(enabled) => { agent.setPromptRefinerEnabled(enabled); saveConfig({ ENCHANT: String(enabled) }) }}
             onClose={() => setShowConfigMenu(false)}
             onThemeChange={onThemeChange}
           />
