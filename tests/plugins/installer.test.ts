@@ -2,6 +2,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'bun:test'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
+import {
+  addPluginToRegistry,
+  readPluginRegistry,
+  removePluginFromRegistry,
+} from '../../src/plugins/registry.js'
 
 let testDir: string
 
@@ -39,9 +44,8 @@ describe('removePlugin', () => {
   })
 
   it('should remove a registered plugin', async () => {
-    const { addPluginToRegistry, readPluginRegistry } = await import('../../src/plugins/registry.js')
     const { removePlugin } = await import('../../src/plugins/installer.js')
-    // Setup: create plugin dir and registry entry
+    // Setup: create plugin dir and registry entry using testDir directly
     const pluginDir = join(testDir, 'my-plugin')
     mkdirSync(pluginDir, { recursive: true })
     writeFileSync(join(pluginDir, 'plugin.json'), JSON.stringify({ name: 'my-plugin' }))
@@ -49,10 +53,10 @@ describe('removePlugin', () => {
       name: 'my-plugin', repo: 'x/my-plugin', version: '1.0.0',
       installedAt: '', updatedAt: '', commitHash: '', description: '',
       components: { commands: [], agents: [], skills: [], hasHooks: false },
-    })
+    }, testDir)
     const result = await removePlugin('my-plugin')
     expect(result.ok).toBe(true)
-    expect(readPluginRegistry().plugins['my-plugin']).toBeUndefined()
+    expect(readPluginRegistry(testDir).plugins['my-plugin']).toBeUndefined()
   })
 })
 

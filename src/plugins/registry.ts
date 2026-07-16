@@ -1,21 +1,17 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync } from 'fs'
 import { join } from 'path'
-import { homedir, tmpdir } from 'os'
+import { homedir } from 'os'
 import { randomBytes } from 'crypto'
 import type { PluginEntry, PluginRegistry } from './types.js'
 
-// ponytail: function so env override works at call-time (test isolation)
 export function getPluginsDir(): string {
   return process.env.DEEPSEEK_PLUGINS_DIR || join(homedir(), '.deepseek-code', 'plugins')
 }
 
-function registryPath(): string {
-  return join(getPluginsDir(), 'registry.json')
-}
-
-export function readPluginRegistry(): PluginRegistry {
+export function readPluginRegistry(dir?: string): PluginRegistry {
+  const registryPath = join(dir ?? getPluginsDir(), 'registry.json')
   try {
-    const content = readFileSync(registryPath(), 'utf-8')
+    const content = readFileSync(registryPath, 'utf-8')
     const parsed = JSON.parse(content)
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) &&
         parsed.version === 1 && parsed.plugins && typeof parsed.plugins === 'object' && !Array.isArray(parsed.plugins)) {
@@ -28,29 +24,28 @@ export function readPluginRegistry(): PluginRegistry {
   }
 }
 
-export function writePluginRegistry(registry: PluginRegistry): void {
-  const dir = getPluginsDir()
-  mkdirSync(dir, { recursive: true })
-  // ponytail: write to temp then rename — atomic on POSIX, prevents partial writes
-  const tmp = join(tmpdir(), `registry-${randomBytes(6).toString('hex')}.json`)
+export function writePluginRegistry(registry: PluginRegistry, dir?: string): void {
+  const d = dir ?? getPluginsDir()
+  mkdirSync(d, { recursive: true })
+  const tmp = join(d, `.registry-${randomBytes(6).toString('hex')}.json`)
   writeFileSync(tmp, JSON.stringify(registry, null, 2))
-  renameSync(tmp, join(dir, 'registry.json'))
+  renameSync(tmp, join(d, 'registry.json'))
 }
 
-export function addPluginToRegistry(entry: PluginEntry): void {
-  const registry = readPluginRegistry()
+export function addPluginToRegistry(entry: PluginEntry, dir?: string): void {
+  const registry = readPluginRegistry(dir)
   registry.plugins[entry.name] = entry
-  writePluginRegistry(registry)
+  writePluginRegistry(registry, dir)
 }
 
-export function removePluginFromRegistry(name: string): void {
-  const registry = readPluginRegistry()
+export function removePluginFromRegistry(name: string, dir?: string): void {
+  const registry = readPluginRegistry(dir)
   if (!(name in registry.plugins)) return
   delete registry.plugins[name]
-  writePluginRegistry(registry)
+  writePluginRegistry(registry, dir)
 }
 
-export function getPluginEntry(name: string): PluginEntry | undefined {
-  const registry = readPluginRegistry()
+export function getPluginEntry(name: string, dir?: string): PluginEntry | undefined {
+  const registry = readPluginRegistry(dir)
   return registry.plugins[name]
 }
