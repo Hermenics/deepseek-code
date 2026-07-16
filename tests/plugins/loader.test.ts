@@ -1,9 +1,9 @@
-import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test'
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import { discoverComponents, readPluginManifest, loadInstalledPlugins } from '../../src/plugins/loader.js'
-import * as registry from '../../src/plugins/registry.js'
+import { writePluginRegistry } from '../../src/plugins/registry.js'
 
 let testDir: string
 
@@ -107,7 +107,6 @@ describe('loadInstalledPlugins', () => {
 
   beforeEach(() => {
     pluginsDir = mkdtempSync(join(tmpdir(), 'dsk-plugins-'))
-    spyOn(registry, 'getPluginsDir').mockReturnValue(pluginsDir)
   })
 
   afterEach(() => {
@@ -132,12 +131,9 @@ describe('loadInstalledPlugins', () => {
     const dir = join(pluginsDir, name)
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'plugin.json'), JSON.stringify({ name, version: '1.0.0' }))
-    spyOn(registry, 'readPluginRegistry').mockReturnValue({
-      version: 1,
-      plugins: { [name]: makeEntry(name) },
-    })
+    writePluginRegistry({ version: 1, plugins: { [name]: makeEntry(name) } }, pluginsDir)
 
-    const result = loadInstalledPlugins()
+    const result = loadInstalledPlugins(pluginsDir)
     expect(result).toHaveLength(1)
     expect(result[0].entry.name).toBe(name)
     expect(result[0].manifest.name).toBe(name)
@@ -145,12 +141,11 @@ describe('loadInstalledPlugins', () => {
   })
 
   it('skips plugin whose directory does not exist', () => {
-    spyOn(registry, 'readPluginRegistry').mockReturnValue({
-      version: 1,
-      plugins: { 'missing-plugin': makeEntry('missing-plugin') },
-    })
-
-    const result = loadInstalledPlugins()
+    writePluginRegistry(
+      { version: 1, plugins: { 'missing-plugin': makeEntry('missing-plugin') } },
+      pluginsDir,
+    )
+    const result = loadInstalledPlugins(pluginsDir)
     expect(result).toHaveLength(0)
   })
 
@@ -159,12 +154,9 @@ describe('loadInstalledPlugins', () => {
     const dir = join(pluginsDir, name)
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'plugin.json'), 'not json{{')
-    spyOn(registry, 'readPluginRegistry').mockReturnValue({
-      version: 1,
-      plugins: { [name]: makeEntry(name) },
-    })
+    writePluginRegistry({ version: 1, plugins: { [name]: makeEntry(name) } }, pluginsDir)
 
-    const result = loadInstalledPlugins()
+    const result = loadInstalledPlugins(pluginsDir)
     expect(result).toHaveLength(0)
   })
 
@@ -176,18 +168,15 @@ describe('loadInstalledPlugins', () => {
       join(dir, '.claude-plugin', 'plugin.json'),
       JSON.stringify({ name, version: '3.0.0' }),
     )
-    spyOn(registry, 'readPluginRegistry').mockReturnValue({
-      version: 1,
-      plugins: { [name]: makeEntry(name) },
-    })
+    writePluginRegistry({ version: 1, plugins: { [name]: makeEntry(name) } }, pluginsDir)
 
-    const result = loadInstalledPlugins()
+    const result = loadInstalledPlugins(pluginsDir)
     expect(result).toHaveLength(1)
     expect(result[0].manifest.version).toBe('3.0.0')
   })
 
   it('returns empty array when registry is empty', () => {
-    spyOn(registry, 'readPluginRegistry').mockReturnValue({ version: 1, plugins: {} })
-    expect(loadInstalledPlugins()).toEqual([])
+    writePluginRegistry({ version: 1, plugins: {} }, pluginsDir)
+    expect(loadInstalledPlugins(pluginsDir)).toEqual([])
   })
 })

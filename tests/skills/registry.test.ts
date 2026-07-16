@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
-import { mkdtemp, rm } from 'fs/promises'
+import { mkdtempSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import {
@@ -11,12 +11,12 @@ import {
 
 let testDir: string
 
-beforeEach(async () => {
-  testDir = await mkdtemp(join(tmpdir(), 'dsk-skills-test-'))
+beforeEach(() => {
+  testDir = mkdtempSync(join(tmpdir(), 'dsk-skills-test-'))
 })
 
-afterEach(async () => {
-  await rm(testDir, { recursive: true, force: true })
+afterEach(() => {
+  rmSync(testDir, { recursive: true, force: true })
 })
 
 describe('readRegistry', () => {

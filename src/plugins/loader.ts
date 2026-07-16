@@ -67,12 +67,13 @@ export function readPluginManifest(dir: string): PluginManifest | null {
   return null
 }
 
-export function loadInstalledPlugins(): LoadedPlugin[] {
-  const registry = readPluginRegistry()
+export function loadInstalledPlugins(dir?: string): LoadedPlugin[] {
+  const registry = readPluginRegistry(dir)
+  const base = dir ?? getPluginsDir()
   const loaded: LoadedPlugin[] = []
 
   for (const entry of Object.values(registry.plugins)) {
-    const pluginDir = join(getPluginsDir(), entry.name)
+    const pluginDir = join(base, entry.name)
     if (!existsSync(pluginDir)) {
       console.warn(`[plugins] skipping '${entry.name}': directory not found at ${pluginDir}`)
       continue
