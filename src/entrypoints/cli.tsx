@@ -201,9 +201,41 @@ if (logout) {
 
 const SESSION_ID = newSessionId()
 
-// ── Silent auto-update (fire-and-forget) ────────────────────────────────────
+// ── Update check ────────────────────────────────────────────────────────────
 if (!ARGV.update) {
-  import('../utils/auto-update.js').then(m => m.silentAutoUpdate())
+  const { checkForUpdate, isDismissed } = await import('../utils/update-notifier.js')
+  const update = await checkForUpdate()
+  if (update && !isDismissed(update.latest)) {
+    const { UpdatePrompt } = await import('../ui/setup/UpdatePrompt.js')
+    const { renderSync } = await import('../ink/root.js')
+    const choice = await new Promise<'update' | 'skip' | 'dismiss'>((resolve) => {
+      const instance = renderSync(
+        <UpdatePrompt
+          current={update.current}
+          latest={update.latest}
+          onChoice={(c) => { instance.unmount(); resolve(c) }}
+        />,
+        { exitOnCtrlC: false, patchConsole: false }
+      )
+    })
+    if (choice === 'update') {
+      const { execa } = await import('execa')
+      process.stdout.write(`\nUpdating to ${update.latest}...\n`)
+      const { stdout, stderr, exitCode } = await execa('npm', ['install', '-g', `${pkg.name}@${update.latest}`], { reject: false })
+      if (stdout) process.stdout.write(stdout + '\n')
+      if (stderr) process.stderr.write(stderr + '\n')
+      if (exitCode !== 0) {
+        process.stderr.write(`Update failed (exit ${exitCode}).\n`)
+        process.exit(exitCode ?? 1)
+      } else {
+        process.stdout.write(`Updated! Restart deepseek to use ${update.latest}.\n`)
+        process.exit(0)
+      }
+    } else if (choice === 'dismiss') {
+      const { dismissVersion } = await import('../utils/update-notifier.js')
+      dismissVersion(update.latest)
+    }
+  }
 }
 
 function Root() {
