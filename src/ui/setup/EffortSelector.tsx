@@ -52,7 +52,7 @@ export function EffortSelector({ currentLevel, onSelect, onCancel }: Props) {
 
   // Layout: each label gets a fixed column width, track spans the full width
   const COL_WIDTH = 12
-  const TRACK_WIDTH = COL_WIDTH * (LEVELS.length - 1)
+  const TRACK_WIDTH = COL_WIDTH * (LEVELS.length - 1) + 3
 
   // ▲ position: aligned to center of label text
   const markerPos = idx * COL_WIDTH + 1
