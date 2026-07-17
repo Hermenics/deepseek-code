@@ -19,12 +19,12 @@ export function createCompactState(): CompactState {
 }
 
 export function createAutoCompactConfig(
-  settings: { autoCompact?: boolean; autoCompactThreshold?: number },
+  settings: { autoCompact?: boolean; autoCompactThreshold?: number; compaction?: { enabled?: boolean; threshold?: number } },
   defaultThreshold: number,
 ): AutoCompactConfig {
   return {
-    enabled: settings.autoCompact !== false, // default true
-    threshold: settings.autoCompactThreshold ?? defaultThreshold,
+    enabled: settings.compaction?.enabled ?? settings.autoCompact ?? true,
+    threshold: settings.compaction?.threshold ?? settings.autoCompactThreshold ?? defaultThreshold,
     bufferTokens: 13_000,
     maxConsecutiveFailures: 3,
   }

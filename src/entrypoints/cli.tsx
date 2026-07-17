@@ -79,11 +79,14 @@ import { createRoot } from '../ink/root.js'
 import { App } from '../ui/App.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
+import { AlternateScreen } from '../ink/components/AlternateScreen.js'
 import { ApiKeySetup, loadSavedConfig } from '../ui/setup/ApiKeySetup.js'
 import type { ThemeName, ProviderConfig } from '../types/provider.js'
 import { migrateConfigIfNeeded, logout as doLogout } from '../utils/credentials.js'
 import { loadAgentConfig, type LoadedAgent } from '../agent/config.js'
-import { loadSession, newSessionId, type SessionData } from '../agent/session.js'
+import { getLastProjectSession, loadSession, newSessionId, type SessionData } from '../agent/session.js'
+import { loadMergedSettings } from '../settings/loader.js'
+import type { DeepSeekSettings } from '../settings/types.js'
 import pkg from '../../package.json' with { type: 'json' }
 
 function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; update: boolean; logout: boolean; help: boolean; version: boolean } {
@@ -249,15 +252,20 @@ function Root() {
   const [resumeNotFound, setResumeNotFound] = useState(false)
   const [savedLanguage, setSavedLanguage] = useState<string | null>(null)
   const [savedEnchant, setSavedEnchant] = useState<boolean>(true)
+  const [initialSettings, setInitialSettings] = useState<DeepSeekSettings>({})
 
   useEffect(() => {
     const init = async () => {
       try {
         const { agentName, initialMessage: msg, resumeId } = ARGV
         await migrateConfigIfNeeded()
-        const { providerConfig: saved, theme: savedTheme, language, enchant } = await loadSavedConfig()
+        const [{ providerConfig: saved, theme: savedTheme, language, enchant }, settings] = await Promise.all([
+          loadSavedConfig(),
+          loadMergedSettings(),
+        ])
 
         setTheme(savedTheme)
+        setInitialSettings(settings)
         setSavedLanguage(language)
         setSavedEnchant(enchant)
         if (saved) {
@@ -276,9 +284,13 @@ function Root() {
           } else {
             setResumeNotFound(true)
           }
+        } else if (settings.sessions?.autoResume === 'project-last') {
+          const session = await getLastProjectSession(process.cwd())
+          if (session) setInitialSession(session)
         }
-        if (agentName) {
-          try { setInitialAgent(await loadAgentConfig(agentName)) } catch (e) { console.error((e as Error).message) }
+        const effectiveAgentName = agentName ?? settings.agents?.default ?? null
+        if (effectiveAgentName) {
+          try { setInitialAgent(await loadAgentConfig(effectiveAgentName)) } catch (e) { console.error((e as Error).message) }
         }
         if (msg) setInitialMessage(msg)
       } catch (e) {
@@ -311,7 +323,7 @@ function Root() {
     )
   }
 
-  return (
+  const application = (
     <Box flexDirection="column" width="100%" height="100%">
       <App
         initialAgent={initialAgent}
@@ -325,9 +337,13 @@ function Root() {
         initialSession={initialSession}
         headerProvider={providerConfig?.provider ?? 'deepseek'}
         headerAgent={initialAgent?.config.name ?? null}
+        initialSettings={initialSettings}
       />
     </Box>
   )
+  return initialSettings.interface?.alternateScreen === false
+    ? application
+    : <AlternateScreen mouseTracking={false}>{application}</AlternateScreen>
 }
 
 const root = await createRoot({

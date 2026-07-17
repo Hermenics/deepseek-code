@@ -6,6 +6,7 @@ import { homedir } from 'os'
 import { join } from 'path'
 import { mkdir } from 'fs/promises'
 import { saveFullConfig, loadFullConfig } from '../../utils/credentials.js'
+import { loadMergedSettings, saveUserSettings } from '../../settings/index.js'
 import { WelcomeScreen } from '../layout/WelcomeScreen.js'
 import { getThemeColors } from '../theme.js'
 import Box from '../../ink/components/Box.js'
@@ -39,24 +40,24 @@ export async function saveConfig(data: Record<string, string>): Promise<void> {
 
 export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfig | null; theme: ThemeName; language: string | null; enchant: boolean }> {
   try {
-    const cfg = await loadFullConfig()
-    const provider = (cfg.PROVIDER ?? 'deepseek') as ProviderName
+    const [cfg, settings] = await Promise.all([loadFullConfig(), loadMergedSettings()])
+    const provider = (settings.provider?.name ?? cfg.PROVIDER ?? 'deepseek') as ProviderName
     const providerConfig: ProviderConfig = { provider }
     if (provider === 'deepseek' && cfg.DEEPSEEK_API_KEY) {
       providerConfig.apiKey = cfg.DEEPSEEK_API_KEY
-      if (cfg.DEEPSEEK_BASE_URL) providerConfig.baseURL = cfg.DEEPSEEK_BASE_URL
+      providerConfig.baseURL = settings.provider?.endpoint ?? cfg.DEEPSEEK_BASE_URL
     }
     if (provider === 'bedrock') {
-      providerConfig.awsRegion = cfg.AWS_REGION
-      providerConfig.awsProfile = cfg.AWS_PROFILE
+      providerConfig.awsRegion = settings.provider?.region ?? cfg.AWS_REGION
+      providerConfig.awsProfile = settings.provider?.profile ?? cfg.AWS_PROFILE
     }
     if (provider === 'vertex') {
-      providerConfig.gcpProject = cfg.GCP_PROJECT
-      providerConfig.gcpLocation = cfg.GCP_LOCATION
+      providerConfig.gcpProject = settings.provider?.projectId ?? cfg.GCP_PROJECT
+      providerConfig.gcpLocation = settings.provider?.location ?? cfg.GCP_LOCATION
       providerConfig.gcpCredentials = cfg.GCP_CREDENTIALS
     }
     if (provider === 'local') {
-      providerConfig.localBaseUrl = cfg.LOCAL_BASE_URL
+      providerConfig.localBaseUrl = settings.provider?.endpoint ?? cfg.LOCAL_BASE_URL
       providerConfig.localModel = cfg.LOCAL_MODEL
     }
     const isReady =
@@ -66,9 +67,9 @@ export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfi
       (provider === 'local' && !!providerConfig.localBaseUrl)
     return {
       providerConfig: isReady ? providerConfig : null,
-      theme: (cfg.THEME ?? 'dark') as ThemeName,
-      language: cfg.LANGUAGE ?? null,
-      enchant: cfg.ENCHANT !== 'false',
+      theme: (settings.interface?.theme ?? cfg.THEME ?? 'dark') as ThemeName,
+      language: settings.interface?.language ?? cfg.LANGUAGE ?? null,
+      enchant: settings.promptRefiner?.enabled ?? cfg.ENCHANT !== 'false',
     }
   } catch {
     return { providerConfig: null, theme: 'dark', language: null, enchant: true }
@@ -156,7 +157,20 @@ export function ApiKeySetup({ onDone }: Props) {
           setFieldIdx((i) => i + 1)
           setCurrentInput('')
         } else {
-          saveConfig({ ...updated, PROVIDER: selectedProvider, THEME: selectedTheme })
+          Promise.all([
+            saveConfig(Object.fromEntries(Object.entries(updated).filter(([key]) => key === 'DEEPSEEK_API_KEY' || key === 'GCP_CREDENTIALS'))),
+            saveUserSettings({
+              provider: {
+                name: selectedProvider,
+                endpoint: updated['DEEPSEEK_BASE_URL'] || updated['LOCAL_BASE_URL'] || undefined,
+                region: updated['AWS_REGION'] || undefined,
+                profile: updated['AWS_PROFILE'] || undefined,
+                projectId: updated['GCP_PROJECT'] || undefined,
+                location: updated['GCP_LOCATION'] || undefined,
+              },
+              interface: { theme: selectedTheme },
+            }),
+          ])
             .then(() => {
               for (const [k, v] of Object.entries(updated)) if (v) process.env[k] = v
               const providerConfig: ProviderConfig = {

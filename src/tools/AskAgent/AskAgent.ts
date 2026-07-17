@@ -2,12 +2,13 @@ import { randomUUID } from 'node:crypto'
 import type { Tool } from '../types.js'
 import type { ProviderConfig } from '../../types/provider.js'
 import { defaultModel } from '../../agent/llmClient.js'
-import { isFixedAgent, getFixedAgent, buildFixedAgentPrompt, type FixedAgentName } from '../SubAgent/fixedAgents.js'
 import { runSubAgentLoop } from '../SubAgent/executor.js'
-import { acquire, release } from '../SubAgent/concurrency.js'
+import { acquire, release, setConcurrencyLimit } from '../SubAgent/concurrency.js'
 import { getToolsForRole } from '../SubAgent/permissions.js'
 import { getCurrentMemory, formatMemoryForPrompt } from '../SubAgent/memory.js'
 import { parseSubAgentResult, formatResultForParent } from '../SubAgent/contracts.js'
+import { composeSubAgentPrompt, listAgents, loadAgentConfig } from '../../agent/config.js'
+import { loadMergedSettings } from '../../settings/loader.js'
 
 // Provider config inherited from parent Agent (set during initialization)
 let askAgentProvider: ProviderConfig = { provider: 'deepseek' }
@@ -33,11 +34,9 @@ export function setAgentNoteCallback(cb: AgentNoteCallback) {
  * Spawn a fixed agent in the background. Does NOT await — fire and forget.
  * Result is delivered via noteCallback when done.
  */
-function spawnBackgroundAgent(agentName: FixedAgentName, question: string): void {
-  const def = getFixedAgent(agentName)
+function spawnBackgroundAgent(agentName: string, question: string): void {
   const agentId = randomUUID().slice(0, 8)
   const provider = askAgentProvider
-  const modelName = askAgentModel ?? defaultModel(provider.provider)
 
   // Snapshot memory synchronously before the async boundary (memory resets each turn)
   const memory = formatMemoryForPrompt(getCurrentMemory())
@@ -46,15 +45,28 @@ function spawnBackgroundAgent(agentName: FixedAgentName, question: string): void
   void (async () => {
     await acquire()
     try {
+      const { config: def } = await loadAgentConfig(agentName)
+      if (!['subagent', 'both'].includes(def.usage ?? 'primary')) throw new Error(`Agent '${agentName}' is not enabled for subagent use`)
       // Lazy import to avoid circular dependency
       const { allTools } = await import('../index.js')
       const tools = allTools.filter((t) => t.name !== 'subagent' && t.name !== 'ask_agent')
-      const filteredTools = getToolsForRole(def.role, tools)
+      let filteredTools = getToolsForRole(def.role ?? 'reader', tools)
+      if (Array.isArray(def.tools)) filteredTools = filteredTools.filter(tool => def.tools!.includes(tool.name))
 
-      const prompt = buildFixedAgentPrompt(def, question, memory)
+      const settings = await loadMergedSettings()
+      setConcurrencyLimit(settings.agents?.concurrency ?? 5)
+      const modelSettings = typeof settings.model === 'object' ? settings.model : undefined
+      const modelName = def.model ?? settings.agents?.subagentModel ?? modelSettings?.subagent ?? askAgentModel ?? defaultModel(provider.provider)
+      const prompt = composeSubAgentPrompt(
+        def,
+        settings.agents?.basePrompt ?? 'You are a specialized subagent of DeepSeek Code. Work only on the delegated task and return a direct result.',
+        question,
+        memory,
+      )
 
       const { resultText } = await runSubAgentLoop(
         prompt, question, agentId, filteredTools, provider, modelName,
+        { permissionPolicy: def.permissions?.policy ?? settings.agents?.permissionPolicy, permissions: def.permissions },
       )
 
       const structured = parseSubAgentResult(resultText)
@@ -65,10 +77,10 @@ function spawnBackgroundAgent(agentName: FixedAgentName, question: string): void
       const note = formatted.length > MAX_NOTE_LEN
         ? formatted.slice(0, MAX_NOTE_LEN) + ' [truncated]'
         : formatted
-      noteCallback?.(def.displayName, note)
+      noteCallback?.(def.name, note)
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e ?? 'unknown error')
-      noteCallback?.(def.displayName, `Error: ${errMsg}`)
+      noteCallback?.(agentName, `Error: ${errMsg}`)
     } finally {
       release()
     }
@@ -83,8 +95,7 @@ export const AskAgent: Tool = {
     properties: {
       agent: {
         type: 'string',
-        enum: ['coder', 'reviewer', 'tester'],
-        description: 'Which specialist to ask. Required unless broadcast=true.',
+        description: 'Agent name from the active registry. Required unless broadcast=true.',
       },
       question: {
         type: 'string',
@@ -103,18 +114,25 @@ export const AskAgent: Tool = {
     const broadcast = args.broadcast as boolean | undefined
 
     if (broadcast) {
-      // Fan out to all 3 fixed agents
-      const agents: FixedAgentName[] = ['coder', 'reviewer', 'tester']
-      for (const name of agents) {
+      const agents = (await listAgents()).filter(agent => agent.enabled && ['subagent', 'both'].includes(agent.usage))
+      if (agents.length === 0) return 'Error: no enabled subagents are available for broadcast.'
+      for (const { name } of agents) {
         spawnBackgroundAgent(name, question)
       }
-      return `Dispatched to @coder, @reviewer, @tester. Responses will arrive in your next turn.`
+      return `Dispatched to ${agents.map(agent => `@${agent.name}`).join(', ')}. Responses will arrive in your next turn.`
     }
 
     // Single agent
-    if (!agentArg || !isFixedAgent(agentArg)) {
-      return `Error: specify a valid agent ("coder", "reviewer", or "tester") or use broadcast=true.`
+    if (!agentArg) {
+      return 'Error: specify an agent from the active registry or use broadcast=true.'
     }
+
+    try {
+      const { config } = await loadAgentConfig(agentArg)
+      if (!['subagent', 'both'].includes(config.usage ?? 'primary')) {
+        return `Error: agent '${agentArg}' is not enabled for subagent use.`
+      }
+    } catch (error) { return `Error: ${(error as Error).message}` }
 
     spawnBackgroundAgent(agentArg, question)
     return `Dispatched to @${agentArg}. Response will arrive in your next turn.`

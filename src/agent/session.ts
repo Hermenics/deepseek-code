@@ -1,6 +1,6 @@
 import { join } from 'path'
 import { homedir } from 'os'
-import { mkdir, readdir, unlink } from 'fs/promises'
+import { mkdir, readdir, unlink, rm } from 'fs/promises'
 import { randomBytes } from 'crypto'
 import { readJson, writeRaw } from '../utils/fs.js'
 import type { MessageOrBoundary } from './compactBoundary.js'
@@ -9,7 +9,11 @@ import type { Message } from '../ui/App.js'
 function getSessionsDir(): string {
   return join(process.env.HOME || homedir(), '.deepseek', 'sessions')
 }
-const MAX_SESSIONS = 50
+let maxSessions = 50
+
+export function setSessionRetention(value: number): void {
+  maxSessions = Math.max(1, Math.trunc(value))
+}
 
 export interface SessionData {
   id: string
@@ -70,10 +74,21 @@ async function pruneOldSessions(): Promise<void> {
   try {
     const dir = getSessionsDir()
     const sessions = await listSessions()
-    if (sessions.length <= MAX_SESSIONS) return
-    const toDelete = sessions.slice(MAX_SESSIONS)
+    if (sessions.length <= maxSessions) return
+    const toDelete = sessions.slice(maxSessions)
     await Promise.all(
       toDelete.map((s) => unlink(join(dir, `${s.id}.json`)).catch(() => {}))
     )
   } catch {}
+}
+
+export async function clearSessions(scope: 'project' | 'global', cwd = process.cwd()): Promise<number> {
+  const sessions = await listSessions()
+  const selected = scope === 'global' ? sessions : sessions.filter(session => session.cwd === cwd)
+  await Promise.all(selected.map(session => rm(join(getSessionsDir(), `${session.id}.json`), { force: true })))
+  return selected.length
+}
+
+export async function getLastProjectSession(cwd = process.cwd()): Promise<SessionData | null> {
+  return (await listSessions()).find(session => session.cwd === cwd) ?? null
 }

@@ -6,9 +6,12 @@ import { SUBAGENT_MAX_ITERATIONS } from '../../constants.js'
 import { resolvePermission } from '../../permissions/matcher.js'
 import { assessRisk } from '../../permissions/risk.js'
 import { loadMergedSettings } from '../../settings/loader.js'
+import type { AgentPermissionConfig } from '../../agent/config.js'
 
 export interface ExecutorCallbacks {
   onToolUse?(id: string, tool: string, info?: string): void
+  permissionPolicy?: 'inherit' | 'isolated'
+  permissions?: AgentPermissionConfig
 }
 
 export function buildToolPreview(toolName: string, args: Record<string, unknown>): string {
@@ -115,7 +118,17 @@ export async function runSubAgentLoop(
 
       callbacks?.onToolUse?.(agentId, fn.name, buildToolPreview(fn.name, parsedArgs))
 
-      const permDecision = resolvePermission(settings.permissions, fn.name, parsedArgs)
+      const agentPermissions = callbacks?.permissions
+      const effectivePermissions = callbacks?.permissionPolicy === 'isolated'
+        ? {
+            allow: agentPermissions?.allow,
+            deny: [...new Set([...(settings.permissions?.deny ?? []), ...(agentPermissions?.deny ?? [])])],
+          }
+        : {
+            allow: [...new Set([...(settings.permissions?.allow ?? []), ...(agentPermissions?.allow ?? [])])],
+            deny: [...new Set([...(settings.permissions?.deny ?? []), ...(agentPermissions?.deny ?? [])])],
+          }
+      const permDecision = resolvePermission(effectivePermissions, fn.name, parsedArgs)
       if (permDecision === 'deny') {
         messages.push({ role: 'tool', tool_call_id: tc.id, content: `Tool '${fn.name}' blocked by permission rule.` })
         continue

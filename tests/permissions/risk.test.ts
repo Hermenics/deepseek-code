@@ -184,20 +184,30 @@ describe('assessRisk', () => {
   })
 
   describe('config overrides', () => {
-    it('user override: shell:chmod with level medium → returns medium', () => {
+    it('cannot downgrade a mandatory default high-risk rule', () => {
       const config = {
         rules: [{ id: 'shell:chmod', level: 'medium' as const, tool: 'shell', pattern: 'chmod *' }],
       }
       const r = assessRisk('shell', { command: 'chmod 644 file.txt' }, ctx({ config }))
       expect(r).not.toBeNull()
-      expect(r!.level).toBe('medium')
+      expect(r!.level).toBe('high')
     })
 
-    it('enabled: false → returns null for everything', () => {
+    it('cannot disable or change the matcher of a mandatory default high-risk rule', () => {
+      const config = {
+        rules: [{ id: 'shell:chmod', enabled: false, level: 'medium' as const, tool: 'read_file', pattern: 'never *' }],
+      }
+      const r = assessRisk('shell', { command: 'chmod 644 file.txt' }, ctx({ config }))
+      expect(r?.level).toBe('high')
+      expect(r?.matchedRule).toBe('shell:chmod')
+    })
+
+    it('enabled: false disables optional checks but keeps high-risk rules mandatory', () => {
       const config = { enabled: false }
-      expect(assessRisk('shell', { command: 'rm -rf /' }, ctx({ config }))).toBeNull()
-      expect(assessRisk('shell', { command: 'sudo reboot' }, ctx({ config }))).toBeNull()
-      expect(assessRisk('write_file', { path: '.deepseek/config.json' }, ctx({ config }))).toBeNull()
+      expect(assessRisk('shell', { command: 'rm -rf /' }, ctx({ config }))?.level).toBe('high')
+      expect(assessRisk('shell', { command: 'sudo reboot' }, ctx({ config }))?.level).toBe('high')
+      expect(assessRisk('write_file', { path: '.deepseek/config.json' }, ctx({ config }))?.level).toBe('high')
+      expect(assessRisk('shell', { command: 'git commit -m ok' }, ctx({ config }))).toBeNull()
     })
 
     it('custom threshold: largeFileLines: 200 → 150 lines does not trigger', () => {

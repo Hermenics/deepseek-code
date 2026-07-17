@@ -28,12 +28,20 @@ function formatToolLine(rawName: string, detail: string): { display: string; arg
   return { display, arg, output }
 }
 
-function MessageItem({ message: m, theme, agentLabel: _agentLabel }: { message: Message; theme: ThemeName; agentLabel: string; key?: React.Key }) {
+function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = true, compact = false }: {
+  message: Message
+  theme: ThemeName
+  agentLabel: string
+  showDiffs?: boolean
+  compact?: boolean
+  key?: React.Key
+}) {
   const colors = getThemeColors(theme)
+  const marginTop = compact ? 0 : 1
 
   if (m.role === 'user') {
     return (
-      <Box flexDirection="column" marginTop={1}>
+      <Box flexDirection="column" marginTop={marginTop}>
         <Box flexDirection="row" gap={1}>
           <Text color={colors.primary}>{STATUS_ICONS.user}</Text>
           <Text color={colors.text}>{m.content}</Text>
@@ -43,10 +51,21 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel }: { message: 
   }
 
   if (m.role === 'tool') {
-    if (m.content.startsWith('✓ write_file →')) {
+    const diffPrefix = m.content.startsWith('✓ write_file →') ? '✓ write_file → '
+      : m.content.startsWith('✓ patch_file →') ? '✓ patch_file → '
+      : null
+    if (diffPrefix) {
       try {
-        const json = JSON.parse(m.content.slice('✓ write_file → '.length))
+        const json = JSON.parse(m.content.slice(diffPrefix.length))
         if (json.__diff) {
+          if (!showDiffs) {
+            return (
+              <Box flexDirection="row" paddingLeft={2} gap={1}>
+                <Text color={colors.success}>✓</Text>
+                <Text color={colors.textDim}>{diffPrefix.includes('patch') ? 'patch' : 'write'} {json.path} (+{json.added} −{json.removed}) · diff hidden</Text>
+              </Box>
+            )
+          }
           return <DiffView path={json.path} added={json.added} removed={json.removed} firstChanged={json.firstChanged} lines={json.lines} theme={theme} />
         }
       } catch { /* not JSON */ }
@@ -97,7 +116,7 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel }: { message: 
 
   if (m.role === 'terminal') {
     return (
-      <Box flexDirection="column" marginTop={1}>
+      <Box flexDirection="column" marginTop={marginTop}>
         <Box flexDirection="row" gap={1}>
           <Text color={colors.bashBorder}>{STATUS_ICONS.terminal}</Text>
           <Text color={colors.bashBorder}>terminal</Text>
@@ -111,7 +130,7 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel }: { message: 
 
   if (m.role === 'thinking') {
     return (
-      <Box flexDirection="column" marginTop={1} marginLeft={2}>
+      <Box flexDirection="column" marginTop={marginTop} marginLeft={2}>
         <Box flexDirection="row" gap={1}>
           <Text color={colors.textSubtle}>{STATUS_ICONS.thinking}</Text>
           <Text color={colors.textSubtle} italic>{'Thinking'}</Text>
@@ -127,7 +146,7 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel }: { message: 
 
   // assistant
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column" marginTop={marginTop}>
       <Box flexDirection="row" gap={1}>
         <Text color={colors.suggestion}>{STATUS_ICONS.assistant}</Text>
         <Box flexDirection="column" flexShrink={1}>
@@ -185,7 +204,7 @@ function Header({ provider, agentName, theme = 'dark' }: { provider: string; age
   )
 }
 
-export function MessageList({ messages, streamText, thinkingText, streamRole = 'assistant', theme, activeAgent, headerProvider, headerAgent }: {
+export function MessageList({ messages, streamText, thinkingText, streamRole = 'assistant', theme, activeAgent, headerProvider, headerAgent, showToolCalls = true, showDiffs = true, density = 'comfortable' }: {
   messages: Message[]
   streamText: string
   thinkingText?: string
@@ -194,15 +213,18 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
   activeAgent?: string | null
   headerProvider?: string
   headerAgent?: string | null
+  showToolCalls?: boolean
+  showDiffs?: boolean
+  density?: 'compact' | 'comfortable'
 }) {
   const colors = getThemeColors(theme)
   const agentLabel = activeAgent ?? 'deepseek'
 
   return (
-    <Box flexDirection="column" marginBottom={1}>
+    <Box flexDirection="column" marginBottom={density === 'compact' ? 0 : 1}>
       <Header provider={headerProvider ?? 'deepseek'} agentName={headerAgent ?? null} theme={theme} />
-      {messages.map((message, index) => (
-        <MessageItem key={`${message.role}-${index}`} message={message} theme={theme} agentLabel={agentLabel} />
+      {messages.map((message, index) => message.role === 'tool' && !showToolCalls ? null : (
+        <MessageItem key={`${message.role}-${index}`} message={message} theme={theme} agentLabel={agentLabel} showDiffs={showDiffs} compact={density === 'compact'} />
       ))}
       {thinkingText ? (
         <Box flexDirection="column" marginTop={1} marginLeft={2}>

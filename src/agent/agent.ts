@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { execa } from 'execa'
 import { randomUUID } from 'node:crypto'
 import { readFile, writeFile } from 'fs/promises'
 import DEFAULT_SYSTEM_PROMPT_MD from './system-prompt.md' with { type: 'text' }
@@ -7,6 +8,7 @@ import { setShellConfirmHandler } from '../tools/Shell/Shell.js'
 import { setSubAgentProvider, setSubAgentModel } from '../tools/SubAgent/SubAgent.js'
 import { setAgentNoteCallback, setAskAgentProvider, setAskAgentModel } from '../tools/AskAgent/AskAgent.js'
 import { resetMemory } from '../tools/SubAgent/memory.js'
+import { setConcurrencyLimit } from '../tools/SubAgent/concurrency.js'
 import { loadMcpTools } from './mcp.js'
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
 import type { Model } from '../commands.js'
@@ -14,7 +16,8 @@ import type { AgentConfig } from './config.js'
 import type { Tool } from '../tools/types.js'
 import { resolveAgentFiles } from './files.js'
 import { loadSteering, loadDeepSeekMd } from './steering.js'
-import { getMemorySnapshot, addEntry } from './memory.js'
+import { getMemorySnapshot, addEntry, configureMemory } from './memory.js'
+import { setSessionRetention } from './session.js'
 import { loadMergedSettings } from '../settings/index.js'
 import type { DeepSeekSettings } from '../settings/types.js'
 import type { EffortLevel } from '../commands/types.js'
@@ -32,9 +35,9 @@ import { shouldAutoCompact, microCompact, createCompactState, createAutoCompactC
 import { estimateContextBreakdown, type ContextBreakdown, type ContextSnapshotInput } from './contextBreakdown.js'
 import { COMPACT_SUMMARY_PROMPT, COMPACT_SYSTEM_PROMPT } from '../services/compact/summaryPrompt.js'
 import { auditLog } from './auditLog.js'
-import { refinePrompt } from './promptRefiner.js'
-import { canUseTool, DEFAULT_MODE, getToolsForMode, isBuildMode, isAutoMode, type InteractionMode } from '../ui/interactionMode.js'
-import { resolvePermission } from '../permissions/index.js'
+import { refinePrompt, previewPromptRefinement, type PromptRefinementPreview } from './promptRefiner.js'
+import { canUseTool, DEFAULT_MODE, getToolsForMode, isReviewMode, type InteractionMode } from '../ui/interactionMode.js'
+import { globMatch, resolvePermission } from '../permissions/index.js'
 import { assessRisk } from '../permissions/risk.js'
 import { runPreToolHooks, runPostToolHooks, runSessionStartHooks } from '../hooks/index.js'
 import type { HooksConfig } from '../hooks/types.js'
@@ -217,6 +220,8 @@ export class Agent {
   private toolPermissionHandler: ToolPermissionHandler | null = null
   private sessionApprovedTools: Set<string> = new Set()
   private turnWriteCount = 0
+  private turnModifiedFiles: Set<string> = new Set()
+  private diffReviewHandler: ((summary: string) => Promise<boolean>) | null = null
   private allowedTools: string[] | '*' | null = null
   public interactionMode: InteractionMode = DEFAULT_MODE
   public effortLevel: EffortLevel = 'high'
@@ -233,6 +238,10 @@ export class Agent {
 
   setToolPermissionHandler(handler: ToolPermissionHandler | null) {
     this.toolPermissionHandler = handler
+  }
+
+  setDiffReviewHandler(handler: ((summary: string) => Promise<boolean>) | null) {
+    this.diffReviewHandler = handler
   }
 
   setPlanSubmitHandler(handler: ((planPath: string, summary?: string) => Promise<string>) | null) {
@@ -274,10 +283,15 @@ export class Agent {
       this.autoCompactConfig = createAutoCompactConfig(settings, CONTEXT_COMPACT_THRESHOLD)
 
       // Apply settings overrides
-      if (settings.model && !this.providerConfig.localModel) {
-        this.model = settings.model as Model
+      const configuredModel = typeof settings.model === 'string' ? settings.model : settings.model?.default
+      if (configuredModel && !this.providerConfig.localModel) {
+        this.model = configuredModel as Model
         this.contextLimit = getContextLimit(this.provider, this.model)
       }
+      this.interactionMode = settings.interaction?.defaultMode ?? DEFAULT_MODE
+      setConcurrencyLimit(settings.agents?.concurrency ?? 5)
+      setSessionRetention(settings.sessions?.retention ?? 50)
+      await configureMemory(settings.memory ?? {}, process.cwd())
 
       const parts: string[] = []
       if (steering) parts.push(steering)
@@ -367,6 +381,23 @@ export class Agent {
     }
   }
 
+  clearSessionApprovals(): void {
+    this.sessionApprovedTools.clear()
+  }
+
+  async applySettings(settings: DeepSeekSettings): Promise<void> {
+    this.settings = settings
+    this.autoCompactConfig = createAutoCompactConfig(settings, CONTEXT_COMPACT_THRESHOLD)
+    const configuredModel = typeof settings.model === 'string' ? settings.model : settings.model?.default
+    if (configuredModel && !this.providerConfig.localModel) this.setModel(configuredModel as Model)
+    setConcurrencyLimit(settings.agents?.concurrency ?? 5)
+    setSessionRetention(settings.sessions?.retention ?? 50)
+    await configureMemory(settings.memory ?? {}, process.cwd())
+    const subagentModel = settings.agents?.subagentModel ?? this.model
+    setSubAgentModel(subagentModel)
+    setAskAgentModel(subagentModel)
+  }
+
   // ── Available models (dynamic) ──────────────────────────────────────────────
 
   async getAvailableModels(): Promise<string[]> {
@@ -395,6 +426,41 @@ export class Agent {
       return models
     } catch {
       return []
+    }
+  }
+
+  async testProviderSettings(settings: DeepSeekSettings, credentials: Record<string, string>): Promise<string[]> {
+    const provider = settings.provider?.name ?? this.provider
+    const cfg: ProviderConfig = {
+      provider,
+      apiKey: credentials.DEEPSEEK_API_KEY,
+      baseURL: provider === 'deepseek' ? settings.provider?.endpoint : undefined,
+      awsRegion: settings.provider?.region,
+      awsProfile: settings.provider?.profile,
+      gcpProject: settings.provider?.projectId,
+      gcpLocation: settings.provider?.location,
+      gcpCredentials: credentials.GCP_CREDENTIALS,
+      localBaseUrl: provider === 'local' ? settings.provider?.endpoint : undefined,
+      localModel: typeof settings.model === 'object' ? settings.model.default : settings.model,
+    }
+    const timeoutMs = settings.provider?.timeoutMs ?? 10_000
+    const operation = async (): Promise<string[]> => {
+      if (provider === 'bedrock') return listBedrockDeepSeekModels(cfg.awsRegion ?? 'us-east-1', cfg.awsProfile ?? 'default')
+      if (provider === 'vertex') return listVertexDeepSeekModels(cfg.gcpProject ?? '', cfg.gcpLocation ?? 'us-central1', cfg.gcpCredentials ?? '')
+      const client = createLLMClient(cfg)
+      const response = await client.models.list({ signal: AbortSignal.timeout(timeoutMs) })
+      const models: string[] = []
+      for await (const model of response) models.push(model.id)
+      return models
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        operation(),
+        new Promise<string[]>((_, reject) => { timer = setTimeout(() => reject(new Error(`${provider} connection timed out after ${timeoutMs}ms`)), timeoutMs) }),
+      ])
+    } finally {
+      if (timer) clearTimeout(timer)
     }
   }
 
@@ -551,6 +617,13 @@ export class Agent {
     this.settings.promptRefiner.enabled = enabled
   }
 
+  async previewPromptRefiner(prompt: string): Promise<PromptRefinementPreview> {
+    await this.readyPromise
+    const model = this.settings.promptRefiner?.model ?? this.model
+    const minimum = this.settings.promptRefiner?.minimumLength ?? 30
+    return previewPromptRefinement(this.client, model, prompt, minimum)
+  }
+
   private rebuildSystemPromptEffort(): void {
     // Strip any existing effort hint
     this.systemPrompt = this.systemPrompt.replace(/\n\n# EFFORT LEVEL\n[\s\S]*?(?=\n\n#|$)/, '')
@@ -586,13 +659,17 @@ export class Agent {
     return { reasoning_effort: 'high', thinking: { type: 'enabled' } }
   }
 
-  setLanguage(language: string): void {
-    const langInstruction = `\n\n# PREFERRED LANGUAGE\nAlways respond in ${language}. Do NOT switch languages based on what language the user writes in — always use ${language}.`
-    if (this.systemPrompt.includes('# PREFERRED LANGUAGE')) {
-      this.systemPrompt = this.systemPrompt.replace(/\n\n# PREFERRED LANGUAGE\n[\s\S]*$/, langInstruction)
-    } else {
-      this.systemPrompt = this.systemPrompt + langInstruction
+  setLanguage(language: string | null | undefined): void {
+    const pattern = /\n\n# PREFERRED LANGUAGE\n[^\n]*(?=\n\n#|$)/
+    if (!language) {
+      this.systemPrompt = this.systemPrompt.replace(pattern, '')
+      this.messages = [{ role: 'system', content: this.systemPrompt }, ...this.messages.slice(1)]
+      return
     }
+    const langInstruction = `\n\n# PREFERRED LANGUAGE\nAlways respond in ${language}. Do NOT switch languages based on what language the user writes in — always use ${language}.`
+    this.systemPrompt = pattern.test(this.systemPrompt)
+      ? this.systemPrompt.replace(pattern, langInstruction)
+      : this.systemPrompt + langInstruction
     this.messages = [{ role: 'system', content: this.systemPrompt }, ...this.messages.slice(1)]
   }
 
@@ -634,7 +711,7 @@ export class Agent {
   }
 
   async applyAgentConfig(config: AgentConfig): Promise<void> {
-    let prompt = config.systemPrompt
+    let prompt = config.systemPrompt ?? this.systemPrompt
     if (config.files?.length) {
       const injected = await resolveAgentFiles(config.files)
       if (injected) prompt += `\n\n${injected}`
@@ -646,7 +723,7 @@ export class Agent {
       setSubAgentModel(config.model)
     }
     this.activeAgent = config.name
-    this.allowedTools = config.allowedTools ?? null
+    this.allowedTools = config.tools ?? config.allowedTools ?? null
     this.sessionApprovedTools = new Set()
     this.clearHistory()
   }
@@ -664,6 +741,7 @@ export class Agent {
     // Reset subagent task memory at the start of each user turn
     resetMemory()
     this.turnWriteCount = 0
+    this.turnModifiedFiles.clear()
 
     // Wait for async initialization to complete before running
     await this.readyPromise
@@ -696,9 +774,10 @@ export class Agent {
 
     // Prompt refinement (if enabled)
     let effectiveMessage = userMessage
-    if (this.settings.promptRefiner?.enabled !== false && userMessage.length >= 30 && !userMessage.startsWith('/')) {
+    const refinementMinimum = this.settings.promptRefiner?.minimumLength ?? 30
+    if (this.settings.promptRefiner?.enabled !== false && userMessage.length >= refinementMinimum && !userMessage.startsWith('/')) {
       cb.onPhaseChange?.('refining')
-      effectiveMessage = await refinePrompt(this.client, this.model, userMessage)
+      effectiveMessage = await refinePrompt(this.client, this.settings.promptRefiner?.model ?? this.model, userMessage)
     }
 
     // Inject any pending /msg notes as a system-level context hint
@@ -851,7 +930,7 @@ export class Agent {
           this.messages.push(finalMsg)
           await saveHistory(this.messages)
           this.syncTurn()
-          cb.onDone()
+          await this.completeTurn(cb)
           return
         }
 
@@ -865,7 +944,7 @@ export class Agent {
           this.messages.push(finalMsg)
           await saveHistory(this.messages)
           this.syncTurn()
-          cb.onDone()
+          await this.completeTurn(cb)
           return
         }
 
@@ -1015,7 +1094,7 @@ export class Agent {
         this.messages.push(finalMsg)
         await saveHistory(this.messages)
         this.syncTurn()
-        cb.onDone()
+        await this.completeTurn(cb)
         return
       }
 
@@ -1075,6 +1154,33 @@ export class Agent {
     }
   }
 
+  private async completeTurn(cb: AgentCallbacks): Promise<void> {
+    try {
+      if (this.settings.git?.reviewDiff && this.diffReviewHandler && this.turnModifiedFiles.size > 0) {
+        const files = [...this.turnModifiedFiles]
+        let review = `Files changed this turn:\n${files.map(file => `• ${file}`).join('\n')}`
+        try {
+          const [stat, diff, untracked] = await Promise.all([
+            execa('git', ['diff', '--stat', '--', ...files], { cwd: process.cwd(), reject: false }),
+            execa('git', ['diff', '--unified=1', '--', ...files], { cwd: process.cwd(), reject: false }),
+            execa('git', ['ls-files', '--others', '--exclude-standard', '-z', '--', ...files], { cwd: process.cwd(), reject: false }),
+          ])
+          const untrackedFiles = untracked.stdout.split('\0').filter(Boolean)
+          const untrackedDiffs = await Promise.all(untrackedFiles.map(file =>
+            execa('git', ['diff', '--no-index', '--unified=1', '--', '/dev/null', file], { cwd: process.cwd(), reject: false })
+          ))
+          const details = [stat.stdout, diff.stdout, ...untrackedDiffs.map(result => result.stdout)].filter(Boolean).join('\n\n')
+          if (details) review = `${review}\n\n${details.slice(0, 4_000)}${details.length > 4_000 ? '\n… diff truncated' : ''}`
+        } catch {
+          // The file list remains useful when the working directory is not a Git repository.
+        }
+        await this.diffReviewHandler(review)
+      }
+    } finally {
+      cb.onDone()
+    }
+  }
+
   /** Unified tool execution: mode check → permission rules → legacy permission → audit → execute */
   private async checkAndExecuteTool(
     tc: { id: string; type: 'function'; function: { name: string; arguments: string } },
@@ -1104,12 +1210,8 @@ export class Agent {
       parsedArgs.__planFilePath = this.planFilePath
     }
 
-    // ── 0. Auto mode: bypass ALL permission checks ─────────────────────────
-    if (isAutoMode(this.interactionMode)) {
-      // Auto mode = zero restrictions. Skip mode check, permission rules, everything.
-      // Jump straight to hooks + execution.
-    } else {
-    // ── 1. Interaction mode restriction ──────────────────────────────────────
+    // This restriction depends only on the tool name, so blocked tools never
+    // trigger executable hooks.
     if (!canUseTool(this.interactionMode, tc.function.name)) {
       const blockMsg = `Tool '${tc.function.name}' is not available in ${this.interactionMode} mode. Switch to Build mode to use this tool.`
       auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __blocked_by_mode: this.interactionMode } })
@@ -1118,104 +1220,8 @@ export class Agent {
       return { tc, result: blockMsg }
     }
 
-    // ── 1.5. Risk-level assessment (Build mode only) ─────────────────────────
-    if (isBuildMode(this.interactionMode)) {
-      // Track write count for burst detection
-      if (tc.function.name === 'write_file' || tc.function.name === 'patch_file') {
-        this.turnWriteCount++
-      }
-
-      const riskResult = assessRisk(tc.function.name, parsedArgs, {
-        isSubAgent: false,
-        recentWriteCount: this.turnWriteCount,
-        config: this.settings.risk ?? {},
-      })
-
-      if (riskResult?.requiresConfirmation) {
-        // Include actual command/path content in the session key to prevent over-broad approval
-        const riskContentKey = tc.function.name === 'shell'
-          ? (parsedArgs.command as string ?? '')
-          : (parsedArgs.path as string ?? '')
-        const riskSessionKey = `risk:${riskResult.matchedRule}:${riskContentKey}`
-
-        if (!this.sessionApprovedTools.has(riskSessionKey)) {
-          if (!this.toolPermissionHandler) {
-            const blockMsg = `⚠️ Tool '${tc.function.name}' requer confirmação (${riskResult.level} risk: ${riskResult.description}). Sem handler de confirmação disponível.`
-            cb.onToolCall(tc.function.name, parsedArgs)
-            cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
-            return { tc, result: blockMsg }
-          }
-          const userDecision = await this.toolPermissionHandler(tc.function.name, parsedArgs)
-          if (userDecision === 'deny') {
-            auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied_risk: riskResult.level } })
-            throw new DenyAbortError()
-          }
-          if (userDecision === 'session') {
-            this.sessionApprovedTools.add(riskSessionKey)
-          }
-        }
-      }
-    }
-
-    // ── 2. Permission rules from settings (skip in build mode — auto-accept behavior) ─────────
-    if (!isBuildMode(this.interactionMode)) {
-      const ruleDecision = resolvePermission(this.settings.permissions, tc.function.name, parsedArgs)
-      if (ruleDecision === 'deny') {
-        const blockMsg = `Tool '${tc.function.name}' blocked by permission rule.`
-        auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied_by_rule: true } })
-        cb.onToolCall(tc.function.name, parsedArgs)
-        cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
-        return { tc, result: blockMsg }
-      }
-      if (ruleDecision === 'ask' && !this.sessionApprovedTools.has(tc.function.name) && this.toolPermissionHandler) {
-        const userDecision = await this.toolPermissionHandler(tc.function.name, parsedArgs)
-        if (userDecision === 'deny') {
-          auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied: true } })
-          throw new DenyAbortError()
-        }
-        if (userDecision === 'session') {
-          this.sessionApprovedTools.add(tc.function.name)
-        }
-        if (userDecision === 'always') {
-          this.sessionApprovedTools.add(tc.function.name)
-          const { saveUserSettings } = await import('../settings/writer.js')
-          const currentAllow = this.settings.permissions?.allow ?? []
-          if (!currentAllow.includes(tc.function.name)) {
-            const newAllow = [...currentAllow, tc.function.name]
-            await saveUserSettings({ permissions: { allow: newAllow } })
-            // Keep in-memory settings in sync with disk
-            if (!this.settings.permissions) this.settings.permissions = {}
-            this.settings.permissions.allow = newAllow
-          }
-        }
-      }
-    }
-
-    // ── 3. Legacy allowedTools check (agent-config level) ────────────────────
-    if (this.allowedTools !== null && this.allowedTools !== '*') {
-      // Array whitelist: block tools not in the list
-      if (Array.isArray(this.allowedTools) && !this.allowedTools.includes(tc.function.name)) {
-        const blockMsg = `Tool '${tc.function.name}' is not allowed by the current agent configuration.`
-        auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __blocked_by_allowlist: true } })
-        cb.onToolCall(tc.function.name, parsedArgs)
-        cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
-        return { tc, result: blockMsg }
-      }
-    }
-    // allowedTools === '*' means all tools require permission confirmation
-    if (this.allowedTools === '*' && !this.sessionApprovedTools.has(tc.function.name) && this.toolPermissionHandler) {
-      const decision = await this.toolPermissionHandler(tc.function.name, parsedArgs)
-      if (decision === 'deny') {
-        auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __denied: true } })
-        throw new DenyAbortError()
-      }
-      if (decision === 'session') {
-        this.sessionApprovedTools.add(tc.function.name)
-      }
-    }
-    } // end of: } else { (non-auto permission checks)
-
-    // ── 3.5. PreToolUse hooks ────────────────────────────────────────────────
+    // Hooks may rewrite arguments, so authorization must inspect the exact
+    // object that will be executed.
     let effectiveArgs = parsedArgs
     if (this.settings.hooks) {
       const hookResult = await runPreToolHooks(
@@ -1231,15 +1237,131 @@ export class Agent {
         cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
         return { tc, result: blockMsg }
       }
-      if (hookResult.modifiedInput) {
-        effectiveArgs = hookResult.modifiedInput
+      if (hookResult.modifiedInput) effectiveArgs = hookResult.modifiedInput
+    }
+
+    // Plan and Review may inspect Git and stateful helper tools, but never mutate them.
+    if ((isReviewMode(this.interactionMode) || this.interactionMode === 'plan') && tc.function.name === 'git') {
+      const action = String(effectiveArgs.action ?? '')
+      if (!['status', 'diff', 'log'].includes(action)) {
+        const blockMsg = `Git action '${action}' is blocked in ${this.interactionMode} mode; only status, diff and log are read-only.`
+        cb.onToolCall(tc.function.name, effectiveArgs)
+        cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
+        return { tc, result: blockMsg }
+      }
+    }
+    if ((isReviewMode(this.interactionMode) || this.interactionMode === 'plan') && ['memory', 'todo'].includes(tc.function.name) && effectiveArgs.action !== 'list') {
+      const blockMsg = `Action '${String(effectiveArgs.action)}' for '${tc.function.name}' is blocked in ${this.interactionMode} mode.`
+      cb.onToolCall(tc.function.name, effectiveArgs)
+      cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
+      return { tc, result: blockMsg }
+    }
+
+    // ── 1.5. Risk-level assessment. High risk is mandatory in every mode. ────
+    if (tc.function.name === 'write_file' || tc.function.name === 'patch_file') {
+      this.turnWriteCount++
+    }
+
+    const riskResult = assessRisk(tc.function.name, effectiveArgs, {
+      isSubAgent: false,
+      recentWriteCount: this.turnWriteCount,
+      config: this.settings.risk ?? {},
+    })
+
+    if (riskResult?.requiresConfirmation) {
+      const riskContentKey = tc.function.name === 'shell'
+        ? (effectiveArgs.command as string ?? '')
+        : (effectiveArgs.path as string ?? '')
+      const riskSessionKey = `risk:${riskResult.matchedRule}:${riskContentKey}`
+
+      if (!this.sessionApprovedTools.has(riskSessionKey)) {
+        if (!this.toolPermissionHandler) {
+          const blockMsg = `⚠️ Tool '${tc.function.name}' requer confirmação (${riskResult.level} risk: ${riskResult.description}). Sem handler de confirmação disponível.`
+          cb.onToolCall(tc.function.name, effectiveArgs)
+          cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
+          return { tc, result: blockMsg }
+        }
+        const userDecision = await this.toolPermissionHandler(tc.function.name, effectiveArgs)
+        if (userDecision === 'deny') {
+          auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied_risk: riskResult.level } })
+          throw new DenyAbortError()
+        }
+        if (userDecision === 'session') this.sessionApprovedTools.add(riskSessionKey)
       }
     }
 
+    // ── 2. Permission rules. Deny is mandatory in every interaction mode. ────
+    const ruleDecision = resolvePermission(this.settings.permissions, tc.function.name, effectiveArgs)
+    if (ruleDecision === 'deny') {
+      const blockMsg = `Tool '${tc.function.name}' blocked by permission rule.`
+      auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied_by_rule: true } })
+      cb.onToolCall(tc.function.name, effectiveArgs)
+      cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
+      return { tc, result: blockMsg }
+    }
+    const autoApproveLowRisk = this.settings.permissions?.autoApproveLowRisk === true && riskResult === null
+    if (ruleDecision === 'ask' && !autoApproveLowRisk && !this.sessionApprovedTools.has(tc.function.name)) {
+      if (!this.toolPermissionHandler) {
+        const blockMsg = `Tool '${tc.function.name}' requires confirmation, but no confirmation handler is available.`
+        cb.onToolCall(tc.function.name, effectiveArgs)
+        cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
+        return { tc, result: blockMsg }
+      }
+      const userDecision = await this.toolPermissionHandler(tc.function.name, effectiveArgs)
+      if (userDecision === 'deny') {
+        auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied: true } })
+        throw new DenyAbortError()
+      }
+      if (userDecision === 'session') this.sessionApprovedTools.add(tc.function.name)
+      if (userDecision === 'always') {
+        this.sessionApprovedTools.add(tc.function.name)
+        const { saveUserSettings } = await import('../settings/writer.js')
+        const currentAllow = this.settings.permissions?.allow ?? []
+        if (!currentAllow.includes(tc.function.name)) {
+          const newAllow = [...currentAllow, tc.function.name]
+          await saveUserSettings({ permissions: { allow: newAllow } })
+          if (!this.settings.permissions) this.settings.permissions = {}
+          this.settings.permissions.allow = newAllow
+        }
+      }
+    }
+
+    // ── 3. Legacy allowedTools check (agent-config level) ────────────────────
+    if (this.allowedTools !== null && this.allowedTools !== '*') {
+      // Array whitelist: block tools not in the list
+      if (Array.isArray(this.allowedTools) && !this.allowedTools.includes(tc.function.name)) {
+        const blockMsg = `Tool '${tc.function.name}' is not allowed by the current agent configuration.`
+        auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __blocked_by_allowlist: true } })
+        cb.onToolCall(tc.function.name, effectiveArgs)
+        cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
+        return { tc, result: blockMsg }
+      }
+    }
+    // allowedTools === '*' means all tools require permission confirmation
+    if (this.allowedTools === '*' && !this.sessionApprovedTools.has(tc.function.name)) {
+      if (!this.toolPermissionHandler) {
+        const blockMsg = `Tool '${tc.function.name}' requires confirmation, but no confirmation handler is available.`
+        cb.onToolCall(tc.function.name, effectiveArgs)
+        cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
+        return { tc, result: blockMsg }
+      }
+      const decision = await this.toolPermissionHandler(tc.function.name, effectiveArgs)
+      if (decision === 'deny') {
+        auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied: true } })
+        throw new DenyAbortError()
+      }
+      if (decision === 'session') {
+        this.sessionApprovedTools.add(tc.function.name)
+      }
+    }
     // ── Undo snapshot (only for file-writing tools that passed all checks) ──
     if ((tc.function.name === 'write_file' || tc.function.name === 'patch_file') && effectiveArgs.path) {
       const filePath = effectiveArgs.path as string
-      this.filesModified.add(filePath)
+      const generated = (this.settings.git?.generatedPatterns ?? []).some(pattern => globMatch(pattern, filePath))
+      if (!generated) {
+        this.filesModified.add(filePath)
+        this.turnModifiedFiles.add(filePath)
+      }
       try {
         const oldContent = await readFile(filePath, 'utf-8')
         this.undoStack.push({ path: filePath, content: oldContent })
@@ -1247,7 +1369,9 @@ export class Agent {
         this.undoStack.push({ path: filePath, content: '' })
       }
       if (this.undoStack.length > UNDO_STACK_MAX) this.undoStack.shift()
-      await createFileCheckpoint(this.hookSessionId, filePath, tc.function.name).catch(() => {})
+      if (!generated && this.settings.git?.checkpoint !== false) {
+        await createFileCheckpoint(this.hookSessionId, filePath, tc.function.name).catch(() => {})
+      }
     }
 
     // ── 4. Execute tool ──────────────────────────────────────────────────────

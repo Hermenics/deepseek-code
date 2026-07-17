@@ -15,6 +15,7 @@ export type RiskLevel = 'high' | 'medium'
 export interface RiskRule {
   id: string              // human-readable key, e.g. "shell:rm"
   level: RiskLevel        // 'high' = sempre pede, 'medium' = pede só em subagent
+  enabled?: boolean
   tool?: string           // tool name, e.g. "shell", "write_file"
   pattern?: string        // glob para comando/path
   condition?: 'large_overwrite' | 'outside_project' | 'config_file' | 'multi_edit_burst'

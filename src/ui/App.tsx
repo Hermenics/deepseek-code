@@ -19,7 +19,7 @@ import { parseCommand, HELP_TEXT, REVIEW_PROMPT } from '../commands.js'
 import { loadAgentConfig, listAgents, type LoadedAgent } from '../agent/config.js'
 import { appendInputHistory } from '../agent/inputHistory.js'
 import type { ThemeName, ProviderConfig } from '../types/provider.js'
-import { saveConfig } from './setup/ApiKeySetup.js'
+import type { DeepSeekSettings, InterfaceSettings } from '../settings/types.js'
 import { formatChatError } from '../utils/chatError.js'
 import { saveSession, type SessionData } from '../agent/session.js'
 import { DEFAULT_MODE, nextMode, isBuildMode, isAutoMode, type InteractionMode } from './interactionMode.js'
@@ -80,7 +80,7 @@ interface PlanApprovalState {
   reject(reason: string): void
 }
 
-export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, language, enchant, sessionId, initialSession, headerProvider, headerAgent }: {
+export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, language, enchant, sessionId, initialSession, headerProvider, headerAgent, initialSettings }: {
   initialAgent?: LoadedAgent | null
   initialMessage?: string | null
   theme: ThemeName
@@ -92,6 +92,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   initialSession?: SessionData | null
   headerProvider?: string
   headerAgent?: string | null
+  initialSettings?: DeepSeekSettings
 }) {
   const initialSessionRef = useRef(initialSession)
   const handleSubmitRef = useRef<((text: string) => Promise<void>) | null>(null)
@@ -111,7 +112,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [activeAgentColor, setActiveAgentColor] = useState<string | undefined>(undefined)
   const [toolCallCount, setToolCallCount] = useState(0)
   const [agentPhase, setAgentPhase] = useState<AgentPhase>('idle')
-  const [interactionMode, setInteractionMode] = useState<InteractionMode>(DEFAULT_MODE)
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>(initialSettings?.interaction?.defaultMode ?? DEFAULT_MODE)
   const [queuedMessages, setQueuedMessages] = useState<string[]>([])
   const [agent] = useState(() => new Agent(providerConfig ?? undefined))
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
@@ -125,7 +126,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   const [toolPermissionState, setToolPermissionState] = useState<ToolPermissionState | null>(null)
   const [planApprovalState, setPlanApprovalState] = useState<PlanApprovalState | null>(null)
-  const [vimEnabled, setVimEnabled] = useState(false)
+  const [vimEnabled, setVimEnabled] = useState(initialSettings?.interface?.vim ?? false)
+  const [interfaceSettings, setInterfaceSettings] = useState<InterfaceSettings>(initialSettings?.interface ?? {})
 
   useEffect(() => {
     agent.interactionMode = interactionMode
@@ -173,6 +175,13 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       })
     })
     return () => agent.setToolPermissionHandler(null)
+  }, [agent])
+
+  useEffect(() => {
+    agent.setDiffReviewHandler((summary) => new Promise<boolean>((resolve) => {
+      setConfirmState({ message: `Review changes before completing this turn:\n\n${summary}\n\nContinue?`, resolve })
+    }))
+    return () => agent.setDiffReviewHandler(null)
   }, [agent])
 
   useEffect(() => {
@@ -498,14 +507,37 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     }
   }, [agent, sessionId, language, initialSession, providerConfig])
 
-  const runWithPrompt = useCallback(async (label: string, prompt: string) => {
+  const runWithPrompt = useCallback(async (label: string, prompt: string, intendedMode: InteractionMode) => {
     if (isLoading) return
+    const worktreePolicy = agent.settings.git?.worktree ?? 'ask'
+    if ((isBuildMode(intendedMode) || isAutoMode(intendedMode)) && worktreePolicy !== 'off') {
+      try {
+        const { createWorktree, getActiveWorktree, isInsideWorktree } = await import('../agent/worktree.js')
+        const projectRoot = projectRootRef.current
+        const active = await getActiveWorktree(projectRoot)
+        if (active && !isInsideWorktree(projectRoot)) process.chdir(active.path)
+        let isolate = worktreePolicy === 'auto'
+        if (!active && worktreePolicy === 'ask') {
+          isolate = await new Promise<boolean>((resolve) => {
+            setConfirmState({ message: 'Run this mutating turn in an isolated Git worktree?', resolve })
+          })
+        }
+        if (!active && isolate) {
+          const info = await createWorktree(projectRoot)
+          process.chdir(info.path)
+          setMessages((m) => [...m, { role: 'assistant', content: `Worktree "${info.name}" created on ${info.branch ?? 'an isolated copy'} at ${info.path}.` }])
+        }
+      } catch (error) {
+        setMessages((m) => [...m, { role: 'assistant', content: `△ Worktree isolation failed; turn aborted: ${(error as Error).message}` }])
+        return
+      }
+    }
     setMessages((m) => [...m, { role: 'user', content: label }])
     setIsLoading(true)
     setAgentPhase('refining')
     setStreamText('')
     await runAgent(prompt)
-  }, [isLoading, runAgent])
+  }, [isLoading, runAgent, agent])
 
   const handleSubmit = useCallback(async (text: string) => {
     if (!text.trim() || isLoading) return
@@ -685,7 +717,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         case 'review': {
           const label = cmd.target ? `/review ${cmd.target}` : '/review'
           const prompt = REVIEW_PROMPT(cmd.target)
-          await runWithPrompt(label, prompt)
+          agent.interactionMode = 'review'
+          setInteractionMode('review')
+          await runWithPrompt(label, prompt, 'review')
           return
         }
         case 'permissions': {
@@ -733,8 +767,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             const target = (cmd as any).target
             const { writeFile } = await import('fs/promises')
             const { join } = await import('path')
-            const { homedir } = await import('os')
-            const dir = join(homedir(), '.deepseek-code', 'memory')
+            const { getMemoryDir } = await import('../agent/memory.js')
+            const dir = getMemoryDir()
             if (!target || target === 'agent') await writeFile(join(dir, 'MEMORY.md'), '', 'utf-8').catch(() => {})
             if (!target || target === 'user') await writeFile(join(dir, 'USER.md'), '', 'utf-8').catch(() => {})
             setMessages((m) => [...m, { role: 'assistant', content: `Memory cleared${target ? ` (${target})` : ''}.` }])
@@ -1024,50 +1058,80 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       return
     }
 
-    setMessages((m) => [...m, { role: 'user', content: text }])
-    setIsLoading(true)
-    setAgentPhase('refining')
-    setStreamText('')
-    await runAgent(text)
-  }, [agent, isLoading, runWithPrompt, runAgent])
+    await runWithPrompt(text, text, interactionMode)
+  }, [agent, isLoading, runWithPrompt, runAgent, interactionMode])
 
   // Keep ref in sync so the init effect always calls the latest handleSubmit
   handleSubmitRef.current = handleSubmit
 
-  // ponytail: push input to bottom — minHeight on messages area fills terminal height
+  if (showConfigMenu) {
+    return (
+      <ConfigMenu
+        currentTheme={theme}
+        currentLanguage={currentLanguage}
+        enchantEnabled={agent.promptRefinerEnabled}
+        onThemeSelect={(nextTheme) => { setTheme(nextTheme); onThemeChange?.(nextTheme) }}
+        onLanguageSet={(nextLanguage) => { agent.setLanguage(nextLanguage); setCurrentLanguage(nextLanguage) }}
+        onEnchantToggle={(enabled) => agent.setPromptRefinerEnabled(enabled)}
+        onSettingsChanged={async (settings) => {
+          await agent.applySettings(settings)
+          setInterfaceSettings(settings.interface ?? {})
+          const nextTheme = settings.interface?.theme
+          if (nextTheme) { setTheme(nextTheme); onThemeChange?.(nextTheme) }
+          agent.setLanguage(settings.interface?.language)
+          setCurrentLanguage(settings.interface?.language ?? null)
+          if (settings.interface?.vim !== undefined) setVimEnabled(settings.interface.vim)
+        }}
+        onTestConnection={(settings, credentials) => agent.testProviderSettings(settings, credentials)}
+        onPreviewRefiner={async (prompt) => {
+          const preview = await agent.previewPromptRefiner(prompt)
+          if (preview.status === 'skip') return `SKIP · original preserved: ${preview.original}`
+          if (preview.status === 'error') return `Error · ${preview.error}`
+          return `Refined · ${preview.refined}`
+        }}
+        onClearApprovals={() => agent.clearSessionApprovals()}
+        onPermissionsHelp={() => {
+          const info = agent.getPermissionsInfo()
+          return `${info.mode} · allow ${info.permissions?.allow?.length ?? 0} · deny ${info.permissions?.deny?.length ?? 0} · session ${info.sessionApproved.length}`
+        }}
+        onClose={() => setShowConfigMenu(false)}
+        onThemeChange={onThemeChange}
+      />
+    )
+  }
+
   const termRows = process.stdout.rows || 24
-  const footerHeight = 4 // InputChrome (2: border + input) + StatusBar (2: divider + info)
-  const isOverlayActive = showEffortSelector || showModelSelector || showConfigMenu
-  const minContentHeight = isOverlayActive ? 0 : Math.max(0, termRows - footerHeight)
 
   return (
-    <Box flexDirection="column" width="100%">
-      {/* Messages area — minHeight pushes footer to bottom when content is short */}
-      <Box minHeight={minContentHeight}>
+    <Box flexDirection="column" width="100%" minHeight={termRows}>
+      <Box flexGrow={1}>
         <Box flexDirection="column">
-          <MessageList messages={messages} streamText={streamText} thinkingText={thinkingText} streamRole={streamRole} theme={theme} activeAgent={activeAgent} headerProvider={headerProvider} headerAgent={headerAgent} />
-          {toolStatus && <ToolUseDisplay tool={toolStatus} />}
+          <MessageList
+            messages={interfaceSettings.showThoughts === false ? messages.filter(message => message.role !== 'thinking') : messages}
+            streamText={streamText}
+            thinkingText={interfaceSettings.showThoughts === false ? '' : thinkingText}
+            streamRole={streamRole}
+            theme={theme}
+            activeAgent={activeAgent}
+            headerProvider={headerProvider}
+            headerAgent={headerAgent}
+            showToolCalls={interfaceSettings.showToolCalls}
+            showDiffs={interfaceSettings.showDiffs}
+            density={interfaceSettings.density}
+          />
+          {toolStatus && interfaceSettings.showToolCalls !== false && <ToolUseDisplay tool={toolStatus} />}
           {subagentsRef.current.agents.length > 0 && <SubagentList agents={subagentsRef.current.agents} theme={theme} />}
           <TodoPanel />
-          {isLoading && <LoadingSpinner toolCallCount={toolCallCount} phase={agentPhase} />}
+          {isLoading && (interfaceSettings.reducedMotion
+            ? <Text dimColor>{agentPhase === 'refining' ? 'Refining…' : 'Working…'}</Text>
+            : <LoadingSpinner toolCallCount={toolCallCount} phase={agentPhase} />)}
           {queuedMessages.length > 0 && <QueuedMessagesList messages={queuedMessages} />}
         </Box>
       </Box>
 
       {/* Footer */}
       <Box flexDirection="column" flexShrink={0}>
-        {showConfigMenu ? (
-          <ConfigMenu
-            currentTheme={theme}
-            currentLanguage={currentLanguage}
-            enchantEnabled={agent.promptRefinerEnabled}
-            onThemeSelect={(t) => { setTheme(t); onThemeChange?.(t); saveConfig({ THEME: t }) }}
-            onLanguageSet={(lang) => { agent.setLanguage(lang); saveConfig({ LANGUAGE: lang }); setCurrentLanguage(lang) }}
-            onEnchantToggle={(enabled) => { agent.setPromptRefinerEnabled(enabled); saveConfig({ ENCHANT: String(enabled) }) }}
-            onClose={() => setShowConfigMenu(false)}
-            onThemeChange={onThemeChange}
-          />
-        ) : showModelSelector ? (
+        {showModelSelector ? (
           <ModelSelector
             currentModel={agent.model}
             models={availableModels}
@@ -1128,7 +1192,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             vimEnabled={vimEnabled}
           />
         )}
-        <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} />
+        <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} theme={theme} items={interfaceSettings.statusBar} narrowPriority={interfaceSettings.narrowPriority} />
       </Box>
     </Box>
   )

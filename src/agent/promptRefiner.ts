@@ -29,6 +29,39 @@ If refinement IS useful, expand the user's request with more context and precisi
 
 Return ONLY the refined prompt or the word SKIP. No preamble, no explanation, no markdown wrapper.`
 
+export interface PromptRefinementPreview {
+  status: 'refined' | 'skip' | 'error'
+  original: string
+  refined?: string
+  error?: string
+}
+
+export async function previewPromptRefinement(
+  client: OpenAI,
+  model: string,
+  userMessage: string,
+  minimumLength = 30,
+): Promise<PromptRefinementPreview> {
+  if (userMessage.length < minimumLength || userMessage.startsWith('/')) {
+    return { status: 'skip', original: userMessage }
+  }
+  try {
+    const response = await client.chat.completions.create({
+      model,
+      messages: [
+        { role: 'system', content: REFINER_SYSTEM },
+        { role: 'user', content: userMessage },
+      ],
+      max_tokens: 1024,
+    })
+    const result = response.choices[0]?.message.content?.trim()
+    if (!result || result === 'SKIP') return { status: 'skip', original: userMessage }
+    return { status: 'refined', original: userMessage, refined: result }
+  } catch (error) {
+    return { status: 'error', original: userMessage, error: error instanceof Error ? error.message : String(error ?? 'Unknown error') }
+  }
+}
+
 /**
  * Refines a raw user message into an optimized prompt for the coding agent.
  * Falls back to the original message silently on any error.
@@ -39,24 +72,6 @@ export async function refinePrompt(
   model: string,
   userMessage: string,
 ): Promise<string> {
-  // Short messages, commands, and follow-ups don't need refinement
-  if (userMessage.length < 30 || userMessage.startsWith('/')) {
-    return userMessage
-  }
-
-  try {
-    const response = await client.chat.completions.create({
-      model,
-      messages: [
-        { role: 'system', content: REFINER_SYSTEM },
-        { role: 'user', content: userMessage },
-      ],
-      max_tokens: 1024,
-    })
-    const result = response.choices[0]?.message.content?.trim() || userMessage
-    if (result === 'SKIP') return userMessage
-    return result
-  } catch {
-    return userMessage
-  }
+  const preview = await previewPromptRefinement(client, model, userMessage)
+  return preview.status === 'refined' ? preview.refined! : userMessage
 }

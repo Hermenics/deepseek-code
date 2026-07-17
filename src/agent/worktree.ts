@@ -2,6 +2,8 @@ import { join, resolve } from 'path'
 import { mkdir, rm, readFile, writeFile, readdir, realpath, stat, copyFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import { execa } from 'execa'
+import { randomBytes } from 'crypto'
+import { loadMergedSettings } from '../settings/loader.js'
 
 const ADJECTIVES = [
   'swift', 'bold', 'calm', 'dark', 'keen', 'warm', 'wild', 'sure', 'vast', 'pure',
@@ -28,6 +30,7 @@ export interface WorktreeInfo {
   originalCwd: string
   createdAt: string
   isGitWorktree: boolean
+  branch?: string
 }
 
 export interface WorktreeState {
@@ -94,6 +97,7 @@ async function copyDirRecursive(src: string, dest: string, destRoot: string): Pr
 
 export async function createWorktree(projectRoot: string): Promise<WorktreeInfo> {
   const useGit = isGitRepo(projectRoot)
+  const settings = await loadMergedSettings()
 
   // Generate unique name with retry
   let name = ''
@@ -105,12 +109,18 @@ export async function createWorktree(projectRoot: string): Promise<WorktreeInfo>
     if (attempt === 9) throw new Error('Failed to generate unique worktree name after 10 attempts.')
   }
 
+  let branch: string | undefined
   if (useGit) {
     // Use git worktree
     const worktreesDir = join(projectRoot, WORKTREES_DIR)
     if (!existsSync(worktreesDir)) await mkdir(worktreesDir, { recursive: true })
     try {
-      await execa('git', ['worktree', 'add', '--detach', worktreePath], { cwd: projectRoot, stdio: 'pipe' })
+      const pattern = settings.git?.branchPattern ?? 'deepseek/{slug}-{shortId}'
+      branch = pattern
+        .replaceAll('{slug}', name)
+        .replaceAll('{shortId}', randomBytes(3).toString('hex'))
+        .replace(/[^a-zA-Z0-9/_-]/g, '-')
+      await execa('git', ['worktree', 'add', '-b', branch, worktreePath], { cwd: projectRoot, stdio: 'pipe' })
     } catch (e) {
       throw new Error(`git worktree add failed: ${(e as Error).message}`)
     }
@@ -127,6 +137,7 @@ export async function createWorktree(projectRoot: string): Promise<WorktreeInfo>
     originalCwd: projectRoot,
     createdAt: new Date().toISOString(),
     isGitWorktree: useGit,
+    branch,
   }
 
   const state = await loadState(projectRoot)

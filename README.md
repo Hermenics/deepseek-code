@@ -30,7 +30,8 @@
 - **Agentic coding** — reads/writes files, runs shell commands, searches code, manages git
 - **Multi-provider** — DeepSeek API, Amazon Bedrock, Google Vertex AI, or any local model (Ollama, LM Studio)
 - **Full TUI** — alternate-screen interface with streamed thinking, rich markdown, and vim mode
-- **Sub-agents** — spawn background agents for parallel tasks
+- **Unified agents** — scoped primary agents and sub-agents with editable base prompts
+- **Settings center** — fullscreen, searchable User/Project/Local configuration with visible origins
 - **MCP support** — connect to any Model Context Protocol server for extended tooling
 - **Extensible** — slash commands, custom tools, memory, sessions, themes
 
@@ -63,7 +64,7 @@ cat src/index.tsx | deepseek --pipe --json "summarize"
 | **Google Vertex AI** | GCP service account JSON key | `GCP_PROJECT`, `GCP_LOCATION`, `GCP_CREDENTIALS` |
 | **Local (Ollama / LM Studio)** | No auth — point to your local endpoint | `LOCAL_BASE_URL`, `LOCAL_MODEL` |
 
-All config is saved to `~/.deepseek/config.json`. Any config key can also be set as an environment variable.
+Secrets are saved only to `~/.deepseek/config.json`. Non-secret preferences use `settings.json` with `User < Project < Local` precedence; legacy values remain readable for compatibility. See [docs/settings.md](docs/settings.md).
 
 ## Models
 
@@ -89,6 +90,7 @@ Each provider also exposes provider-specific models (Bedrock, Vertex, local).
 | `/theme` | Change color theme |
 | `/tools` | List available tools |
 | `/permissions` | Explain mode, allow/deny rules, risk checks, and session approvals |
+| `/config`, `/settings` | Open the fullscreen settings center |
 | `/help` | Show all commands |
 
 ## Built-in tools
@@ -99,9 +101,10 @@ The agent has access to these tools out of the box:
 
 ## TUI behavior
 
-- Runs on the terminal **alternate screen** — clean viewport, smooth scrolling
+- Uses the terminal **alternate screen** by default; it can be disabled for the next session in `/settings`
+- Settings adapt from three panes to a sequential category → list → detail flow on narrow terminals
 - Thinking output is streamed as full multiline blocks and persisted after each response
-- Main-screen mode (experimental): `OTUI_USE_ALTERNATE_SCREEN=0 deepseek`
+- Build, Plan, Review and Auto are real interaction modes. Review is read-only; Plan can only write its designated plan.
 
 ---
 

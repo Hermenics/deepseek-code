@@ -70,6 +70,26 @@ export type Root = {
   waitUntilExit: () => Promise<void>
 }
 
+/** Temporarily yields the terminal to an external interactive process. */
+export async function withInkPaused<T>(operation: () => Promise<T>): Promise<T> {
+  const ink = instances.get(process.stdout)
+  ink?.pause()
+  ink?.suspendStdin()
+  try {
+    return await operation()
+  } finally {
+    ink?.resumeStdin()
+    ink?.repaint()
+    ink?.resume()
+    ink?.restoreCursorVisibility()
+  }
+}
+
+/** Mark the current terminal frame for a full-damage diff on the next render. */
+export function invalidateInkFrame(stdout: NodeJS.WriteStream = process.stdout): void {
+  instances.get(stdout)?.invalidatePhysicalFrame()
+}
+
 /**
  * Mount a component and render the output.
  */

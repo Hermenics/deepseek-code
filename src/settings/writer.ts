@@ -1,49 +1,19 @@
-import { mkdir, readFile, writeFile } from 'fs/promises'
-import { dirname } from 'path'
 import type { DeepSeekSettings, SettingsLevel } from './types.js'
-import { getSettingsPath, mergeSettings } from './loader.js'
+import { SettingsRepository } from './repository.js'
 
-async function readExisting(path: string): Promise<DeepSeekSettings> {
-  try {
-    const text = await readFile(path, 'utf-8')
-    return JSON.parse(text) as DeepSeekSettings
-  } catch {
-    return {}
-  }
+function flatten(object: Record<string, unknown>, prefix = ''): Array<[string, unknown]> {
+  return Object.entries(object).flatMap(([key, value]) => {
+    const path = prefix ? `${prefix}.${key}` : key
+    if (value !== null && typeof value === 'object' && !Array.isArray(value)) return flatten(value as Record<string, unknown>, path)
+    return [[path, value]]
+  })
 }
 
-async function writeSettings(
-  path: string,
-  data: DeepSeekSettings,
-): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, JSON.stringify(data, null, 2), 'utf-8')
+export async function saveSettings(level: SettingsLevel, partial: Partial<DeepSeekSettings>): Promise<void> {
+  const repository = new SettingsRepository()
+  await repository.setMany(level, flatten(partial as Record<string, unknown>))
 }
 
-export async function saveSettings(
-  level: SettingsLevel,
-  partial: Partial<DeepSeekSettings>,
-): Promise<void> {
-  const path = getSettingsPath(level)
-  const existing = await readExisting(path)
-  const merged = mergeSettings(existing, partial as DeepSeekSettings)
-  await writeSettings(path, merged)
-}
-
-export async function saveUserSettings(
-  partial: Partial<DeepSeekSettings>,
-): Promise<void> {
-  return saveSettings('user', partial)
-}
-
-export async function saveProjectSettings(
-  partial: Partial<DeepSeekSettings>,
-): Promise<void> {
-  return saveSettings('project', partial)
-}
-
-export async function saveLocalSettings(
-  partial: Partial<DeepSeekSettings>,
-): Promise<void> {
-  return saveSettings('local', partial)
-}
+export async function saveUserSettings(partial: Partial<DeepSeekSettings>): Promise<void> { return saveSettings('user', partial) }
+export async function saveProjectSettings(partial: Partial<DeepSeekSettings>): Promise<void> { return saveSettings('project', partial) }
+export async function saveLocalSettings(partial: Partial<DeepSeekSettings>): Promise<void> { return saveSettings('local', partial) }

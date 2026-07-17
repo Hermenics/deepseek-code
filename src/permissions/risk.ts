@@ -70,21 +70,26 @@ export function assessRisk(
 ): RiskAssessment | null {
   const { config } = context
 
-  if (config.enabled === false) return null
+  const optionalRiskEnabled = config.enabled !== false
 
   const largeThreshold = config.thresholds?.largeFileLines ?? 100
   const burstThreshold = config.thresholds?.burstCount ?? 3
 
   // Merge: user rules override defaults by id
   const userRulesById = new Map((config.rules ?? []).map(r => [r.id, r]))
-  const mergedRules = DEFAULT_RISK_RULES.map(r => userRulesById.get(r.id) ?? r)
+  const mergedRules = DEFAULT_RISK_RULES.map(rule => {
+    const override = userRulesById.get(rule.id)
+    if (!override) return rule
+    if (rule.level !== 'high') return { ...rule, ...override }
+    return { ...override, ...rule, description: override.description ?? rule.description, enabled: true }
+  })
   // Append user rules with new ids
   for (const r of config.rules ?? []) {
     if (!DEFAULT_RISK_RULES.some(d => d.id === r.id)) mergedRules.push(r)
   }
 
   // Sort by specificity (longer pattern first), then by level (high before medium)
-  const sorted = mergedRules.sort((a, b) => {
+  const sorted = mergedRules.filter(rule => rule.enabled !== false && (optionalRiskEnabled || rule.level === 'high')).sort((a, b) => {
     const lenA = a.pattern?.length ?? 0
     const lenB = b.pattern?.length ?? 0
     if (lenA !== lenB) return lenB - lenA  // longer pattern = more specific = first
