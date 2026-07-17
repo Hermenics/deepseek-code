@@ -17,9 +17,10 @@ describe('AskAgent tool', () => {
       expect(params.required).toContain('question')
     })
 
-    it('has agent enum with exactly 3 specialists', () => {
+    it('accepts dynamic registry agent names without a static enum', () => {
       const params = AskAgent.parameters as any
-      expect(params.properties.agent.enum).toEqual(['coder', 'reviewer', 'tester'])
+      expect(params.properties.agent.type).toBe('string')
+      expect(params.properties.agent.enum).toBeUndefined()
     })
 
     it('has broadcast boolean param', () => {

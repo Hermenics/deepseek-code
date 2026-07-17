@@ -3,6 +3,7 @@ import {
   nextMode,
   isBuildMode,
   isAutoMode,
+  isReviewMode,
   canUseTool,
   canModelActivateMode,
   isDestructiveShell,
@@ -14,8 +15,8 @@ import {
 
 describe('interactionMode', () => {
   describe('MODES', () => {
-    it('should define exactly three modes: plan, build, and auto', () => {
-      expect(MODES).toEqual(['plan', 'build', 'auto'])
+    it('should define plan, review, build, and auto', () => {
+      expect(MODES).toEqual(['plan', 'review', 'build', 'auto'])
     })
   })
 
@@ -34,12 +35,14 @@ describe('interactionMode', () => {
       expect(nextMode('auto')).toBe('plan')
     })
 
-    it('should return build when current mode is plan', () => {
-      expect(nextMode('plan')).toBe('build')
+    it('should return review when current mode is plan', () => {
+      expect(nextMode('plan')).toBe('review')
     })
 
-    it('should cycle plan → build → auto → plan', () => {
+    it('should cycle plan → review → build → auto → plan', () => {
       let mode: InteractionMode = 'plan'
+      mode = nextMode(mode) // review
+      expect(mode).toBe('review')
       mode = nextMode(mode) // build
       expect(mode).toBe('build')
       mode = nextMode(mode) // auto
@@ -48,9 +51,9 @@ describe('interactionMode', () => {
       expect(mode).toBe('plan')
     })
 
-    it('should return plan after 3 consecutive calls starting from plan (1 complete cycle)', () => {
+    it('should return plan after 4 consecutive calls starting from plan (1 complete cycle)', () => {
       let mode: InteractionMode = 'plan'
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 4; i++) {
         mode = nextMode(mode)
       }
       expect(mode).toBe('plan')
@@ -82,6 +85,15 @@ describe('interactionMode', () => {
 
     it('should return false for plan', () => {
       expect(isAutoMode('plan')).toBe(false)
+    })
+  })
+
+  describe('isReviewMode()', () => {
+    it('only returns true for review', () => {
+      expect(isReviewMode('review')).toBe(true)
+      expect(isReviewMode('build')).toBe(false)
+      expect(isReviewMode('plan')).toBe(false)
+      expect(isReviewMode('auto')).toBe(false)
     })
   })
 
@@ -191,8 +203,8 @@ describe('interactionMode', () => {
         expect(canUseTool('plan', 'todo')).toBe(true)
       })
 
-      it('should allow subagent', () => {
-        expect(canUseTool('plan', 'subagent')).toBe(true)
+      it('should block subagent because plan may only write its designated plan', () => {
+        expect(canUseTool('plan', 'subagent')).toBe(false)
       })
 
       it('should allow memory', () => {
@@ -221,6 +233,18 @@ describe('interactionMode', () => {
 
       it('should allow write_plan', () => {
         expect(canUseTool('plan', 'write_plan')).toBe(true)
+      })
+    })
+
+    describe('review mode', () => {
+      it('allows inspection tools and blocks mutation tools', () => {
+        expect(canUseTool('review', 'read_file')).toBe(true)
+        expect(canUseTool('review', 'grep')).toBe(true)
+        expect(canUseTool('review', 'git')).toBe(true)
+        expect(canUseTool('review', 'shell')).toBe(false)
+        expect(canUseTool('review', 'write_file')).toBe(false)
+        expect(canUseTool('review', 'patch_file')).toBe(false)
+        expect(canUseTool('review', 'subagent')).toBe(false)
       })
     })
 

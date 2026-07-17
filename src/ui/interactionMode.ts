@@ -1,8 +1,8 @@
 // Interaction modes and tool permission matrix
 
-export type InteractionMode = 'plan' | 'build' | 'auto'
+export type InteractionMode = 'plan' | 'review' | 'build' | 'auto'
 
-export const MODES: InteractionMode[] = ['plan', 'build', 'auto']
+export const MODES: InteractionMode[] = ['plan', 'review', 'build', 'auto']
 
 export const DEFAULT_MODE: InteractionMode = 'build'
 
@@ -20,18 +20,23 @@ export function isAutoMode(mode: InteractionMode): boolean {
   return mode === 'auto'
 }
 
+export function isReviewMode(mode: InteractionMode): boolean {
+  return mode === 'review'
+}
+
 // Ferramentas read-only permitidas em todos os modos
 const READ_ONLY_TOOLS = new Set([
   'read_file', 'read_folder', 'glob', 'grep',
-  'web_fetch', 'introspect', 'todo', 'subagent', 'memory', 'submit_plan',
+  'web_fetch', 'introspect', 'todo', 'memory',
   'git',
 ])
 
 // Permissões por modo
 const TOOL_PERMISSIONS: Record<InteractionMode, Set<string>> = {
-  build: new Set([...READ_ONLY_TOOLS, 'shell', 'write_file', 'patch_file', 'update_knowledge']),
-  auto: new Set([...READ_ONLY_TOOLS, 'shell', 'write_file', 'patch_file', 'update_knowledge']),
-  plan: new Set([...READ_ONLY_TOOLS, 'write_plan']),
+  build: new Set([...READ_ONLY_TOOLS, 'shell', 'write_file', 'patch_file', 'update_knowledge', 'subagent', 'ask_agent']),
+  auto: new Set([...READ_ONLY_TOOLS, 'shell', 'write_file', 'patch_file', 'update_knowledge', 'subagent', 'ask_agent']),
+  plan: new Set([...READ_ONLY_TOOLS, 'write_plan', 'submit_plan']),
+  review: new Set(READ_ONLY_TOOLS),
 }
 
 export function canUseTool(mode: InteractionMode, tool: string): boolean {
@@ -51,12 +56,14 @@ export function getToolsForMode(mode: InteractionMode): string[] {
 export const MODE_LABELS: Record<InteractionMode, string> = {
   'build': 'Build',
   'plan': 'Plan',
+  'review': 'Review',
   'auto': 'Auto',
 }
 
 export const MODE_COLORS: Record<InteractionMode, string> = {
   'build': 'green',
   'plan': 'yellow',
+  'review': 'blue',
   'auto': 'red',
 }
 

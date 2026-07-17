@@ -32,7 +32,7 @@ afterEach(() => {
 
 import { checkForUpdate, dismissVersion, isDismissed } from '../src/utils/update-notifier.js'
 
-const CURRENT_VERSION = '0.2.16'
+const CURRENT_VERSION = '0.2.17'
 
 // ─── checkForUpdate ──────────────────────────────────────────────
 

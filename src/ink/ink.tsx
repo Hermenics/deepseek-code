@@ -10,6 +10,7 @@ import { onExit } from 'signal-exit';
 import { flushInteractionTime } from '../bootstrap/state.js';
 import { getYogaCounters } from '../native-ts/yoga-layout/index.js';
 import { logForDebugging } from '../utils/debug.js';
+import { isEnvTruthy } from '../utils/envUtils.js';
 import { logError } from '../utils/log.js';
 import { format } from 'util';
 import { colorize } from './colorize.js';
@@ -36,7 +37,7 @@ import { applySearchHighlight } from './searchHighlight.js';
 import { applySelectionOverlay, captureScrolledRows, clearSelection, createSelectionState, extendSelection, type FocusMove, findPlainTextUrlAt, getSelectedText, hasSelection, moveFocus, type SelectionState, selectLineAt, selectWordAt, shiftAnchor, shiftSelection, shiftSelectionForFollow, startSelection, updateSelection } from './selection.js';
 import { SYNC_OUTPUT_SUPPORTED, supportsExtendedKeys, type Terminal, writeDiffToTerminal } from './terminal.js';
 import { CURSOR_HOME, cursorMove, cursorPosition, DISABLE_KITTY_KEYBOARD, DISABLE_MODIFY_OTHER_KEYS, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS, ERASE_SCREEN } from './termio/csi.js';
-import { DBP, DFE, DISABLE_MOUSE_TRACKING, ENABLE_MOUSE_TRACKING, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, SHOW_CURSOR } from './termio/dec.js';
+import { DBP, DFE, DISABLE_MOUSE_TRACKING, ENABLE_MOUSE_TRACKING, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, HIDE_CURSOR, SHOW_CURSOR } from './termio/dec.js';
 import { CLEAR_ITERM2_PROGRESS, CLEAR_TAB_STATUS, setClipboard, supportsTabStatus, wrapForMultiplexer } from './termio/osc.js';
 import { TerminalWriteProvider } from './useTerminalNotification.js';
 
@@ -801,6 +802,12 @@ export default class Ink {
     this.onRender();
   }
 
+  /** Restore the cursor mode after an external program changed terminal state. */
+  restoreCursorVisibility(): void {
+    if (!this.options.stdout.isTTY || this.isUnmounted || this.isPaused) return;
+    this.options.stdout.write(isEnvTruthy(process.env.CLAUDE_CODE_ACCESSIBILITY) ? SHOW_CURSOR : HIDE_CURSOR);
+  }
+
   /**
    * Reset frame buffers so the next render writes the full screen from scratch.
    * Call this before resume() when the terminal content has been corrupted by
@@ -851,6 +858,22 @@ export default class Ink {
    */
   invalidatePrevFrame(): void {
     this.prevFrameContaminated = true;
+  }
+
+  /**
+   * The physical terminal contains stale cells even though the virtual frame
+   * is internally consistent. Alt-screen redraws erase atomically with the
+   * next paint; main-screen schedules the existing full-redraw recovery path.
+   */
+  invalidatePhysicalFrame(): void {
+    this.prevFrameContaminated = true;
+    if (this.altScreenActive) {
+      this.resetFramesForAltScreen();
+      this.needsEraseBeforePaint = true;
+      this.onRender();
+      return;
+    }
+    queueMicrotask(() => this.forceRedraw());
   }
 
   /**
