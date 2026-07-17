@@ -331,6 +331,7 @@ function Root() {
         theme={theme}
         providerConfig={providerConfig}
         onThemeChange={setTheme}
+        onLogout={() => { setReady(false); setProviderConfig(null) }}
         language={savedLanguage}
         enchant={savedEnchant}
         sessionId={SESSION_ID}
