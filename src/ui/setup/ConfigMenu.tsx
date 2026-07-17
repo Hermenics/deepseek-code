@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { execa } from 'execa'
 import { mkdir, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
@@ -236,6 +236,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
   const [apiModels, setApiModels] = useState<string[]>([])
   const [confirmAction, setConfirmAction] = useState<'reset-scope' | 'clear-memory' | 'clear-sessions-project' | 'clear-sessions-global' | null>(null)
   const [library, setLibrary] = useState<'agents' | 'hooks' | null>(null)
+  const firstPaint = useRef(true)
 
   const width = process.stdout.columns || 80
   const height = process.stdout.rows || 24
@@ -268,11 +269,12 @@ export default function ConfigMenu(props: ConfigMenuProps) {
     })).filter(category => category.items.length > 0)
   }, [search])
   useEffect(() => { setCategoryIndex(0); setItemIndex(0) }, [search])
-  useLayoutEffect(() => {
+  useEffect(() => {
     // The settings list changes styles and occasionally its visible window on
     // the same keypress. Force full damage so shorter/reordered terminal rows
     // cannot inherit cells from the previous frame.
-    invalidateInkFrame()
+    invalidateInkFrame(process.stdout, firstPaint.current)
+    firstPaint.current = false
   }, [categoryIndex, itemIndex, focus, scope, search, layout])
 
   const category = filtered[Math.min(categoryIndex, Math.max(0, filtered.length - 1))]

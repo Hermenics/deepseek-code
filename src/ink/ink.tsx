@@ -865,9 +865,14 @@ export default class Ink {
    * is internally consistent. Alt-screen redraws erase atomically with the
    * next paint; main-screen schedules the existing full-redraw recovery path.
    */
-  invalidatePhysicalFrame(): void {
+  invalidatePhysicalFrame(resetAltScreen = false): void {
     this.prevFrameContaminated = true;
     if (this.altScreenActive) {
+      if (resetAltScreen) {
+        // Toggle mode 1049 instead of merely reasserting it: some terminals
+        // keep the current alternate-buffer history when DECSET is repeated.
+        this.options.stdout.write(EXIT_ALT_SCREEN + ENTER_ALT_SCREEN + (this.altScreenMouseTracking ? ENABLE_MOUSE_TRACKING : ''));
+      }
       this.resetFramesForAltScreen();
       this.needsEraseBeforePaint = true;
       this.onRender();
