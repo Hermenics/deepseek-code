@@ -343,7 +343,7 @@ function Root() {
   )
   return initialSettings.interface?.alternateScreen === false
     ? application
-    : <AlternateScreen mouseTracking={false}>{application}</AlternateScreen>
+    : <AlternateScreen>{application}</AlternateScreen>
 }
 
 const root = await createRoot({
