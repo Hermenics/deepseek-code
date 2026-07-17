@@ -86,8 +86,8 @@ export async function withInkPaused<T>(operation: () => Promise<T>): Promise<T> 
 }
 
 /** Mark the current terminal frame for a full-damage diff on the next render. */
-export function invalidateInkFrame(stdout: NodeJS.WriteStream = process.stdout): void {
-  instances.get(stdout)?.invalidatePhysicalFrame()
+export function invalidateInkFrame(stdout: NodeJS.WriteStream = process.stdout, resetAltScreen = false): void {
+  instances.get(stdout)?.invalidatePhysicalFrame(resetAltScreen)
 }
 
 /**
