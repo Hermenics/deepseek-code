@@ -3,6 +3,8 @@ import { join } from 'path'
 import { homedir } from 'os'
 import pkg from '../../package.json' with { type: 'json' }
 
+export const _getVersion = () => pkg.version
+
 const COOLDOWN_MS = 60 * 60 * 1000
 const FETCH_TIMEOUT_MS = 5000
 const DEEPSEEK_DIR = join(homedir(), '.deepseek')
@@ -54,9 +56,10 @@ export async function checkForUpdate(): Promise<{ current: string; latest: strin
     const data = (await res.json()) as { version: string }
     saveCooldown()
 
-    if (!isNewer(data.version, pkg.version)) return null
+    const current = _getVersion()
+    if (!isNewer(data.version, current)) return null
 
-    return { current: pkg.version, latest: data.version }
+    return { current, latest: data.version }
   } catch {
     saveCooldown()
     return null
