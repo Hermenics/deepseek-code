@@ -80,12 +80,13 @@ interface PlanApprovalState {
   reject(reason: string): void
 }
 
-export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, language, enchant, sessionId, initialSession, headerProvider, headerAgent, initialSettings }: {
+export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, onLogout, language, enchant, sessionId, initialSession, headerProvider, headerAgent, initialSettings }: {
   initialAgent?: LoadedAgent | null
   initialMessage?: string | null
   theme: ThemeName
   providerConfig?: ProviderConfig | null
   onThemeChange?: (t: ThemeName) => void
+  onLogout?: () => void
   language?: string | null
   enchant?: boolean
   sessionId?: string
@@ -548,6 +549,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         case 'quit':
           process.stdout.write('\x1b[?25h\n')
           process.exit(0)
+        case 'logout': {
+          const { logout } = await import('../utils/credentials.js')
+          await logout()
+          onLogout?.()
+          return
+        }
         case 'clear':
           agent.clearHistory()
           setMessages([])
