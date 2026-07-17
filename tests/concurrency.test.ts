@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
-import { acquire, release, getRunningCount, getQueueDepth } from '../src/tools/SubAgent/concurrency.js'
+import { acquire, release, getRunningCount, getQueueDepth, setConcurrencyLimit } from '../src/tools/SubAgent/concurrency.js'
 
 // Module-level state is shared across tests in the same process.
 // Each test must restore state to 0 running, 0 queued via release().
@@ -11,6 +11,7 @@ describe('concurrency semaphore', () => {
     // We over-release safely: extra releases when running=0 and queue empty just decrement to -N,
     // so we only release while running > 0.
     while (getRunningCount() > 0) release()
+    setConcurrencyLimit(5)
     // Drain any remaining queue items (if running somehow got stuck)
     // by flushing promises — guarded so this is a no-op when clean
   })
@@ -99,5 +100,23 @@ describe('concurrency semaphore', () => {
 
     // Cleanup (5 slots still held + 3 transferred = 5 total running)
     for (let i = 0; i < 5; i++) release()
+  })
+
+  it('does not wake queued work above a lowered limit', async () => {
+    for (let i = 0; i < 5; i++) await acquire()
+    let resolved = false
+    const queued = acquire().then(() => { resolved = true })
+
+    setConcurrencyLimit(2)
+    release(); release(); release()
+    await Promise.resolve()
+    expect(getRunningCount()).toBe(2)
+    expect(getQueueDepth()).toBe(1)
+    expect(resolved).toBe(false)
+
+    release()
+    await queued
+    expect(getRunningCount()).toBe(2)
+    release(); release()
   })
 })

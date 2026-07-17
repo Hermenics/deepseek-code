@@ -7,6 +7,7 @@ import { matchesHookPattern } from './matcher.js'
  * Returns stdout string or empty on timeout/error.
  */
 export async function runHookCommand(cmd: HookCommand, input: HookInput): Promise<string> {
+  if (cmd.enabled === false) return ''
   const timeoutMs = (cmd.timeout ?? 30) * 1000
 
   return new Promise<string>((resolve) => {
@@ -60,10 +61,12 @@ export async function runPreToolHooks(
   let matched = false
 
   for (const matcher of config.PreToolUse) {
+    if (matcher.enabled === false) continue
     if (!matchesHookPattern(matcher.matcher, toolName)) continue
     matched = true
 
     for (const hook of matcher.hooks) {
+      if (hook.enabled === false) continue
       const input: HookInput = {
         event: 'PreToolUse',
         session_id: sessionId,
@@ -105,9 +108,11 @@ export async function runPostToolHooks(
   if (!config?.PostToolUse?.length) return
 
   for (const matcher of config.PostToolUse) {
+    if (matcher.enabled === false) continue
     if (!matchesHookPattern(matcher.matcher, toolName)) continue
 
     for (const hook of matcher.hooks) {
+      if (hook.enabled === false) continue
       const input: HookInput = {
         event: 'PostToolUse',
         session_id: sessionId,
@@ -130,6 +135,7 @@ export async function runSessionStartHooks(
   if (!config?.SessionStart?.length) return
 
   for (const hook of config.SessionStart) {
+    if (hook.enabled === false) continue
     const input: HookInput = { event: 'SessionStart', session_id: sessionId }
     await runHookCommand(hook, input).catch(() => {})
   }

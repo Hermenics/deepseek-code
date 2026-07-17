@@ -4,6 +4,7 @@ import type { Model } from '../../commands.js'
 import { MODE_COLORS, MODE_LABELS, type InteractionMode } from '../interactionMode.js'
 import { getThemeColors, DIVIDER_CHAR, PROGRESS_CHARS, STATUS_ICONS } from '../theme.js'
 import type { ThemeName } from '../theme.js'
+import type { StatusBarItem } from '../../settings/types.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 
@@ -33,7 +34,7 @@ function ProgressBar({ percent, width = 20, theme = 'dark' }: { percent: number;
   )
 }
 
-export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provider: _provider, contextPct = 0, interactionMode = 'build', theme = 'dark' }: {
+export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provider: _provider, contextPct = 0, interactionMode = 'build', theme = 'dark', items, narrowPriority }: {
   tokenCount: number
   model: Model
   activeAgent: string | null
@@ -41,6 +42,8 @@ export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provid
   contextPct?: number
   interactionMode?: InteractionMode
   theme?: ThemeName
+  items?: StatusBarItem[]
+  narrowPriority?: StatusBarItem[]
 }) {
   const colors = getThemeColors(theme)
   const [branch, setBranch] = useState('')
@@ -57,40 +60,40 @@ export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provid
     }
   }, [])
 
-  if (tokenCount === 0 && !branch) return null
-
   const cols = process.stdout.columns ?? 80
   const isVeryNarrow = cols < 60
   const isNarrow = cols < 80
   const divider = DIVIDER_CHAR.repeat(Math.max(0, cols - 4))
   const displayModel = isVeryNarrow ? String(model).slice(0, 15) : String(model)
+  const configured = items ?? ['mode', 'model', 'tokens', 'branch', 'context']
+  const prioritized = isNarrow
+    ? (narrowPriority ?? ['mode', 'context', 'model', 'branch', 'tokens']).filter(item => configured.includes(item))
+    : configured
+  const visible = new Set(prioritized.slice(0, isVeryNarrow ? 2 : isNarrow ? 3 : configured.length))
+  if (![...visible].some(item => item === 'mode' || item === 'model' || item === 'tokens' && tokenCount > 0 || item === 'branch' && branch || item === 'context' && contextPct > 0)) return null
 
   return (
     <Box flexDirection="column">
       <Text color={colors.textSubtle}>{divider}</Text>
       <Box flexDirection="row" paddingX={2} gap={1}>
-        <Text color={MODE_COLORS[interactionMode]}>{MODE_LABELS[interactionMode]}</Text>
-        <Text color={colors.textSubtle}>{'·'}</Text>
-        <Text color={colors.primary}>{STATUS_ICONS.agent + ' ' + displayModel}</Text>
-        {!isVeryNarrow && tokenCount > 0 && (
+        {visible.has('mode') && <Text color={MODE_COLORS[interactionMode]}>{MODE_LABELS[interactionMode]}</Text>}
+        {visible.has('model') && <Text color={colors.primary}>{STATUS_ICONS.agent + ' ' + displayModel}</Text>}
+        {visible.has('tokens') && tokenCount > 0 && (
           <>
-            <Text color={colors.textSubtle}>{'·'}</Text>
             <Text color={colors.textDim}>{STATUS_ICONS.info + ' ' + tokenCount.toLocaleString() + ' tokens'}</Text>
           </>
         )}
-        {!isVeryNarrow && branch && (
+        {visible.has('branch') && branch && (
           <>
-            <Text color={colors.textSubtle}>{'·'}</Text>
             <Text color={colors.textDim}>{'⎇ ' + branch}</Text>
           </>
         )}
-        {!isNarrow && contextPct > 0 && (
+        {visible.has('context') && contextPct > 0 && (
           <>
-            <Text color={colors.textSubtle}>{'·'}</Text>
             <Text color={contextPct >= 90 ? colors.error : contextPct >= 70 ? colors.warning : colors.primary}>
               {'ctx ' + contextPct + '%'}
             </Text>
-            <ProgressBar percent={contextPct} width={10} theme={theme} />
+            {!isNarrow && <ProgressBar percent={contextPct} width={10} theme={theme} />}
           </>
         )}
       </Box>

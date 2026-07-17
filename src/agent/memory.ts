@@ -1,5 +1,5 @@
 import { join } from 'path'
-import { readFile, writeFile, mkdir } from 'fs/promises'
+import { readFile, writeFile, mkdir, copyFile, rm } from 'fs/promises'
 import { homedir } from 'os'
 
 const DELIMITER = '\n§\n'
@@ -8,13 +8,34 @@ const MAX_CHARS = 2000
 export type MemoryTarget = 'agent' | 'user'
 
 let memoryDirOverride: string | null = null
+let memoryEnabled = true
+let memoryScope: 'user' | 'project' = 'user'
+let memoryCwd = process.cwd()
+
+export async function configureMemory(config: { enabled?: boolean; scope?: 'user' | 'project' }, cwd = process.cwd()): Promise<void> {
+  memoryEnabled = config.enabled !== false
+  memoryScope = config.scope ?? 'user'
+  memoryCwd = cwd
+  if (!memoryEnabled || memoryDirOverride) return
+  const legacy = join(homedir(), '.deepseek-code', 'memory')
+  const destination = getMemoryDir()
+  await mkdir(destination, { recursive: true })
+  for (const file of ['MEMORY.md', 'USER.md']) {
+    try {
+      await readFile(join(destination, file), 'utf8')
+    } catch {
+      await copyFile(join(legacy, file), join(destination, file)).catch(() => undefined)
+    }
+  }
+}
 
 export function setMemoryDir(dir: string | null): void {
   memoryDirOverride = dir
 }
 
 export function getMemoryDir(): string {
-  return memoryDirOverride ?? join(homedir(), '.deepseek-code', 'memory')
+  if (memoryDirOverride) return memoryDirOverride
+  return memoryScope === 'project' ? join(memoryCwd, '.deepseek', 'memory') : join(homedir(), '.deepseek', 'memory')
 }
 
 function getFilePath(target: MemoryTarget): string {
@@ -26,6 +47,7 @@ async function ensureDir(): Promise<void> {
 }
 
 export async function loadMemory(target: MemoryTarget): Promise<string[]> {
+  if (!memoryEnabled) return []
   try {
     const raw = await readFile(getFilePath(target), 'utf-8')
     if (!raw.trim()) return []
@@ -42,6 +64,7 @@ async function saveMemory(target: MemoryTarget, entries: string[]): Promise<void
 }
 
 export async function addEntry(target: MemoryTarget, content: string): Promise<string> {
+  if (!memoryEnabled) return 'Memory is disabled in settings.'
   const entries = await loadMemory(target)
   const newEntries = [...entries, content]
   const total = newEntries.join(DELIMITER).length
@@ -75,6 +98,7 @@ export async function removeEntry(target: MemoryTarget, match: string): Promise<
 }
 
 export async function getMemorySnapshot(): Promise<string> {
+  if (!memoryEnabled) return ''
   const [agentEntries, userEntries] = await Promise.all([
     loadMemory('agent'),
     loadMemory('user'),
@@ -89,4 +113,8 @@ export async function getMemorySnapshot(): Promise<string> {
     parts.push('## User Preferences\n' + userEntries.map((e) => `- ${e}`).join('\n'))
   }
   return parts.join('\n\n')
+}
+
+export async function clearMemory(): Promise<void> {
+  await rm(getMemoryDir(), { recursive: true, force: true })
 }

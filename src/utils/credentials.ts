@@ -1,7 +1,8 @@
 import { homedir } from 'os'
 import { join, dirname } from 'path'
-import { mkdir, rm } from 'fs/promises'
-import { readJson, writeRaw } from './fs'
+import { mkdir, rename, rm, writeFile } from 'fs/promises'
+import { randomUUID } from 'crypto'
+import { readJson } from './fs'
 
 // ─── Paths ──────────────────────────────────────────────────────
 
@@ -33,7 +34,14 @@ export async function saveFullConfig(
 ): Promise<void> {
   const dir = dirname(configPath)
   await mkdir(dir, { recursive: true })
-  await writeRaw(configPath, JSON.stringify(data, null, 2))
+  const temporary = `${configPath}.${process.pid}.${randomUUID()}.tmp`
+  try {
+    await writeFile(temporary, `${JSON.stringify(data, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 })
+    await rename(temporary, configPath)
+  } catch (error) {
+    await rm(temporary, { force: true }).catch(() => undefined)
+    throw error
+  }
 }
 
 // ─── Migration ──────────────────────────────────────────────────
