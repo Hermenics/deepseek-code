@@ -28,6 +28,7 @@ import skill from './skill/index.js'
 import plugin from './plugin/index.js'
 import context from './context/index.js'
 import worktree from './worktree/index.js'
+import logout from './logout/index.js'
 
 const commands: Command[] = [
   help,
@@ -58,6 +59,7 @@ const commands: Command[] = [
   plugin,
   context,
   worktree,
+  logout,
 ]
 
 export function parseCommand(input: string): CommandResult | null {

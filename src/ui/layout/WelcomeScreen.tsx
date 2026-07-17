@@ -6,10 +6,10 @@ import Text from '../../ink/components/Text.js'
 export function DeepSeekMascot() {
   return (
     <Box flexDirection="column">
-      <Text color="cyan">{' ▄▄███▄▄'}</Text>
-      <Text color="cyan">{'▄█ ◉    ██▄'}</Text>
+      <Text color="cyan">{'  ▄▄███▄▄'}</Text>
+      <Text color="cyan">{' ▄█ ◉    ██▄'}</Text>
       <Text color="cyan">{'█          ~~█'}</Text>
-      <Text color="cyan">{'▀▄▄█▄▄▄▄█▀'}</Text>
+      <Text color="cyan">{' ▀▄▄█▄▄▄▄█▀'}</Text>
     </Box>
   )
 }
@@ -28,7 +28,7 @@ export function WelcomeArt() {
               <Text color="cyan">{'◆ DeepSeek Code'}</Text>
               <Text color="#888888">{'v' + pkg.version}</Text>
             </Box>
-            <Text color="#5599ff">Deep reasoning, hello world.</Text>
+            <Text color="#5599ff">Deep reasoning,</Text>
             <Text color="#888888">Elite code.</Text>
           </Box>
         </Box>
