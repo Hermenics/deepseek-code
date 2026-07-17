@@ -12,6 +12,7 @@ import { loadFullConfig, saveFullConfig } from '../../utils/credentials.js'
 import { loadMemory } from '../../agent/memory.js'
 import { listSessions } from '../../agent/session.js'
 import { getThemeColors } from '../theme.js'
+import { shouldFilterKey } from '../input/keyFilter.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 import AgentLibrary from './AgentLibrary.js'
@@ -171,6 +172,9 @@ const CATEGORIES: Category[] = [
 export type SettingsLayout = 'wide' | 'medium' | 'narrow'
 export function getSettingsLayout(width: number): SettingsLayout {
   return width >= 110 ? 'wide' : width >= 72 ? 'medium' : 'narrow'
+}
+export function getSettingsNavigationHeight(height: number): number {
+  return Math.max(6, Math.min(9, height - 13))
 }
 export { CATEGORIES as SETTINGS_CATEGORIES }
 
@@ -434,7 +438,8 @@ export default function ConfigMenu(props: ConfigMenuProps) {
     else setEditorValue(Array.isArray(effectiveValue) ? effectiveValue.join(', ') : effectiveValue === undefined ? '' : String(effectiveValue))
   }
 
-  useInput((input: string, key: Key) => {
+  useInput((input: string, key: Key, event) => {
+    if (key.wheelUp || key.wheelDown || shouldFilterKey(event.keypress)) return
     if (confirmAction) {
       if (input.toLowerCase() === 'y') {
         const action = confirmAction
@@ -512,10 +517,9 @@ export default function ConfigMenu(props: ConfigMenuProps) {
     }
   }, { isActive: library === null })
 
-  const categoryWindow = getSettingsWindow(filtered, categoryIndex, layout === 'medium' ? 8 : Math.max(4, height - 8))
-  // The medium navigation region is nine rows tall. Title, description, spacing
-  // and scroll indicators leave room for at most four stable setting rows.
-  const itemWindow = getSettingsWindow(category?.items ?? [], itemIndex, layout === 'medium' ? 4 : Math.max(4, height - 8))
+  const navigationHeight = getSettingsNavigationHeight(height)
+  const categoryWindow = getSettingsWindow(filtered, categoryIndex, layout === 'narrow' ? Math.max(4, height - 8) : navigationHeight - 2)
+  const itemWindow = getSettingsWindow(category?.items ?? [], itemIndex, layout === 'narrow' ? Math.max(4, height - 8) : Math.max(1, navigationHeight - 5))
   const resolution = item && snapshot && !item.path.startsWith('$') ? resolveSetting(snapshot, item.path) : null
   const origin: SettingOrigin | undefined = resolution?.origin
   const scopeValue = item && snapshot && !item.path.startsWith('$') ? valueAt(snapshot.levels[scope].data, item.path) : undefined
@@ -576,7 +580,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
   ) : <Text dimColor>No setting matches this search.</Text>
 
   const Detail = () => item ? (
-    <Box flexDirection="column" flexGrow={1} paddingLeft={layout === 'wide' ? 2 : 0}>
+    <Box flexDirection="column" flexGrow={1}>
       <Text bold color={colors.primary}>{item.label}</Text>
       <Box marginTop={layout === 'medium' ? 0 : 1}><Text wrap={layout === 'medium' ? 'truncate-end' : 'wrap'}>{item.description}</Text></Box>
       <Box marginTop={layout === 'medium' ? 0 : 1} flexDirection="column">
@@ -625,12 +629,10 @@ export default function ConfigMenu(props: ConfigMenuProps) {
     <Box flexDirection="column" width={width} height={height} paddingX={1}>
       <Header />
       <Box marginTop={1} flexGrow={1} minHeight={0}>
-        {layout === 'wide' ? (
-          <><Categories /><Text color={colors.textInactive}>│</Text><Items /><Text color={colors.textInactive}>│</Text><Detail /></>
-        ) : layout === 'medium' ? (
+        {layout !== 'narrow' ? (
           <Box flexDirection="column" width="100%">
-            <Box height={9} flexShrink={0}><Categories /><Text color={colors.textInactive}>{'│\n'.repeat(8)}│</Text><Items /></Box>
-            <Box marginTop={height >= 22 ? 3 : 1} flexGrow={1} minHeight={0}><Detail /></Box>
+            <Box height={navigationHeight} flexShrink={0}><Categories /><Text color={colors.textInactive}>{'│\n'.repeat(navigationHeight - 1)}│</Text><Items /></Box>
+            <Box marginTop={navigationHeight === 9 && height >= 22 ? 3 : 1} flexGrow={1} minHeight={0}><Detail /></Box>
           </Box>
         ) : narrowPage === 'categories' ? <Categories /> : narrowPage === 'items' ? <Items /> : <Detail />}
       </Box>

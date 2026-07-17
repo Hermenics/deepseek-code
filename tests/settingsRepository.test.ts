@@ -10,7 +10,7 @@ import {
   resolveSetting,
   validateSettings,
 } from '../src/settings/repository.js'
-import { getNextSettingOption, getSettingsLayout, getSettingsWindow, SETTINGS_CATEGORIES } from '../src/ui/setup/ConfigMenu.js'
+import { getNextSettingOption, getSettingsLayout, getSettingsNavigationHeight, getSettingsWindow, SETTINGS_CATEGORIES } from '../src/ui/setup/ConfigMenu.js'
 
 const temporary: string[] = []
 async function project(): Promise<string> {
@@ -160,6 +160,12 @@ describe('settings center topology', () => {
     expect(getSettingsWindow(items, 0, 4)).toMatchObject({ start: 0, before: false, after: true })
     expect(getSettingsWindow(items, 3, 4)).toMatchObject({ start: 0, values: items.slice(0, 4) })
     expect(getSettingsWindow(items, 4, 4)).toMatchObject({ start: 1, values: items.slice(1, 5) })
+  })
+
+  it('shrinks the navigation pane and reserves both category scroll indicators', () => {
+    expect(getSettingsNavigationHeight(24)).toBe(9)
+    expect(getSettingsNavigationHeight(18)).toBe(6)
+    expect(getSettingsWindow(SETTINGS_CATEGORIES, 4, getSettingsNavigationHeight(18) - 2).values).toHaveLength(4)
   })
 
   it('cycles the refiner model through provider models and back to inherit', () => {
