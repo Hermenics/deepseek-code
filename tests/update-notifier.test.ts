@@ -1,13 +1,18 @@
 import { describe, it, expect, spyOn, beforeEach, afterEach } from 'bun:test'
 import * as fs from 'fs'
+import * as updateNotifier from '../src/utils/update-notifier.js'
 
 // spyOn is reversible — unlike mock.module which leaks globally and breaks other test files
 let spyRead: ReturnType<typeof spyOn>
 let spyWrite: ReturnType<typeof spyOn>
 let spyMkdir: ReturnType<typeof spyOn>
+let spyVersion: ReturnType<typeof spyOn>
 
 const originalFetch = globalThis.fetch
 let mockFetchImpl: (...args: any[]) => any
+
+const CURRENT_VERSION = '98.99.97'
+const LATEST_VERSION = '99.99.99'
 
 beforeEach(() => {
   spyRead = spyOn(fs, 'readFileSync').mockImplementation((() => {
@@ -15,10 +20,11 @@ beforeEach(() => {
   }) as any)
   spyWrite = spyOn(fs, 'writeFileSync').mockImplementation((() => undefined) as any)
   spyMkdir = spyOn(fs, 'mkdirSync').mockImplementation((() => undefined) as any)
+  spyVersion = spyOn(updateNotifier, '_getVersion').mockReturnValue(CURRENT_VERSION)
 
   mockFetchImpl = () => Promise.resolve({
     ok: true,
-    json: () => Promise.resolve({ version: '0.2.16' }),
+    json: () => Promise.resolve({ version: LATEST_VERSION }),
   })
   globalThis.fetch = ((...args: any[]) => mockFetchImpl(...args)) as any
 })
@@ -27,12 +33,11 @@ afterEach(() => {
   spyRead.mockRestore()
   spyWrite.mockRestore()
   spyMkdir.mockRestore()
+  spyVersion.mockRestore()
   globalThis.fetch = originalFetch
 })
 
 import { checkForUpdate, dismissVersion, isDismissed } from '../src/utils/update-notifier.js'
-
-const CURRENT_VERSION = '0.2.17'
 
 // ─── checkForUpdate ──────────────────────────────────────────────
 
@@ -61,16 +66,11 @@ describe('checkForUpdate', () => {
   })
 
   it('should return { current, latest } when a newer version exists on registry', async () => {
-    mockFetchImpl = () => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve({ version: '0.3.0' }),
-    })
-
     const result = await checkForUpdate()
 
     expect(result).not.toBeNull()
     expect(result?.current).toBe(CURRENT_VERSION)
-    expect(result?.latest).toBe('0.3.0')
+    expect(result?.latest).toBe(LATEST_VERSION)
   })
 
   it('should return null when fetch times out (5s)', async () => {
@@ -97,11 +97,6 @@ describe('checkForUpdate', () => {
   })
 
   it('should save cooldown timestamp after successful check', async () => {
-    mockFetchImpl = () => Promise.resolve({
-      ok: true,
-      json: () => Promise.resolve({ version: '0.3.0' }),
-    })
-
     await checkForUpdate()
 
     expect(spyWrite).toHaveBeenCalled()
