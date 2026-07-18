@@ -1,6 +1,9 @@
 import type { SubAgentRole } from '../../tools/SubAgent/permissions.js'
+import type { TaskState } from '../../orchestration/types.js'
 
-export type SubagentStatus = 'running' | 'done' | 'error'
+// `error` remains as a deprecated UI-only alias so older callback consumers and
+// persisted views keep rendering while the runtime uses the explicit `failed` state.
+export type SubagentStatus = TaskState | 'error'
 
 export interface SubagentState {
   id: string

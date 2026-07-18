@@ -85,6 +85,14 @@ export interface AgentsSettings {
   concurrency?: number
   permissionPolicy?: 'inherit' | 'isolated'
   disabledBuiltins?: string[]
+  maxTasks?: number
+  maxDepth?: number
+  maxFanOut?: number
+  maxRetries?: number
+  timeoutMs?: number
+  retryBackoffMs?: number
+  maxTokens?: number
+  maxCostUsd?: number
 }
 
 export interface MemorySettings {

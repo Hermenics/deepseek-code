@@ -3,6 +3,7 @@
  */
 
 import type { Tool } from '../types.js'
+import type { PermissionProfile } from '../../orchestration/types.js'
 
 export type SubAgentRole = 'reader' | 'writer' | 'executor' | 'reviewer' | 'unrestricted'
 
@@ -12,6 +13,23 @@ const ROLE_TOOLS: Record<SubAgentRole, Set<string> | '*'> = {
   executor: new Set(['read_file', 'read_folder', 'grep', 'glob', 'write_file', 'patch_file', 'shell', 'web_fetch', 'introspect']),
   reviewer: new Set(['read_file', 'read_folder', 'grep', 'glob', 'introspect']),
   unrestricted: '*',
+}
+
+const PROFILE_TOOLS: Record<PermissionProfile, Set<string> | '*'> = {
+  'researcher-readonly': new Set(['read_file', 'read_folder', 'grep', 'glob', 'web_fetch', 'introspect']),
+  tester: new Set(['read_file', 'read_folder', 'grep', 'glob', 'shell', 'introspect']),
+  'writer-worktree': new Set(['read_file', 'read_folder', 'grep', 'glob', 'write_file', 'patch_file', 'edit_file', 'shell', 'introspect']),
+  'coordinator-integrator': '*',
+}
+
+export function isToolAllowedForProfile(profile: PermissionProfile, toolName: string): boolean {
+  const tools = PROFILE_TOOLS[profile]
+  return tools === '*' || tools.has(toolName)
+}
+
+export function getToolNamesForProfile(profile: PermissionProfile): string[] | '*' {
+  const tools = PROFILE_TOOLS[profile]
+  return tools === '*' ? '*' : [...tools]
 }
 
 /**
@@ -25,8 +43,8 @@ export function getToolsForRole(role: SubAgentRole, tools: Tool[]): Tool[] {
 }
 
 /**
- * Infer a role from the task description.
- * Defaults to 'executor' for ambiguous tasks.
+ * Infer the narrowest role justified by the task description.
+ * Ambiguous delegation stays read-only; execution must be explicit.
  */
 export function inferRole(task: string): SubAgentRole {
   const lower = task.toLowerCase()
@@ -45,8 +63,12 @@ export function inferRole(task: string): SubAgentRole {
     return 'writer'
   }
 
-  // Default: executor (can read, write, and run commands)
-  return 'executor'
+  if (/\b(run|execute|install|build|test|deploy|npm|bun|pnpm|yarn|pip|cargo)\b/.test(lower)) {
+    return 'executor'
+  }
+
+  // Ambiguous delegation starts read-only; writers must be explicit.
+  return 'reader'
 }
 
 /**

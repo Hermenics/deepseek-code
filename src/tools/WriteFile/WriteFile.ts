@@ -1,7 +1,6 @@
 import { Tool } from '../types.js'
 import * as fs from 'fs/promises'
-import * as path from 'path'
-import { assertSafePath } from '../shared/pathSafety.js'
+import { assertExecutionActive, assertSafePath, atomicWriteFile } from '../shared/pathSafety.js'
 
 type DiffLine = { type: 'added' | 'removed' | 'context'; text: string; lineNo: number }
 
@@ -42,17 +41,17 @@ export const WriteFile: Tool = {
     },
     required: ['path', 'content'],
   },
-  async execute(args) {
-    const filePath = args.path as string
+  async execute(args, context) {
+    assertExecutionActive(context)
+    const filePath = await assertSafePath(args.path as string, context)
     const content = args.content as string
 
-    await assertSafePath(filePath)
-
     let oldContent = ''
-    try { oldContent = await fs.readFile(filePath, 'utf-8') } catch { /* new file */ }
+    try { oldContent = await fs.readFile(filePath, 'utf-8') } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
 
-    await fs.mkdir(path.dirname(filePath), { recursive: true })
-    await fs.writeFile(filePath, content, 'utf-8')
+    await atomicWriteFile(filePath, content, context)
 
     const oldLines = oldContent.split('\n')
     const newLines = content.split('\n')

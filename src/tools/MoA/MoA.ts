@@ -9,6 +9,7 @@ export const MoATool: Tool = {
     'Mixture of Agents: envia o mesmo prompt para múltiplos modelos em paralelo, depois sintetiza as respostas com um modelo agregador. Use para decisões críticas que se beneficiam de perspectivas diversas.',
   parameters: {
     type: 'object',
+    additionalProperties: false,
     properties: {
       prompt: {
         type: 'string',
@@ -20,9 +21,12 @@ export const MoATool: Tool = {
       },
       referenceModels: {
         type: 'array',
+        minItems: 1,
+        maxItems: 5,
         description: 'Override dos modelos de referência.',
         items: {
           type: 'object',
+          additionalProperties: false,
           properties: {
             model: { type: 'string' },
             temperature: { type: 'number' },
@@ -37,7 +41,7 @@ export const MoATool: Tool = {
     },
     required: ['prompt'],
   },
-  async execute(args) {
+  async execute(args, context) {
     const prompt = args.prompt as string
     const systemPrompt = args.systemPrompt as string | undefined
     const refModelsOverride = args.referenceModels as MoAReferenceModel[] | undefined
@@ -51,7 +55,7 @@ export const MoATool: Tool = {
         : DEFAULT_MOA_CONFIG.aggregator,
     }
 
-    const result = await executeMoA(prompt, systemPrompt, config)
+    const result = await executeMoA(prompt, systemPrompt, config, undefined, context)
     return result.synthesis
   },
 }

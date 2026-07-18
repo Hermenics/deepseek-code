@@ -45,12 +45,10 @@ export const Grep: Tool = {
     },
     required: ['pattern'],
   },
-  async execute(args) {
-    const dir = (args.path as string) || '.'
+  async execute(args, context) {
+    const dir = await assertSafeDir((args.path as string) || '.', context)
     const pattern = args.pattern as string
     const include = args.include as string | undefined
-
-    await assertSafeDir(dir)
 
     const grepArgs = ['-rn']
     if (include) grepArgs.push(`--include=${include}`)
@@ -60,7 +58,7 @@ export const Grep: Tool = {
     grepArgs.push('--', pattern, dir)
 
     try {
-      const { stdout } = await execa('grep', grepArgs, { timeout: 15000 })
+      const { stdout } = await execa('grep', grepArgs, { timeout: 15000, cancelSignal: context?.signal })
       const lines = stdout.split('\n').filter(Boolean)
       const truncated = lines.length > GREP_MAX_LINES
       const result = lines.slice(0, GREP_MAX_LINES).join('\n')

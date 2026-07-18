@@ -1,5 +1,8 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
 
+const lookupMock = mock(async () => [{ address: '93.184.216.34', family: 4 }])
+mock.module('dns/promises', () => ({ lookup: lookupMock }))
+
 describe('WebFetch tool', () => {
   let originalFetch: typeof global.fetch
   const PUBLIC_HTTP_URL = 'http://93.184.216.34'
@@ -7,6 +10,7 @@ describe('WebFetch tool', () => {
 
   beforeEach(() => {
     originalFetch = global.fetch
+    lookupMock.mockClear()
   })
 
   afterEach(() => {
@@ -26,9 +30,21 @@ describe('WebFetch tool', () => {
     global.fetch = fetchMock as any
     await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    const call = fetchMock.mock.calls[0] as unknown as [string, RequestInit]
-    expect(call[0]).toBe(PUBLIC_HTTPS_URL)
+    const call = fetchMock.mock.calls[0] as unknown as [URL, RequestInit]
+    expect(call[0].toString()).toBe(`${PUBLIC_HTTPS_URL}/`)
     expect(call[1]).toHaveProperty('signal')
+  })
+
+  it('pins hostname requests to the validated address', async () => {
+    const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
+    const fetchMock = mock(() => Promise.resolve(okResponse('safe')))
+    global.fetch = fetchMock as any
+    await WebFetch.execute({ url: 'https://safe.example/path' })
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit & { tls: { serverName: string } }]
+    expect(url.toString()).toBe('https://93.184.216.34/path')
+    expect(init.headers).toEqual({ host: 'safe.example' })
+    expect(init.tls.serverName).toBe('safe.example')
+    expect(lookupMock).toHaveBeenCalledTimes(1)
   })
 
   it('remove tags HTML do conteúdo', async () => {

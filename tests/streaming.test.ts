@@ -57,10 +57,11 @@ function makeTrackedCallbacks(): AgentCallbacks & {
 
 /** Cria um mock de tool para injetar no toolMap do Agent */
 function makeToolMock(name: string, result: string) {
+  const argumentName = name === 'shell' ? 'command' : name === 'grep' || name === 'glob' ? 'pattern' : 'path'
   return {
     name,
     description: `Mock tool: ${name}`,
-    parameters: { type: 'object', properties: {} },
+    parameters: { type: 'object', properties: { [argumentName]: { type: 'string' } } },
     execute: mock(() => Promise.resolve(result)),
   }
 }

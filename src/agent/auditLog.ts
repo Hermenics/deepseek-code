@@ -1,7 +1,8 @@
 import { join } from 'path'
 import { homedir } from 'os'
-import { mkdir, appendFile } from 'fs/promises'
+import { mkdir, appendFile, chmod } from 'fs/promises'
 import { randomBytes } from 'crypto'
+import { redactSecrets } from '../orchestration/events.js'
 
 const LOG_DIR = join(homedir(), '.deepseek', 'logs')
 const SESSION_ID = `${Date.now()}-${randomBytes(3).toString('hex')}`
@@ -28,8 +29,9 @@ async function ensureDir(): Promise<void> {
 export async function auditLog(event: AuditEvent): Promise<void> {
   try {
     await ensureDir()
-    const line = JSON.stringify({ ts: new Date().toISOString(), ...event }) + '\n'
-    await appendFile(LOG_FILE, line, 'utf-8')
+    const line = JSON.stringify(redactSecrets({ ts: new Date().toISOString(), ...event })) + '\n'
+    await appendFile(LOG_FILE, line, { encoding: 'utf8', mode: 0o600 })
+    await chmod(LOG_FILE, 0o600)
   } catch {
     // Audit log failures must never crash the agent
   }

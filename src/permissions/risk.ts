@@ -28,6 +28,9 @@ export const DEFAULT_RISK_RULES: RiskRule[] = [
   { id: 'shell:deploy-cmd', level: 'high', tool: 'shell', pattern: '*serverless deploy*' },
   { id: 'shell:deploy-cdk', level: 'high', tool: 'shell', pattern: 'cdk deploy*' },
   { id: 'shell:build', level: 'high', tool: 'shell', pattern: 'bun run build*' },
+  { id: 'git:force-push', level: 'high', tool: 'git', pattern: 'push --force' },
+  { id: 'git:push', level: 'high', tool: 'git', pattern: 'push' },
+  { id: 'git:pull', level: 'high', tool: 'git', pattern: 'pull' },
   { id: 'write:deepseek-config', level: 'high', tool: 'write_file', pattern: '*.deepseek/*' },
   { id: 'patch:deepseek-config', level: 'high', tool: 'patch_file', pattern: '*.deepseek/*' },
   { id: 'write:steering', level: 'high', tool: 'write_file', pattern: '*.deepseek/steering/*' },
@@ -56,6 +59,8 @@ function getToolContent(toolName: string, args: Record<string, unknown>): string
     case 'write_file':
     case 'patch_file':
       return typeof args.path === 'string' ? args.path : undefined
+    case 'git':
+      return typeof args.action === 'string' ? `${args.action}${args.force === true ? ' --force' : ''}` : undefined
     default:
       return undefined
   }

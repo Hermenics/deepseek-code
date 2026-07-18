@@ -1,22 +1,18 @@
 import OpenAI from 'openai'
 import { execa } from 'execa'
 import { randomUUID } from 'node:crypto'
-import { readFile, writeFile } from 'fs/promises'
+import { readFile, unlink, writeFile } from 'fs/promises'
+import { resolve } from 'node:path'
 import DEFAULT_SYSTEM_PROMPT_MD from './system-prompt.md' with { type: 'text' }
 import { allTools } from '../tools/index.js'
-import { setShellConfirmHandler } from '../tools/Shell/Shell.js'
-import { setSubAgentProvider, setSubAgentModel } from '../tools/SubAgent/SubAgent.js'
-import { setAgentNoteCallback, setAskAgentProvider, setAskAgentModel } from '../tools/AskAgent/AskAgent.js'
-import { resetMemory } from '../tools/SubAgent/memory.js'
-import { setConcurrencyLimit } from '../tools/SubAgent/concurrency.js'
+import type { SubAgentCallbacks } from '../tools/SubAgent/SubAgent.js'
 import { loadMcpTools } from './mcp.js'
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
 import type { Model } from '../commands.js'
-import type { AgentConfig } from './config.js'
+import { loadAgentRegistry, type AgentConfig } from './config.js'
 import type { Tool } from '../tools/types.js'
 import { resolveAgentFiles } from './files.js'
 import { loadSteering, loadDeepSeekMd } from './steering.js'
-import { getMemorySnapshot, addEntry, configureMemory } from './memory.js'
 import { setSessionRetention } from './session.js'
 import { loadMergedSettings } from '../settings/index.js'
 import type { DeepSeekSettings } from '../settings/types.js'
@@ -41,6 +37,10 @@ import { globMatch, resolvePermission } from '../permissions/index.js'
 import { assessRisk } from '../permissions/risk.js'
 import { runPreToolHooks, runPostToolHooks, runSessionStartHooks } from '../hooks/index.js'
 import type { HooksConfig } from '../hooks/types.js'
+import { OrchestratorSession, taskSnapshotFile, type OrchestratorCallbacks } from '../orchestration/OrchestratorSession.js'
+import { validateToolArguments as validateToolSchema } from '../orchestration/schema.js'
+import type { TaskLimits } from '../orchestration/types.js'
+import { resolveSafePath } from '../tools/shared/pathSafety.js'
 
 /** Workaround: OpenAI SDK has not typed reasoning_content yet (exclusive field of deepseek-reasoner) */
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & { reasoning_content?: string }
@@ -50,7 +50,7 @@ class DenyAbortError extends Error {
 }
 
 // Tools that are safe to run in parallel (read-only or isolated)
-const PARALLEL_SAFE = new Set(['subagent', 'ask_agent', 'shell', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect'])
+const PARALLEL_SAFE = new Set(['subagent', 'ask_agent', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect'])
 
 const DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT_MD
 
@@ -74,48 +74,6 @@ interface ParsedToolCall {
   name: string
   args: Record<string, unknown>
   raw: string
-}
-
-interface ToolValidationResult {
-  valid: boolean
-  error?: string
-}
-
-function validateToolArguments(tool: Tool, args: Record<string, unknown>): ToolValidationResult {
-  const params = (tool.parameters as {
-    properties?: Record<string, unknown>
-    required?: string[]
-  }) ?? {}
-
-  const properties = params.properties ?? {}
-  const validKeys = new Set(Object.keys(properties))
-  const required = params.required ?? []
-
-  // If no properties are defined, skip extra-key validation (schema is open)
-  const extra = validKeys.size > 0
-    ? Object.keys(args).filter((key) => !validKeys.has(key))
-    : []
-  const missing = required.filter((key) => args[key] === undefined)
-
-  if (extra.length === 0 && missing.length === 0) return { valid: true }
-
-  const lines: string[] = [`[Tool Error: ${tool.name}]`, 'Invalid arguments:']
-
-  for (const key of extra) {
-    lines.push(`- "${key}" is not a valid parameter for this tool`)
-  }
-
-  for (const key of missing) {
-    lines.push(`- missing required parameter "${key}"`)
-  }
-
-  const validParams = Object.keys(properties)
-    .map((key) => `${key}${required.includes(key) ? ' (required)' : ''}`)
-    .join(', ')
-
-  lines.push(`Valid parameters: ${validParams || '(none)'}`)
-
-  return { valid: false, error: lines.join('\n') }
 }
 
 function parseBedrockToolCalls(text: string): ParsedToolCall[] {
@@ -174,6 +132,26 @@ interface PendingNote {
 export type ToolPermissionResult = 'once' | 'session' | 'always' | 'deny'
 export type ToolPermissionHandler = (toolName: string, args: object) => Promise<ToolPermissionResult>
 
+export interface AgentOptions {
+  sessionId?: string
+  projectRoot?: string
+  snapshotFile?: string | null
+}
+
+function taskLimitsFromSettings(settings: DeepSeekSettings): Partial<TaskLimits> {
+  return Object.fromEntries(Object.entries({
+    concurrency: settings.agents?.concurrency,
+    maxTasks: settings.agents?.maxTasks,
+    maxDepth: settings.agents?.maxDepth,
+    maxFanOut: settings.agents?.maxFanOut,
+    maxRetries: settings.agents?.maxRetries,
+    timeoutMs: settings.agents?.timeoutMs,
+    retryBackoffMs: settings.agents?.retryBackoffMs,
+    maxTokens: settings.agents?.maxTokens,
+    maxCostUsd: settings.agents?.maxCostUsd,
+  }).filter(([, value]) => value !== undefined)) as Partial<TaskLimits>
+}
+
 export interface AgentCallbacks {
   onToken(text: string): void
   onThinking?(text: string): void
@@ -188,6 +166,7 @@ export interface AgentCallbacks {
 interface UndoEntry {
   path: string
   content: string
+  existed: boolean
 }
 
 export class Agent {
@@ -208,6 +187,9 @@ export class Agent {
   private sessionStartTime: number = Date.now()
   private toolCallTotal: number = 0
   private readonly hookSessionId = randomUUID()
+  public readonly orchestrator: OrchestratorSession
+  private orchestrationCallbacks: OrchestratorCallbacks = {}
+  private workspacePath: string
 
   public tokenCount = 0
   public model: Model = 'deepseek-v4-flash'
@@ -218,6 +200,7 @@ export class Agent {
   public contextLimit = 1_000_000
   public contextStale = false  // true after compact() until next API response
   private toolPermissionHandler: ToolPermissionHandler | null = null
+  private confirmHandler: ((message: string) => Promise<boolean>) | null = null
   private sessionApprovedTools: Set<string> = new Set()
   private turnWriteCount = 0
   private turnModifiedFiles: Set<string> = new Set()
@@ -233,7 +216,19 @@ export class Agent {
   private planSubmitHandler: ((planPath: string, summary?: string) => Promise<string>) | null = null
 
   setConfirmHandler(handler: ((message: string) => Promise<boolean>) | null) {
-    setShellConfirmHandler(handler)
+    this.confirmHandler = handler
+  }
+
+  setSubAgentCallbacks(callbacks: SubAgentCallbacks | null): void {
+    this.orchestrationCallbacks = callbacks
+      ? { ...this.orchestrationCallbacks, ...callbacks }
+      : { ...this.orchestrationCallbacks, onStart: undefined, onToolUse: undefined, onDone: undefined, onError: undefined }
+    this.orchestrator.setCallbacks(this.orchestrationCallbacks)
+  }
+
+  setAgentNoteCallback(callback: ((agentName: string, text: string) => void) | null): void {
+    this.orchestrationCallbacks = { ...this.orchestrationCallbacks, onNote: callback ?? undefined }
+    this.orchestrator.setCallbacks(this.orchestrationCallbacks)
   }
 
   setToolPermissionHandler(handler: ToolPermissionHandler | null) {
@@ -248,38 +243,46 @@ export class Agent {
     this.planSubmitHandler = handler
   }
 
-  constructor(providerConfig?: ProviderConfig) {
-    this.client = createLLMClient(providerConfig ?? { provider: 'deepseek' })
+  constructor(providerConfig?: ProviderConfig, options: AgentOptions = {}) {
+    const resolvedProvider = providerConfig ?? { provider: 'deepseek' }
+    this.client = createLLMClient(resolvedProvider)
     if (providerConfig) {
       this.provider = providerConfig.provider
       this.providerConfig = providerConfig
       this.model = (providerConfig.provider === 'local' && providerConfig.localModel
         ? providerConfig.localModel
         : defaultModel(providerConfig.provider)) as Model
-      // Propagate provider to SubAgent so it uses the same backend
-      setSubAgentProvider(providerConfig)
-      setSubAgentModel(this.model)
-      setAskAgentProvider(providerConfig)
-      setAskAgentModel(this.model)
     }
-    // Always wire the note callback so ask_agent responses route to this instance
-    setAgentNoteCallback((agentName, text) => this.addAgentNote(agentName, text))
+    this.workspacePath = resolve(options.projectRoot ?? process.cwd())
+    const orchestrationSessionId = options.sessionId ?? randomUUID()
+    this.orchestrator = new OrchestratorSession({
+      sessionId: orchestrationSessionId,
+      projectRoot: this.workspacePath,
+      providerConfig: resolvedProvider,
+      model: this.model,
+      snapshotFile: options.snapshotFile !== undefined ? options.snapshotFile : options.sessionId ? taskSnapshotFile(orchestrationSessionId) : null,
+    })
+    this.setAgentNoteCallback((agentName, text) => this.addAgentNote(agentName, text))
     this.contextLimit = getContextLimit(this.provider, this.model)
     setCheckpointSession(this.hookSessionId)
     // Initialize async — readyPromise is awaited in run() to prevent race conditions
     this.readyPromise = this.initialize()
   }
 
-  private async initialize(): Promise<void> {
+  private async initialize(restorePersisted = true): Promise<void> {
     try {
       const [steering, deepseekMd, settings, { tools: mcpTools, errors: mcpErrors }] = await Promise.all([
-        loadSteering(),
-        loadDeepSeekMd(),
-        loadMergedSettings(),
-        loadMcpTools(),
+        loadSteering(this.workspacePath),
+        loadDeepSeekMd(this.workspacePath),
+        loadMergedSettings(this.workspacePath),
+        loadMcpTools(this.workspacePath),
       ])
       this.mcpErrors = mcpErrors
       this.settings = settings
+      this.systemPrompt = DEFAULT_SYSTEM_PROMPT
+      this.tools = allTools
+      this.toolMap = new Map(allTools.map(tool => [tool.name, tool]))
+      this.openaiTools = toOpenAITools(allTools)
       this.autoCompactConfig = createAutoCompactConfig(settings, CONTEXT_COMPACT_THRESHOLD)
 
       // Apply settings overrides
@@ -289,15 +292,16 @@ export class Agent {
         this.contextLimit = getContextLimit(this.provider, this.model)
       }
       this.interactionMode = settings.interaction?.defaultMode ?? DEFAULT_MODE
-      setConcurrencyLimit(settings.agents?.concurrency ?? 5)
+      this.orchestrator.configure({ settings, model: this.model, limits: taskLimitsFromSettings(settings) })
+      if (restorePersisted) await this.orchestrator.restorePersisted()
       setSessionRetention(settings.sessions?.retention ?? 50)
-      await configureMemory(settings.memory ?? {}, process.cwd())
+      await this.orchestrator.memory.configure(settings.memory ?? {}, this.orchestrator.projectRoot)
 
       const parts: string[] = []
       if (steering) parts.push(steering)
       if (deepseekMd) parts.push(`--- DEEPSEEK.md ---\n${deepseekMd}`)
 
-      const memorySnapshot = await getMemorySnapshot()
+      const memorySnapshot = await this.orchestrator.memory.snapshot()
       if (memorySnapshot) parts.push(`--- MEMORY ---\n${memorySnapshot}`)
       if (parts.length) {
         const basePrompt = DEFAULT_SYSTEM_PROMPT
@@ -329,6 +333,11 @@ export class Agent {
 
   abort() {
     this.abortController?.abort()
+    for (const task of this.orchestrator.registry.listTasks()) {
+      if (task.mode === 'foreground' && !['done', 'failed', 'cancelled', 'timed_out'].includes(task.state)) {
+        this.orchestrator.registry.cancel(task.taskId, 'Parent agent aborted')
+      }
+    }
   }
 
   // ── Undo ───────────────────────────────────────────────────────────────────
@@ -337,7 +346,12 @@ export class Agent {
     const entry = this.undoStack.pop()
     if (!entry) return 'Nothing to undo.'
     try {
-      await writeFile(entry.path, entry.content, 'utf-8')
+      const safePath = await resolveSafePath(entry.path, this.orchestrator.toolContext({ workspacePath: this.workspacePath }))
+      if (safePath !== entry.path) throw new Error('Undo path no longer resolves to its original workspace location')
+      if (entry.existed) await writeFile(safePath, entry.content, 'utf-8')
+      else await unlink(safePath).catch(error => {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      })
       return `Restored ${entry.path}`
     } catch (e) {
       return `Error restoring ${entry.path}: ${(e as Error).message}`
@@ -370,6 +384,77 @@ export class Agent {
     return this.tools.map((t) => t.name)
   }
 
+  getWorkingDirectory(): string { return this.workspacePath }
+
+  async setWorkingDirectory(path: string, _changeProjectRoot = true): Promise<void> {
+    await this.readyPromise
+    const target = resolve(path)
+    const activeAgent = this.activeAgent
+    await this.orchestrator.changeProjectRoot(target)
+    this.workspacePath = target
+    this.activeAgent = null
+    this.allowedTools = null
+    this.readyPromise = this.initialize(false)
+    await this.readyPromise
+    if (activeAgent) {
+      const replacement = (await loadAgentRegistry(target)).find(agent => agent.config.name === activeAgent && agent.config.enabled !== false)
+      if (replacement) await this.applyAgentConfig(replacement.config)
+    }
+  }
+
+  async shutdown(): Promise<void> {
+    this.abortController?.abort(new Error('Agent shutdown'))
+    await this.orchestrator.shutdown('Agent shutdown')
+  }
+
+  formatTasks(): string {
+    const tasks = this.orchestrator.registry.listTasks()
+    if (tasks.length === 0) return 'No tasks in this session.'
+    const byParent = new Map<string | undefined, typeof tasks>()
+    for (const task of tasks) {
+      const siblings = byParent.get(task.parentTaskId) ?? []
+      siblings.push(task)
+      byParent.set(task.parentTaskId, siblings)
+    }
+    const lines: string[] = []
+    const visit = (parentTaskId: string | undefined, depth: number) => {
+      for (const task of byParent.get(parentTaskId) ?? []) {
+        const workspace = task.workspace ? ` · ${task.workspace.isolation}` : ''
+        const error = task.error ? ` · ${task.error.code}: ${task.error.message}` : task.blockReason ? ` · ${task.blockReason}` : ''
+        lines.push(`${'  '.repeat(depth)}${task.taskId}  ${task.state}  attempt ${task.attempt}/${task.maxRetries + 1}${workspace}${error}`)
+        visit(task.taskId, depth + 1)
+      }
+    }
+    visit(undefined, 0)
+    return lines.join('\n')
+  }
+
+  async controlTask(id: string, action: 'status' | 'cancel' | 'resume' | 'result' | 'message' | 'integrate' | 'cleanup', message?: string): Promise<string> {
+    try {
+      if (action === 'cancel') return this.orchestrator.registry.cancel(id) ? `Task ${id} cancelled.` : `Task ${id} is already terminal.`
+      if (action === 'resume') return this.orchestrator.registry.resume(id) ? `Task ${id} queued for resume.` : `Task ${id} cannot be resumed.`
+      if (action === 'message') {
+        const permission = /^(allow|deny)\s+([a-zA-Z0-9_-]+)$/.exec(message?.trim() ?? '')
+        let sent
+        if (permission) {
+          const request = this.orchestrator.registry.mailbox.list('coordinator', 'pending').find(candidate =>
+            candidate.taskId === id && candidate.senderId === id && candidate.type === 'permission' && candidate.payload.tool === permission[2])
+          if (!request) return `Error: no pending ${permission[2]} permission request for task ${id}.`
+          sent = this.orchestrator.registry.sendMessage(id, 'permission', {
+            decision: permission[1], tool: permission[2], requestId: request.messageId,
+          })
+        } else sent = this.orchestrator.registry.sendMessage(id, 'question', { text: message ?? '' })
+        return `Message ${sent.messageId} sent to task ${id}.`
+      }
+      if (action === 'integrate') return JSON.stringify(await this.orchestrator.integrateTask(id), null, 2)
+      if (action === 'cleanup') return await this.orchestrator.cleanupTaskWorkspace(id) ? `Workspace for ${id} removed.` : `Workspace for ${id} was preserved.`
+      const value = action === 'result' ? this.orchestrator.registry.getResult(id) : this.orchestrator.registry.getStatus(id)
+      return value ? JSON.stringify(value, null, 2) : `Task ${id} has no result.`
+    } catch (error) {
+      return `Error: ${(error as Error).message}`
+    }
+  }
+
   getPermissionsInfo(): { mode: InteractionMode; allowedTools: string[] | '*' | null; sessionApproved: string[]; modeTools: string[]; permissions: DeepSeekSettings['permissions']; risk: DeepSeekSettings['risk'] } {
     return {
       mode: this.interactionMode,
@@ -390,12 +475,11 @@ export class Agent {
     this.autoCompactConfig = createAutoCompactConfig(settings, CONTEXT_COMPACT_THRESHOLD)
     const configuredModel = typeof settings.model === 'string' ? settings.model : settings.model?.default
     if (configuredModel && !this.providerConfig.localModel) this.setModel(configuredModel as Model)
-    setConcurrencyLimit(settings.agents?.concurrency ?? 5)
+    this.orchestrator.configure({ settings, model: this.model, limits: taskLimitsFromSettings(settings) })
     setSessionRetention(settings.sessions?.retention ?? 50)
-    await configureMemory(settings.memory ?? {}, process.cwd())
+    await this.orchestrator.memory.configure(settings.memory ?? {}, this.orchestrator.projectRoot)
     const subagentModel = settings.agents?.subagentModel ?? this.model
-    setSubAgentModel(subagentModel)
-    setAskAgentModel(subagentModel)
+    this.orchestrator.configure({ model: subagentModel })
   }
 
   // ── Available models (dynamic) ──────────────────────────────────────────────
@@ -580,7 +664,7 @@ export class Agent {
 
     // Post-compact refresh: re-inject DEEPSEEK.md context
     try {
-      const deepseekMd = await loadDeepSeekMd()
+      const deepseekMd = await loadDeepSeekMd(this.workspacePath)
       if (deepseekMd) {
         this.messages.push({
           role: 'user',
@@ -597,8 +681,7 @@ export class Agent {
   setModel(m: Model) {
     this.model = m
     this.contextLimit = getContextLimit(this.provider, m)
-    setSubAgentModel(m)
-    setAskAgentModel(m)
+    this.orchestrator.configure({ model: m })
   }
 
   setEffortLevel(level: EffortLevel): void {
@@ -713,14 +796,14 @@ export class Agent {
   async applyAgentConfig(config: AgentConfig): Promise<void> {
     let prompt = config.systemPrompt ?? this.systemPrompt
     if (config.files?.length) {
-      const injected = await resolveAgentFiles(config.files)
+      const injected = await resolveAgentFiles(config.files, this.workspacePath)
       if (injected) prompt += `\n\n${injected}`
     }
     this.systemPrompt = prompt
     if (config.model) {
       this.model = config.model
       this.contextLimit = getContextLimit(this.provider, config.model)
-      setSubAgentModel(config.model)
+      this.orchestrator.configure({ model: config.model })
     }
     this.activeAgent = config.name
     this.allowedTools = config.tools ?? config.allowedTools ?? null
@@ -738,16 +821,15 @@ export class Agent {
   }
 
   async run(userMessage: string, cb: AgentCallbacks) {
-    // Reset subagent task memory at the start of each user turn
-    resetMemory()
+    // Wait for settings, snapshots and project context before resetting turn state.
+    await this.readyPromise
+
+    this.orchestrator.resetTurnMemory()
     this.turnWriteCount = 0
     this.turnModifiedFiles.clear()
 
-    // Wait for async initialization to complete before running
-    await this.readyPromise
-
-    // Reset abort controller so a previous abort doesn't block the new run
-    this.abortController = null
+    // One signal owns the entire turn, including foreground tools and tasks.
+    this.abortController = new AbortController()
 
     // MicroCompact: clear old tool results before checking threshold
     this.messages = microCompact(this.messages, MICRO_COMPACT_KEEP_LAST) as MessageOrBoundary[]
@@ -812,13 +894,25 @@ export class Agent {
         if (this.abortController?.signal.aborted) throw e
         // Retry on rate limit or server error
         if ((err.status === 429 || err.status === 503) && attempt < delays.length) {
-          await new Promise((r) => setTimeout(r, delays[attempt]!))
+          await this.waitForRetry(delays[attempt]!)
           continue
         }
         throw e
       }
     }
     throw new Error('unreachable')
+  }
+
+  private waitForRetry(delayMs: number): Promise<void> {
+    const signal = this.abortController?.signal
+    if (signal?.aborted) return Promise.reject(signal.reason)
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(resolve, delayMs)
+      signal?.addEventListener('abort', () => {
+        clearTimeout(timeout)
+        reject(signal.reason)
+      }, { once: true })
+    })
   }
 
   private async loop(cb: AgentCallbacks) {
@@ -847,11 +941,12 @@ export class Agent {
     let iterations = 0
     while (true) {
       if (++iterations > MAX_AGENT_ITERATIONS) {
-        this.messages.push({ role: 'assistant', content: '⚠ Agent reached maximum iteration limit (100). Stopping to prevent infinite loop.' })
-        break
+        const message = 'Agent reached maximum iteration limit (100)'
+        this.messages.push({ role: 'assistant', content: `⚠ ${message}. Stopping to prevent an infinite loop.` })
+        this.orchestrator.emit('error', { code: 'MAX_ITERATIONS', message })
+        await saveHistory(this.messages)
+        throw new Error(message)
       }
-
-      this.abortController = new AbortController()
 
       // Sanitize messages for the API: reasoning_content must be preserved for all models
       const rawMessages = getMessagesAfterBoundary(this.messages)
@@ -1161,13 +1256,13 @@ export class Agent {
         let review = `Files changed this turn:\n${files.map(file => `• ${file}`).join('\n')}`
         try {
           const [stat, diff, untracked] = await Promise.all([
-            execa('git', ['diff', '--stat', '--', ...files], { cwd: process.cwd(), reject: false }),
-            execa('git', ['diff', '--unified=1', '--', ...files], { cwd: process.cwd(), reject: false }),
-            execa('git', ['ls-files', '--others', '--exclude-standard', '-z', '--', ...files], { cwd: process.cwd(), reject: false }),
+            execa('git', ['diff', '--stat', '--', ...files], { cwd: this.workspacePath, reject: false }),
+            execa('git', ['diff', '--unified=1', '--', ...files], { cwd: this.workspacePath, reject: false }),
+            execa('git', ['ls-files', '--others', '--exclude-standard', '-z', '--', ...files], { cwd: this.workspacePath, reject: false }),
           ])
           const untrackedFiles = untracked.stdout.split('\0').filter(Boolean)
           const untrackedDiffs = await Promise.all(untrackedFiles.map(file =>
-            execa('git', ['diff', '--no-index', '--unified=1', '--', '/dev/null', file], { cwd: process.cwd(), reject: false })
+            execa('git', ['diff', '--no-index', '--unified=1', '--', '/dev/null', file], { cwd: this.workspacePath, reject: false })
           ))
           const details = [stat.stdout, diff.stdout, ...untrackedDiffs.map(result => result.stdout)].filter(Boolean).join('\n\n')
           if (details) review = `${review}\n\n${details.slice(0, 4_000)}${details.length > 4_000 ? '\n… diff truncated' : ''}`
@@ -1240,6 +1335,14 @@ export class Agent {
       if (hookResult.modifiedInput) effectiveArgs = hookResult.modifiedInput
     }
 
+    if (['write_file', 'patch_file', 'edit_file'].includes(tc.function.name) && typeof effectiveArgs.path === 'string') {
+      const safePath = await resolveSafePath(effectiveArgs.path, this.orchestrator.toolContext({
+        workspacePath: this.workspacePath,
+        signal: this.abortController?.signal,
+      }))
+      effectiveArgs = { ...effectiveArgs, path: safePath }
+    }
+
     // Plan and Review may inspect Git and stateful helper tools, but never mutate them.
     if ((isReviewMode(this.interactionMode) || this.interactionMode === 'plan') && tc.function.name === 'git') {
       const action = String(effectiveArgs.action ?? '')
@@ -1276,17 +1379,21 @@ export class Agent {
 
       if (!this.sessionApprovedTools.has(riskSessionKey)) {
         if (!this.toolPermissionHandler) {
-          const blockMsg = `⚠️ Tool '${tc.function.name}' requer confirmação (${riskResult.level} risk: ${riskResult.description}). Sem handler de confirmação disponível.`
-          cb.onToolCall(tc.function.name, effectiveArgs)
-          cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
-          return { tc, result: blockMsg }
+          if (!this.confirmHandler) {
+            const blockMsg = `⚠️ Tool '${tc.function.name}' requer confirmação (${riskResult.level} risk: ${riskResult.description}). Sem handler de confirmação disponível.`
+            cb.onToolCall(tc.function.name, effectiveArgs)
+            cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
+            return { tc, result: blockMsg }
+          }
+          if (!await this.confirmHandler(`${riskResult.level} risk: ${riskResult.description}`)) throw new DenyAbortError()
+        } else {
+          const userDecision = await this.toolPermissionHandler(tc.function.name, effectiveArgs)
+          if (userDecision === 'deny') {
+            auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied_risk: riskResult.level } })
+            throw new DenyAbortError()
+          }
+          if (userDecision === 'session') this.sessionApprovedTools.add(riskSessionKey)
         }
-        const userDecision = await this.toolPermissionHandler(tc.function.name, effectiveArgs)
-        if (userDecision === 'deny') {
-          auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied_risk: riskResult.level } })
-          throw new DenyAbortError()
-        }
-        if (userDecision === 'session') this.sessionApprovedTools.add(riskSessionKey)
       }
     }
 
@@ -1364,9 +1471,10 @@ export class Agent {
       }
       try {
         const oldContent = await readFile(filePath, 'utf-8')
-        this.undoStack.push({ path: filePath, content: oldContent })
-      } catch {
-        this.undoStack.push({ path: filePath, content: '' })
+        this.undoStack.push({ path: filePath, content: oldContent, existed: true })
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+        this.undoStack.push({ path: filePath, content: '', existed: false })
       }
       if (this.undoStack.length > UNDO_STACK_MAX) this.undoStack.shift()
       if (!generated && this.settings.git?.checkpoint !== false) {
@@ -1376,11 +1484,14 @@ export class Agent {
 
     // ── 4. Execute tool ──────────────────────────────────────────────────────
     cb.onToolCall(tc.function.name, effectiveArgs)
+    this.orchestrator.emit('authorization', { tool: tc.function.name, decision: 'allow' })
+    this.orchestrator.emit('tool_started', { tool: tc.function.name })
     auditLog({ type: 'tool_call', tool: tc.function.name, args: effectiveArgs })
     this.toolCallTotal++
     const t0 = Date.now()
-    const result = await this.executeTool(tc.function.name, effectiveArgs)
+    const result = await this.executeTool(tc.function.name, effectiveArgs, riskResult?.requiresConfirmation === true)
     auditLog({ type: 'tool_result', tool: tc.function.name, result: result.slice(0, 200), durationMs: Date.now() - t0 })
+    this.orchestrator.emit('tool_finished', { tool: tc.function.name, durationMs: Date.now() - t0, result: result.slice(0, 200) })
 
     // PostToolUse hooks (fire-and-forget)
     if (this.settings.hooks) {
@@ -1409,17 +1520,17 @@ export class Agent {
     return messages
   }
 
-  private async executeTool(name: string, args: Record<string, unknown>): Promise<string> {
+  private async executeTool(name: string, args: Record<string, unknown>, dangerousOperationApproved = false): Promise<string> {
     const tool = this.toolMap.get(name)
     if (!tool) return `Unknown tool: ${name}`
 
-    const validation = validateToolArguments(tool, args)
-    if (!validation.valid) {
-      return validation.error || `[Tool Error: ${name}] Invalid arguments`
-    }
+    const validation = validateToolSchema(tool.parameters, args)
+    if (!validation.valid) return `[Tool Error: ${name}] Invalid arguments:\n${validation.errors.map(error => `- ${error}`).join('\n')}`
 
     try {
-      return await tool.execute(args)
+      return await tool.execute(args, this.orchestrator.toolContext({
+        workspacePath: this.workspacePath, signal: this.abortController?.signal, dangerousOperationApproved,
+      }))
     } catch (e: unknown) {
       return `Error: ${(e as Error).message}`
     }
@@ -1452,7 +1563,7 @@ export class Agent {
         result.then((res: any) => {
           const fact = res.choices?.[0]?.message?.content?.trim()
           if (fact && fact !== 'NONE' && fact.length > 5 && fact.length <= 100) {
-            addEntry('agent', fact)
+            this.orchestrator.memory.add('agent', fact)
           }
         }).catch(() => {})
       }
