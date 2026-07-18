@@ -120,29 +120,18 @@ export function buildFixedAgentPrompt(
   def: FixedAgentDef,
   task: string,
   memoryContext: string,
+  workingDirectory = process.cwd(),
 ): string {
-  const cwd = process.cwd()
   const memorySection = memoryContext ? `\n\n## Memory / Prior Context\n${memoryContext}` : ''
 
   return `${def.systemPrompt}
 ${memorySection}
 ## Working Directory
-${cwd}
+${workingDirectory}
 
 ## Task
 ${task}
 
-## Output Format
-After completing your task, end your response with a JSON block:
-\`\`\`json
-{
-  "summary": "1-2 sentence result",
-  "confidence": 0.0,
-  "filesRead": ["path1"],
-  "filesChanged": ["path2"],
-  "issuesFound": ["issue1"],
-  "suggestions": ["suggestion1"],
-  "metadata": {}
-}
-\`\`\``
+## Terminal Result
+Call submit_result exactly once with the schema fields summary, confidence, filesRead, filesChanged, issuesFound, suggestions and metadata. Plain text and Markdown JSON are not terminal results.`
 }

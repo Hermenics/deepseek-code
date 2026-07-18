@@ -1,111 +1,113 @@
-import * as fs from 'fs/promises'
-import * as path from 'path'
+import * as fs from 'node:fs/promises'
+import * as path from 'node:path'
+import { randomUUID } from 'node:crypto'
+import type { ToolExecutionContext } from '../../orchestration/types.js'
+import { acquireFileLease } from '../../orchestration/fileLease.js'
 
-export const BLOCKED_DIRS = [
-  '.agent',
-  '.claude',
-  '.kiro',
-  '.github',
-  '.deepseek',
-  'node_modules',
-  'dist',
-  'build',
-  '.git',
-]
+export const BLOCKED_DIRS = ['.agent', '.claude', '.kiro', '.github', '.deepseek', 'node_modules', 'dist', 'build', '.git']
 
-/**
- * Padrões de arquivos sensíveis que nunca devem ser lidos pelo agente.
- * Inclui arquivos de credenciais, chaves, tokens e configurações secretas.
- */
 const SENSITIVE_FILE_PATTERNS: RegExp[] = [
-  /^\.env(\..+)?$/i,           // .env, .env.local, .env.production, etc.
-  /^\.env\.[^/]+$/i,           // qualquer variante de .env
-  /.*\.pem$/i,                 // chaves privadas PEM
-  /.*\.key$/i,                 // arquivos de chave
-  /.*\.p12$/i,                 // certificados PKCS#12
-  /.*\.pfx$/i,                 // certificados PFX
-  /^credentials(\.json)?$/i,   // credentials, credentials.json
-  /^secrets?(\.json|\.yaml|\.yml|\.toml)?$/i, // secrets.*
-  /^\.netrc$/i,                // credenciais de rede
-  /^\.npmrc$/i,                // tokens npm
-  /^\.pypirc$/i,               // tokens PyPI
-  /^id_rsa(\.pub)?$/i,         // chaves SSH RSA
-  /^id_ed25519(\.pub)?$/i,     // chaves SSH Ed25519
-  /^id_ecdsa(\.pub)?$/i,       // chaves SSH ECDSA
-  /^id_dsa(\.pub)?$/i,         // chaves SSH DSA
-  /^known_hosts$/i,            // hosts conhecidos SSH
-  /^service.?account.*\.json$/i, // service accounts GCP
-  /^gcloud.*\.json$/i,         // credenciais gcloud
-  /^\.aws\/credentials$/i,     // credenciais AWS
-  /^\.aws\/config$/i,          // config AWS
+  /^\.env(\..+)?$/i, /.*\.pem$/i, /.*\.key$/i, /.*\.p12$/i, /.*\.pfx$/i,
+  /^credentials(\.json)?$/i, /^secrets?(\.json|\.yaml|\.yml|\.toml)?$/i,
+  /^\.netrc$/i, /^\.npmrc$/i, /^\.pypirc$/i, /^id_(rsa|ed25519|ecdsa|dsa)(\.pub)?$/i,
+  /^known_hosts$/i, /^service.?account.*\.json$/i, /^gcloud.*\.json$/i,
+  /^\.aws\/(credentials|config)$/i,
 ]
 
-/**
- * Verifica se um nome de arquivo corresponde a um padrão sensível.
- */
-function isSensitiveFile(filePath: string): boolean {
+export function isSensitiveWorkspacePath(filePath: string): boolean {
   const basename = path.basename(filePath)
   const normalized = filePath.replace(/\\/g, '/')
-  return SENSITIVE_FILE_PATTERNS.some((pattern) =>
-    pattern.test(basename) || pattern.test(normalized)
-  )
+  return SENSITIVE_FILE_PATTERNS.some(pattern => pattern.test(basename) || pattern.test(normalized))
 }
 
-/**
- * Validates that a file path is safe to access:
- * 1. Must be inside the current working directory
- * 2. Must not be inside a blocked directory
- * 3. Must not escape via symlinks
- * 4. Must not be a sensitive file (credentials, keys, secrets)
- */
-export async function assertSafePath(filePath: string): Promise<void> {
-  const resolved = path.resolve(filePath)
-  const cwd = process.cwd()
+function isContained(root: string, target: string): boolean {
+  const relative = path.relative(root, target)
+  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+}
 
-  if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
-    throw new Error(`Error: Path '${filePath}' is outside the working directory (${cwd}). Use a relative path instead — e.g. './${path.basename(filePath)}' or create files within the current project.`)
-  }
-
-  // Resolve symlinks to prevent traversal attacks
-  try {
-    const real = await fs.realpath(resolved)
-    if (!real.startsWith(cwd + path.sep) && real !== cwd) {
-      throw new Error(`Path '${filePath}' resolves outside the working directory (symlink traversal blocked)`)
-    }
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e
-    // File doesn't exist — check parent directory for symlink traversal
-    const parentDir = path.dirname(resolved)
-    try {
-      const realParent = await fs.realpath(parentDir)
-      if (!realParent.startsWith(cwd + path.sep) && realParent !== cwd) {
-        throw new Error(`Path '${filePath}' resolves outside the working directory (symlink traversal via parent directory blocked)`)
-      }
-    } catch (parentErr) {
-      if ((parentErr as NodeJS.ErrnoException).code !== 'ENOENT') throw parentErr
-      // Parent also doesn't exist — will fail at write time anyway, safe
+async function nearestExisting(target: string): Promise<string> {
+  let current = target
+  while (true) {
+    try { return await fs.realpath(current) } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      const parent = path.dirname(current)
+      if (parent === current) throw error
+      current = parent
     }
   }
+}
 
-  const relative = path.relative(cwd, resolved)
+/** Resolves, translates and validates a path. Callers must use the returned path. */
+export async function resolveSafePath(filePath: string, context?: ToolExecutionContext): Promise<string> {
+  const workspaceRoot = path.resolve(context?.workspacePath ?? process.cwd())
+  const projectRoot = path.resolve(context?.projectRoot ?? workspaceRoot)
+  let target: string
+  if (!path.isAbsolute(filePath)) {
+    target = path.resolve(workspaceRoot, filePath)
+  } else if (isContained(workspaceRoot, path.resolve(filePath))) {
+    target = path.resolve(filePath)
+  } else if (isContained(projectRoot, path.resolve(filePath))) {
+    target = path.resolve(workspaceRoot, path.relative(projectRoot, path.resolve(filePath)))
+  } else {
+    target = path.resolve(filePath)
+  }
+
+  const realRoot = await fs.realpath(workspaceRoot)
+  if (!isContained(workspaceRoot, target)) {
+    throw new Error(`Path '${filePath}' is outside the working directory; outside the task workspace (${workspaceRoot})`)
+  }
+  const realAncestor = await nearestExisting(target)
+  if (!isContained(realRoot, realAncestor)) {
+    throw new Error(`Path '${filePath}' escapes the task workspace through a symlink`)
+  }
+  const canonicalRelative = path.relative(realRoot, realAncestor)
+  const canonicalTopDir = canonicalRelative.split(path.sep)[0]
+  if (canonicalTopDir && BLOCKED_DIRS.includes(canonicalTopDir)) throw new Error(`Directory '${canonicalTopDir}/' is off-limits`)
+  if (isSensitiveWorkspacePath(canonicalRelative)) throw new Error(`File '${path.basename(realAncestor)}' is sensitive and cannot be accessed by an agent`)
+
+  const relative = path.relative(workspaceRoot, target)
   const topDir = relative.split(path.sep)[0]
-  if (topDir && BLOCKED_DIRS.includes(topDir)) {
-    throw new Error(`Directory '${topDir}/' is off-limits. Use read_folder to see available directories.`)
-  }
-
-  // Bloqueia arquivos sensíveis (credenciais, chaves, secrets)
-  if (isSensitiveFile(filePath)) {
-    throw new Error(`File '${path.basename(filePath)}' is a sensitive file and cannot be read by the agent.`)
-  }
+  if (topDir && BLOCKED_DIRS.includes(topDir)) throw new Error(`Directory '${topDir}/' is off-limits`)
+  if (isSensitiveWorkspacePath(relative)) throw new Error(`File '${path.basename(filePath)}' is sensitive and cannot be accessed by an agent`)
+  return target
 }
 
-/**
- * Validates that a directory path is safe to use as cwd/search root.
- * Same rules as assertSafePath but for directories.
- */
-export async function assertSafeDir(dirPath: string): Promise<void> {
-  return assertSafePath(dirPath)
+export async function assertSafePath(filePath: string, context?: ToolExecutionContext): Promise<string> {
+  return resolveSafePath(filePath, context)
 }
 
-/** Glob ignore patterns derived from BLOCKED_DIRS */
-export const BLOCKED_GLOB_PATTERNS = BLOCKED_DIRS.map((d) => `**/${d}/**`)
+export async function assertSafeDir(dirPath: string, context?: ToolExecutionContext): Promise<string> {
+  return resolveSafePath(dirPath, context)
+}
+
+export const BLOCKED_GLOB_PATTERNS = BLOCKED_DIRS.map(directory => `**/${directory}/**`)
+
+export function assertExecutionActive(context?: ToolExecutionContext): void {
+  if (context?.signal?.aborted) throw context.signal.reason ?? new Error('Task execution was cancelled')
+}
+
+/** Serialize, stage and atomically publish a context-authorized file write. */
+export async function atomicWriteFile(filePath: string, content: string, context?: ToolExecutionContext): Promise<string> {
+  const safePath = await resolveSafePath(filePath, context)
+  const lease = await acquireFileLease(`file:${safePath}`, { sessionId: context?.sessionId, taskId: context?.taskId }, context?.signal)
+  let temporary: string | undefined
+  try {
+    assertExecutionActive(context)
+    await fs.mkdir(path.dirname(safePath), { recursive: true })
+    let mode = 0o600
+    try { mode = (await fs.stat(safePath)).mode } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+    temporary = path.join(path.dirname(safePath), `.${path.basename(safePath)}.${process.pid}.${randomUUID()}.tmp`)
+    await fs.writeFile(temporary, content, { encoding: 'utf8', mode, signal: context?.signal })
+    assertExecutionActive(context)
+    if (await resolveSafePath(safePath, context) !== safePath) throw new Error('Write target changed during authorization')
+    assertExecutionActive(context)
+    await fs.rename(temporary, safePath)
+    temporary = undefined
+    return safePath
+  } finally {
+    if (temporary) await fs.rm(temporary, { force: true }).catch(() => undefined)
+    await lease.release()
+  }
+}

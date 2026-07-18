@@ -84,8 +84,8 @@ interface McpConfig {
   servers: Record<string, McpServerConfig>
 }
 
-async function loadConfig(): Promise<McpConfig | null> {
-  const path = join(process.cwd(), '.deepseek', 'mcp.json')
+async function loadConfig(cwd: string): Promise<McpConfig | null> {
+  const path = join(cwd, '.deepseek', 'mcp.json')
   try {
     return await readJson<McpConfig>(path)
   } catch {
@@ -93,8 +93,8 @@ async function loadConfig(): Promise<McpConfig | null> {
   }
 }
 
-export async function loadMcpTools(): Promise<{ tools: Tool[]; errors: string[] }> {
-  const config = await loadConfig()
+export async function loadMcpTools(cwd = process.cwd()): Promise<{ tools: Tool[]; errors: string[] }> {
+  const config = await loadConfig(cwd)
   if (!config?.servers) return { tools: [], errors: [] }
 
   const tools: Tool[] = []

@@ -63,9 +63,8 @@ export const ReadFolder: Tool = {
     },
     required: ['path'],
   },
-  async execute(args) {
-    const dirPath = args.path as string
-    await assertSafeDir(dirPath)
+  async execute(args, context) {
+    const dirPath = await assertSafeDir(args.path as string, context)
 
     const state: ListDirState = { results: [], truncated: false }
     await listDir(dirPath, !!args.recursive, '', DEFAULT_MAX_DEPTH, state)

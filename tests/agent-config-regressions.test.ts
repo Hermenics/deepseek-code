@@ -37,4 +37,14 @@ describe('agent registry inheritance', () => {
     await writeFile(join(directory, 'b.json'), JSON.stringify({ name: 'cycle-b', extends: 'cycle-a' }))
     await expect(loadAgentRegistry(cyclic)).rejects.toThrow('inheritance cycle')
   })
+
+  it('revalidates security invariants after inheritance', async () => {
+    const cwd = await project()
+    const directory = join(cwd, '.deepseek', 'agents')
+    await writeFile(join(directory, 'base.json'), JSON.stringify({
+      name: 'secure-base', systemPrompt: 'base', permissionProfile: 'researcher-readonly', isolation: 'readonly-shared',
+    }))
+    await writeFile(join(directory, 'child.json'), JSON.stringify({ name: 'unsafe-child', extends: 'secure-base', isolation: 'git-worktree' }))
+    await expect(loadAgentRegistry(cwd)).rejects.toThrow('researcher-readonly must use readonly-shared')
+  })
 })

@@ -1,6 +1,6 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test'
 import { SignatureV4 } from '@smithy/signature-v4'
-import { createBedrockFetch } from '../src/agent/providers/bedrock'
+import { createBedrockFetch, createBedrockMantleFetch } from '../src/agent/providers/bedrock'
 
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
@@ -17,13 +17,16 @@ mock.module('@aws-sdk/credential-providers', () => ({
 
 // Capture what globalThis.fetch receives so we can inspect signed headers
 let capturedRequest: Request | undefined
+let capturedSignal: AbortSignal | null | undefined
 const fakeResponse = new Response('{"ok":true}', { status: 200 })
 
 const originalFetch = globalThis.fetch
 
 beforeEach(() => {
   capturedRequest = undefined
+  capturedSignal = undefined
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    capturedSignal = init?.signal
     capturedRequest = new Request(input, init)
     return fakeResponse.clone()
   }) as typeof globalThis.fetch
@@ -138,5 +141,19 @@ describe('createBedrockFetch', () => {
     // Must NOT be the original "Bearer bedrock" — must be SigV4
     expect(authHeader).not.toBe('Bearer bedrock')
     expect(authHeader).toStartWith('AWS4-HMAC-SHA256')
+  })
+
+  it('propaga o AbortSignal nos wrappers native e mantle', async () => {
+    const controller = new AbortController()
+    await createBedrockFetch('us-east-1', 'default')('https://unused.example', {
+      method: 'POST', body: JSON.stringify({ model: 'deepseek', messages: [] }), signal: controller.signal,
+    })
+    expect(capturedSignal).toBe(controller.signal)
+
+    const mantleController = new AbortController()
+    await createBedrockMantleFetch('us-east-1', 'default')('https://unused.example', {
+      method: 'POST', body: JSON.stringify({ model: 'deepseek-v3.2', messages: [] }), signal: mantleController.signal,
+    })
+    expect(capturedSignal).toBe(mantleController.signal)
   })
 })

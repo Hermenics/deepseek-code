@@ -46,6 +46,9 @@ export type CommandResult =
   | { type: 'plugin'; action: 'help' }
   | { type: 'plugin'; action: 'error'; message: string }
   | { type: 'context' }
+  | { type: 'tasks' }
+  | { type: 'task'; id: string; action: 'status' | 'cancel' | 'resume' | 'result' | 'integrate' | 'cleanup' }
+  | { type: 'task'; id: string; action: 'message'; message: string }
   | { type: 'worktree'; action: 'create' }
   | { type: 'worktree'; action: 'enter'; name: string }
   | { type: 'worktree'; action: 'exit'; keep: boolean }

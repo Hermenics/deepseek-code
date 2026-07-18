@@ -6,6 +6,7 @@ export interface SubagentProgressInput { id: string; info: string }
 export interface SubagentToolUseInput { id: string; tool: string; info?: string }
 export interface SubagentDoneInput { id: string; result: string; tokens?: number; costUsd?: number; structured?: SubAgentResult; confidence?: number | null; verified?: boolean | null }
 export interface SubagentErrorInput { id: string; error: string }
+export interface SubagentStateInput { id: string; status: SubagentState['status']; task?: string; role?: string | null; agentName?: string | null; error?: string }
 
 export interface UseSubagentsReturn {
   agents: SubagentState[]
@@ -14,6 +15,7 @@ export interface UseSubagentsReturn {
   onSubagentToolUse: (input: SubagentToolUseInput) => void
   onSubagentDone: (input: SubagentDoneInput) => void
   onSubagentError: (input: SubagentErrorInput) => void
+  onSubagentState: (input: SubagentStateInput) => void
   clearResolved: () => void
 }
 
@@ -22,6 +24,14 @@ export function useSubagents(): UseSubagentsReturn {
     agents: [],
 
     onSubagentStart({ id, task, role, agentName }) {
+      const existing = hook.agents.find(agent => agent.id === id)
+      if (existing) {
+        existing.task = task
+        existing.status = 'running'
+        existing.role = (role as SubagentState['role']) ?? existing.role
+        existing.agentName = agentName ?? existing.agentName
+        return
+      }
       const agent: SubagentState = {
         id,
         task,
@@ -81,8 +91,19 @@ export function useSubagents(): UseSubagentsReturn {
       }
     },
 
+    onSubagentState({ id, status, task, role, agentName, error }) {
+      let agent = hook.agents.find(candidate => candidate.id === id)
+      if (!agent) {
+        hook.onSubagentStart({ id, task: task ?? id, role, agentName })
+        agent = hook.agents.find(candidate => candidate.id === id)!
+      }
+      agent.status = status
+      if (error) agent.error = error
+      if (['done', 'failed', 'error', 'cancelled', 'timed_out'].includes(status)) agent.durationMs = Date.now() - agent.startedAt
+    },
+
     clearResolved() {
-      hook.agents = hook.agents.filter(a => a.status === 'running')
+      hook.agents = hook.agents.filter(a => ['queued', 'running', 'blocked'].includes(a.status))
     },
   }
 

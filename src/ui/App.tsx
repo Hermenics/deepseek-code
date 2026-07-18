@@ -8,7 +8,6 @@ import { MessageList } from './messages/MessageList.js'
 import { TodoPanel } from './messages/TodoPanel.js'
 import { ToolUseDisplay } from './messages/ToolUseDisplay.js'
 import { SubagentList, useSubagents } from './subagent/index.js'
-import { setSubAgentCallbacks } from '../tools/SubAgent/SubAgent.js'
 import { InputBox, LoadingSpinner } from './input/InputBox.js'
 import { QueuedMessagesList } from './input/QueuedMessagesList.js'
 import { enqueue } from './queueLogic.js'
@@ -98,7 +97,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 }) {
   const initialSessionRef = useRef(initialSession)
   const handleSubmitRef = useRef<((text: string) => Promise<void>) | null>(null)
-  const projectRootRef = useRef(process.cwd())  // captured at mount, before any worktree cwd changes
+  const projectRootRef = useRef(initialSession?.cwd && existsSync(initialSession.cwd) ? initialSession.cwd : process.cwd())
   const originalProjectRoot = useRef(process.cwd())  // never changes — used to scope worktree isolation
   const toolStatusClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const queuedSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -117,7 +116,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [agentPhase, setAgentPhase] = useState<AgentPhase>('idle')
   const [interactionMode, setInteractionMode] = useState<InteractionMode>(initialSettings?.interaction?.defaultMode ?? DEFAULT_MODE)
   const [queuedMessages, setQueuedMessages] = useState<string[]>([])
-  const [agent] = useState(() => new Agent(providerConfig ?? undefined))
+  const [agent] = useState(() => new Agent(providerConfig ?? undefined, { sessionId, projectRoot: projectRootRef.current }))
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
   const [showConfigMenu, setShowConfigMenu] = useState(false)
   const [currentLanguage, setCurrentLanguage] = useState<string | null>(language ?? null)
@@ -136,9 +135,11 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     agent.interactionMode = interactionMode
   }, [agent, interactionMode])
 
+  useEffect(() => () => { void agent.shutdown() }, [agent])
+
   useEffect(() => {
     const subs = subagentsRef.current
-    setSubAgentCallbacks({
+    agent.setSubAgentCallbacks({
       onStart(id: string, task: string, agentName?: string) {
         subs.onSubagentStart({ id, task, agentName })
         setSubagentTick((t) => t + 1)
@@ -156,8 +157,22 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         setSubagentTick((t) => t + 1)
       },
     })
-    return () => setSubAgentCallbacks(null)
-  }, [])
+    return () => agent.setSubAgentCallbacks(null)
+  }, [agent])
+
+  useEffect(() => agent.orchestrator.subscribe(event => {
+    if (event.type !== 'state_changed' || !event.taskId) return
+    const record = agent.orchestrator.registry.getStatus(event.taskId)
+    subagentsRef.current.onSubagentState({
+      id: record.taskId,
+      status: record.state,
+      task: String(record.metadata.task ?? record.type),
+      role: record.metadata.role as string | undefined,
+      agentName: record.metadata.agentName as string | undefined,
+      error: record.error?.message ?? record.blockReason,
+    })
+    setSubagentTick(tick => tick + 1)
+  }), [agent])
 
   useEffect(() => {
     agent.setConfirmHandler((message) => {
@@ -445,7 +460,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setIsLoading(false)
           setAgentPhase('idle')
           setTokenCount(agent.tokenCount)
-          subagentsRef.current.clearResolved()
           setSubagentTick((t) => t + 1)
           setQueuedMessages((q) => {
             if (q.length === 0) return q
@@ -472,7 +486,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
                   id: sessionId,
                   createdAt: initialSession?.createdAt ?? new Date().toISOString(),
                   updatedAt: new Date().toISOString(),
-                  cwd: process.cwd(),
+                  cwd: agent.getWorkingDirectory(),
                   model: agent.model,
                   provider: agent.provider,
                   language: language ?? null,
@@ -500,7 +514,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       setToolStatus(null)
       setIsLoading(false)
       setAgentPhase('idle')
-      subagentsRef.current.clearResolved()
       setSubagentTick((t) => t + 1)
       const provider = providerConfig?.provider ?? 'deepseek'
       const message = e instanceof Error
@@ -519,8 +532,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         const { createWorktree, getActiveWorktree, isInsideWorktree } = await import('../agent/worktree.js')
         const projectRoot = originalProjectRoot.current
         const active = await getActiveWorktree(projectRoot)
-        if (active && active.sessionId != null && active.sessionId === sessionId && existsSync(active.path) && !isInsideWorktree(projectRoot)) {
-          process.chdir(active.path)
+        if (active && active.sessionId != null && active.sessionId === sessionId && existsSync(active.path) && !isInsideWorktree(projectRoot, agent.getWorkingDirectory())) {
+          await agent.setWorkingDirectory(active.path)
         }
         let isolate = worktreePolicy === 'auto'
         if (!active && worktreePolicy === 'ask') {
@@ -530,7 +543,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         }
         if (!active && isolate) {
           const info = await createWorktree(projectRoot, sessionId)
-          process.chdir(info.path)
+          await agent.setWorkingDirectory(info.path)
           setMessages((m) => [...m, { role: 'assistant', content: `Worktree "${info.name}" created on ${info.branch ?? 'an isolated copy'} at ${info.path}.` }])
         }
       } catch (error) {
@@ -590,7 +603,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setShowConfigMenu(true)
           return
         case 'agents': {
-          const agents = await listAgents()
+          const agents = await listAgents(agent.getWorkingDirectory())
           if (!agents.length) {
             setMessages((m) => [...m, { role: 'assistant', content: 'No agents found. Create .deepseek/agents/<name>.json or ~/.deepseek/agents/<name>.json' }])
           } else {
@@ -601,7 +614,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         }
         case 'agent': {
           try {
-            const { config, source } = await loadAgentConfig(cmd.name)
+            const { config, source } = await loadAgentConfig(cmd.name, agent.getWorkingDirectory())
             await agent.applyAgentConfig(config)
             setActiveAgent(config.name)
             setActiveAgentColor(config.color)
@@ -809,7 +822,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             try {
               const { listSkills } = await import('../skills/installer.js')
               const { join } = await import('path')
-              const skills = await listSkills(join(process.cwd(), '.claude', 'skills'))
+              const skills = await listSkills(join(agent.getWorkingDirectory(), '.claude', 'skills'))
               if (!skills.length) {
                 setMessages((m) => [...m, { role: 'assistant', content: 'No skills installed via /skill. Use /skill install <owner/repo> to add one.' }])
               } else {
@@ -827,7 +840,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             try {
               const { installSkill } = await import('../skills/installer.js')
               const { join } = await import('path')
-              const result = await installSkill(cmd.repo, join(process.cwd(), '.claude', 'skills'))
+              const result = await installSkill(cmd.repo, join(agent.getWorkingDirectory(), '.claude', 'skills'))
               if (result.ok) {
                 setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${result.name}' installed successfully.` }])
               } else {
@@ -843,7 +856,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             try {
               const { removeSkill } = await import('../skills/installer.js')
               const { join } = await import('path')
-              const result = await removeSkill(cmd.name, join(process.cwd(), '.claude', 'skills'))
+              const result = await removeSkill(cmd.name, join(agent.getWorkingDirectory(), '.claude', 'skills'))
               if (result.ok) {
                 setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${result.name}' removed.` }])
               } else {
@@ -860,7 +873,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             try {
               const { updateSkill } = await import('../skills/installer.js')
               const { join } = await import('path')
-              const result = await updateSkill(cmd.name, join(process.cwd(), '.claude', 'skills'))
+              const result = await updateSkill(cmd.name, join(agent.getWorkingDirectory(), '.claude', 'skills'))
               if (result.ok) {
                 setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${result.name}' updated.` }])
               } else {
@@ -959,9 +972,18 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setMessages(m => [...m, { role: 'assistant', content: formatContextBreakdown(breakdown) }])
           return
         }
+        case 'tasks': {
+          setMessages(m => [...m, { role: 'assistant', content: agent.formatTasks() }])
+          return
+        }
+        case 'task': {
+          const result = await agent.controlTask(cmd.id, cmd.action, 'message' in cmd ? cmd.message : undefined)
+          setMessages(m => [...m, { role: 'assistant', content: result }])
+          return
+        }
         case 'cwd': {
           if (!cmd.path) {
-            setMessages(m => [...m, { role: 'assistant', content: `cwd: ${process.cwd()}` }])
+            setMessages(m => [...m, { role: 'assistant', content: `cwd: ${agent.getWorkingDirectory()}` }])
             return
           }
           const { resolve: resolvePath } = await import('path')
@@ -973,7 +995,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               setMessages(m => [...m, { role: 'assistant', content: `✗ Not a directory: ${target}` }])
               return
             }
-            process.chdir(target)
+            await agent.setWorkingDirectory(target, true)
             projectRootRef.current = target
           } catch {
             setMessages(m => [...m, { role: 'assistant', content: `✗ Cannot access: ${target}` }])
@@ -989,8 +1011,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             setIsLoading(true)
             try {
               const info = await createWorktree(projectRoot, sessionId)
-              process.chdir(info.path)
-              setMessages(m => [...m, { role: 'assistant', content: `Worktree "${info.name}" created at ${info.path}\nCWD changed to the worktree.` }])
+              await agent.setWorkingDirectory(info.path)
+              setMessages(m => [...m, { role: 'assistant', content: `Worktree "${info.name}" created at ${info.path}\nTool workspace changed to the worktree.` }])
             } catch (e) {
               setMessages(m => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
             } finally {
@@ -1004,7 +1026,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             setIsLoading(true)
             try {
               const info = await enterWorktree(projectRoot, cmd.name, sessionId)
-              process.chdir(info.path)
+              await agent.setWorkingDirectory(info.path)
               setMessages(m => [...m, { role: 'assistant', content: `Entered worktree "${info.name}" at ${info.path}` }])
             } catch (e) {
               setMessages(m => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
@@ -1015,6 +1037,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             setIsLoading(true)
             try {
               const result = await exitWorktree(projectRoot, cmd.keep)
+              await agent.setWorkingDirectory(projectRoot)
               setMessages(m => [...m, { role: 'assistant', content: result }])
             } catch (e) {
               setMessages(m => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
@@ -1071,7 +1094,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       setStreamText('')
       let output = ''
       try {
-        const proc = execa('sh', ['-c', shellCmd], { reject: false })
+        const proc = execa('sh', ['-c', shellCmd], { cwd: agent.getWorkingDirectory(), reject: false })
         shellProcRef.current = proc
         const flush = (chunk: string) => {
           output += chunk

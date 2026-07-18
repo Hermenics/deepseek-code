@@ -16,32 +16,57 @@ export interface MoAAggregatorModel {
 export interface MoAConfig {
   referenceModels: MoAReferenceModel[]
   aggregator: MoAAggregatorModel
-  minResponses?: number  // default: 1
-  timeoutMs?: number     // default: 60000
-  maxRetries?: number    // default: 1
+  minResponses?: number
+  timeoutMs?: number
+  maxRetries?: number
+  maxCandidates?: number
+  concurrency?: number
 }
 
+export type MoALayerStatus = 'done' | 'failed' | 'empty' | 'duplicate'
+
 export interface MoALayerResult {
+  candidateId: string
   model: string
   provider: string
+  status: MoALayerStatus
   response: string | null
+  duplicateOf?: string
   error?: string
-  tokens: number
-  costUsd: number
+  attempts: number
+  tokens?: number
+  usageAvailable: boolean
+  costUsd?: number
+  costAvailable: boolean
   durationMs: number
 }
 
 export interface MoAResult {
+  schemaVersion: 1
   synthesis: string
   references: MoALayerResult[]
   aggregator: MoALayerResult
-  totalTokens: number
-  totalCostUsd: number
+  totalTokens?: number
+  usageAvailable: boolean
+  totalCostUsd?: number
+  costAvailable: boolean
   totalDurationMs: number
 }
 
 export interface MoACallbacks {
   onStart?: (id: string, task: string) => void
   onToolUse?: (layerResult: MoALayerResult) => void
-  onDone?: (totalTokens: number, totalCostUsd: number) => void
+  onDone?: (totalTokens?: number, totalCostUsd?: number) => void
+  onError?: (error: MoAExecutionError) => void
+}
+
+export class MoAExecutionError extends Error {
+  constructor(
+    readonly code: 'INVALID_CONFIG' | 'INSUFFICIENT_CANDIDATES' | 'AGGREGATOR_FAILED' | 'BUDGET_EXCEEDED' | 'CANCELLED',
+    message: string,
+    readonly partial: { references: MoALayerResult[]; aggregator?: MoALayerResult },
+  ) {
+    super(message)
+    this.name = 'MoAExecutionError'
+  }
 }

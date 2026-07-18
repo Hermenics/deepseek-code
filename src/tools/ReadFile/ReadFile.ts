@@ -19,9 +19,8 @@ export const ReadFile: Tool = {
     },
     required: ['path'],
   },
-  async execute(args) {
-    const filePath = args.path as string
-    await assertSafePath(filePath)
+  async execute(args, context) {
+    const filePath = await assertSafePath(args.path as string, context)
 
     let content: string
     try {
@@ -55,4 +54,3 @@ export const ReadFile: Tool = {
     return header + numbered
   },
 }
-

@@ -94,6 +94,21 @@ describe('parseCommand — context', () => {
   })
 })
 
+describe('parseCommand — task orchestration', () => {
+  it('parses task inspection and lifecycle actions', () => {
+    expect(parseCommand('/tasks')).toEqual({ type: 'tasks' })
+    expect(parseCommand('/task abc')).toEqual({ type: 'task', id: 'abc', action: 'status' })
+    expect(parseCommand('/task abc cancel')).toEqual({ type: 'task', id: 'abc', action: 'cancel' })
+    expect(parseCommand('/task abc integrate')).toEqual({ type: 'task', id: 'abc', action: 'integrate' })
+  })
+
+  it('parses structured mailbox messages and rejects incomplete actions', () => {
+    expect(parseCommand('/task abc message need permission')).toEqual({ type: 'task', id: 'abc', action: 'message', message: 'need permission' })
+    expect(parseCommand('/task abc message')?.type).toBe('unknown')
+    expect(parseCommand('/task')?.type).toBe('unknown')
+  })
+})
+
 describe('parseCommand — worktree', () => {
   it('parses /worktree with no args → create', () => {
     expect(parseCommand('/worktree')).toEqual({ type: 'worktree', action: 'create' })
