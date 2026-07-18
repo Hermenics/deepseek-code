@@ -1,8 +1,10 @@
 import { lookup } from 'dns/promises'
+import { isIP } from 'node:net'
 import { Tool } from '../types.js'
 
 const TIMEOUT_MS = 15_000
 const MAX_CHARS = 20_000
+const MAX_REDIRECTS = 5
 
 function isValidUrl(url: string): boolean {
   return /^https?:\/\//i.test(url)
@@ -60,32 +62,29 @@ function isPrivateIp(ip: string): boolean {
 
 const DNS_TIMEOUT_MS = 2000
 
-async function isBlockedResolvedIp(url: string): Promise<boolean> {
+interface ResolvedTarget { address: string; family: 4 | 6 }
+
+async function resolvePublicTarget(url: string): Promise<ResolvedTarget | null> {
   try {
     const parsed = new URL(url)
-    const hostname = parsed.hostname
+    const hostname = parsed.hostname.replace(/^\[|\]$/g, '')
 
     // If the hostname is already an IP literal, check directly
-    if (/^\d+\.\d+\.\d+\.\d+$/.test(hostname) || hostname.includes(':')) {
-      return isPrivateIp(hostname)
-    }
+    const family = isIP(hostname)
+    if (family) return isPrivateIp(hostname) ? null : { address: hostname, family: family as 4 | 6 }
 
+    let timer: ReturnType<typeof setTimeout> | undefined
     const results = await Promise.race([
       lookup(hostname, { all: true }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error('DNS timeout')), DNS_TIMEOUT_MS)
-      ),
-    ])
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('DNS timeout')), DNS_TIMEOUT_MS) }),
+    ]).finally(() => clearTimeout(timer))
 
     // Block if ANY resolved address is private
-    for (const result of results) {
-      if (isPrivateIp(result.address)) return true
-    }
-
-    return false
+    if (!results.length || results.some(result => isPrivateIp(result.address))) return null
+    return { address: results[0]!.address, family: results[0]!.family as 4 | 6 }
   } catch {
     // Fail-closed: if DNS resolution fails, block the request
-    return true
+    return null
   }
 }
 
@@ -119,41 +118,64 @@ export const WebFetch: Tool = {
     },
     required: ['url'],
   },
-  async execute(args) {
-    const url = args.url as string
+  async execute(args, context) {
+    const requestedUrl = args.url as string
 
-    if (!isValidUrl(url)) {
-      return `Error: invalid URL "${url}". Must start with http:// or https://`
+    if (!isValidUrl(requestedUrl)) {
+      return `Error: invalid URL "${requestedUrl}". Must start with http:// or https://`
     }
 
-    if (isBlockedUrl(url)) {
-      return 'Error: URL points to a private/internal network address which is blocked for security reasons.'
-    }
-
-    if (await isBlockedResolvedIp(url)) {
-      return 'Error: URL resolves to a private/internal network address which is blocked for security reasons.'
-    }
-
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(new DOMException('Timed out', 'TimeoutError')), TIMEOUT_MS)
+    const cancel = () => controller.abort(context?.signal?.reason)
+    if (context?.signal?.aborted) cancel()
+    else context?.signal?.addEventListener('abort', cancel, { once: true })
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS) })
+      let url = requestedUrl
+      for (let redirect = 0; redirect <= MAX_REDIRECTS; redirect++) {
+        if (isBlockedUrl(url)) return 'Error: URL points to a private/internal network address which is blocked for security reasons.'
+        const resolved = await resolvePublicTarget(url)
+        if (!resolved) return 'Error: URL resolves to a private/internal network address which is blocked for security reasons.'
+        if (controller.signal.aborted) throw controller.signal.reason
+        const original = new URL(url)
+        const pinned = new URL(url)
+        pinned.hostname = resolved.family === 6 ? `[${resolved.address}]` : resolved.address
+        const res = await fetch(pinned, {
+          signal: controller.signal,
+          redirect: 'manual',
+          keepalive: false,
+          headers: { host: original.host },
+          ...(original.protocol === 'https:' ? { tls: { serverName: original.hostname } } : {}),
+        })
+        if (res.status >= 300 && res.status < 400) {
+          const location = res.headers.get('location')
+          if (!location) return `Error: redirect without Location fetching ${url}`
+          if (redirect === MAX_REDIRECTS) return `Error: too many redirects fetching ${requestedUrl}`
+          url = new URL(location, url).toString()
+          if (!isValidUrl(url)) return 'Error: redirect uses a blocked URL protocol.'
+          continue
+        }
 
-      if (!res.ok) {
-        return `Error: HTTP ${res.status} fetching ${url}`
+        if (!res.ok) return `Error: HTTP ${res.status} fetching ${url}`
+
+        const text = await res.text()
+        const clean = stripHtml(text)
+        return clean.slice(0, MAX_CHARS)
       }
-
-      const text = await res.text()
-      const clean = stripHtml(text)
-      return clean.slice(0, MAX_CHARS)
+      return `Error: too many redirects fetching ${requestedUrl}`
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'TimeoutError') {
-        return `Error: timeout fetching ${url} (limit: ${TIMEOUT_MS / 1000}s)`
+        return `Error: timeout fetching ${requestedUrl} (limit: ${TIMEOUT_MS / 1000}s)`
       }
       if (err instanceof TypeError) {
         // fetch throws TypeError for network failures (DNS, connection refused, etc.)
-        return `Error: network failure fetching ${url}: ${err.message}`
+        return `Error: network failure fetching ${requestedUrl}: ${err.message}`
       }
       const message = err instanceof Error ? err.message : String(err)
-      return `Error: failed to fetch ${url}: ${message}`
+      return `Error: failed to fetch ${requestedUrl}: ${message}`
+    } finally {
+      clearTimeout(timeout)
+      context?.signal?.removeEventListener('abort', cancel)
     }
   },
 }

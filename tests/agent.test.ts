@@ -312,6 +312,20 @@ describe('Agent error propagation', () => {
     }
   }
 
+  it('does not emit onDone when the iteration limit fails the turn', async () => {
+    const agent = new Agent({ provider: 'vertex', gcpProject: 'test', gcpLocation: 'global', gcpCredentials: '/tmp/test-service-account.json' })
+    resolveReady(agent)
+    const create = mock(async () => ({
+      choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'loop', type: 'function', function: { name: 'unknown_tool', arguments: '{}' } }] } }],
+      usage: { total_tokens: 1 },
+    }))
+    injectMockClient(agent, { chat: { completions: { create } } })
+    const cb = makeTrackedCallbacks()
+    await expect(agent.run('loop', cb)).rejects.toThrow('maximum iteration limit')
+    expect(cb.onDone).not.toHaveBeenCalled()
+    expect(create).toHaveBeenCalledTimes(100)
+  })
+
   describe('run(): erros da API devem propagar', () => {
     it('should reject with API error and NOT call onDone when create throws 401', async () => {
       // Arrange

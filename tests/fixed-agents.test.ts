@@ -81,13 +81,13 @@ describe('fixedAgents', () => {
   })
 
   describe('buildFixedAgentPrompt', () => {
-    it('includes cwd, task, and output format fields', () => {
+    it('includes explicit workspace, task, and terminal protocol', () => {
       const agent = getFixedAgent('coder')
-      const prompt = buildFixedAgentPrompt(agent, 'Fix the login bug', '')
-      expect(prompt).toContain(process.cwd())
+      const prompt = buildFixedAgentPrompt(agent, 'Fix the login bug', '', '/isolated/worktree')
+      expect(prompt).toContain('/isolated/worktree')
       expect(prompt).toContain('Fix the login bug')
-      expect(prompt).toContain('"summary"')
-      expect(prompt).toContain('"confidence"')
+      expect(prompt).toContain('submit_result')
+      expect(prompt).toContain('summary')
     })
 
     it('includes the agent system prompt content', () => {
@@ -109,11 +109,11 @@ describe('fixedAgents', () => {
       expect(prompt).not.toContain('Memory / Prior Context')
     })
 
-    it('includes all JSON output fields in the template', () => {
+    it('includes all structured output fields', () => {
       const agent = getFixedAgent('tester')
       const prompt = buildFixedAgentPrompt(agent, 'task', '')
       for (const field of ['summary', 'confidence', 'filesRead', 'filesChanged', 'issuesFound', 'suggestions', 'metadata']) {
-        expect(prompt).toContain(`"${field}"`)
+        expect(prompt).toContain(field)
       }
     })
 

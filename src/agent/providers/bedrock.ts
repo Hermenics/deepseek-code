@@ -101,6 +101,7 @@ export function createBedrockMantleFetch(region: string, profile: string): typeo
       method: signed.method,
       headers: signed.headers,
       body: signed.body,
+      signal: init?.signal,
     })
 
     if (!res.ok) {
@@ -171,6 +172,7 @@ export function createBedrockFetch(region: string, profile: string): typeof glob
       method: signed.method,
       headers: signed.headers,
       body: signed.body,
+      signal: init?.signal,
     })
 
     if (!res.ok) {

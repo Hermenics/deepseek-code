@@ -57,7 +57,7 @@ export function SubagentLine({ agent, isLast, theme = 'dark' }: SubagentLineProp
   const [elapsed, setElapsed] = useState(0)
   useEffect(() => {
     setElapsed(0)
-    if (agent.status !== 'running') return
+    if (!['queued', 'running'].includes(agent.status)) return
     const t = setInterval(() => setElapsed((s) => s + 1), 1000)
     return () => clearInterval(t)
   }, [agent.id, agent.status])
@@ -74,7 +74,7 @@ export function SubagentLine({ agent, isLast, theme = 'dark' }: SubagentLineProp
       )}
       <Text color={colors.textSubtle}>({taskLabel})</Text>
 
-      {agent.status === 'running' && (
+      {['queued', 'running'].includes(agent.status) && (
         <>
           <Text color={colors.primary}>{SPINNER_FRAMES[tick % SPINNER_FRAMES.length]}</Text>
           {agent.lastToolInfo && (
@@ -83,6 +83,10 @@ export function SubagentLine({ agent, isLast, theme = 'dark' }: SubagentLineProp
           <Text color={colors.textDim}>{agent.toolCount} tools</Text>
           {elapsed > 0 && <Text color={colors.textDim}>{elapsed}s</Text>}
         </>
+      )}
+
+      {agent.status === 'blocked' && (
+        <><Text color={colors.warning}>Ⅱ</Text><Text color={colors.warning}>{agent.error ?? 'Blocked'}</Text></>
       )}
 
       {agent.status === 'done' && (
@@ -112,9 +116,10 @@ export function SubagentLine({ agent, isLast, theme = 'dark' }: SubagentLineProp
         </>
       )}
 
-      {agent.status === 'error' && (
+      {['failed', 'error', 'cancelled', 'timed_out'].includes(agent.status) && (
         <>
           <Text color={colors.error}>✗</Text>
+          <Text color={colors.error}>{agent.status}</Text>
           {agent.error && (
             <Text color={colors.error}>{truncate(agent.error, 50)}</Text>
           )}

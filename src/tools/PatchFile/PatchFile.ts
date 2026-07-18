@@ -1,6 +1,6 @@
 import { Tool } from '../types.js'
 import * as fs from 'fs/promises'
-import { assertSafePath } from '../shared/pathSafety.js'
+import { assertExecutionActive, assertSafePath, atomicWriteFile } from '../shared/pathSafety.js'
 
 type DiffLine = { type: 'added' | 'removed' | 'context'; text: string; lineNo: number }
 
@@ -43,17 +43,17 @@ export const PatchFile: Tool = {
     },
     required: ['path', 'old_content', 'new_content'],
   },
-  async execute(args) {
-    const filePath = args.path as string
+  async execute(args, context) {
+    assertExecutionActive(context)
+    const filePath = await assertSafePath(args.path as string, context)
     const oldContent = args.old_content as string
     const newContent = args.new_content as string
-
-    await assertSafePath(filePath)
 
     let source: string
     try {
       source = await fs.readFile(filePath, 'utf-8')
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       return `Error: file not found: ${filePath}`
     }
 
@@ -63,7 +63,7 @@ export const PatchFile: Tool = {
 
     // Use a function replacement to avoid special $ patterns in newContent being interpreted
     const updated = source.replace(oldContent, () => newContent)
-    await fs.writeFile(filePath, updated, 'utf-8')
+    await atomicWriteFile(filePath, updated, context)
 
     const oldLines = source.split('\n')
     const newLines = updated.split('\n')

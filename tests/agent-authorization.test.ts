@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test'
-import { rm, writeFile } from 'fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { Agent } from '../src/agent/agent.js'
 
 const callbacks = () => ({
@@ -58,6 +60,27 @@ describe('agent authorization', () => {
       expect(done).toBe(true)
     } finally {
       await rm(file, { force: true })
+    }
+  })
+
+  it('validates write containment before authorization, checkpoint and undo state', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-agent-safe-root-'))
+    const outside = await mkdtemp(join(tmpdir(), 'deepseek-agent-outside-'))
+    const external = join(outside, 'external.txt')
+    const agent = new Agent({ provider: 'local', localModel: 'test-model' }, { projectRoot: root, snapshotFile: null })
+    try {
+      await agent.readyPromise
+      ;(agent as any).settings = { risk: { enabled: false }, git: { checkpoint: true } }
+      const call = { id: 'escape', type: 'function', function: { name: 'write_file', arguments: '{}' } }
+      await expect((agent as any).checkAndExecuteTool(call, { path: external, content: 'escape' }, callbacks())).rejects.toThrow('outside the task workspace')
+      expect(await agent.undo()).toBe('Nothing to undo.')
+      const directory = join(root, 'directory')
+      await mkdir(directory)
+      await expect((agent as any).checkAndExecuteTool(call, { path: directory, content: 'escape' }, callbacks())).rejects.toThrow()
+      expect(await agent.undo()).toBe('Nothing to undo.')
+    } finally {
+      await agent.shutdown()
+      await Promise.all([rm(root, { recursive: true, force: true }), rm(outside, { recursive: true, force: true })])
     }
   })
 })

@@ -12,4 +12,6 @@ export const DEFAULT_MOA_CONFIG: MoAConfig = {
   minResponses: 1,
   timeoutMs: 60000,
   maxRetries: 1,
+  maxCandidates: 5,
+  concurrency: 5,
 }

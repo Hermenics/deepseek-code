@@ -93,8 +93,9 @@ export default async function runPipe() {
   let output = ''
   const tools: string[] = []
 
-  await new Promise<void>((resolve, reject) => {
-    agent.run(userMessage, {
+  try {
+    await new Promise<void>((resolve, reject) => {
+      agent.run(userMessage, {
       onToken(token) {
         output += token
         if (!options.json) process.stdout.write(token)
@@ -115,6 +116,9 @@ export default async function runPipe() {
         resolve()
       },
       onPhaseChange() {},
-    }).catch(reject)
-  })
+      }).catch(reject)
+    })
+  } finally {
+    await agent.shutdown()
+  }
 }

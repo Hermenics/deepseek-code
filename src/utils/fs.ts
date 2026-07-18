@@ -1,15 +1,17 @@
-import { readFile, writeFile, readdir } from 'fs/promises'
+import { chmod, readFile, writeFile, readdir } from 'fs/promises'
 
 export async function readJson<T = unknown>(path: string): Promise<T> {
   return JSON.parse(await readFile(path, 'utf-8')) as T
 }
 
 export async function writeJson(path: string, data: unknown): Promise<void> {
-  await writeFile(path, JSON.stringify(data, null, 2), 'utf-8')
+  await writeFile(path, JSON.stringify(data, null, 2), { encoding: 'utf8', mode: 0o600 })
+  await chmod(path, 0o600)
 }
 
 export async function writeRaw(path: string, content: string): Promise<void> {
-  await writeFile(path, content, 'utf-8')
+  await writeFile(path, content, { encoding: 'utf8', mode: 0o600 })
+  await chmod(path, 0o600)
 }
 
 export async function globFiles(pattern: RegExp, dir: string): Promise<string[]> {

@@ -2,8 +2,8 @@ import { join } from 'path'
 import { readFile } from 'fs/promises'
 import { globFiles } from '../utils/fs.js'
 
-export async function loadSteering(): Promise<string> {
-  const steeringDir = join(process.cwd(), '.deepseek', 'steering')
+export async function loadSteering(cwd = process.cwd()): Promise<string> {
+  const steeringDir = join(cwd, '.deepseek', 'steering')
   const files = await globFiles(/\.md$/, steeringDir)
   const parts: string[] = []
   for (const file of files) {
@@ -19,10 +19,10 @@ export async function loadSteering(): Promise<string> {
  * Load DEEPSEEK.md from project root and/or .deepseek/ directory.
  * If both exist, concatenate them (root first).
  */
-export async function loadDeepSeekMd(): Promise<string> {
+export async function loadDeepSeekMd(cwd = process.cwd()): Promise<string> {
   const paths = [
-    join(process.cwd(), 'DEEPSEEK.md'),
-    join(process.cwd(), '.deepseek', 'DEEPSEEK.md'),
+    join(cwd, 'DEEPSEEK.md'),
+    join(cwd, '.deepseek', 'DEEPSEEK.md'),
   ]
   const parts: string[] = []
   for (const p of paths) {

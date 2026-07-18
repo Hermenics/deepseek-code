@@ -1,5 +1,5 @@
 import { join, resolve } from 'path'
-import { mkdir, rm, readFile, writeFile, readdir, realpath, stat, copyFile } from 'fs/promises'
+import { mkdir, readFile, writeFile, readdir, realpath, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import { execa } from 'execa'
 import { randomBytes } from 'crypto'
@@ -15,11 +15,6 @@ const NOUNS = [
   'eagle', 'otter', 'raven', 'tiger', 'crane', 'bison', 'puma', 'dove', 'seal', 'wren',
   'finch', 'viper', 'moth', 'bass', 'carp', 'lark', 'swan', 'toad', 'mole', 'wasp',
 ]
-
-const EXCLUDE_DIRS = new Set([
-  'node_modules', '.git', 'dist', '.deepseek', '.next', 'build',
-  '__pycache__', '.venv', 'target', '.turbo', '.cache',
-])
 
 const WORKTREES_DIR = '.deepseek/worktrees'
 const STATE_FILE = '.deepseek/worktree-state.json'
@@ -72,33 +67,10 @@ export function validatePathUnderWorktrees(targetPath: string, projectRoot: stri
   return resolved.startsWith(worktreesRoot + '/') || resolved === worktreesRoot
 }
 
-/**
- * Recursively copies src → dest, skipping excluded directories and the
- * destination directory itself (to avoid "copy into self" errors).
- */
-async function copyDirRecursive(src: string, dest: string, destRoot: string): Promise<void> {
-  const entries = await readdir(src, { withFileTypes: true })
-  for (const entry of entries) {
-    const srcPath = join(src, entry.name)
-    const destPath = join(dest, entry.name)
-
-    // Never descend into the worktree destination itself
-    if (srcPath === destRoot || srcPath.startsWith(destRoot + '/')) continue
-
-    if (entry.isDirectory()) {
-      if (EXCLUDE_DIRS.has(entry.name)) continue
-      await mkdir(destPath, { recursive: true })
-      await copyDirRecursive(srcPath, destPath, destRoot)
-    } else if (entry.isFile()) {
-      await copyFile(srcPath, destPath)
-    }
-    // skip symlinks and other special files
-  }
-}
-
 export async function createWorktree(projectRoot: string, sessionId?: string): Promise<WorktreeInfo> {
   const useGit = isGitRepo(projectRoot)
-  const settings = await loadMergedSettings()
+  if (!useGit) throw new Error('Git worktrees are unavailable. Refusing an unsafe copied-workspace fallback.')
+  const settings = await loadMergedSettings(projectRoot)
 
   // Generate unique name with retry
   let name = ''
@@ -125,11 +97,6 @@ export async function createWorktree(projectRoot: string, sessionId?: string): P
     } catch (e) {
       throw new Error(`git worktree add failed: ${(e as Error).message}`)
     }
-  } else {
-    // Manual recursive copy — fs.cp refuses to copy a directory into its own subdirectory
-    // even with a filter, because it performs the self-subdirectory check before calling the filter.
-    await mkdir(worktreePath, { recursive: true })
-    await copyDirRecursive(projectRoot, worktreePath, worktreePath)
   }
 
   const info: WorktreeInfo = {
@@ -184,9 +151,6 @@ export async function exitWorktree(projectRoot: string, keep: boolean): Promise<
 
   const { name, path, isGitWorktree } = state.active
 
-  // chdir BEFORE removing
-  process.chdir(projectRoot)
-
   if (!keep) {
     // Validate path is under worktrees dir
     const realTarget = await realpath(path).catch(() => path)
@@ -194,17 +158,11 @@ export async function exitWorktree(projectRoot: string, keep: boolean): Promise<
       throw new Error(`Refused: path "${path}" is not under ${WORKTREES_DIR}`)
     }
 
-    if (isGitWorktree) {
-      try {
-        await execa('git', ['worktree', 'remove', '--force', path], { cwd: projectRoot, stdio: 'pipe' })
-      } catch {
-        // Prune stale metadata before removing directory
-        await execa('git', ['worktree', 'prune'], { cwd: projectRoot, stdio: 'pipe' }).catch(() => {})
-        await rm(path, { recursive: true, force: true })
-      }
-    } else {
-      await rm(path, { recursive: true, force: true })
-    }
+    if (!isGitWorktree) throw new Error(`Legacy copied worktree "${name}" was preserved; remove it manually after inspection.`)
+    const status = await execa('git', ['status', '--porcelain=v1'], { cwd: path, reject: false })
+    if (status.stdout.trim()) throw new Error(`Worktree "${name}" has uncommitted changes and was preserved.`)
+    const removed = await execa('git', ['worktree', 'remove', path], { cwd: projectRoot, reject: false })
+    if (removed.exitCode !== 0) throw new Error(removed.stderr || removed.stdout || `Unable to remove worktree "${name}"`)
   }
 
   state.history.push(state.active)
@@ -245,8 +203,7 @@ export async function getActiveWorktree(projectRoot: string): Promise<WorktreeIn
   return state.active
 }
 
-export function isInsideWorktree(projectRoot: string): boolean {
-  const cwd = process.cwd()
+export function isInsideWorktree(projectRoot: string, cwd = process.cwd()): boolean {
   const worktreesRoot = resolve(projectRoot, WORKTREES_DIR)
   return cwd.startsWith(worktreesRoot)
 }

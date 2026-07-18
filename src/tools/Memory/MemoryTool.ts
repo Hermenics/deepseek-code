@@ -31,7 +31,7 @@ export const MemoryTool: Tool = {
     },
     required: ['action', 'target'],
   },
-  async execute(args) {
+  async execute(args, context) {
     const action = args.action as string
     const target = args.target as MemoryTarget
     const content = (args.content as string | undefined)?.trim()
@@ -44,18 +44,19 @@ export const MemoryTool: Tool = {
       return 'Error: match is required for replace/remove actions.'
     }
 
+    const store = context?.session?.memory
     switch (action) {
       case 'list': {
-        const entries = await loadMemory(target)
+        const entries = store ? await store.load(target) : await loadMemory(target)
         if (entries.length === 0) return `No entries in ${target} memory.`
         return entries.map((e, i) => `${i + 1}. ${e}`).join('\n')
       }
       case 'add':
-        return addEntry(target, content!)
+        return store ? store.add(target, content!) : addEntry(target, content!)
       case 'replace':
-        return replaceEntry(target, match!, content!)
+        return store ? store.replace(target, match!, content!) : replaceEntry(target, match!, content!)
       case 'remove':
-        return removeEntry(target, match!)
+        return store ? store.remove(target, match!) : removeEntry(target, match!)
       default:
         return `Unknown action: ${action}`
     }

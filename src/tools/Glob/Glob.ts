@@ -56,9 +56,8 @@ export const Glob: Tool = {
     },
     required: ['pattern'],
   },
-  async execute(args) {
-    const cwd = (args.cwd as string) || '.'
-    await assertSafeDir(cwd)
+  async execute(args, context) {
+    const cwd = await assertSafeDir((args.cwd as string) || '.', context)
 
     const files = await fg(args.pattern as string, {
       cwd,

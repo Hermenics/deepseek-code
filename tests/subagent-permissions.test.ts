@@ -67,7 +67,7 @@ describe('inferRole', () => {
     expect(inferRole('find all usages of this function')).toBe('reader')
   })
 
-  test('ambiguous task → executor', () => {
-    expect(inferRole('do the thing')).toBe('executor')
+  test('ambiguous task → reader (least privilege)', () => {
+    expect(inferRole('do the thing')).toBe('reader')
   })
 })

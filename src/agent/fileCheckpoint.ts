@@ -77,9 +77,9 @@ export async function createFileCheckpoint(
 
   try {
     const content = await readFile(filePath, 'utf-8')
-    await writeFile(join(filesDir, backupFile), content, 'utf-8')
+    await writeFile(join(filesDir, backupFile), content, { encoding: 'utf8', mode: 0o600 })
   } catch {
-    await writeFile(join(filesDir, backupFile), '', 'utf-8')
+    await writeFile(join(filesDir, backupFile), '', { encoding: 'utf8', mode: 0o600 })
   }
 
   const manifest = await loadManifest(sessionId)

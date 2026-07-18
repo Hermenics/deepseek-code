@@ -39,6 +39,8 @@ export const HELP_TEXT = `Commands:
   /memory                show persistent memory contents
   /memory clear [agent|user]  clear memory (both or specific)
   /context (ctx)         show context window usage breakdown (estimated)
+  /tasks                 show the session task tree and states
+  /task <id> <action>    status, cancel, resume, result, message, integrate, cleanup
   /worktree (wt)         create or manage an isolated project copy
                            /worktree               create new worktree
                            /worktree enter <name>  enter existing worktree

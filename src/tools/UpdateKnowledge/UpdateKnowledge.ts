@@ -1,10 +1,6 @@
 import { Tool } from '../types.js'
 import { readFile, writeFile } from 'fs/promises'
-import { join } from 'path'
-
-// Compute path at execution time so it respects the current working directory
-// (which may change when a worktree is active)
-function getDeepseekMdPath() { return join(process.cwd(), 'DEEPSEEK.md') }
+import { resolveSafePath } from '../shared/pathSafety.js'
 
 export const UpdateKnowledge: Tool = {
   name: 'update_knowledge',
@@ -16,6 +12,7 @@ export const UpdateKnowledge: Tool = {
     'Use a clear section name like "Architecture", "Conventions", "Known Issues", "Patterns", etc.',
   parameters: {
     type: 'object',
+    additionalProperties: false,
     properties: {
       section: {
         type: 'string',
@@ -28,7 +25,7 @@ export const UpdateKnowledge: Tool = {
     },
     required: ['section', 'content'],
   },
-  async execute(args) {
+  async execute(args, context) {
     const section = (args.section as string).trim()
     const content = (args.content as string).trim()
 
@@ -37,7 +34,7 @@ export const UpdateKnowledge: Tool = {
       return 'Error: section name contains invalid characters. Use only letters, numbers, spaces, hyphens, slashes, parentheses, periods, commas, and colons.'
     }
 
-    const DEEPSEEK_MD = getDeepseekMdPath()
+    const DEEPSEEK_MD = await resolveSafePath('DEEPSEEK.md', context)
 
     let existing = ''
     try {

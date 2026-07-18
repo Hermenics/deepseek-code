@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
-import { mkdtemp, rm, mkdir, writeFile, readFile } from 'fs/promises'
+import { chmod, mkdtemp, rm, mkdir, stat, writeFile, readFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { readJson, writeJson, writeRaw, globFiles } from '../src/utils/fs.js'
@@ -78,6 +78,14 @@ describe('writeJson', () => {
     const result = await readJson(path)
     expect(result).toEqual(data)
   })
+
+  it('restricts permissions when overwriting an existing file', async () => {
+    const path = join(testDir, 'existing.json')
+    await writeFile(path, '{}')
+    await chmod(path, 0o666)
+    await writeJson(path, { safe: true })
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
+  })
 })
 
 describe('writeRaw', () => {
@@ -111,6 +119,14 @@ describe('writeRaw', () => {
     await writeRaw(path, text)
     const content = await readFile(path, 'utf-8')
     expect(content).toBe(text)
+  })
+
+  it('restricts permissions when overwriting an existing file', async () => {
+    const path = join(testDir, 'existing.txt')
+    await writeFile(path, 'old')
+    await chmod(path, 0o666)
+    await writeRaw(path, 'new')
+    expect((await stat(path)).mode & 0o777).toBe(0o600)
   })
 })
 

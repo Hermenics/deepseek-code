@@ -12,6 +12,11 @@ const ctx = (overrides?: Partial<RiskContext>): RiskContext => ({
 
 describe('assessRisk', () => {
   describe('HIGH risk', () => {
+    it('native git push and pull require confirmation', () => {
+      expect(assessRisk('git', { action: 'push' }, ctx())?.requiresConfirmation).toBe(true)
+      expect(assessRisk('git', { action: 'push', force: true }, ctx())?.matchedRule).toBe('git:force-push')
+      expect(assessRisk('git', { action: 'pull' }, ctx())?.requiresConfirmation).toBe(true)
+    })
     it('rm -rf /tmp → HIGH, requires confirmation', () => {
       const r = assessRisk('shell', { command: 'rm -rf /tmp' }, ctx())
       expect(r).not.toBeNull()

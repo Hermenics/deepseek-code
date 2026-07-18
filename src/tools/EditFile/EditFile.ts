@@ -1,6 +1,6 @@
 import * as fs from 'fs/promises'
 import { Tool } from '../types.js'
-import { assertSafePath } from '../shared/pathSafety.js'
+import { assertExecutionActive, assertSafePath, atomicWriteFile } from '../shared/pathSafety.js'
 
 interface LineEdit {
   line: number
@@ -48,16 +48,16 @@ export const EditFile: Tool = {
     required: ['path', 'edits'],
   },
 
-  async execute(args): Promise<string> {
-    const filePath = args.path as string
+  async execute(args, context): Promise<string> {
+    assertExecutionActive(context)
+    const filePath = await assertSafePath(args.path as string, context)
     const edits = args.edits as LineEdit[]
-
-    await assertSafePath(filePath)
 
     let content: string
     try {
       content = await fs.readFile(filePath, 'utf-8')
-    } catch {
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       return JSON.stringify({ error: `File not found: ${filePath}` })
     }
 
@@ -117,7 +117,7 @@ export const EditFile: Tool = {
       linesAffected.push(edit.line)
     }
 
-    await fs.writeFile(filePath, lines.join('\n'), 'utf-8')
+    await atomicWriteFile(filePath, lines.join('\n'), context)
 
     return JSON.stringify({
       path: filePath,
