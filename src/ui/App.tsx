@@ -1,3 +1,4 @@
+import { existsSync } from 'fs'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import useInput from '../ink/hooks/use-input.js'
 import { execa } from 'execa'
@@ -98,6 +99,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const initialSessionRef = useRef(initialSession)
   const handleSubmitRef = useRef<((text: string) => Promise<void>) | null>(null)
   const projectRootRef = useRef(process.cwd())  // captured at mount, before any worktree cwd changes
+  const originalProjectRoot = useRef(process.cwd())  // never changes — used to scope worktree isolation
   const toolStatusClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const queuedSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveSessionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -511,12 +513,15 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const runWithPrompt = useCallback(async (label: string, prompt: string, intendedMode: InteractionMode) => {
     if (isLoading) return
     const worktreePolicy = agent.settings.git?.worktree ?? 'ask'
-    if ((isBuildMode(intendedMode) || isAutoMode(intendedMode)) && worktreePolicy !== 'off') {
+    const cwdChanged = projectRootRef.current !== originalProjectRoot.current
+    if (!cwdChanged && (isBuildMode(intendedMode) || isAutoMode(intendedMode)) && worktreePolicy !== 'off') {
       try {
         const { createWorktree, getActiveWorktree, isInsideWorktree } = await import('../agent/worktree.js')
-        const projectRoot = projectRootRef.current
+        const projectRoot = originalProjectRoot.current
         const active = await getActiveWorktree(projectRoot)
-        if (active && !isInsideWorktree(projectRoot)) process.chdir(active.path)
+        if (active && active.sessionId != null && active.sessionId === sessionId && existsSync(active.path) && !isInsideWorktree(projectRoot)) {
+          process.chdir(active.path)
+        }
         let isolate = worktreePolicy === 'auto'
         if (!active && worktreePolicy === 'ask') {
           isolate = await new Promise<boolean>((resolve) => {
@@ -524,12 +529,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           })
         }
         if (!active && isolate) {
-          const info = await createWorktree(projectRoot)
+          const info = await createWorktree(projectRoot, sessionId)
           process.chdir(info.path)
           setMessages((m) => [...m, { role: 'assistant', content: `Worktree "${info.name}" created on ${info.branch ?? 'an isolated copy'} at ${info.path}.` }])
         }
       } catch (error) {
-        setMessages((m) => [...m, { role: 'assistant', content: `△ Worktree isolation failed; turn aborted: ${(error as Error).message}` }])
+        setMessages((m) => [...m, { role: 'assistant', content: `△ Worktree isolation failed; turn aborted: ${(error as Error).message}\n  Use /cwd <path> to change directory, or /worktree exit to clear the stale worktree.` }])
         return
       }
     }
@@ -954,13 +959,36 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setMessages(m => [...m, { role: 'assistant', content: formatContextBreakdown(breakdown) }])
           return
         }
+        case 'cwd': {
+          if (!cmd.path) {
+            setMessages(m => [...m, { role: 'assistant', content: `cwd: ${process.cwd()}` }])
+            return
+          }
+          const { resolve: resolvePath } = await import('path')
+          const { statSync } = await import('fs')
+          const target = resolvePath(cmd.path.replace(/^~/, process.env.HOME ?? ''))
+          try {
+            const s = statSync(target)
+            if (!s.isDirectory()) {
+              setMessages(m => [...m, { role: 'assistant', content: `✗ Not a directory: ${target}` }])
+              return
+            }
+            process.chdir(target)
+            projectRootRef.current = target
+          } catch {
+            setMessages(m => [...m, { role: 'assistant', content: `✗ Cannot access: ${target}` }])
+            return
+          }
+          setMessages(m => [...m, { role: 'assistant', content: `cwd: ${target}` }])
+          return
+        }
         case 'worktree': {
           const projectRoot = projectRootRef.current
           const { createWorktree, enterWorktree, exitWorktree, listWorktrees, getActiveWorktree } = await import('../agent/worktree.js')
           if (cmd.action === 'create') {
             setIsLoading(true)
             try {
-              const info = await createWorktree(projectRoot)
+              const info = await createWorktree(projectRoot, sessionId)
               process.chdir(info.path)
               setMessages(m => [...m, { role: 'assistant', content: `Worktree "${info.name}" created at ${info.path}\nCWD changed to the worktree.` }])
             } catch (e) {
@@ -975,7 +1003,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             }
             setIsLoading(true)
             try {
-              const info = await enterWorktree(projectRoot, cmd.name)
+              const info = await enterWorktree(projectRoot, cmd.name, sessionId)
               process.chdir(info.path)
               setMessages(m => [...m, { role: 'assistant', content: `Entered worktree "${info.name}" at ${info.path}` }])
             } catch (e) {

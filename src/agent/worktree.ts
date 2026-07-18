@@ -31,6 +31,7 @@ export interface WorktreeInfo {
   createdAt: string
   isGitWorktree: boolean
   branch?: string
+  sessionId?: string
 }
 
 export interface WorktreeState {
@@ -95,7 +96,7 @@ async function copyDirRecursive(src: string, dest: string, destRoot: string): Pr
   }
 }
 
-export async function createWorktree(projectRoot: string): Promise<WorktreeInfo> {
+export async function createWorktree(projectRoot: string, sessionId?: string): Promise<WorktreeInfo> {
   const useGit = isGitRepo(projectRoot)
   const settings = await loadMergedSettings()
 
@@ -138,6 +139,7 @@ export async function createWorktree(projectRoot: string): Promise<WorktreeInfo>
     createdAt: new Date().toISOString(),
     isGitWorktree: useGit,
     branch,
+    sessionId,
   }
 
   const state = await loadState(projectRoot)
@@ -148,7 +150,7 @@ export async function createWorktree(projectRoot: string): Promise<WorktreeInfo>
   return info
 }
 
-export async function enterWorktree(projectRoot: string, name: string): Promise<WorktreeInfo> {
+export async function enterWorktree(projectRoot: string, name: string, sessionId?: string): Promise<WorktreeInfo> {
   const worktreePath = join(projectRoot, WORKTREES_DIR, name)
 
   if (!validatePathUnderWorktrees(worktreePath, projectRoot)) {
@@ -165,6 +167,7 @@ export async function enterWorktree(projectRoot: string, name: string): Promise<
     originalCwd: projectRoot,
     createdAt: new Date().toISOString(), // approximate
     isGitWorktree: existsSync(join(worktreePath, '.git')),
+    sessionId,
   }
 
   const state = await loadState(projectRoot)

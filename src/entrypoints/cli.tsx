@@ -342,9 +342,9 @@ function Root() {
       />
     </Box>
   )
-  return initialSettings.interface?.alternateScreen === false
-    ? application
-    : <AlternateScreen>{application}</AlternateScreen>
+  return initialSettings.interface?.alternateScreen === true
+    ? <AlternateScreen>{application}</AlternateScreen>
+    : application
 }
 
 const root = await createRoot({

@@ -27,6 +27,7 @@ import effort from './effort/index.js'
 import skill from './skill/index.js'
 import plugin from './plugin/index.js'
 import context from './context/index.js'
+import cwd from './cwd/index.js'
 import worktree from './worktree/index.js'
 import logout from './logout/index.js'
 
@@ -58,6 +59,7 @@ const commands: Command[] = [
   skill,
   plugin,
   context,
+  cwd,
   worktree,
   logout,
 ]
