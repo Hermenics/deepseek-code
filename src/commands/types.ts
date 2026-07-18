@@ -52,6 +52,7 @@ export type CommandResult =
   | { type: 'worktree'; action: 'list' }
   | { type: 'worktree'; action: 'status' }
   | { type: 'logout' }
+  | { type: 'cwd'; path?: string }
   | { type: 'unknown'; input: string }
 
 export interface Command {
