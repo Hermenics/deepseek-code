@@ -17,18 +17,25 @@ export default function MobileQRCode({ onClose }: MobileQRCodeProps) {
   const [platform, setPlatform] = useState<Platform>('ios')
   const [qrCodes, setQrCodes] = useState<Record<Platform, string>>({ ios: '', android: '' })
   const [ready, setReady] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    ;(async () => {
-      const QRCode = await import('qrcode')
-      const [ios, android] = await Promise.all([
-        QRCode.toString(IOS_URL, { type: 'utf8', errorCorrectionLevel: 'L' }),
-        QRCode.toString(ANDROID_URL, { type: 'utf8', errorCorrectionLevel: 'L' }),
-      ])
-      if (!cancelled) {
-        setQrCodes({ ios, android })
-        setReady(true)
+    void (async () => {
+      try {
+        const QRCode = await import('qrcode')
+        const [ios, android] = await Promise.all([
+          QRCode.toString(IOS_URL, { type: 'utf8', errorCorrectionLevel: 'L' }),
+          QRCode.toString(ANDROID_URL, { type: 'utf8', errorCorrectionLevel: 'L' }),
+        ])
+        if (!cancelled) {
+          setQrCodes({ ios, android })
+          setReady(true)
+        }
+      } catch (cause) {
+        if (!cancelled) {
+          setError(cause instanceof Error ? cause.message : String(cause))
+        }
       }
     })()
     return () => { cancelled = true }
@@ -46,6 +53,15 @@ export default function MobileQRCode({ onClose }: MobileQRCodeProps) {
 
   const url = platform === 'ios' ? IOS_URL : ANDROID_URL
   const qr = qrCodes[platform]
+
+  if (error) {
+    return (
+      <Box flexDirection="column">
+        <Text color="red">Unable to generate QR code: {error}</Text>
+        <Text dimColor>Press Esc or q to close.</Text>
+      </Box>
+    )
+  }
 
   if (!ready) {
     return (
