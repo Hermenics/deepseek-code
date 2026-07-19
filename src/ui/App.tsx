@@ -527,12 +527,21 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   const runWithPrompt = useCallback(async (label: string, prompt: string, intendedMode: InteractionMode) => {
     if (isLoading) return
+    setMessages((m) => [...m, { role: 'user', content: label }])
+    setIsLoading(true)
+    setAgentPhase('refining')
+    setStreamText('')
+
     const worktreePolicy = agent.settings.git?.worktree ?? 'ask'
     const cwdChanged = projectRootRef.current !== originalProjectRoot.current
     if (!cwdChanged && (isBuildMode(intendedMode) || isAutoMode(intendedMode)) && worktreePolicy !== 'off') {
       try {
-        const { createWorktree, getActiveWorktree, isInsideWorktree } = await import('../agent/worktree.js')
+        const { createWorktree, getActiveWorktree, isInsideWorktree, isGitRepository } = await import('../agent/worktree.js')
         const projectRoot = originalProjectRoot.current
+        if (!isGitRepository(projectRoot)) {
+          await runAgent(prompt)
+          return
+        }
         const active = await getActiveWorktree(projectRoot)
         if (active && active.sessionId != null && active.sessionId === sessionId && existsSync(active.path) && !isInsideWorktree(projectRoot, agent.getWorkingDirectory())) {
           await agent.setWorkingDirectory(active.path)
@@ -549,14 +558,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setMessages((m) => [...m, { role: 'assistant', content: `Worktree "${info.name}" created on ${info.branch ?? 'an isolated copy'} at ${info.path}.` }])
         }
       } catch (error) {
+        setIsLoading(false)
+        setAgentPhase('idle')
         setMessages((m) => [...m, { role: 'assistant', content: `△ Worktree isolation failed; turn aborted: ${(error as Error).message}\n  Use /cwd <path> to change directory, or /worktree exit to clear the stale worktree.` }])
         return
       }
     }
-    setMessages((m) => [...m, { role: 'user', content: label }])
-    setIsLoading(true)
-    setAgentPhase('refining')
-    setStreamText('')
     await runAgent(prompt)
   }, [isLoading, runAgent, agent])
 
@@ -1088,7 +1095,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       }
     }
 
-    await appendInputHistory(text)
+    void appendInputHistory(text).catch(() => {})
 
     // Shell execution with !
     if (text.trimStart().startsWith('!')) {
