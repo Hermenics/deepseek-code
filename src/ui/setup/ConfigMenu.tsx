@@ -546,23 +546,23 @@ export default function ConfigMenu(props: ConfigMenuProps) {
 
   const Categories = () => (
     <Box flexDirection="column" width={layout === 'wide' ? 25 : layout === 'medium' ? 17 : undefined} paddingRight={1}>
-      {categoryWindow.before ? <Text dimColor>  ↑ more</Text> : null}
+      <Text dimColor>{categoryWindow.before ? '  ↑ more' : ' '}</Text>
       {categoryWindow.values.map((entry, offset) => {
         const index = categoryWindow.start + offset
         const selected = index === categoryIndex && (layout === 'narrow' ? narrowPage === 'categories' : focus === 'categories')
         const label = layout === 'medium' ? entry.short.padEnd(13) : entry.label
-        return <Text key={entry.id} bold={selected} color={selected ? colors.primary : colors.text} wrap="truncate-end">{selected ? '› ' : '  '}{label}</Text>
+        return <Text key={entry.id} bold={selected} color={selected ? colors.primary : colors.text} wrap={layout === 'medium' ? 'truncate-end' : 'wrap'}>{selected ? '› ' : '  '}{label}</Text>
       })}
-      {categoryWindow.after ? <Text dimColor>  ↓ more</Text> : null}
+      <Text dimColor>{categoryWindow.after ? '  ↓ more' : ' '}</Text>
     </Box>
   )
 
   const Items = () => category ? (
     <Box flexDirection="column" width={layout === 'wide' ? 38 : layout === 'medium' ? Math.max(44, width - 20) : undefined} paddingX={layout === 'wide' ? 1 : 0}>
       <Text bold flexShrink={0}>{category.label}</Text>
-      <Text dimColor wrap="truncate-end" flexShrink={0}>{category.description}</Text>
+      <Text dimColor wrap={layout === 'narrow' ? 'wrap' : 'truncate-end'} flexShrink={0}>{category.description}</Text>
       <Box marginTop={1} flexDirection="column" flexShrink={0}>
-        {itemWindow.before ? <Text dimColor flexShrink={0}>  ↑ {itemWindow.start} above</Text> : null}
+        <Text dimColor flexShrink={0}>{itemWindow.before ? `  ↑ ${itemWindow.start} above` : ' '}</Text>
         {itemWindow.values.map((entry, offset) => {
           const index = itemWindow.start + offset
           const selected = index === itemIndex && (layout === 'narrow' ? narrowPage === 'items' : focus === 'items')
@@ -572,12 +572,12 @@ export default function ConfigMenu(props: ConfigMenuProps) {
             : displayValue(snapshot ? valueAt(snapshot.effective, entry.path) : undefined)
           return (
             <Box key={entry.path} width="100%" justifyContent="space-between" flexShrink={0}>
-              <Text bold={selected} color={selected ? colors.primary : colors.text} wrap="truncate-end" flexShrink={1}>{selected ? '› ' : '  '}{entry.label}</Text>
-              <Text color={selected ? colors.primary : colors.textDim} wrap="truncate-middle" flexShrink={0}>{value}</Text>
+              <Text bold={selected} color={selected ? colors.primary : colors.text} wrap={layout === 'narrow' ? 'wrap' : 'truncate-end'} flexShrink={1}>{selected ? '› ' : '  '}{entry.label}</Text>
+              <Text color={selected ? colors.primary : colors.textDim} wrap={layout === 'narrow' ? 'wrap' : 'truncate-middle'} flexShrink={0}>{value}</Text>
             </Box>
           )
         })}
-        {itemWindow.after ? <Text dimColor flexShrink={0}>  ↓ {category.items.length - itemWindow.start - itemWindow.values.length} below</Text> : null}
+        <Text dimColor flexShrink={0}>{itemWindow.after ? `  ↓ ${category.items.length - itemWindow.start - itemWindow.values.length} below` : ' '}</Text>
       </Box>
     </Box>
   ) : <Text dimColor>No setting matches this search.</Text>
