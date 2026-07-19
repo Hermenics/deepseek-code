@@ -486,7 +486,8 @@ export default function ConfigMenu(props: ConfigMenuProps) {
     if (input === '/') { setSearching(true); return }
     if (key.escape || input === 'q') {
       if (layout === 'narrow' && narrowPage !== 'categories') {
-        setNarrowPage(narrowPage === 'detail' ? 'items' : 'categories')
+        if (narrowPage === 'detail') { setNarrowPage('items'); setFocus('items') }
+        else { setNarrowPage('categories'); setFocus('categories') }
       } else props.onClose()
       return
     }
@@ -507,7 +508,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
       return
     }
     if (key.return) {
-      if (layout === 'narrow' && narrowPage === 'categories') { if (category) setNarrowPage('items'); return }
+      if (layout === 'narrow' && narrowPage === 'categories') { if (category) { setNarrowPage('items'); setFocus('items') } return }
       if (layout === 'narrow' && narrowPage === 'items') { if (item) setNarrowPage('detail'); return }
       if (focus === 'categories') { if (category?.items.length) setFocus('items'); return }
       if (item) void activate(item)
