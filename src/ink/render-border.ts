@@ -30,7 +30,46 @@ export const CUSTOM_BORDER_STYLES = {
 export type BorderStyle =
   | keyof Boxes
   | keyof typeof CUSTOM_BORDER_STYLES
+  | 'rounded'
   | BoxStyle
+
+const BORDER_STYLE_KEYS = [
+  'topLeft',
+  'top',
+  'topRight',
+  'right',
+  'bottomRight',
+  'bottom',
+  'bottomLeft',
+  'left',
+] as const
+
+function isBoxStyle(value: unknown): value is BoxStyle {
+  if (!value || typeof value !== 'object') {
+    return false
+  }
+
+  const candidate = value as Record<string, unknown>
+  return BORDER_STYLE_KEYS.every(key => typeof candidate[key] === 'string')
+}
+
+export function resolveBorderStyle(
+  style: BorderStyle | undefined,
+): BoxStyle | undefined {
+  if (!style) {
+    return undefined
+  }
+
+  const styleName = typeof style === 'string' ? (style as string) : undefined
+  const candidate =
+    styleName !== undefined
+      ? (CUSTOM_BORDER_STYLES[styleName as keyof typeof CUSTOM_BORDER_STYLES] ??
+        cliBoxes[styleName as keyof Boxes] ??
+        (styleName === 'rounded' ? cliBoxes.round : undefined))
+      : style
+
+  return isBoxStyle(candidate) ? candidate : undefined
+}
 
 function embedTextInBorder(
   borderLine: string,
@@ -86,14 +125,13 @@ const renderBorder = (
   output: Output,
 ): void => {
   if (node.style.borderStyle) {
+    const box = resolveBorderStyle(node.style.borderStyle)
+    if (!box) {
+      return
+    }
+
     const width = Math.floor(node.yogaNode!.getComputedWidth())
     const height = Math.floor(node.yogaNode!.getComputedHeight())
-    const box =
-      typeof node.style.borderStyle === 'string'
-        ? (CUSTOM_BORDER_STYLES[
-            node.style.borderStyle as keyof typeof CUSTOM_BORDER_STYLES
-          ] ?? cliBoxes[node.style.borderStyle as keyof Boxes])
-        : node.style.borderStyle
 
     const topBorderColor = node.style.borderTopColor ?? node.style.borderColor
     const bottomBorderColor =

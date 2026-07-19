@@ -40,7 +40,7 @@ export function generateWorktreeName(): string {
   return `${adj}-${noun}`
 }
 
-function isGitRepo(dir: string): boolean {
+export function isGitRepository(dir: string): boolean {
   return existsSync(join(dir, '.git'))
 }
 
@@ -68,7 +68,7 @@ export function validatePathUnderWorktrees(targetPath: string, projectRoot: stri
 }
 
 export async function createWorktree(projectRoot: string, sessionId?: string): Promise<WorktreeInfo> {
-  const useGit = isGitRepo(projectRoot)
+  const useGit = isGitRepository(projectRoot)
   if (!useGit) throw new Error('Git worktrees are unavailable. Refusing an unsafe copied-workspace fallback.')
   const settings = await loadMergedSettings(projectRoot)
 

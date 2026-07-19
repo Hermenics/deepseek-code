@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { execa } from 'execa'
 import {
   createWorktree, enterWorktree, exitWorktree, generateWorktreeName, getActiveWorktree,
-  listWorktrees, validatePathUnderWorktrees, type WorktreeState,
+  isGitRepository, listWorktrees, validatePathUnderWorktrees, type WorktreeState,
 } from '../src/agent/worktree.js'
 
 let root = ''
@@ -24,6 +24,12 @@ beforeEach(async () => { root = await mkdtemp(join(tmpdir(), 'deepseek-wt-test-'
 afterEach(async () => { await rm(root, { recursive: true, force: true }) })
 
 describe('worktree path primitives', () => {
+  it('detects Git repositories without depending on the process cwd', async () => {
+    expect(isGitRepository(root)).toBe(false)
+    await mkdir(join(root, '.git'))
+    expect(isGitRepository(root)).toBe(true)
+  })
+
   it('generates adjective-noun names without relying on a global cwd', () => {
     expect(generateWorktreeName()).toMatch(/^[a-z]+-[a-z]+$/)
     expect(new Set(Array.from({ length: 20 }, generateWorktreeName)).size).toBeGreaterThan(1)
