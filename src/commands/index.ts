@@ -31,6 +31,7 @@ import tasks from './tasks/index.js'
 import task from './task/index.js'
 import cwd from './cwd/index.js'
 import worktree from './worktree/index.js'
+import mobile from './mobile/index.js'
 import logout from './logout/index.js'
 
 const commands: Command[] = [
@@ -65,6 +66,7 @@ const commands: Command[] = [
   task,
   cwd,
   worktree,
+  mobile,
   logout,
 ]
 

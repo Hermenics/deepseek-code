@@ -15,6 +15,7 @@ import { StatusBar } from './layout/StatusBar.js'
 import { ModelSelector } from './setup/ModelSelector.js'
 import { EffortSelector } from './setup/EffortSelector.js'
 import ConfigMenu from './setup/ConfigMenu.js'
+import MobileQRCode from './MobileQRCode.js'
 import { parseCommand, HELP_TEXT, REVIEW_PROMPT } from '../commands.js'
 import { loadAgentConfig, listAgents, type LoadedAgent } from '../agent/config.js'
 import { appendInputHistory } from '../agent/inputHistory.js'
@@ -119,6 +120,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [agent] = useState(() => new Agent(providerConfig ?? undefined, { sessionId, projectRoot: projectRootRef.current }))
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
   const [showConfigMenu, setShowConfigMenu] = useState(false)
+  const [showMobileQR, setShowMobileQR] = useState(false)
   const [currentLanguage, setCurrentLanguage] = useState<string | null>(language ?? null)
   const subagentsRef = useRef(useSubagents())
   const [, setSubagentTick] = useState(0)
@@ -656,6 +658,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setMessages((m) => [...m, { role: 'assistant', content: summary }])
           return
         }
+        case 'mobile': {
+          setShowMobileQR(true)
+          return
+        }
         case 'files': {
           const files = agent.getFilesModified()
           const content = files.length
@@ -1121,6 +1127,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   // Keep ref in sync so the init effect always calls the latest handleSubmit
   handleSubmitRef.current = handleSubmit
+
+  if (showMobileQR) {
+    return <MobileQRCode onClose={() => setShowMobileQR(false)} />
+  }
 
   if (showConfigMenu) {
     return (
