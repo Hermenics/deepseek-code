@@ -3,21 +3,26 @@ import useInput from '../ink/hooks/use-input.js'
 import type { Key } from '../ink/events/input-event.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
+import { getThemeColors } from './theme.js'
+import type { ThemeName } from '../types/provider.js'
 
 const IOS_URL = 'https://apps.apple.com/us/app/deepseek/id6737597349'
 const ANDROID_URL = 'https://play.google.com/store/apps/details?id=com.deepseek.chat'
 
 interface MobileQRCodeProps {
   onClose: () => void
+  theme: ThemeName
 }
 
 type Platform = 'ios' | 'android'
 
-export default function MobileQRCode({ onClose }: MobileQRCodeProps) {
+export default function MobileQRCode({ onClose, theme }: MobileQRCodeProps) {
   const [platform, setPlatform] = useState<Platform>('ios')
   const [qrCodes, setQrCodes] = useState<Record<Platform, string>>({ ios: '', android: '' })
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const colors = getThemeColors(theme)
 
   useEffect(() => {
     let cancelled = false
@@ -25,8 +30,8 @@ export default function MobileQRCode({ onClose }: MobileQRCodeProps) {
       try {
         const QRCode = await import('qrcode')
         const [ios, android] = await Promise.all([
-          QRCode.toString(IOS_URL, { type: 'utf8', errorCorrectionLevel: 'L' }),
-          QRCode.toString(ANDROID_URL, { type: 'utf8', errorCorrectionLevel: 'L' }),
+          QRCode.toString(IOS_URL, { type: 'utf8', errorCorrectionLevel: 'L', version: 4 }),
+          QRCode.toString(ANDROID_URL, { type: 'utf8', errorCorrectionLevel: 'L', version: 4 }),
         ])
         if (!cancelled) {
           setQrCodes({ ios, android })
@@ -46,7 +51,7 @@ export default function MobileQRCode({ onClose }: MobileQRCodeProps) {
       onClose()
       return
     }
-    if (key.tab || key.leftArrow || key.rightArrow) {
+    if (key.tab || key.leftArrow || key.rightArrow || key.upArrow || key.downArrow) {
       setPlatform((p) => (p === 'ios' ? 'android' : 'ios'))
     }
   })
@@ -71,20 +76,54 @@ export default function MobileQRCode({ onClose }: MobileQRCodeProps) {
     )
   }
 
+  const qrLines = qr.split('\n')
+  const height = qrLines.length
+
+  // Place iOS at 1/3 from top, Android at 2/3 from top
+  const iosRow = Math.floor(height / 3)
+  const androidRow = Math.floor((height * 2) / 3)
+
+  const sidebarLines = qrLines.map((_, i) => {
+    if (i === iosRow) return { label: '› iOS', active: platform === 'ios' }
+    if (i === androidRow) return { label: '› Android', active: platform === 'android' }
+    return null
+  })
+
   return (
-    <Box flexDirection="column">
-      <Text>{'\n'}</Text>
-      <Text>{'\n'}</Text>
-      <Text>{qr}</Text>
-      <Text>{'\n'}</Text>
-      <Text>{'\n'}</Text>
-      <Box>
-        <Text bold={platform === 'ios'} underline={platform === 'ios'}>iOS</Text>
-        <Text dimColor> / </Text>
-        <Text bold={platform === 'android'} underline={platform === 'android'}>Android</Text>
-        <Text dimColor>{'          (tab to switch, esc to close)'}</Text>
+    <Box flexDirection="column" paddingX={1}>
+      <Box marginBottom={1}>
+        <Text bold color={colors.primary}>DeepSeek Code · Mobile</Text>
       </Box>
-      <Text dimColor>{url}</Text>
+      <Box flexDirection="row">
+        {/* Sidebar */}
+        <Box flexDirection="column" width={12} paddingRight={1}>
+          {sidebarLines.map((item, i) =>
+            item ? (
+              <Text
+                key={i}
+                bold={item.active}
+                color={item.active ? colors.primary : colors.textDim}
+              >
+                {item.active ? item.label : `  ${item.label.slice(2)}`}
+              </Text>
+            ) : (
+              <Text key={i}>{' '}</Text>
+            )
+          )}
+        </Box>
+        {/* Separator — same pattern as ConfigMenu */}
+        <Text color={colors.textInactive}>{'│\n'.repeat(height - 1)}│</Text>
+        {/* QR + URL */}
+        <Box flexDirection="column" paddingLeft={1}>
+          {qrLines.map((line, i) => (
+            <Text key={i}>{line}</Text>
+          ))}
+          <Text color={colors.textDim}>{url}</Text>
+        </Box>
+      </Box>
+      <Box marginTop={1}>
+        <Text dimColor>Tab/←→/↑↓ switch · Esc/q close</Text>
+      </Box>
     </Box>
   )
 }

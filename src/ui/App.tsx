@@ -1136,7 +1136,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   handleSubmitRef.current = handleSubmit
 
   if (showMobileQR) {
-    return <MobileQRCode onClose={() => setShowMobileQR(false)} />
+    return <MobileQRCode onClose={() => setShowMobileQR(false)} theme={theme} />
   }
 
   if (showConfigMenu) {
