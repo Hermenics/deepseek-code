@@ -53,7 +53,15 @@ export function applyLineOperator(
     return { text, cursor: lineStart, register: yanked, enterInsert: false }
   }
 
-  const newText = text.slice(0, lineStart) + text.slice(lineEnd)
+  // Consume adjacent newline so dd/cc don't leave a blank line
+  let deleteEnd = lineEnd
+  if (deleteEnd < text.length && text[deleteEnd] === '\n') {
+    deleteEnd++
+  } else if (lineStart > 0) {
+    lineStart--
+  }
+
+  const newText = text.slice(0, lineStart) + text.slice(deleteEnd)
   const newCursor = Math.min(lineStart, Math.max(0, newText.length - 1))
 
   return {

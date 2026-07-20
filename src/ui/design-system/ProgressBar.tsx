@@ -24,12 +24,13 @@ export function ProgressBar({ ratio, width = 20, fillColor, emptyColor }: Progre
   const fill = resolveColor(fillColor, colors) ?? colors.primary
   const empty = resolveColor(emptyColor, colors) ?? colors.textInactive
 
+  const safeWidth = Math.max(1, Math.floor(Number.isFinite(width) ? width : 20))
   const clamped = Math.max(0, Math.min(1, ratio))
-  const totalSubChars = width * 8
+  const totalSubChars = safeWidth * 8
   const filledSubChars = Math.round(clamped * totalSubChars)
   const fullBlocks = Math.floor(filledSubChars / 8)
   const partialIndex = filledSubChars % 8
-  const emptyBlocks = width - fullBlocks - (partialIndex > 0 ? 1 : 0)
+  const emptyBlocks = safeWidth - fullBlocks - (partialIndex > 0 ? 1 : 0)
 
   const filled = BLOCKS[8]!.repeat(fullBlocks)
   const partial = partialIndex > 0 ? BLOCKS[partialIndex]! : ''

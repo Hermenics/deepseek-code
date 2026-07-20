@@ -12,6 +12,7 @@ export interface PostCompactCleanupOptions {
 export interface PostCompactResult {
   systemPromptRefreshed: boolean
   fileCacheCleared: boolean
+  refreshedPrompt?: string
 }
 
 /**
@@ -32,6 +33,7 @@ export function runPostCompactCleanup(options: PostCompactCleanupOptions = {}): 
     const refreshed = onSystemPromptRefresh()
     if (refreshed) {
       result.systemPromptRefreshed = true
+      result.refreshedPrompt = refreshed
       onLog?.('Post-compact: system prompt refreshed')
     }
   }
