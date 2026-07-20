@@ -9,7 +9,7 @@ import { isBoundaryMarker } from '../../agent/compactBoundary.js'
 
 const COMPACTABLE_TOOLS = new Set([
   'read_file', 'grep', 'glob', 'list_files', 'web_search', 'web_fetch',
-  'file_search', 'directory_tree', 'shell',
+  'file_search', 'directory_tree',
 ])
 
 const TRUNCATION_NOTE = '[content cleared by micro-compaction to reduce context usage]'
@@ -50,7 +50,7 @@ export function enhancedMicroCompact(
     if (msg.content.length <= maxContentLength) continue
 
     const toolName = msg.name ?? ''
-    if (!compactableTools.has(toolName) && !isLikelyReadOnly(toolName)) continue
+    if (!compactableTools.has(toolName)) continue
 
     candidates.push({ index: i, toolName, contentLength: msg.content.length })
   }
@@ -74,8 +74,3 @@ export function enhancedMicroCompact(
   }
 }
 
-function isLikelyReadOnly(toolName: string): boolean {
-  const readOnlyPatterns = ['read', 'search', 'find', 'list', 'get', 'fetch', 'grep', 'glob']
-  const lower = toolName.toLowerCase()
-  return readOnlyPatterns.some(p => lower.includes(p))
-}
