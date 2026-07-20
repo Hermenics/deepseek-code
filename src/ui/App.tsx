@@ -26,6 +26,7 @@ import { saveSession, type SessionData } from '../agent/session.js'
 import { DEFAULT_MODE, nextMode, isBuildMode, isAutoMode, type InteractionMode } from './interactionMode.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
+import { ThemeProvider } from './design-system/index.js'
 import { PlanApprovalPrompt, type PlanApprovalResult } from './plan/PlanApprovalPrompt.js'
 import { newPlanPath, buildPlanModeInjection } from '../agent/planMode.js'
 
@@ -1136,7 +1137,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   handleSubmitRef.current = handleSubmit
 
   if (showMobileQR) {
-    return <MobileQRCode onClose={() => setShowMobileQR(false)} theme={theme} />
+    return <ThemeProvider value={theme}><MobileQRCode onClose={() => setShowMobileQR(false)} theme={theme} /></ThemeProvider>
   }
 
   if (showConfigMenu) {
@@ -1178,6 +1179,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const termRows = process.stdout.rows || 24
 
   return (
+    <ThemeProvider value={theme}>
     <Box flexDirection="column" width="100%" minHeight={termRows}>
       <Box flexGrow={1}>
         <Box flexDirection="column">
@@ -1270,6 +1272,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} theme={theme} items={interfaceSettings.statusBar} narrowPriority={interfaceSettings.narrowPriority} />
       </Box>
     </Box>
+    </ThemeProvider>
   )
 }
 
