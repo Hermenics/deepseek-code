@@ -54,10 +54,10 @@ function findPairBounds(
 
 function makeQuoteObject(quote: string, inner: boolean): TextObjectFn {
   return (text, cursor) => {
-    // Find the quote pair containing cursor
-    let before = cursor - 1
+    // Find the quote pair containing cursor — include cursor position in opening search
+    let before = text[cursor] === quote ? cursor : cursor - 1
     while (before >= 0 && text[before] !== quote) before--
-    let after = cursor
+    let after = before === cursor ? cursor + 1 : cursor
     while (after < text.length && text[after] !== quote) after++
 
     if (before < 0 || after >= text.length) return [cursor, cursor]

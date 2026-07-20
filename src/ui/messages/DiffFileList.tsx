@@ -25,7 +25,7 @@ export function DiffFileList({ files, theme }: Props) {
         const statsWidth = stats.length + 3 // padding
         const maxPathWidth = Math.max(1, cols - statsWidth - 4)
         const path = file.path.length > maxPathWidth
-          ? '…' + file.path.slice(-(maxPathWidth - 1))
+          ? (maxPathWidth <= 1 ? '…' : '…' + file.path.slice(-(maxPathWidth - 1)))
           : file.path
 
         return (

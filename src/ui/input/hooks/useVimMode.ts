@@ -51,8 +51,8 @@ export function processVimKey(cursor: Cursor, key: KeyEvent, state: VimState): V
 
   // Normal mode — count accumulation
   if (state.mode === 'normal') {
-    // Accumulate numeric count (0 only after another digit)
-    if (/^[1-9]$/.test(k) || (k === '0' && (state.count ?? null) !== null)) {
+    // Accumulate numeric count (0 only after another digit) — skip when a two-key sequence is pending
+    if (state.pendingKey === null && (/^[1-9]$/.test(k) || (k === '0' && (state.count ?? null) !== null))) {
       const digit = parseInt(k, 10)
       const newCount = (state.count ?? null) === null ? digit : state.count! * 10 + digit
       return { type: 'noop', nextState: { ...state, count: newCount } } as any
@@ -87,13 +87,13 @@ export function processVimKey(cursor: Cursor, key: KeyEvent, state: VimState): V
       if (state.pendingOperator === op) {
         const result = applyLineOperator(op, cursor.text, cursor.offset, state)
         const newCursor = Cursor.fromText(result.text, (cursor as any).measuredText.columns + 1, result.cursor)
-        const reset = { ...state, pendingOperator: null, count: null }
+        const reset = { ...state, mode: 'normal' as VimMode, pendingOperator: null, count: null }
         if (result.enterInsert) {
           return { type: 'modeChange', mode: 'insert', cursor: newCursor, nextState: { ...reset, mode: 'insert', register: result.register } } as any
         }
         return { type: 'cursor', cursor: newCursor, nextState: { ...reset, register: result.register } } as any
       }
-      return { type: 'noop', nextState: { ...state, pendingOperator: op, count: null } } as any
+      return { type: 'noop', nextState: { ...state, mode: 'operator-pending' as VimMode, pendingOperator: op } } as any
     }
 
     // Enter insert mode commands
@@ -201,10 +201,24 @@ export function processVimKey(cursor: Cursor, key: KeyEvent, state: VimState): V
       return { type: 'noop', nextState: { ...state, pendingKey: k } } as any
     }
 
+    // Count accumulation in operator-pending mode (e.g. d3w)
+    if (/^[1-9]$/.test(k) || (k === '0' && (state.count ?? null) !== null)) {
+      const digit = parseInt(k, 10)
+      const newCount = (state.count ?? null) === null ? digit : state.count! * 10 + digit
+      return { type: 'noop', nextState: { ...state, count: newCount } } as any
+    }
+
     // Motion
     const motionFn = getMotion(k)
     if (motionFn) {
-      const [start, end] = getMotionRange(motionFn, cursor.text, cursor.offset)
+      const times = state.count ?? 1
+      let offset = cursor.offset
+      for (let i = 0; i < times; i++) {
+        const [next] = motionFn(cursor.text, offset)
+        offset = next
+      }
+      const start = Math.min(cursor.offset, offset)
+      const end = Math.max(cursor.offset, offset)
       const result = applyOperator(op, cursor.text, start, end, state)
       const newCursor = Cursor.fromText(result.text, (cursor as any).measuredText.columns + 1, result.cursor)
       if (result.enterInsert) {

@@ -84,12 +84,14 @@ export function DiffView({ path, added, removed, firstChanged, lines, theme }: P
           const partnerIdx = pairedWith.get(i)
           const hasPair = partnerIdx !== undefined
 
-          // Word-level diff for paired lines
+          // Word-level diff for paired lines — use truncated text to avoid quadratic work on long lines
           let wordSegments: ReturnType<typeof computeWordDiff> | null = null
           if (hasPair && (isAdd || isDel)) {
             const removedLine = isDel ? line : visibleLines[partnerIdx!]
             const addedLine = isAdd ? line : visibleLines[partnerIdx!]
-            wordSegments = computeWordDiff(stripSigil(removedLine.text), stripSigil(addedLine.text))
+            const truncRem = stripSigil(removedLine.text).slice(0, contentWidth)
+            const truncAdd = stripSigil(addedLine.text).slice(0, contentWidth)
+            wordSegments = computeWordDiff(truncRem, truncAdd)
           }
 
           const segments = wordSegments

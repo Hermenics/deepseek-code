@@ -55,6 +55,7 @@ function moveWordBackward(text: string, cursor: number): [number, number] {
 }
 
 function moveWordEnd(text: string, cursor: number): [number, number] {
+  if (text.length === 0) return [0, 0]
   let i = cursor
   if (i >= text.length - 1) return [text.length - 1, text.length - 1]
 
