@@ -7,7 +7,7 @@ import type { AgentPhase } from '../App.js'
 import { MODE_LABELS, MODE_COLORS, type InteractionMode } from '../interactionMode.js'
 import { Cursor } from './cursor/index.js'
 import { processTextInputKey, type KeyEvent } from './hooks/useTextInput.js'
-import { processVimKey } from './hooks/useVimMode.js'
+import { processVimKey, createVimState, type VimState } from './hooks/useVimMode.js'
 import { InputBuffer } from './hooks/useInputBuffer.js'
 import { useDoublePress } from './hooks/useDoublePress.js'
 import { InputHistory } from './hooks/useInputHistory.js'
@@ -108,7 +108,7 @@ export function InputBox({
   const [cursor, setCursor] = useState(() => Cursor.fromText('', cols))
   const [pastedTexts, setPastedTexts] = useState<string[]>([])
   const [selectedIdx, setSelectedIdx] = useState(0)
-  const [vimMode, setVimMode] = useState<'insert' | 'normal'>('insert')
+  const [vimState, setVimState] = useState<VimState>(createVimState)
 
   const historyRef = useRef(new InputHistory())
   const bufferRef = useRef(new InputBuffer())
@@ -251,7 +251,7 @@ export function InputBox({
       setPastedTexts([])
       setSelectedIdx(0)
       historyRef.current.reset()
-      setVimMode('insert')
+      setVimState(createVimState)
       return
     }
 
@@ -268,9 +268,9 @@ export function InputBox({
     const keyEvent = inkKeyToKeyEvent(key, input)
 
     if (vimEnabled) {
-      const vim = processVimKey(cursor, keyEvent, { mode: vimMode })
+      const vim = processVimKey(cursor, keyEvent, vimState)
+      if (vim.nextState) setVimState(vim.nextState)
       if (vim.type === 'modeChange') {
-        setVimMode(vim.mode)
         setCursor(vim.cursor)
         return
       }
@@ -291,14 +291,14 @@ export function InputBox({
           setCursor(Cursor.fromText('', cols))
               setPastedTexts([])
           historyRef.current.reset()
-          setVimMode('insert')
+          setVimState(createVimState)
           return
         }
         const entry = vim.action === 'historyUp' ? historyRef.current.up(cursor.text) : historyRef.current.down()
         if (entry !== undefined) setCursor(Cursor.fromText(entry, cols, entry.length))
         return
       }
-      if (vim.type === 'noop' && vimMode === 'normal') return
+      if (vim.type === 'noop' && vimState.mode === 'normal') return
     }
 
     const result = processTextInputKey(cursor, keyEvent, { multiline: true })

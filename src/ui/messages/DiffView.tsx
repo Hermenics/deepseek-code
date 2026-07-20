@@ -4,6 +4,7 @@ import type { ThemeName } from '../theme.js'
 import { DIFF_MAX_LINES } from '../../constants.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
+import { computeWordDiff } from './colorDiff.js'
 
 interface DiffLine { type: 'added' | 'removed' | 'context'; text: string; lineNo: number }
 
@@ -16,6 +17,12 @@ interface Props {
   theme: ThemeName
 }
 
+function stripSigil(text: string): string {
+  return text.startsWith('+') || text.startsWith('-') || text.startsWith(' ')
+    ? text.slice(1)
+    : text
+}
+
 export function DiffView({ path, added, removed, firstChanged, lines, theme }: Props) {
   const colors = getThemeColors(theme)
   const cols = process.stdout.columns ?? 80
@@ -23,13 +30,22 @@ export function DiffView({ path, added, removed, firstChanged, lines, theme }: P
 
   const visibleLines = useMemo(() => lines.slice(0, DIFF_MAX_LINES), [lines])
 
-  // Calculate max line number width for alignment
   const maxLineNo = visibleLines.reduce((max, l) => Math.max(max, l.lineNo), 0)
   const lineNoWidth = Math.max(String(maxLineNo).length, 2)
-
-  // Available width for code content (lineNo + space + sigil + space)
   const gutterWidth = lineNoWidth + 3
   const contentWidth = Math.max(1, cols - gutterWidth - 4)
+
+  // Build paired index: for each removed line immediately followed by an added line
+  const pairedWith = useMemo(() => {
+    const pairs = new Map<number, number>()
+    for (let i = 0; i < visibleLines.length - 1; i++) {
+      if (visibleLines[i].type === 'removed' && visibleLines[i + 1].type === 'added') {
+        pairs.set(i, i + 1)
+        pairs.set(i + 1, i)
+      }
+    }
+    return pairs
+  }, [visibleLines])
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -55,14 +71,9 @@ export function DiffView({ path, added, removed, firstChanged, lines, theme }: P
           const isDel = line.type === 'removed'
           const sigil = isAdd ? '+' : isDel ? '-' : ' '
           const bgColor = isAdd ? colors.diffAdded : isDel ? colors.diffRemoved : undefined
-          const textColor = isAdd ? colors.diffAddedWord : isDel ? colors.diffRemovedWord : colors.textDim
+          const defaultTextColor = isAdd ? colors.diffAddedWord : isDel ? colors.diffRemovedWord : colors.textDim
 
-          // Strip leading +/- from text (already in sigil)
-          const code = line.text.startsWith('+') || line.text.startsWith('-') || line.text.startsWith(' ')
-            ? line.text.slice(1)
-            : line.text
-
-          // Truncate to fit terminal width
+          const code = stripSigil(line.text)
           const truncated = code.length > contentWidth ? code.slice(0, contentWidth - 1) + '…' : code
           const padding = ' '.repeat(Math.max(0, contentWidth - truncated.length))
 
@@ -70,16 +81,50 @@ export function DiffView({ path, added, removed, firstChanged, lines, theme }: P
             ? String(line.lineNo).padStart(lineNoWidth)
             : ' '.repeat(lineNoWidth)
 
+          const partnerIdx = pairedWith.get(i)
+          const hasPair = partnerIdx !== undefined
+
+          // Word-level diff for paired lines
+          let wordSegments: ReturnType<typeof computeWordDiff> | null = null
+          if (hasPair && (isAdd || isDel)) {
+            const removedLine = isDel ? line : visibleLines[partnerIdx!]
+            const addedLine = isAdd ? line : visibleLines[partnerIdx!]
+            wordSegments = computeWordDiff(stripSigil(removedLine.text), stripSigil(addedLine.text))
+          }
+
+          const segments = wordSegments
+            ? (isDel ? wordSegments.removed : wordSegments.added)
+            : null
+
           return (
             <Box key={i} flexDirection="row">
-              {/* Gutter: line number + sigil */}
+              {/* Gutter */}
               <Text backgroundColor={bgColor} color={colors.textSubtle} dimColor={!isAdd && !isDel}>
                 {' ' + lineNoStr + ' ' + sigil + ' '}
               </Text>
               {/* Code content */}
-              <Text backgroundColor={bgColor} color={textColor}>
-                {truncated + padding}
-              </Text>
+              {segments ? (
+                <Box flexDirection="row">
+                  {segments.map((seg, si) => {
+                    const isChanged = (isDel && seg.type === 'removed') || (isAdd && seg.type === 'added')
+                    return (
+                      <Text
+                        key={si}
+                        backgroundColor={bgColor}
+                        color={isChanged ? (isDel ? colors.diffRemovedWord : colors.diffAddedWord) : defaultTextColor}
+                        bold={isChanged}
+                      >
+                        {seg.text}
+                      </Text>
+                    )
+                  })}
+                  <Text backgroundColor={bgColor} color={defaultTextColor}>{padding}</Text>
+                </Box>
+              ) : (
+                <Text backgroundColor={bgColor} color={defaultTextColor}>
+                  {truncated + padding}
+                </Text>
+              )}
             </Box>
           )
         })}

@@ -2,3 +2,5 @@
 export { COMPACT_BOUNDARY_ROLE, isBoundaryMarker, createBoundaryMarker, getMessagesAfterBoundary } from '../../agent/compactBoundary.js'
 export * from './autoCompact.js'
 export * from './summaryPrompt.js'
+export { enhancedMicroCompact, type MicroCompactOptions } from './microCompact.js'
+export { runPostCompactCleanup, type PostCompactCleanupOptions, type PostCompactResult } from './postCompactCleanup.js'
