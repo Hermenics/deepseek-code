@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { Cursor } from '../../src/ui/input/cursor/index.js'
 import { clearKillRing } from '../../src/ui/input/cursor/index.js'
-import { processVimKey, type VimState } from '../../src/ui/input/hooks/useVimMode.js'
+import { processVimKey, createVimState, type VimState } from '../../src/ui/input/hooks/useVimMode.js'
 
 type KeyEvent = {
   name?: string
@@ -16,11 +16,11 @@ function makeCursor(text: string, offset?: number): Cursor {
 }
 
 function normalState(): VimState {
-  return { mode: 'normal' }
+  return { ...createVimState(), mode: 'normal' }
 }
 
 function insertState(): VimState {
-  return { mode: 'insert' }
+  return { ...createVimState(), mode: 'insert' }
 }
 
 describe('processVimKey', () => {
@@ -76,7 +76,7 @@ describe('processVimKey', () => {
       const cursor = makeCursor('hello', 0)
       const result = processVimKey(cursor, { name: '$', raw: '$' }, normalState())
       expect(result.type).toBe('cursor')
-      if (result.type === 'cursor') expect(result.cursor.offset).toBe(5)
+      if (result.type === 'cursor') expect(result.cursor.offset).toBe(4)
     })
   })
 
