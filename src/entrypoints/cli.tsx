@@ -323,27 +323,27 @@ function Root() {
     )
   }
 
+  const alternateScreen = initialSettings.interface?.alternateScreen === true
   const application = (
-    <Box flexDirection="column" width="100%" height="100%">
-      <App
-        initialAgent={initialAgent}
-        initialMessage={initialMessage}
-        theme={theme}
-        providerConfig={providerConfig}
-        onThemeChange={setTheme}
-        onLogout={() => { setReady(false); setProviderConfig(null) }}
-        language={savedLanguage}
-        enchant={savedEnchant}
-        sessionId={SESSION_ID}
-        initialSession={initialSession}
-        headerProvider={providerConfig?.provider ?? 'deepseek'}
-        headerAgent={initialAgent?.config.name ?? null}
-        initialSettings={initialSettings}
-      />
-    </Box>
+    <App
+      initialAgent={initialAgent}
+      initialMessage={initialMessage}
+      theme={theme}
+      providerConfig={providerConfig}
+      onThemeChange={setTheme}
+      onLogout={() => { setReady(false); setProviderConfig(null) }}
+      language={savedLanguage}
+      enchant={savedEnchant}
+      sessionId={SESSION_ID}
+      initialSession={initialSession}
+      headerProvider={providerConfig?.provider ?? 'deepseek'}
+      headerAgent={initialAgent?.config.name ?? null}
+      initialSettings={initialSettings}
+      alternateScreen={alternateScreen}
+    />
   )
-  return initialSettings.interface?.alternateScreen === true
-    ? <AlternateScreen>{application}</AlternateScreen>
+  return alternateScreen
+    ? <AlternateScreen><Box flexDirection="column" width="100%" height="100%">{application}</Box></AlternateScreen>
     : application
 }
 

@@ -123,9 +123,8 @@ function toOpenAITools(tools: Tool[]): ChatCompletionTool[] {
   }))
 }
 
-interface PendingNote {
-  source: 'user' | 'agent'
-  agentName?: string
+interface PendingAgentNote {
+  agentName: string
   text: string
 }
 
@@ -762,20 +761,84 @@ export class Agent {
     this.filesModified = new Set()
   }
 
-  /**
-   * Adds a background note that will be injected into the next agent turn
-   * as a system-level context hint, without interrupting ongoing work.
-   * Similar to /btw in Claude Code.
-   */
-  addNote(note: string): void {
-    this.pendingNotes.push({ source: 'user', text: note })
-  }
-
   addAgentNote(agentName: string, text: string): void {
-    this.pendingNotes.push({ source: 'agent', agentName, text })
+    this.pendingAgentNotes.push({ agentName, text })
   }
 
-  private pendingNotes: PendingNote[] = []
+  private pendingAgentNotes: PendingAgentNote[] = []
+
+  /** Runs a one-turn, tool-free question against a snapshot of this conversation. */
+  async askBtw(question: string, signal?: AbortSignal): Promise<string> {
+    await this.readyPromise
+    const trimmedQuestion = question.trim()
+    if (!trimmedQuestion) throw new Error('Usage: /btw <question>')
+
+    const messages = this.sanitizeMessagesForApi(this.getBtwSnapshot())
+    const nativeTools = !(this.provider === 'bedrock' && !modelSupportsChatCompletions(this.model))
+    const requestSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(60_000)])
+      : AbortSignal.timeout(60_000)
+    const response = await this.withRetry(() =>
+      this.client.chat.completions.create({
+        model: this.model,
+        messages: [...messages, {
+          role: 'user',
+          content: `<system-reminder>This is a side question from the user. Answer it directly in one response. The main agent continues independently. Do not use tools, take actions, or promise future work. Answer only from the conversation context.</system-reminder>\n\n${trimmedQuestion}`,
+        }],
+        max_tokens: 2048,
+        stream: false,
+        ...(nativeTools ? { tools: this.openaiTools, tool_choice: 'none' } : {}),
+        ...this.getEffortApiParams(),
+      } as any, { signal: requestSignal }),
+      requestSignal,
+    )
+
+    const usage = (response as any).usage
+    if (usage) {
+      this.tokenCount += usage.total_tokens ?? 0
+      this.tokenUsage.promptTokens += usage.prompt_tokens ?? 0
+      this.tokenUsage.completionTokens += usage.completion_tokens ?? 0
+      this.tokenUsage.cachedTokens += usage.prompt_cache_hit_tokens ?? 0
+    }
+
+    const content = (response as any).choices?.[0]?.message?.content
+    if (!content) throw new Error('No response received')
+    const answer = this.provider === 'bedrock' && !modelSupportsChatCompletions(this.model)
+      ? stripToolCalls(content)
+      : content
+    if (!answer) throw new Error('No response received')
+    return answer
+  }
+
+  /** Excludes an unfinished tool exchange from a concurrent side-question request. */
+  private getBtwSnapshot(): ChatCompletionMessageParam[] {
+    const messages = getMessagesAfterBoundary(this.messages)
+    for (let index = 0; index < messages.length; index++) {
+      const message = messages[index] as any
+      if (message.role !== 'assistant') continue
+
+      const toolCalls = message.tool_calls ?? []
+      if (toolCalls.length > 0) {
+        const completed = new Set<string>()
+        for (let next = index + 1; messages[next]?.role === 'tool'; next++) {
+          completed.add((messages[next] as any).tool_call_id)
+        }
+        if (toolCalls.some((call: any) => !completed.has(call.id))) return messages.slice(0, index)
+      }
+
+      if (this.provider === 'bedrock' && typeof message.content === 'string') {
+        const calls = parseBedrockToolCalls(message.content)
+        if (calls.length > 0) {
+          let results = 0
+          for (let next = index + 1; typeof messages[next]?.content === 'string' && (messages[next] as any).role === 'user'; next++) {
+            if ((messages[next] as any).content.includes('<tool_result>')) results++
+          }
+          if (results < calls.length) return messages.slice(0, index)
+        }
+      }
+    }
+    return messages
+  }
 
   getMessages(): ChatCompletionMessageParam[] {
     // Backward compatible — external consumers get clean messages without boundary markers
@@ -862,18 +925,11 @@ export class Agent {
       effectiveMessage = await refinePrompt(this.client, this.settings.promptRefiner?.model ?? this.model, userMessage)
     }
 
-    // Inject any pending /msg notes as a system-level context hint
+    // Inject asynchronous agent responses into the next foreground turn.
     let messageContent = `[${now}]\n${effectiveMessage}`
-    if (this.pendingNotes.length > 0) {
-      const userNotes = this.pendingNotes.filter(n => n.source === 'user')
-      const agentNotes = this.pendingNotes.filter(n => n.source === 'agent')
-      if (userNotes.length > 0) {
-        messageContent += `\n\n[Background notes from user — context only, not a new task]\n${userNotes.map(n => `• ${n.text}`).join('\n')}`
-      }
-      if (agentNotes.length > 0) {
-        messageContent += `\n\n[Async agent responses — informational, not a new task]\n${agentNotes.map(n => `• @${n.agentName}: ${n.text}`).join('\n')}`
-      }
-      this.pendingNotes = []
+    if (this.pendingAgentNotes.length > 0) {
+      messageContent += `\n\n[Async agent responses — informational, not a new task]\n${this.pendingAgentNotes.map(n => `• @${n.agentName}: ${n.text}`).join('\n')}`
+      this.pendingAgentNotes = []
     }
 
     cb.onPhaseChange?.('executing')
@@ -883,7 +939,7 @@ export class Agent {
 
   // ── Retry helper ───────────────────────────────────────────────────────────
 
-  private async withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  private async withRetry<T>(fn: () => Promise<T>, signal = this.abortController?.signal): Promise<T> {
     const delays = [1000, 2000, 4000]
     for (let attempt = 0; attempt <= delays.length; attempt++) {
       try {
@@ -891,10 +947,10 @@ export class Agent {
       } catch (e: unknown) {
         const err = e as { name?: string; status?: number }
         // Never retry aborts — check the signal directly, not the error name
-        if (this.abortController?.signal.aborted) throw e
+        if (signal?.aborted) throw e
         // Retry on rate limit or server error
         if ((err.status === 429 || err.status === 503) && attempt < delays.length) {
-          await this.waitForRetry(delays[attempt]!)
+          await this.waitForRetry(delays[attempt]!, signal)
           continue
         }
         throw e
@@ -903,8 +959,7 @@ export class Agent {
     throw new Error('unreachable')
   }
 
-  private waitForRetry(delayMs: number): Promise<void> {
-    const signal = this.abortController?.signal
+  private waitForRetry(delayMs: number, signal = this.abortController?.signal): Promise<void> {
     if (signal?.aborted) return Promise.reject(signal.reason)
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(resolve, delayMs)

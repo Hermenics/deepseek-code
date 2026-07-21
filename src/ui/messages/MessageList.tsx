@@ -61,7 +61,7 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = t
           if (!showDiffs) {
             return (
               <Box flexDirection="row" paddingLeft={2} gap={1}>
-                <Text color={colors.success}>✓</Text>
+                <Text color={colors.success}>{STATUS_ICONS.assistant}</Text>
                 <Text color={colors.textDim}>{diffPrefix.includes('patch') ? 'patch' : 'write'} {json.path} (+{json.added} −{json.removed}) · diff hidden</Text>
               </Box>
             )
@@ -76,7 +76,7 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = t
       const labelTrunc = label.length > 60 ? label.slice(0, 60) + '...' : label
       return (
         <Box flexDirection="row" paddingLeft={2} gap={1}>
-          <Text color={isDone ? colors.success : colors.warning}>{STATUS_ICONS.subagent}</Text>
+          <Text color={isDone ? colors.success : colors.warning}>{STATUS_ICONS.assistant}</Text>
           <Text color={isDone ? colors.textDim : colors.warning}>
             {labelTrunc || 'Agent'}{!isDone ? ' working...' : ''}
           </Text>
@@ -96,7 +96,7 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = t
     return (
       <Box flexDirection="column" paddingLeft={2}>
         <Box flexDirection="row" gap={1}>
-          <Text color={style.color}>{style.icon}</Text>
+          <Text color={colors.success}>{STATUS_ICONS.assistant}</Text>
           <Text color={style.color}>{display}</Text>
           {arg ? <Text color={colors.textSubtle}>{arg}</Text> : null}
         </Box>

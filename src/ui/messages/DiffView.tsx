@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { getThemeColors } from '../theme.js'
+import { STATUS_ICONS } from '../theme.js'
 import type { ThemeName } from '../theme.js'
 import { DIFF_MAX_LINES } from '../../constants.js'
 import Box from '../../ink/components/Box.js'
@@ -51,7 +52,7 @@ export function DiffView({ path, added, removed, firstChanged, lines, theme }: P
     <Box flexDirection="column" marginTop={1}>
       {/* Header */}
       <Box flexDirection="row" gap={1} paddingLeft={2}>
-        <Text color={colors.success}>{'✓'}</Text>
+        <Text color={colors.success}>{STATUS_ICONS.assistant}</Text>
         <Text color={colors.textDim}>{'Write'}</Text>
         <Text color="cyan">{path}</Text>
       </Box>

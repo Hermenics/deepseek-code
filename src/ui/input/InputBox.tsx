@@ -67,7 +67,7 @@ const DESCRIPTIONS: Record<string, string> = {
   '/undo': 'Restore last file modified by agent', '/retry': 'Re-run last message', '/cost': 'Show estimated session cost',
   '/files': 'List files modified this session', '/tools': 'List all available tools', '/system': 'Show active system prompt',
   '/sessions': 'List recent sessions', '/checkpoint': 'Save current state', '/checkpoint list': 'List saved checkpoints',
-  '/plan': 'Plan implementation of a task', '/review': 'Review code in the project', '/msg': 'Add a note without interrupting the agent',
+  '/plan': 'Plan implementation of a task', '/review': 'Review code in the project', '/btw': 'Ask a side question without interrupting the agent',
   '/vim': 'Toggle vim keybindings (normal/insert mode)', '/stats': 'Show session statistics',
   '/effort': 'Set reasoning effort level', '/effort low': 'Quick responses',
   '/effort high': 'Comprehensive thinking', '/effort max': 'Maximum reasoning depth',

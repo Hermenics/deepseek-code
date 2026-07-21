@@ -148,15 +148,15 @@ describe('InputBox dropdown visibility during loading', () => {
       expect(matches.length).toBeGreaterThan(0)
     })
 
-    it('should return matches for "/m" prefix (would show /msg, /model, /models)', () => {
-      const matches = getMatches('/m')
+    it('should return matches for "/b" prefix (would show /btw)', () => {
+      const matches = getMatches('/b')
       expect(matches.length).toBeGreaterThan(0)
-      matches.forEach((cmd) => expect(cmd.startsWith('/m')).toBe(true))
+      matches.forEach((cmd) => expect(cmd.startsWith('/b')).toBe(true))
     })
 
-    it('should return matches for "/msg" prefix even when called during any state', () => {
-      const matches = getMatches('/msg')
-      expect(matches).toContain('/msg')
+    it('should return matches for "/btw" prefix even when called during any state', () => {
+      const matches = getMatches('/btw')
+      expect(matches).toContain('/btw')
     })
 
     it('should return empty array for non-slash input (no dropdown)', () => {

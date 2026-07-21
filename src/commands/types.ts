@@ -26,7 +26,7 @@ export type CommandResult =
   | { type: 'plan'; task: string }
   | { type: 'review'; target: string }
   | { type: 'permissions' }
-  | { type: 'msg'; note: string }
+  | { type: 'btw'; question: string }
   | { type: 'vim' }
   | { type: 'stats' }
   | { type: 'memory'; action: 'show' }

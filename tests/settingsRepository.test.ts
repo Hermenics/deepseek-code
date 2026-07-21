@@ -4,6 +4,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import {
   SettingsRepository,
+  DEFAULT_SETTINGS,
   createSettingsExport,
   loadSettingsSnapshot,
   mergeSettings,
@@ -21,6 +22,10 @@ async function project(): Promise<string> {
 afterEach(async () => { await Promise.all(temporary.splice(0).map(path => rm(path, { recursive: true, force: true }))) })
 
 describe('SettingsRepository', () => {
+  it('defaults to native terminal scrollback', () => {
+    expect(DEFAULT_SETTINGS.interface?.alternateScreen).toBe(false)
+  })
+
   it('merges nested values and inherits permission arrays', () => {
     const merged = mergeSettings(
       { compaction: { enabled: true, threshold: 0.9 }, permissions: { allow: ['ReadFile'] } },

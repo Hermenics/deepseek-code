@@ -97,18 +97,17 @@ describe('parseCommand — extended coverage', () => {
     })
   })
 
-  describe('msg/btw command', () => {
-    it('should parse /msg with note', () => {
-      expect(parseCommand('/msg fix the bug later')).toEqual({ type: 'msg', note: 'fix the bug later' })
+  describe('btw command', () => {
+    it('should parse /btw as a side question', () => {
+      expect(parseCommand('/btw use TypeScript strict mode')).toEqual({ type: 'btw', question: 'use TypeScript strict mode' })
     })
 
-    it('should parse /btw as alias for /msg', () => {
-      expect(parseCommand('/btw use TypeScript strict mode')).toEqual({ type: 'msg', note: 'use TypeScript strict mode' })
+    it('should keep /btw without a question for immediate usage feedback', () => {
+      expect(parseCommand('/btw')).toEqual({ type: 'btw', question: '' })
     })
 
-    it('should return unknown for /msg without note', () => {
-      const result = parseCommand('/msg')
-      expect(result?.type).toBe('unknown')
+    it('should reject removed /msg command', () => {
+      expect(parseCommand('/msg fix the bug later')?.type).toBe('unknown')
     })
   })
 
