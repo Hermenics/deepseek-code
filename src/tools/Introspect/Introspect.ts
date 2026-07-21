@@ -57,8 +57,7 @@ Cycle: Plan -> Build -> Auto -> Plan
 - /plan <task> — Plan implementation of a task
 - /review [file] — Review project code or a specific file
 - /permissions — Explain current mode, allow/deny rules, risk checks and session approvals
-- /msg <note> — Add a background note for the agent without interrupting it
-- /btw <note> — Alias for /msg
+- /btw <question> — Ask a side question without interrupting the agent
 - /vim — Toggle vim keybindings (normal/insert mode)
 - /stats — Show session statistics (tokens, cost, duration, tool calls)
 - /help — Show help

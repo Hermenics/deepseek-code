@@ -46,7 +46,7 @@ export function ToolUseDisplay({ tool, theme = 'dark' }: { tool: ToolStatus; the
 
   // Status-aware icon
   const icon = tool.done
-    ? ('error' in tool && tool.error ? STATUS_ICONS.error : STATUS_ICONS.success)
+    ? STATUS_ICONS.assistant
     : SPINNER_FRAMES[tick % SPINNER_FRAMES.length]
 
   // Status-aware color

@@ -5,7 +5,7 @@ const ARGUMENT_HINTS: Record<string, string> = {
   '/model': '<model-name>',
   '/plan': '<task description>',
   '/review': '<file or description>',
-  '/msg': '<note>',
+  '/btw': '<question>',
   '/language': '<language>',
   '/theme': '<theme>',
   '/checkpoint': '<name>',
