@@ -10,7 +10,8 @@ import { ToolUseDisplay } from './messages/ToolUseDisplay.js'
 import { SubagentList, useSubagents } from './subagent/index.js'
 import { InputBox, LoadingSpinner } from './input/InputBox.js'
 import { QueuedMessagesList } from './input/QueuedMessagesList.js'
-import { enqueue } from './queueLogic.js'
+import { enqueue, getImmediateBtwQuestion } from './queueLogic.js'
+import { BtwSideQuestion, type BtwState } from './btw/BtwSideQuestion.js'
 import { StatusBar } from './layout/StatusBar.js'
 import { ModelSelector } from './setup/ModelSelector.js'
 import { EffortSelector } from './setup/EffortSelector.js'
@@ -82,7 +83,7 @@ interface PlanApprovalState {
   reject(reason: string): void
 }
 
-export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, onLogout, language, enchant, sessionId, initialSession, headerProvider, headerAgent, initialSettings }: {
+export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, onLogout, language, enchant, sessionId, initialSession, headerProvider, headerAgent, initialSettings, alternateScreen = false }: {
   initialAgent?: LoadedAgent | null
   initialMessage?: string | null
   theme: ThemeName
@@ -96,12 +97,14 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   headerProvider?: string
   headerAgent?: string | null
   initialSettings?: DeepSeekSettings
+  alternateScreen?: boolean
 }) {
   const initialSessionRef = useRef(initialSession)
   const handleSubmitRef = useRef<((text: string) => Promise<void>) | null>(null)
   const projectRootRef = useRef(initialSession?.cwd && existsSync(initialSession.cwd) ? initialSession.cwd : process.cwd())
   const originalProjectRoot = useRef(process.cwd())  // never changes — used to scope worktree isolation
   const toolStatusClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const btwAbortRef = useRef<AbortController | null>(null)
   const queuedSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveSessionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
@@ -118,6 +121,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [agentPhase, setAgentPhase] = useState<AgentPhase>('idle')
   const [interactionMode, setInteractionMode] = useState<InteractionMode>(initialSettings?.interaction?.defaultMode ?? DEFAULT_MODE)
   const [queuedMessages, setQueuedMessages] = useState<string[]>([])
+  const [btw, setBtw] = useState<BtwState | null>(null)
   const [agent] = useState(() => new Agent(providerConfig ?? undefined, { sessionId, projectRoot: projectRootRef.current }))
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
   const [showConfigMenu, setShowConfigMenu] = useState(false)
@@ -138,7 +142,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     agent.interactionMode = interactionMode
   }, [agent, interactionMode])
 
-  useEffect(() => () => { void agent.shutdown() }, [agent])
+  useEffect(() => () => {
+    btwAbortRef.current?.abort()
+    void agent.shutdown()
+  }, [agent])
 
   useEffect(() => {
     const subs = subagentsRef.current
@@ -294,16 +301,31 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     setQueuedMessages([])
   }, [agent])
 
+  const runBtw = useCallback((question: string) => {
+    if (!question.trim()) {
+      setMessages((m) => [...m, { role: 'assistant', content: 'Usage: /btw <question>' }])
+      return
+    }
+    btwAbortRef.current?.abort()
+    const controller = new AbortController()
+    btwAbortRef.current = controller
+    setBtw({ question })
+    void agent.askBtw(question, controller.signal).then(
+      (response) => !controller.signal.aborted && setBtw((current) => current?.question === question ? { ...current, response } : current),
+      (error: unknown) => !controller.signal.aborted && setBtw((current) => current?.question === question ? { ...current, error: (error as Error).message || 'Failed to get response' } : current),
+    ).finally(() => {
+      if (btwAbortRef.current === controller) btwAbortRef.current = null
+    })
+  }, [agent])
+
   const handleQueue = useCallback((msg: string) => {
-    // /msg should work immediately even during loading — it just adds a note
-    const msgMatch = msg.match(/^\/msg\s+(.+)/)
-    if (msgMatch) {
-      agent.addNote(msgMatch[1])
-      setMessages((m) => [...m, { role: 'assistant', content: `📝 Note queued: "${msgMatch[1]}"\nIt will be included as context in the next agent turn.` }])
+    const question = getImmediateBtwQuestion(msg)
+    if (question !== undefined) {
+      runBtw(question)
       return
     }
     setQueuedMessages((q) => enqueue(q, msg))
-  }, [agent])
+  }, [runBtw])
 
   const handleModeChange = useCallback(() => {
     setInteractionMode((current) => nextMode(current))
@@ -767,9 +789,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setMessages((m) => [...m, { role: 'assistant', content: formatPermissionsReport(info) }])
           return
         }
-        case 'msg': {
-          agent.addNote(cmd.note)
-          setMessages((m) => [...m, { role: 'assistant', content: `📝 Note queued: "${cmd.note}"\nIt will be included as context in the next agent turn.` }])
+        case 'btw': {
+          runBtw(cmd.question)
           return
         }
         case 'vim': {
@@ -1131,7 +1152,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     }
 
     await runWithPrompt(text, text, interactionMode)
-  }, [agent, isLoading, runWithPrompt, runAgent, interactionMode])
+  }, [agent, isLoading, runWithPrompt, runAgent, runBtw, interactionMode])
 
   // Keep ref in sync so the init effect always calls the latest handleSubmit
   handleSubmitRef.current = handleSubmit
@@ -1180,7 +1201,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   return (
     <ThemeProvider value={theme}>
-    <Box flexDirection="column" width="100%" minHeight={termRows}>
+    <Box flexDirection="column" width="100%" minHeight={alternateScreen ? termRows : undefined}>
       <Box flexGrow={1}>
         <Box flexDirection="column">
           <MessageList
@@ -1202,13 +1223,16 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           {isLoading && (interfaceSettings.reducedMotion
             ? <Text dimColor>{agentPhase === 'refining' ? 'Refining…' : 'Working…'}</Text>
             : <LoadingSpinner toolCallCount={toolCallCount} phase={agentPhase} />)}
+          {btw && <BtwSideQuestion btw={btw} theme={theme} onDismiss={() => { btwAbortRef.current?.abort(); setBtw(null) }} />}
           {queuedMessages.length > 0 && <QueuedMessagesList messages={queuedMessages} />}
         </Box>
       </Box>
 
       {/* Footer */}
       <Box flexDirection="column" flexShrink={0}>
-        {showModelSelector ? (
+        {btw ? (
+          <Text dimColor>{isLoading ? 'The main agent is still working.' : 'Side question active.'}</Text>
+        ) : showModelSelector ? (
           <ModelSelector
             currentModel={agent.model}
             models={availableModels}

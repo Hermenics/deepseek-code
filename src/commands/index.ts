@@ -20,7 +20,7 @@ import files from './files/index.js'
 import tools from './tools/index.js'
 import system from './system/index.js'
 import permissions from './permissions/index.js'
-import msg from './msg/index.js'
+import btw from './btw/index.js'
 import stats from './stats/index.js'
 import memory from './memory/index.js'
 import effort from './effort/index.js'
@@ -55,7 +55,7 @@ const commands: Command[] = [
   tools,
   system,
   permissions,
-  msg,
+  btw,
   stats,
   memory,
   effort,

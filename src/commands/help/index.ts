@@ -32,7 +32,7 @@ export const HELP_TEXT = `Commands:
   /plan <task>           plan implementation of a task
   /review [file]         review project code or a specific file
   /permissions           show current tool permission settings
-  /msg <note>            add a note for the agent without interrupting it
+  /btw <question>        ask a side question without interrupting the agent
   /vim                   toggle vim keybindings (normal/insert mode)
   /stats                 show session statistics
   /effort [level]        set reasoning effort (low/high/max/auto)

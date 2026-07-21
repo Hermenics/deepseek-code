@@ -257,19 +257,73 @@ describe('Agent class', () => {
     })
   })
 
-  describe('addNote', () => {
-    it('should not throw when adding a note', () => {
+  describe('askBtw', () => {
+    it('uses a separate tool-free request without changing the main history', async () => {
       const agent = new Agent()
-      expect(() => agent.addNote('fix the bug later')).not.toThrow()
+      await agent.readyPromise
+      agent.loadSessionMessages([
+        { role: 'system', content: 'system' },
+        { role: 'user', content: 'main task' },
+      ])
+      const create = mock(async (_params: unknown) => ({
+        choices: [{ message: { content: 'side answer' } }],
+        usage: { total_tokens: 3, prompt_tokens: 2, completion_tokens: 1 },
+      }))
+      injectMockClient(agent, { chat: { completions: { create } } })
+
+      await expect(agent.askBtw('what is the status?')).resolves.toBe('side answer')
+      expect(create).toHaveBeenCalledTimes(1)
+      expect(agent.getMessages()).toEqual([
+        { role: 'system', content: 'system' },
+        { role: 'user', content: 'main task' },
+      ])
+      expect((create.mock.calls[0]?.[0] as any)).toMatchObject({ tool_choice: 'none', stream: false })
     })
 
-    it('should accept multiple notes', () => {
+    it('omits an unfinished tool exchange from the side-question snapshot', async () => {
       const agent = new Agent()
-      expect(() => {
-        agent.addNote('note 1')
-        agent.addNote('note 2')
-        agent.addNote('note 3')
-      }).not.toThrow()
+      await agent.readyPromise
+      agent.loadSessionMessages([
+        { role: 'system', content: 'system' },
+        { role: 'user', content: 'main task' },
+        { role: 'assistant', content: null, tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read_file', arguments: '{}' } }] },
+      ] as any)
+      const create = mock(async (_params: unknown) => ({ choices: [{ message: { content: 'side answer' } }] }))
+      injectMockClient(agent, { chat: { completions: { create } } })
+
+      await agent.askBtw('what happened?')
+      const request = create.mock.calls[0]?.[0] as any
+      expect(request.messages).toEqual(expect.arrayContaining([
+        expect.objectContaining({ content: 'main task' }),
+      ]))
+      expect(request.messages).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ tool_calls: expect.anything() }),
+      ]))
+    })
+
+    it('stops retries when the side-question caller aborts', async () => {
+      const agent = new Agent()
+      await agent.readyPromise
+      const caller = new AbortController()
+      let requestSignal: AbortSignal | undefined
+      let started!: () => void
+      const createStarted = new Promise<void>((resolve) => { started = resolve })
+      const create = mock(async (_params: unknown, options: { signal: AbortSignal }) => {
+        requestSignal = options.signal
+        started()
+        return await new Promise((_, reject) => requestSignal!.addEventListener('abort', () => {
+          reject(Object.assign(new Error('cancelled'), { status: 503 }))
+        }, { once: true }))
+      })
+      injectMockClient(agent, { chat: { completions: { create } } })
+
+      const pending = agent.askBtw('stop this', caller.signal)
+      await createStarted
+      expect(requestSignal).not.toBe(caller.signal)
+      caller.abort()
+
+      await expect(pending).rejects.toThrow('cancelled')
+      expect(create).toHaveBeenCalledTimes(1)
     })
   })
 
