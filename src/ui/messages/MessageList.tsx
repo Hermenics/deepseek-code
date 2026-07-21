@@ -3,7 +3,7 @@ import type { Message } from '../App.js'
 import { DiffView } from './DiffView.js'
 import { TOOL_DISPLAY, TOOL_STYLE } from './toolDisplay.js'
 import { MarkdownText } from './MarkdownText.js'
-import { getThemeColors, STATUS_ICONS } from '../theme.js'
+import { DIVIDER_CHAR, getThemeColors, STATUS_ICONS } from '../theme.js'
 import type { ThemeName } from '../theme.js'
 import pkg from '../../../package.json' with { type: 'json' }
 import Box from '../../ink/components/Box.js'
@@ -26,6 +26,23 @@ function formatToolLine(rawName: string, detail: string): { display: string; arg
     arg = detail.length > 60 ? detail.slice(0, 60) + '...' : detail
   }
   return { display, arg, output }
+}
+
+/** Mirrors Codex: divide only a final reply that follows concrete tool work. */
+export function shouldShowWorkDivider(messages: Message[], index: number): boolean {
+  if (messages[index]?.role !== 'assistant') return false
+  for (let previous = index - 1; previous >= 0; previous--) {
+    const role = messages[previous]!.role
+    if (role === 'tool') return true
+    if (role === 'user' || role === 'assistant') return false
+  }
+  return false
+}
+
+function WorkDivider({ theme }: { theme: ThemeName }) {
+  const colors = getThemeColors(theme)
+  const width = Math.max(1, process.stdout.columns ?? 80)
+  return <Box marginTop={1}><Text color={colors.textSubtle}>{DIVIDER_CHAR.repeat(width)}</Text></Box>
 }
 
 function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = true, compact = false }: {
@@ -223,9 +240,16 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
   return (
     <Box flexDirection="column" marginBottom={density === 'compact' ? 0 : 1}>
       <Header provider={headerProvider ?? 'deepseek'} agentName={headerAgent ?? null} theme={theme} />
-      {messages.map((message, index) => message.role === 'tool' && !showToolCalls ? null : (
-        <MessageItem key={`${message.role}-${index}`} message={message} theme={theme} agentLabel={agentLabel} showDiffs={showDiffs} compact={density === 'compact'} />
-      ))}
+      {messages.map((message, index) => {
+        if (message.role === 'tool' && !showToolCalls) return null
+        const showDivider = showToolCalls && shouldShowWorkDivider(messages, index)
+        return (
+          <Box key={`${message.role}-${index}`} flexDirection="column">
+            {showDivider && <WorkDivider theme={theme} />}
+            <MessageItem message={message} theme={theme} agentLabel={agentLabel} showDiffs={showDiffs} compact={showDivider || density === 'compact'} />
+          </Box>
+        )
+      })}
       {thinkingText ? (
         <Box flexDirection="column" marginTop={1} marginLeft={2}>
           <Box flexDirection="row" gap={1}>
