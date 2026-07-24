@@ -10,43 +10,39 @@ const command: Command = {
 }
 
 export const HELP_TEXT = `Commands:
+  /help                  show this help
+  /model [name]          choose a model
+  /config (or /settings) open settings
+  /features [flag] [on|off]  manage experimental features
+  /clear                  clear this chat
+  /compact                summarize history
+  /plan <task>           plan a task
+  /review [file]         review the project or file
   /agent <name>          load a custom agent
-  /agents                list available agents
-  /models                switch model (interactive)
-  /language              change preferred language
-  /theme                 change color theme
-  /clear                 clear chat history
-  /compact               summarize history to save context
-  /undo                  restore last file modified by agent
-  /undo all              restore ALL files modified this session
-  /undo list             list file checkpoints this session
-  /retry                 re-run last message
-  /tools                 list all available tools
-  /system                show active system prompt
-  /cost                  show estimated session cost
-  /files                 list files modified this session
-  /sessions              list recent sessions (use --resume <id> to restore)
-  /checkpoint [save [label]]     save current state
-  /checkpoint list               list saved checkpoints
-  /checkpoint restore <id>       restore a checkpoint
-  /plan <task>           plan implementation of a task
-  /review [file]         review project code or a specific file
-  /permissions           show current tool permission settings
-  /btw <question>        ask a side question without interrupting the agent
-  /vim                   toggle vim keybindings (normal/insert mode)
+  /agents                list custom agents
+  /vim                   toggle Vim input mode
+  /checkpoint [save [label]|list|restore <id>]
+  /sessions              list recent sessions
+  /undo [all|list]       restore agent file changes
+  /retry                 rerun the last message
+  /cost                  show estimated cost
+  /files                 list session file changes
+  /tools                 list available tools
+  /system                show the system prompt
+  /permissions           show tool permissions
+  /btw <question>        ask a side question
   /stats                 show session statistics
-  /effort [level]        set reasoning effort (low/high/max/auto)
-  /memory                show persistent memory contents
-  /memory clear [agent|user]  clear memory (both or specific)
-  /context (ctx)         show context window usage breakdown (estimated)
-  /tasks                 show the session task tree and states
-  /task <id> <action>    status, cancel, resume, result, message, integrate, cleanup
-  /worktree (wt)         create or manage an isolated project copy
-                           /worktree               create new worktree
-                           /worktree enter <name>  enter existing worktree
-                           /worktree exit [keep]   return to original project
-                           /worktree list          list all worktrees
-                           /worktree status        show current worktree status
-  /quit  /q              exit`
+  /memory (or /mem) [clear [agent|user]]
+  /effort [low|high|max|auto]
+  /skill (or /skills)    manage skills
+  /plugin (or /plugins)  manage plugins
+  /context (or /ctx)     show context usage
+  /tasks                 show session tasks
+  /task <id> <action>    inspect or control a task
+  /cwd (or /cd) [path]   show or change directory
+  /worktree (or /wt) [create|enter|exit|list|status]
+  /mobile                show the mobile-app QR code
+  /logout                clear stored credentials
+  /quit (or /q)          exit`
 
 export default command

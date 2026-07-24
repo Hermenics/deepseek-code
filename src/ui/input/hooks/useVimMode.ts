@@ -17,6 +17,26 @@ export function createVimState(): VimState {
   return { mode: 'insert', pendingOperator: null, register: '', count: null, pendingKey: null, textObjectModifier: null }
 }
 
+/** Apply printable terminal input that arrived as one chunk (common in tmux/SSH). */
+export function processVimTextChunk(cursor: Cursor, input: string, state: VimState): { cursor: Cursor; state: VimState; action?: Extract<VimResult, { type: 'action' }>['action'] } {
+  let nextCursor = cursor
+  let nextState = state
+
+  for (const raw of input) {
+    if (nextState.mode === 'insert') {
+      nextCursor = nextCursor.insert(raw)
+      continue
+    }
+
+    const result = processVimKey(nextCursor, { name: raw, raw }, nextState)
+    if (result.type === 'action') return { cursor: nextCursor, state: nextState, action: result.action }
+    if (result.type === 'cursor' || result.type === 'modeChange') nextCursor = result.cursor
+    nextState = result.nextState ?? nextState
+  }
+
+  return { cursor: nextCursor, state: nextState }
+}
+
 function keyName(key: KeyEvent): string {
   if (key.raw && key.raw.length === 1) return key.raw
   return key.name ?? ''
@@ -186,7 +206,7 @@ export function processVimKey(cursor: Cursor, key: KeyEvent, state: VimState): V
     if (state.pendingKey === 'f' || state.pendingKey === 't' || state.pendingKey === 'g') {
       const motionFn = getMotion(k, state.pendingKey)
       if (motionFn) {
-        const [start, end] = getMotionRange(motionFn, cursor.text, cursor.offset)
+        const [start, end] = getMotionRange(motionFn, cursor.text, cursor.offset, state.pendingKey === 'f')
         const result = applyOperator(op, cursor.text, start, end, state)
         const newCursor = Cursor.fromText(result.text, (cursor as any).measuredText.columns + 1, result.cursor)
         if (result.enterInsert) {
@@ -218,7 +238,7 @@ export function processVimKey(cursor: Cursor, key: KeyEvent, state: VimState): V
         offset = next
       }
       const start = Math.min(cursor.offset, offset)
-      const end = Math.max(cursor.offset, offset)
+      const end = Math.max(cursor.offset, offset) + (k === '$' || k === 'e' ? 1 : 0)
       const result = applyOperator(op, cursor.text, start, end, state)
       const newCursor = Cursor.fromText(result.text, (cursor as any).measuredText.columns + 1, result.cursor)
       if (result.enterInsert) {

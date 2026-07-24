@@ -34,7 +34,7 @@ function ProgressBar({ percent, width = 20, theme = 'dark' }: { percent: number;
   )
 }
 
-export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provider: _provider, contextPct = 0, interactionMode = 'build', theme = 'dark', items, narrowPriority }: {
+export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provider: _provider, contextPct = 0, interactionMode = 'build', theme = 'dark', items, narrowPriority, compactBadge }: {
   tokenCount: number
   model: Model
   activeAgent: string | null
@@ -44,6 +44,7 @@ export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provid
   theme?: ThemeName
   items?: StatusBarItem[]
   narrowPriority?: StatusBarItem[]
+  compactBadge?: { type: 'micro' | 'full'; triggeredAt: number } | null
 }) {
   const colors = getThemeColors(theme)
   const [branch, setBranch] = useState('')
@@ -72,6 +73,8 @@ export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provid
   const visible = new Set(prioritized.slice(0, isVeryNarrow ? 2 : isNarrow ? 3 : configured.length))
   if (![...visible].some(item => item === 'mode' || item === 'model' || item === 'tokens' && tokenCount > 0 || item === 'branch' && branch || item === 'context' && contextPct > 0)) return null
 
+  const showBadge = compactBadge != null && (Date.now() - compactBadge.triggeredAt) < 4000
+
   return (
     <Box flexDirection="column">
       <Text color={colors.textSubtle}>{divider}</Text>
@@ -95,6 +98,11 @@ export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provid
             </Text>
             {!isNarrow && <ProgressBar percent={contextPct} width={10} theme={theme} />}
           </>
+        )}
+        {showBadge && (
+          <Text color={colors.warning}>
+            {'⚡ ' + (compactBadge!.type === 'micro' ? 'micro' : 'compact')}
+          </Text>
         )}
       </Box>
     </Box>

@@ -54,6 +54,10 @@ export type CommandResult =
   | { type: 'worktree'; action: 'exit'; keep: boolean }
   | { type: 'worktree'; action: 'list' }
   | { type: 'worktree'; action: 'status' }
+  | { type: 'features'; action: 'list' }
+  | { type: 'features'; action: 'toggle'; flag: string }
+  | { type: 'features'; action: 'set'; flag: string; value: boolean }
+  | { type: 'features'; action: 'error'; message: string }
   | { type: 'logout' }
   | { type: 'cwd'; path?: string }
   | { type: 'mobile' }

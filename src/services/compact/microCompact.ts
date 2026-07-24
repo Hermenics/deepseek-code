@@ -37,19 +37,33 @@ export function enhancedMicroCompact(
   const result = [...messages]
   let freedChars = 0
 
-  // Collect indices of tool results from compactable tools
+  // The provider format stores a tool name on the preceding assistant tool call,
+  // not on its tool-result message.
+  const toolNames = new Map<string, string>()
+  for (const m of result) {
+    if (isBoundaryMarker(m)) continue
+    const message = m as ChatCompletionMessageParam & {
+      tool_calls?: Array<{ id: string; function?: { name?: string } }>
+    }
+    if (message.role !== 'assistant') continue
+    for (const call of message.tool_calls ?? []) {
+      if (call.function?.name) toolNames.set(call.id, call.function.name)
+    }
+  }
+
+  // Collect indices of tool results from compactable tools.
   interface ToolResultInfo { index: number; toolName: string; contentLength: number }
   const candidates: ToolResultInfo[] = []
 
   for (let i = 0; i < result.length; i++) {
     const m = result[i]!
     if (isBoundaryMarker(m)) continue
-    const msg = m as ChatCompletionMessageParam & { content?: string; name?: string }
+    const msg = m as ChatCompletionMessageParam & { content?: string; name?: string; tool_call_id?: string }
     if (msg.role !== 'tool') continue
     if (typeof msg.content !== 'string') continue
     if (msg.content.length <= maxContentLength) continue
 
-    const toolName = msg.name ?? ''
+    const toolName = msg.name ?? toolNames.get(msg.tool_call_id ?? '') ?? ''
     if (!compactableTools.has(toolName)) continue
 
     candidates.push({ index: i, toolName, contentLength: msg.content.length })
@@ -59,11 +73,12 @@ export function enhancedMicroCompact(
   const toTruncate = candidates.slice(0, Math.max(0, candidates.length - keepLastN))
 
   for (const { index } of toTruncate) {
-    const msg = result[index] as ChatCompletionMessageParam & { content?: string; name?: string }
+    const msg = result[index] as ChatCompletionMessageParam & { content?: string; name?: string; tool_call_id?: string }
     const originalLength = msg.content?.length ?? 0
+    const toolName = msg.name ?? toolNames.get(msg.tool_call_id ?? '') ?? 'unknown'
     result[index] = {
       ...msg,
-      content: `${TRUNCATION_NOTE}\n[original tool: ${msg.name ?? 'unknown'}, ${originalLength} chars]`,
+      content: `${TRUNCATION_NOTE}\n[original tool: ${toolName}, ${originalLength} chars]`,
     } as MessageOrBoundary
     freedChars += originalLength - 80
   }
@@ -73,4 +88,3 @@ export function enhancedMicroCompact(
     freedTokensEstimate: Math.floor(freedChars / 4),
   }
 }
-

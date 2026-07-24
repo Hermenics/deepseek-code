@@ -134,9 +134,10 @@ export function getMotion(key: string, prevKey?: string): MotionFn | null {
 export function getMotionRange(
   motionFn: MotionFn,
   text: string,
-  cursor: number
+  cursor: number,
+  targetInclusive = false,
 ): [number, number] {
   const [target] = motionFn(text, cursor)
-  if (target >= cursor) return [cursor, target]
-  return [target, cursor]
+  if (target >= cursor) return [cursor, target + (targetInclusive ? 1 : 0)]
+  return [target, cursor + (targetInclusive ? 1 : 0)]
 }

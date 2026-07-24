@@ -60,4 +60,17 @@ describe('session-owned memory', () => {
     const next = session.spawn({ taskId: 'next' }, async context => context.projectRoot)
     expect((await next.awaitResult()).value).toBe(target)
   })
+
+  it('allows rebasing after a completed read-only task', async () => {
+    const initial = await root()
+    const target = await root()
+    const session = new OrchestratorSession({ projectRoot: initial, logFile: null })
+    const task = session.spawn({ taskId: 'readonly', permissionProfile: 'researcher-readonly' }, async context => {
+      await session.acquireWorkspace(context.taskId, 'researcher-readonly', context.signal)
+      return 'done'
+    })
+    await task.awaitResult()
+    await session.changeProjectRoot(target)
+    expect(session.projectRoot).toBe(target)
+  })
 })

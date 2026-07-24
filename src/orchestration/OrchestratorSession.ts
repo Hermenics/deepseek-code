@@ -126,7 +126,9 @@ export class OrchestratorSession {
     const target = resolve(path)
     const active = this.registry.listTasks().filter(task => !['done', 'failed', 'cancelled', 'timed_out'].includes(task.state))
     if (active.length > 0) throw new Error(`Cannot change project root while ${active.length} task(s) are active`)
-    const anchored = this.registry.listTasks().filter(task => task.workspace && resolve(task.workspace.projectRoot) !== target)
+    const anchored = this.registry.listTasks().filter(task =>
+      task.workspace?.isolation !== 'readonly-shared' && task.workspace && resolve(task.workspace.projectRoot) !== target,
+    )
     if (anchored.length > 0) throw new Error(`Cannot change project root while ${anchored.length} task workspace(s) remain anchored to the current project`)
     const previous = this.projectRoot
     this.projectRoot = target
