@@ -171,7 +171,7 @@ export class OrchestratorSession {
     return cleaned
   }
 
-  toolContext(input: { taskId?: string; workspacePath?: string; workspaceIsolation?: ToolExecutionContext['workspaceIsolation']; signal?: AbortSignal; permissionProfile?: PermissionProfile; allowedTools?: string[] | '*'; maxTokens?: number; maxCostUsd?: number; dangerousOperationApproved?: boolean } = {}): ToolExecutionContext {
+  toolContext(input: { taskId?: string; workspacePath?: string; workspaceIsolation?: ToolExecutionContext['workspaceIsolation']; signal?: AbortSignal; permissionProfile?: PermissionProfile; allowedTools?: string[] | '*'; maxTokens?: number; maxCostUsd?: number; dangerousOperationApproved?: boolean; approvedExternalPaths?: string[] } = {}): ToolExecutionContext {
     return {
       sessionId: this.sessionId,
       taskId: input.taskId,
@@ -185,6 +185,7 @@ export class OrchestratorSession {
       maxTokens: input.maxTokens,
       maxCostUsd: input.maxCostUsd,
       dangerousOperationApproved: input.dangerousOperationApproved,
+      approvedExternalPaths: input.approvedExternalPaths,
       session: this,
       emit: (type, payload) => this.events.emit(type, payload, input.taskId),
     }
