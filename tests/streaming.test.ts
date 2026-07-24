@@ -78,6 +78,38 @@ function injectTool(agent: Agent, tool: ReturnType<typeof makeToolMock>) {
 
 describe('Agent streaming callbacks', () => {
 
+  describe('micro-compaction callback', () => {
+    it('reports freed tokens only when enhanced micro-compaction changed messages', async () => {
+      const agent = new Agent()
+      resolveReady(agent)
+      ;(agent as any).messages = [
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: Array.from({ length: 9 }, (_, i) => ({
+            id: String(i),
+            type: 'function',
+            function: { name: 'read_file', arguments: '{}' },
+          })),
+        },
+        ...Array.from({ length: 9 }, (_, i) => ({ role: 'tool', content: 'x'.repeat(300), tool_call_id: String(i) })),
+      ]
+      injectMockClient(agent, {
+        chat: { completions: { create: mock(() => makeStream([{ choices: [{ delta: { content: 'done' } }] }])) } },
+      })
+
+      const freed: number[] = []
+      const cb = makeTrackedCallbacks()
+      await agent.run('hello', { ...cb, onMicroCompact: (details) => freed.push(details.freedTokensEstimate) })
+      expect(freed[0]).toBeGreaterThan(0)
+
+      ;(agent as any).messages = []
+      freed.length = 0
+      await agent.run('again', { ...cb, onMicroCompact: (details) => freed.push(details.freedTokensEstimate) })
+      expect(freed).toEqual([])
+    })
+  })
+
   // ── 1. Happy path ──────────────────────────────────────────────────────────
   describe('onToken — happy path', () => {
     it('should call onToken 3 times with correct text when stream has 3 text chunks', async () => {

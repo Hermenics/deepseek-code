@@ -18,6 +18,7 @@ function getFuse(): Fuse<string> {
 
 export function getMatches(value: string): string[] {
   if (!value.startsWith('/')) return []
+  if (/\s/.test(value)) return []
   if (value === '/') return COMMAND_SUGGESTIONS
   if (value.length < 2) return []
 

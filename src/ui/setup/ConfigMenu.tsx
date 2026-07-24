@@ -560,7 +560,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
   const Items = () => category ? (
     <Box flexDirection="column" width={layout === 'wide' ? 38 : layout === 'medium' ? Math.max(44, width - 20) : undefined} paddingX={layout === 'wide' ? 1 : 0}>
       <Text bold flexShrink={0}>{category.label}</Text>
-      <Text dimColor wrap={layout === 'narrow' ? 'wrap' : 'truncate-end'} flexShrink={0}>{category.description}</Text>
+      <Text dimColor wrap="truncate-end" flexShrink={0}>{category.description}</Text>
       <Box marginTop={1} flexDirection="column" flexShrink={0}>
         <Text dimColor flexShrink={0}>{itemWindow.before ? `  ↑ ${itemWindow.start} above` : ' '}</Text>
         {itemWindow.values.map((entry, offset) => {
@@ -583,13 +583,13 @@ export default function ConfigMenu(props: ConfigMenuProps) {
   ) : <Text dimColor>No setting matches this search.</Text>
 
   const Detail = () => item ? (
-    <Box flexDirection="column" flexGrow={1}>
+    <Box flexDirection="column" flexGrow={1} width="100%">
       <Text bold color={colors.primary}>{item.label}</Text>
       <Box marginTop={layout === 'medium' ? 0 : 1}><Text wrap={layout === 'medium' ? 'truncate-end' : 'wrap'}>{item.description}</Text></Box>
       <Box marginTop={layout === 'medium' ? 0 : 1} flexDirection="column">
-        <Text dimColor>Effective value</Text>
-        <Text>{item.kind === 'secret' ? (effectiveValue ? '••••••••  configured' : 'not configured') : displayValue(effectiveValue)}</Text>
-        {resolution ? <Text dimColor>Origin: {origin} · editing: {scope}{scopeValue === undefined ? ' (inherited)' : ' (override)'}</Text> : null}
+        {resolution ? <Text dimColor>{layout === 'narrow'
+          ? `Effective: ${item.kind === 'secret' ? (effectiveValue ? '•••••••• configured' : 'not configured') : displayValue(effectiveValue)} · ${scope}${scopeValue === undefined ? ' inherited' : ' override'}`
+          : `Effective: ${item.kind === 'secret' ? (effectiveValue ? '•••••••• configured' : 'not configured') : displayValue(effectiveValue)} · Origin: ${origin} · editing: ${scope}${scopeValue === undefined ? ' (inherited)' : ' (override)'}`}</Text> : <Text dimColor>{`Effective: ${item.kind === 'secret' ? (effectiveValue ? '•••••••• configured' : 'not configured') : displayValue(effectiveValue)}`}</Text>}
         {layout !== 'medium' && defaultValue !== undefined ? <Text dimColor>Default: {displayValue(defaultValue)}</Text> : null}
         {layout !== 'medium' && resolution && resolution.overrides.length > 1 ? <Text dimColor>Chain: {resolution.overrides.map(entry => entry.level).join(' → ')}</Text> : null}
         {item.restart ? <Text color={colors.warning}>△ Applies next session</Text> : item.kind !== 'action' ? <Text color={colors.success}>✓ Applies immediately</Text> : null}
@@ -635,7 +635,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
         {layout !== 'narrow' ? (
           <Box flexDirection="column" width="100%">
             <Box height={navigationHeight} flexShrink={0}><Categories /><Text color={colors.textInactive}>{'│\n'.repeat(navigationHeight - 1)}│</Text><Items /></Box>
-            <Box marginTop={navigationHeight === 9 && height >= 22 ? 3 : 1} flexGrow={1} minHeight={0}><Detail /></Box>
+            <Box marginTop={navigationHeight === 9 && height >= 22 ? 3 : 1} flexGrow={1} minHeight={0} width="100%"><Detail /></Box>
           </Box>
         ) : narrowPage === 'categories' ? <Categories /> : narrowPage === 'items' ? <Items /> : <Detail />}
       </Box>

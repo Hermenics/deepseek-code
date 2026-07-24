@@ -1,6 +1,8 @@
 import React from 'react'
 import type { Message } from '../App.js'
 import { DiffView } from './DiffView.js'
+import { DiffFileList, type DiffFileSummary } from './DiffFileList.js'
+import type { DiffLine } from './DiffDialog.js'
 import { TOOL_DISPLAY, TOOL_STYLE } from './toolDisplay.js'
 import { MarkdownText } from './MarkdownText.js'
 import { DIVIDER_CHAR, getThemeColors, STATUS_ICONS } from '../theme.js'
@@ -45,12 +47,49 @@ function WorkDivider({ theme }: { theme: ThemeName }) {
   return <Box marginTop={1}><Text color={colors.textSubtle}>{DIVIDER_CHAR.repeat(width)}</Text></Box>
 }
 
-function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = true, compact = false }: {
+export interface DiffPayload {
+  path: string
+  added: number
+  removed: number
+  firstChanged: number
+  lines: DiffLine[]
+}
+
+export function getDiffPayload(content: string): DiffPayload | null {
+  const prefix = content.startsWith('✓ write_file →') ? '✓ write_file → '
+    : content.startsWith('✓ patch_file →') ? '✓ patch_file → '
+    : null
+  if (!prefix) return null
+
+  try {
+    const diff: unknown = JSON.parse(content.slice(prefix.length))
+    if (!diff || typeof diff !== 'object') return null
+    const payload = diff as Record<string, unknown>
+    const validNumber = (value: unknown) => typeof value === 'number' && Number.isFinite(value)
+    const validLine = (line: unknown) => {
+      if (!line || typeof line !== 'object') return false
+      const value = line as Record<string, unknown>
+      return (value.type === 'added' || value.type === 'removed' || value.type === 'context')
+        && typeof value.text === 'string'
+        && validNumber(value.lineNo)
+    }
+    if (payload.__diff !== true || typeof payload.path !== 'string'
+      || !validNumber(payload.added) || !validNumber(payload.removed) || !validNumber(payload.firstChanged)
+      || !Array.isArray(payload.lines) || !payload.lines.every(validLine)) return null
+    return payload as unknown as DiffPayload
+  } catch {
+    return null
+  }
+}
+
+function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = true, showWordDiff = true, compact = false, onOpenDiff }: {
   message: Message
   theme: ThemeName
   agentLabel: string
   showDiffs?: boolean
+  showWordDiff?: boolean
   compact?: boolean
+  onOpenDiff?: (diff: Pick<DiffPayload, 'path' | 'lines'>) => void
   key?: React.Key
 }) {
   const colors = getThemeColors(theme)
@@ -68,24 +107,17 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = t
   }
 
   if (m.role === 'tool') {
-    const diffPrefix = m.content.startsWith('✓ write_file →') ? '✓ write_file → '
-      : m.content.startsWith('✓ patch_file →') ? '✓ patch_file → '
-      : null
-    if (diffPrefix) {
-      try {
-        const json = JSON.parse(m.content.slice(diffPrefix.length))
-        if (json.__diff) {
-          if (!showDiffs) {
-            return (
-              <Box flexDirection="row" paddingLeft={2} gap={1}>
-                <Text color={colors.success}>{STATUS_ICONS.assistant}</Text>
-                <Text color={colors.textDim}>{diffPrefix.includes('patch') ? 'patch' : 'write'} {json.path} (+{json.added} −{json.removed}) · diff hidden</Text>
-              </Box>
-            )
-          }
-          return <DiffView path={json.path} added={json.added} removed={json.removed} firstChanged={json.firstChanged} lines={json.lines} theme={theme} />
-        }
-      } catch { /* not JSON */ }
+    const diff = getDiffPayload(m.content)
+    if (diff) {
+      if (!showDiffs) {
+        return (
+          <Box flexDirection="row" paddingLeft={2} gap={1}>
+            <Text color={colors.success}>{STATUS_ICONS.assistant}</Text>
+            <Text color={colors.textDim}>{m.content.startsWith('✓ patch_file') ? 'patch' : 'write'} {diff.path} (+{diff.added} −{diff.removed}) · diff hidden</Text>
+          </Box>
+        )
+      }
+      return <DiffView {...diff} theme={theme} showWordDiff={showWordDiff} onOpen={() => onOpenDiff?.(diff)} />
     }
     if (m.content.startsWith('✓ subagent →') || m.content.startsWith('⚙ subagent')) {
       const isDone = m.content.startsWith('✓')
@@ -221,7 +253,7 @@ function Header({ provider, agentName, theme = 'dark' }: { provider: string; age
   )
 }
 
-export function MessageList({ messages, streamText, thinkingText, streamRole = 'assistant', theme, activeAgent, headerProvider, headerAgent, showToolCalls = true, showDiffs = true, density = 'comfortable' }: {
+export function MessageList({ messages, streamText, thinkingText, streamRole = 'assistant', theme, activeAgent, headerProvider, headerAgent, showToolCalls = true, showDiffs = true, showWordDiff = true, density = 'comfortable', onOpenDiff }: {
   messages: Message[]
   streamText: string
   thinkingText?: string
@@ -232,10 +264,22 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
   headerAgent?: string | null
   showToolCalls?: boolean
   showDiffs?: boolean
+  showWordDiff?: boolean
   density?: 'compact' | 'comfortable'
+  onOpenDiff?: (diff: Pick<DiffPayload, 'path' | 'lines'>) => void
 }) {
   const colors = getThemeColors(theme)
   const agentLabel = activeAgent ?? 'deepseek'
+  const diffFiles = new Map<string, DiffFileSummary>()
+  for (const message of messages) {
+    if (message.role !== 'tool') continue
+    const diff = getDiffPayload(message.content)
+    if (!diff) continue
+    const current = diffFiles.get(diff.path) ?? { path: diff.path, added: 0, removed: 0 }
+    current.added += diff.added
+    current.removed += diff.removed
+    diffFiles.set(diff.path, current)
+  }
 
   return (
     <Box flexDirection="column" marginBottom={density === 'compact' ? 0 : 1}>
@@ -246,10 +290,16 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
         return (
           <Box key={`${message.role}-${index}`} flexDirection="column">
             {showDivider && <WorkDivider theme={theme} />}
-            <MessageItem message={message} theme={theme} agentLabel={agentLabel} showDiffs={showDiffs} compact={showDivider || density === 'compact'} />
+            <MessageItem message={message} theme={theme} agentLabel={agentLabel} showDiffs={showDiffs} showWordDiff={showWordDiff} compact={showDivider || density === 'compact'} onOpenDiff={onOpenDiff} />
           </Box>
         )
       })}
+      {diffFiles.size > 0 && (
+        <Box flexDirection="column" marginTop={1} paddingLeft={2}>
+          <Text color={colors.textDim}>Changed files · Ctrl+D opens the latest diff</Text>
+          <DiffFileList files={[...diffFiles.values()]} theme={theme} />
+        </Box>
+      )}
       {thinkingText ? (
         <Box flexDirection="column" marginTop={1} marginLeft={2}>
           <Box flexDirection="row" gap={1}>

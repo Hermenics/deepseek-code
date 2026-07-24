@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'fs/promises'
 import { randomUUID } from 'crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -81,6 +81,24 @@ describe('agent authorization', () => {
     } finally {
       await agent.shutdown()
       await Promise.all([rm(root, { recursive: true, force: true }), rm(outside, { recursive: true, force: true })])
+    }
+  })
+
+  it('validates write_plan without rejecting its internal plan path', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-agent-plan-root-'))
+    const agent = new Agent({ provider: 'local', localModel: 'test-model' }, { projectRoot: root, snapshotFile: null })
+    const planPath = join(root, 'plan.md')
+    try {
+      await agent.readyPromise
+      const result = await (agent as any).executeTool('write_plan', { content: '# Plan', __planFilePath: planPath })
+      expect(result).toContain('Plan written')
+      expect(await readFile(planPath, 'utf8')).toBe('# Plan')
+
+      const invalid = await (agent as any).executeTool('write_plan', { content: '# Plan', extra: true, __planFilePath: planPath })
+      expect(invalid).toContain('must NOT have additional properties')
+    } finally {
+      await agent.shutdown()
+      await rm(root, { recursive: true, force: true })
     }
   })
 })

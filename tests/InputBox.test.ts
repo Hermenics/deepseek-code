@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { getMatches } from '../src/ui/input/commandMatches.js'
+import { inkKeyToKeyEvent } from '../src/ui/input/InputBox.js'
 import { shouldFilterKey, type FilterKeyEvent } from '../src/ui/input/keyFilter.js'
 
 describe('InputBox ghost cursor filter', () => {
@@ -134,6 +135,13 @@ describe('InputBox ghost cursor filter', () => {
   })
 })
 
+describe('InputBox input chunks', () => {
+  it('keeps all printable text when the terminal batches keystrokes', () => {
+    const key = inkKeyToKeyEvent({} as never, 'features')
+    expect(key.raw).toBe('features')
+  })
+})
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Correction 3: Dropdown during loading (src/ui/input/InputBox.tsx)
 //
@@ -166,6 +174,11 @@ describe('InputBox dropdown visibility during loading', () => {
 
     it('should return empty array for unknown command (no dropdown)', () => {
       expect(getMatches('/zzznomatch')).toEqual([])
+    })
+
+    it('does not autocomplete a command after its arguments begin', () => {
+      expect(getMatches('/checkpoint list')).toEqual([])
+      expect(getMatches('/plan fix the bug')).toEqual([])
     })
   })
 })

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { parseCommand, COMMAND_SUGGESTIONS, HELP_TEXT } from '../src/commands.js'
+import { parseCommand, COMMAND_DESCRIPTIONS, COMMAND_SUGGESTIONS, HELP_TEXT } from '../src/commands.js'
 
 describe('parseCommand — extended coverage', () => {
   describe('basic commands', () => {
@@ -117,6 +117,14 @@ describe('parseCommand — extended coverage', () => {
     })
   })
 
+  describe('features command', () => {
+    it('parses listing and updates for feature flags', () => {
+      expect(parseCommand('/features')).toEqual({ type: 'features', action: 'list' })
+      expect(parseCommand('/experimental wordDiff off')).toEqual({ type: 'features', action: 'set', flag: 'wordDiff', value: false })
+      expect(parseCommand('/features microCompact')).toEqual({ type: 'features', action: 'toggle', flag: 'microCompact' })
+    })
+  })
+
   describe('stats command', () => {
     it('should parse /stats', () => {
       expect(parseCommand('/stats')).toEqual({ type: 'stats' })
@@ -177,6 +185,14 @@ describe('COMMAND_SUGGESTIONS', () => {
   })
 })
 
+describe('COMMAND_DESCRIPTIONS', () => {
+  it('covers every command offered by autocomplete', () => {
+    for (const command of COMMAND_SUGGESTIONS) {
+      expect(COMMAND_DESCRIPTIONS[command]).toBeString()
+    }
+  })
+})
+
 describe('HELP_TEXT', () => {
   it('should be a non-empty string', () => {
     expect(typeof HELP_TEXT).toBe('string')
@@ -188,5 +204,8 @@ describe('HELP_TEXT', () => {
     expect(HELP_TEXT).toContain('/agent')
     expect(HELP_TEXT).toContain('/checkpoint')
     expect(HELP_TEXT).toContain('/plan')
+    expect(HELP_TEXT).toContain('/features')
+    expect(HELP_TEXT).not.toContain('/language')
+    expect(HELP_TEXT).not.toContain('/theme')
   })
 })

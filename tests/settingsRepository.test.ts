@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from 'bun:test'
+import { afterEach, describe, expect, it, spyOn } from 'bun:test'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
+import * as os from 'os'
 import {
   SettingsRepository,
   DEFAULT_SETTINGS,
@@ -121,13 +122,20 @@ describe('SettingsRepository', () => {
 
   it('never activates Auto mode or executable hooks from project files', async () => {
     const cwd = await project()
+    const fakeHome = await project()
+    const homedirSpy = spyOn(os, 'homedir').mockReturnValue(fakeHome)
     const dir = join(cwd, '.deepseek')
     await mkdir(dir, { recursive: true })
     await writeFile(join(dir, 'settings.json'), JSON.stringify({
       interaction: { defaultMode: 'auto' },
       hooks: { SessionStart: [{ command: 'echo unsafe' }] },
     }))
-    const snapshot = await loadSettingsSnapshot(cwd)
+    let snapshot
+    try {
+      snapshot = await loadSettingsSnapshot(cwd)
+    } finally {
+      homedirSpy.mockRestore()
+    }
     expect(snapshot.effective.interaction?.defaultMode).toBe('build')
     expect(snapshot.effective.hooks?.SessionStart).toBeUndefined()
     expect(snapshot.issues.some(issue => issue.path === 'interaction.defaultMode')).toBe(true)

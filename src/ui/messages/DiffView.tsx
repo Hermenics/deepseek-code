@@ -16,6 +16,8 @@ interface Props {
   firstChanged: number
   lines: DiffLine[]
   theme: ThemeName
+  onOpen?: () => void
+  showWordDiff?: boolean
 }
 
 function stripSigil(text: string): string {
@@ -24,7 +26,7 @@ function stripSigil(text: string): string {
     : text
 }
 
-export function DiffView({ path, added, removed, firstChanged, lines, theme }: Props) {
+export function DiffView({ path, added, removed, firstChanged, lines, theme, onOpen, showWordDiff = true }: Props) {
   const colors = getThemeColors(theme)
   const cols = process.stdout.columns ?? 80
   const filename = path.split('/').pop() ?? path
@@ -51,7 +53,7 @@ export function DiffView({ path, added, removed, firstChanged, lines, theme }: P
   return (
     <Box flexDirection="column" marginTop={1}>
       {/* Header */}
-      <Box flexDirection="row" gap={1} paddingLeft={2}>
+      <Box flexDirection="row" gap={1} paddingLeft={2} onClick={onOpen}>
         <Text color={colors.success}>{STATUS_ICONS.assistant}</Text>
         <Text color={colors.textDim}>{'Write'}</Text>
         <Text color="cyan">{path}</Text>
@@ -87,7 +89,7 @@ export function DiffView({ path, added, removed, firstChanged, lines, theme }: P
 
           // Word-level diff for paired lines — use truncated text to avoid quadratic work on long lines
           let wordSegments: ReturnType<typeof computeWordDiff> | null = null
-          if (hasPair && (isAdd || isDel)) {
+          if (showWordDiff && hasPair && (isAdd || isDel)) {
             const removedLine = isDel ? line : visibleLines[partnerIdx!]
             const addedLine = isAdd ? line : visibleLines[partnerIdx!]
             const truncRem = stripSigil(removedLine.text).slice(0, contentWidth)
