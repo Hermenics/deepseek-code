@@ -4,7 +4,8 @@ import useInput from '../ink/hooks/use-input.js'
 import { execa } from 'execa'
 import type { Key } from '../ink/events/input-event.js'
 import { Agent, type ToolPermissionResult } from '../agent/agent.js'
-import { MessageList } from './messages/MessageList.js'
+import { MessageList, getDiffPayload } from './messages/MessageList.js'
+import { DiffDialog, type DiffLine } from './messages/DiffDialog.js'
 import { TodoPanel } from './messages/TodoPanel.js'
 import { ToolUseDisplay } from './messages/ToolUseDisplay.js'
 import { SubagentList, useSubagents } from './subagent/index.js'
@@ -18,6 +19,7 @@ import { EffortSelector } from './setup/EffortSelector.js'
 import ConfigMenu from './setup/ConfigMenu.js'
 import MobileQRCode from './MobileQRCode.js'
 import { parseCommand, HELP_TEXT, REVIEW_PROMPT } from '../commands.js'
+import { FEATURES, loadFeatures, saveFeatures, type FeatureName } from '../features.js'
 import { loadAgentConfig, listAgents, type LoadedAgent } from '../agent/config.js'
 import { appendInputHistory } from '../agent/inputHistory.js'
 import type { ThemeName, ProviderConfig } from '../types/provider.js'
@@ -104,6 +106,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const projectRootRef = useRef(initialSession?.cwd && existsSync(initialSession.cwd) ? initialSession.cwd : process.cwd())
   const originalProjectRoot = useRef(process.cwd())  // never changes — used to scope worktree isolation
   const toolStatusClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const compactBadgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const btwAbortRef = useRef<AbortController | null>(null)
   const queuedSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveSessionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -137,6 +140,33 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [planApprovalState, setPlanApprovalState] = useState<PlanApprovalState | null>(null)
   const [vimEnabled, setVimEnabled] = useState(initialSettings?.interface?.vim ?? false)
   const [interfaceSettings, setInterfaceSettings] = useState<InterfaceSettings>(initialSettings?.interface ?? {})
+  const [featureFlags, setFeatureFlags] = useState(() => loadFeatures())
+  const [compactBadge, setCompactBadge] = useState<{ type: 'micro' | 'full'; triggeredAt: number } | null>(null)
+  const [diffDialog, setDiffDialog] = useState<{ path: string; lines: DiffLine[] } | null>(null)
+
+  const showCompactBadge = useCallback((type: 'micro' | 'full') => {
+    if (compactBadgeTimerRef.current) clearTimeout(compactBadgeTimerRef.current)
+    setCompactBadge({ type, triggeredAt: Date.now() })
+    const timer = setTimeout(() => {
+      if (compactBadgeTimerRef.current !== timer) return
+      compactBadgeTimerRef.current = null
+      setCompactBadge(null)
+    }, 4000)
+    compactBadgeTimerRef.current = timer
+  }, [])
+
+  useInput((input: string, key: Key, event) => {
+    if (!key.ctrl || input !== 'd') return
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const message = messages[i]!
+      if (message.role !== 'tool') continue
+      const diff = getDiffPayload(message.content)
+      if (!diff) continue
+      event.stopImmediatePropagation()
+      setDiffDialog({ path: diff.path, lines: diff.lines })
+      return
+    }
+  })
 
   useEffect(() => {
     agent.interactionMode = interactionMode
@@ -144,6 +174,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   useEffect(() => () => {
     btwAbortRef.current?.abort()
+    if (compactBadgeTimerRef.current) clearTimeout(compactBadgeTimerRef.current)
     void agent.shutdown()
   }, [agent])
 
@@ -528,8 +559,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         onDenyAbort() {
           setMessages((m) => [...m, { role: 'assistant', content: '⛔ Execution aborted by user.' }])
         },
+        onMicroCompact() {
+          showCompactBadge('micro')
+        },
         onAutoCompact(summary) {
           setMessages((m) => [...m, { role: 'assistant', content: `⚡ Context compacted automatically.\n\n${summary}` }])
+          showCompactBadge('full')
         },
       })
     } catch (e: unknown) {
@@ -546,7 +581,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         : String(e)
       setMessages((m) => [...m, { role: 'assistant', content: `⚠ Error: ${message}` }])
     }
-  }, [agent, sessionId, language, initialSession, providerConfig])
+  }, [agent, sessionId, language, initialSession, providerConfig, showCompactBadge])
 
   const runWithPrompt = useCallback(async (label: string, prompt: string, intendedMode: InteractionMode) => {
     if (isLoading) return
@@ -614,6 +649,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           const summary = await agent.compact()
           setMessages([{ role: 'assistant', content: `**Context compacted.** Summary:\n\n${summary}` }])
           setIsLoading(false)
+          showCompactBadge('full')
           return
         }
         case 'help':
@@ -755,7 +791,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           if (isLoading) return
           const { mkdir } = await import('fs/promises')
           const { dirname } = await import('path')
-          const planPath = newPlanPath(cmd.task)
+          const planPath = newPlanPath(cmd.task, agent.getWorkingDirectory())
           await mkdir(dirname(planPath), { recursive: true })
           // Set plan mode synchronously on both agent and React state
           agent.interactionMode = 'plan'
@@ -1007,6 +1043,28 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setMessages(m => [...m, { role: 'assistant', content: formatContextBreakdown(breakdown) }])
           return
         }
+        case 'features': {
+          if (cmd.action === 'error') {
+            setMessages(m => [...m, { role: 'assistant', content: `Error: ${cmd.message}` }])
+            return
+          }
+
+          const flags = loadFeatures()
+          if (cmd.action === 'list') {
+            const lines = (Object.keys(FEATURES) as FeatureName[])
+              .map((flag) => `  ${flags[flag] ? '✓' : '○'} ${flag} — ${FEATURES[flag].description}`)
+            setMessages(m => [...m, { role: 'assistant', content: `Experimental features:\n${lines.join('\n')}\n\nUse /features <flag> on|off.` }])
+            return
+          }
+
+          const flag = cmd.flag as FeatureName
+          const value = cmd.action === 'toggle' ? !flags[flag] : cmd.value
+          const next = { ...flags, [flag]: value }
+          saveFeatures(next)
+          setFeatureFlags(next)
+          setMessages(m => [...m, { role: 'assistant', content: `Feature ${flag} ${value ? 'enabled' : 'disabled'}.` }])
+          return
+        }
         case 'tasks': {
           setMessages(m => [...m, { role: 'assistant', content: agent.formatTasks() }])
           return
@@ -1030,10 +1088,15 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               setMessages(m => [...m, { role: 'assistant', content: `✗ Not a directory: ${target}` }])
               return
             }
-            await agent.setWorkingDirectory(target, true)
-            projectRootRef.current = target
           } catch {
             setMessages(m => [...m, { role: 'assistant', content: `✗ Cannot access: ${target}` }])
+            return
+          }
+          try {
+            await agent.setWorkingDirectory(target, true)
+            projectRootRef.current = target
+          } catch (error) {
+            setMessages(m => [...m, { role: 'assistant', content: `✗ Cannot change directory: ${(error as Error).message}` }])
             return
           }
           setMessages(m => [...m, { role: 'assistant', content: `cwd: ${target}` }])
@@ -1161,6 +1224,14 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     return <ThemeProvider value={theme}><MobileQRCode onClose={() => setShowMobileQR(false)} theme={theme} /></ThemeProvider>
   }
 
+  if (diffDialog) {
+    return (
+      <ThemeProvider value={theme}>
+        <DiffDialog {...diffDialog} theme={theme} onClose={() => setDiffDialog(null)} />
+      </ThemeProvider>
+    )
+  }
+
   if (showConfigMenu) {
     return (
       <ConfigMenu
@@ -1215,7 +1286,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             headerAgent={headerAgent}
             showToolCalls={interfaceSettings.showToolCalls}
             showDiffs={interfaceSettings.showDiffs}
+            showWordDiff={featureFlags.wordDiff}
             density={interfaceSettings.density}
+            onOpenDiff={(diff) => setDiffDialog(diff)}
           />
           {toolStatus && interfaceSettings.showToolCalls !== false && <ToolUseDisplay tool={toolStatus} />}
           {subagentsRef.current.agents.length > 0 && <SubagentList agents={subagentsRef.current.agents} theme={theme} />}
@@ -1291,9 +1364,11 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             onModeChange={handleModeChange}
             sessionId={sessionId}
             vimEnabled={vimEnabled}
+            workingDirectory={agent.getWorkingDirectory()}
+            fuzzyFileSearch={featureFlags.fuzzyFileSearch}
           />
         )}
-        <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} theme={theme} items={interfaceSettings.statusBar} narrowPriority={interfaceSettings.narrowPriority} />
+        <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} theme={theme} items={interfaceSettings.statusBar} narrowPriority={interfaceSettings.narrowPriority} compactBadge={compactBadge} />
       </Box>
     </Box>
     </ThemeProvider>

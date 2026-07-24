@@ -33,6 +33,7 @@ import cwd from './cwd/index.js'
 import worktree from './worktree/index.js'
 import mobile from './mobile/index.js'
 import logout from './logout/index.js'
+import features from './features/index.js'
 
 const commands: Command[] = [
   help,
@@ -68,6 +69,7 @@ const commands: Command[] = [
   worktree,
   mobile,
   logout,
+  features,
 ]
 
 export function parseCommand(input: string): CommandResult | null {
@@ -85,6 +87,9 @@ export function parseCommand(input: string): CommandResult | null {
 }
 
 export const COMMAND_SUGGESTIONS = commands.flatMap(c => [`/${c.name}`, ...c.aliases.map(a => `/${a}`)])
+export const COMMAND_DESCRIPTIONS = Object.fromEntries(
+  commands.flatMap(c => [[`/${c.name}`, c.description], ...c.aliases.map(a => [`/${a}`, c.description])]),
+) as Record<string, string>
 
 export { HELP_TEXT } from './help/index.js'
 export { REVIEW_PROMPT } from './review/index.js'

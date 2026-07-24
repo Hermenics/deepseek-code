@@ -1,18 +1,18 @@
 import { join } from 'path'
 import { randomBytes } from 'node:crypto'
 
-export function getPlanDir(): string {
-  return join(process.cwd(), '.plans')
+export function getPlanDir(projectRoot = process.cwd()): string {
+  return join(projectRoot, '.plans')
 }
 
-export function newPlanPath(task: string): string {
+export function newPlanPath(task: string, projectRoot?: string): string {
   const slug = task
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .slice(0, 40)
     .replace(/^-|-$/, '')
   const id = randomBytes(4).toString('hex')
-  return join(getPlanDir(), `${slug}-${id}.md`)
+  return join(getPlanDir(projectRoot), `${slug}-${id}.md`)
 }
 
 export function buildPlanModeInjection(task: string, planPath: string): string {

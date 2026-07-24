@@ -27,7 +27,10 @@ import { createBoundaryMarker, getMessagesAfterBoundary, isBoundaryMarker, type 
 import { estimateCost, formatCost, getContextLimit, type TokenUsage } from './cost.js'
 import type { ProviderConfig } from '../types/provider.js'
 import { UNDO_STACK_MAX, CONTEXT_COMPACT_THRESHOLD, MICRO_COMPACT_KEEP_LAST } from '../constants.js'
-import { shouldAutoCompact, microCompact, createCompactState, createAutoCompactConfig, type CompactState, type AutoCompactConfig } from '../services/compact/autoCompact.js'
+import { shouldAutoCompact, createCompactState, createAutoCompactConfig, type CompactState, type AutoCompactConfig } from '../services/compact/autoCompact.js'
+import { enhancedMicroCompact } from '../services/compact/microCompact.js'
+import { runPostCompactCleanup } from '../services/compact/postCompactCleanup.js'
+import { isEnabled, loadFeatures } from '../features.js'
 import { estimateContextBreakdown, type ContextBreakdown, type ContextSnapshotInput } from './contextBreakdown.js'
 import { COMPACT_SUMMARY_PROMPT, COMPACT_SYSTEM_PROMPT } from '../services/compact/summaryPrompt.js'
 import { auditLog } from './auditLog.js'
@@ -158,6 +161,7 @@ export interface AgentCallbacks {
   onToolResult(name: string, result: string, args: Record<string, unknown>): void
   onDone(): void
   onPhaseChange?(phase: 'refining' | 'executing'): void
+  onMicroCompact?(details: { freedTokensEstimate: number }): void
   onAutoCompact?(summary: string): void
   onDenyAbort?(): void
 }
@@ -654,12 +658,18 @@ export class Agent {
     const summary = response.choices[0]?.message.content ?? '(no summary)'
 
     // Reset messages to system + boundary + summary
-    const systemMsg = this.messages[0]!
     this.messages = [
-      systemMsg,
+      { role: 'system', content: this.systemPrompt },
       createBoundaryMarker(),
       { role: 'assistant', content: `[Compacted context]\n${summary}` },
     ]
+
+    const cleanup = runPostCompactCleanup({
+      onSystemPromptRefresh: () => this.systemPrompt,
+    })
+    if (cleanup.refreshedPrompt) {
+      this.messages[0] = { role: 'system', content: cleanup.refreshedPrompt }
+    }
 
     // Post-compact refresh: re-inject DEEPSEEK.md context
     try {
@@ -894,8 +904,12 @@ export class Agent {
     // One signal owns the entire turn, including foreground tools and tasks.
     this.abortController = new AbortController()
 
-    // MicroCompact: clear old tool results before checking threshold
-    this.messages = microCompact(this.messages, MICRO_COMPACT_KEEP_LAST) as MessageOrBoundary[]
+    // Micro-compact old read-only tool results before considering an LLM compaction.
+    if (isEnabled('microCompact', loadFeatures())) {
+      const compacted = enhancedMicroCompact(this.messages, { keepLastN: MICRO_COMPACT_KEEP_LAST })
+      this.messages = compacted.messages
+      if (compacted.freedTokensEstimate > 0) cb.onMicroCompact?.({ freedTokensEstimate: compacted.freedTokensEstimate })
+    }
 
     // Auto-compact when context is above threshold (with circuit breaker)
     if (shouldAutoCompact(this.contextUsage, this.contextLimit, this.autoCompactConfig, this.compactState)) {
@@ -1579,7 +1593,10 @@ export class Agent {
     const tool = this.toolMap.get(name)
     if (!tool) return `Unknown tool: ${name}`
 
-    const validation = validateToolSchema(tool.parameters, args)
+    const validationArgs = name === 'write_plan'
+      ? Object.fromEntries(Object.entries(args).filter(([key]) => key !== '__planFilePath'))
+      : args
+    const validation = validateToolSchema(tool.parameters, validationArgs)
     if (!validation.valid) return `[Tool Error: ${name}] Invalid arguments:\n${validation.errors.map(error => `- ${error}`).join('\n')}`
 
     try {

@@ -6,7 +6,7 @@ import { Dialog } from '../design-system/index.js'
 import { getThemeColors } from '../theme.js'
 import type { ThemeName } from '../theme.js'
 
-interface DiffLine { type: 'added' | 'removed' | 'context'; text: string; lineNo: number }
+export interface DiffLine { type: 'added' | 'removed' | 'context'; text: string; lineNo: number }
 
 export interface DiffDialogProps {
   path: string

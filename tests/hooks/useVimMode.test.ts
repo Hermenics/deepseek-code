@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { Cursor } from '../../src/ui/input/cursor/index.js'
 import { clearKillRing } from '../../src/ui/input/cursor/index.js'
-import { processVimKey, createVimState, type VimState } from '../../src/ui/input/hooks/useVimMode.js'
+import { processVimKey, processVimTextChunk, createVimState, type VimState } from '../../src/ui/input/hooks/useVimMode.js'
 
 type KeyEvent = {
   name?: string
@@ -21,6 +21,17 @@ function normalState(): VimState {
 
 function insertState(): VimState {
   return { ...createVimState(), mode: 'insert' }
+}
+
+function applyKeys(text: string, keys: string): Cursor {
+  let cursor = makeCursor(text)
+  let state = normalState()
+  for (const raw of keys) {
+    const result = processVimKey(cursor, { name: raw, raw }, state)
+    if (result.type === 'cursor' || result.type === 'modeChange') cursor = result.cursor
+    state = result.nextState ?? state
+  }
+  return cursor
 }
 
 describe('processVimKey', () => {
@@ -126,6 +137,20 @@ describe('processVimKey', () => {
       if (result.type === 'cursor') {
         expect(result.cursor.text).toBe('hello')
       }
+    })
+  })
+
+  describe('operator ranges', () => {
+    it('d$ deletes through the last character', () => {
+      expect(applyKeys('abc def', 'd$').text).toBe('')
+    })
+
+    it('df<char> includes the found character', () => {
+      expect(applyKeys('abc5 def', 'df5').text).toBe(' def')
+    })
+
+    it('d3w preserves the operator count', () => {
+      expect(applyKeys('one two three four', 'd3w').text).toBe('four')
     })
   })
 
@@ -263,5 +288,24 @@ describe('processVimKey', () => {
         expect(result.type).toBe('noop')
       }
     })
+  })
+})
+
+describe('processVimTextChunk', () => {
+  it('applies an operator and motion delivered in one terminal chunk', () => {
+    const result = processVimTextChunk(makeCursor('one two'), 'dw', normalState())
+    expect(result.cursor.text).toBe('two')
+    expect(result.state.mode).toBe('normal')
+  })
+
+  it('enters insert mode and inserts the rest of the chunk', () => {
+    const result = processVimTextChunk(makeCursor(''), 'ihello', normalState())
+    expect(result.cursor.text).toBe('hello')
+    expect(result.state.mode).toBe('insert')
+  })
+
+  it('propagates history actions so InputBox can handle them', () => {
+    const result = processVimTextChunk(makeCursor('previous'), 'j', normalState())
+    expect(result.action).toBe('historyDown')
   })
 })
