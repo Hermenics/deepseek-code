@@ -1,4 +1,4 @@
-export type ToolPermissionResult = 'once' | 'session' | 'deny'
+export type ToolPermissionResult = 'once' | 'session' | 'directory' | 'always' | 'deny'
 
 export type ToolPermissionHandler = (
   toolName: string,

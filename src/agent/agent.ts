@@ -2,7 +2,7 @@ import OpenAI from 'openai'
 import { execa } from 'execa'
 import { randomUUID } from 'node:crypto'
 import { readFile, unlink, writeFile } from 'fs/promises'
-import { resolve } from 'node:path'
+import { isAbsolute, relative, resolve } from 'node:path'
 import DEFAULT_SYSTEM_PROMPT_MD from './system-prompt.md' with { type: 'text' }
 import { allTools } from '../tools/index.js'
 import type { SubAgentCallbacks } from '../tools/SubAgent/SubAgent.js'
@@ -43,7 +43,7 @@ import type { HooksConfig } from '../hooks/types.js'
 import { OrchestratorSession, taskSnapshotFile, type OrchestratorCallbacks } from '../orchestration/OrchestratorSession.js'
 import { validateToolArguments as validateToolSchema } from '../orchestration/schema.js'
 import type { TaskLimits } from '../orchestration/types.js'
-import { resolveSafePath } from '../tools/shared/pathSafety.js'
+import { resolveExternalApprovalDirectory, resolvePathForContext, resolveSafePath } from '../tools/shared/pathSafety.js'
 
 /** Workaround: OpenAI SDK has not typed reasoning_content yet (exclusive field of deepseek-reasoner) */
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & { reasoning_content?: string }
@@ -131,8 +131,33 @@ interface PendingAgentNote {
   text: string
 }
 
-export type ToolPermissionResult = 'once' | 'session' | 'always' | 'deny'
-export type ToolPermissionHandler = (toolName: string, args: object) => Promise<ToolPermissionResult>
+export type ToolPermissionResult = 'once' | 'session' | 'directory' | 'always' | 'deny'
+export type ToolPermissionReason = 'outside_workspace' | 'risk' | 'permission' | 'agent_config'
+
+export interface ToolPermissionRequest {
+  toolName: string
+  args: object
+  reason: ToolPermissionReason
+  externalDirectory?: string
+  riskDescription?: string
+}
+
+export type ToolPermissionHandler = (request: ToolPermissionRequest) => Promise<ToolPermissionResult>
+
+const PATH_TOOL_ARGUMENTS: Record<string, { key: 'path' | 'cwd'; isDirectory: boolean }> = {
+  read_file: { key: 'path', isDirectory: false },
+  write_file: { key: 'path', isDirectory: false },
+  patch_file: { key: 'path', isDirectory: false },
+  edit_file: { key: 'path', isDirectory: false },
+  read_folder: { key: 'path', isDirectory: true },
+  grep: { key: 'path', isDirectory: true },
+  glob: { key: 'cwd', isDirectory: true },
+}
+
+function isPathContained(root: string, target: string): boolean {
+  const pathRelative = relative(root, target)
+  return pathRelative === '' || (!pathRelative.startsWith('..') && !isAbsolute(pathRelative))
+}
 
 export interface AgentOptions {
   sessionId?: string
@@ -205,6 +230,7 @@ export class Agent {
   private toolPermissionHandler: ToolPermissionHandler | null = null
   private confirmHandler: ((message: string) => Promise<boolean>) | null = null
   private sessionApprovedTools: Set<string> = new Set()
+  private sessionApprovedDirectories: Set<string> = new Set()
   private turnWriteCount = 0
   private turnModifiedFiles: Set<string> = new Set()
   private diffReviewHandler: ((summary: string) => Promise<boolean>) | null = null
@@ -346,15 +372,19 @@ export class Agent {
   // ── Undo ───────────────────────────────────────────────────────────────────
 
   async undo(): Promise<string> {
-    const entry = this.undoStack.pop()
+    const entry = this.undoStack.at(-1)
     if (!entry) return 'Nothing to undo.'
     try {
-      const safePath = await resolveSafePath(entry.path, this.orchestrator.toolContext({ workspacePath: this.workspacePath }))
+      const safePath = await resolveSafePath(entry.path, this.orchestrator.toolContext({
+        workspacePath: this.workspacePath,
+        approvedExternalPaths: [...this.sessionApprovedDirectories],
+      }))
       if (safePath !== entry.path) throw new Error('Undo path no longer resolves to its original workspace location')
       if (entry.existed) await writeFile(safePath, entry.content, 'utf-8')
       else await unlink(safePath).catch(error => {
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       })
+      this.undoStack.pop()
       return `Restored ${entry.path}`
     } catch (e) {
       return `Error restoring ${entry.path}: ${(e as Error).message}`
@@ -462,7 +492,7 @@ export class Agent {
     return {
       mode: this.interactionMode,
       allowedTools: this.allowedTools,
-      sessionApproved: [...this.sessionApprovedTools],
+      sessionApproved: [...this.sessionApprovedTools, ...[...this.sessionApprovedDirectories].map(directory => `directory:${directory}`)],
       modeTools: getToolsForMode(this.interactionMode),
       permissions: this.settings.permissions,
       risk: this.settings.risk,
@@ -471,6 +501,7 @@ export class Agent {
 
   clearSessionApprovals(): void {
     this.sessionApprovedTools.clear()
+    this.sessionApprovedDirectories.clear()
   }
 
   async applySettings(settings: DeepSeekSettings): Promise<void> {
@@ -881,6 +912,7 @@ export class Agent {
     this.activeAgent = config.name
     this.allowedTools = config.tools ?? config.allowedTools ?? null
     this.sessionApprovedTools = new Set()
+    this.sessionApprovedDirectories = new Set()
     this.clearHistory()
   }
 
@@ -890,6 +922,7 @@ export class Agent {
     this.activeAgent = null
     this.allowedTools = null
     this.sessionApprovedTools = new Set()
+    this.sessionApprovedDirectories = new Set()
     this.clearHistory()
   }
 
@@ -1404,12 +1437,69 @@ export class Agent {
       if (hookResult.modifiedInput) effectiveArgs = hookResult.modifiedInput
     }
 
-    if (['write_file', 'patch_file', 'edit_file'].includes(tc.function.name) && typeof effectiveArgs.path === 'string') {
-      const safePath = await resolveSafePath(effectiveArgs.path, this.orchestrator.toolContext({
+    if (tc.function.name === 'write_file' || tc.function.name === 'patch_file') {
+      this.turnWriteCount++
+    }
+
+    const riskResult = assessRisk(tc.function.name, effectiveArgs, {
+      isSubAgent: false,
+      recentWriteCount: this.turnWriteCount,
+      config: this.settings.risk ?? {},
+    })
+
+    let approvedThisCall = false
+    let approvedExternalDirectory = false
+    let executionExternalPaths = [...this.sessionApprovedDirectories]
+    const pathTool = PATH_TOOL_ARGUMENTS[tc.function.name]
+    const requestedPath = pathTool && typeof effectiveArgs[pathTool.key] === 'string'
+      ? effectiveArgs[pathTool.key] as string
+      : undefined
+
+    if (pathTool && requestedPath) {
+      const pathContext = this.orchestrator.toolContext({
         workspacePath: this.workspacePath,
         signal: this.abortController?.signal,
-      }))
-      effectiveArgs = { ...effectiveArgs, path: safePath }
+      })
+      const targetPath = resolvePathForContext(requestedPath, pathContext)
+      if (!isPathContained(this.workspacePath, targetPath)) {
+        const externalDirectory = await resolveExternalApprovalDirectory(requestedPath, pathTool.isDirectory, pathContext)
+        approvedExternalDirectory = [...this.sessionApprovedDirectories]
+          .some(directory => isPathContained(directory, externalDirectory))
+        if (!approvedExternalDirectory) {
+          if (!this.toolPermissionHandler) {
+            // Preserve the existing fail-closed path error for non-interactive callers.
+            await resolveSafePath(requestedPath, pathContext)
+          }
+          else {
+            const decision = await this.toolPermissionHandler({
+              toolName: tc.function.name,
+              args: effectiveArgs,
+              reason: 'outside_workspace',
+              externalDirectory,
+              riskDescription: riskResult?.requiresConfirmation ? `${riskResult.level} risk: ${riskResult.description}` : undefined,
+            })
+            if (decision === 'deny') {
+              auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied_external_path: externalDirectory } })
+              throw new DenyAbortError()
+            }
+            approvedThisCall = true
+            if (decision === 'directory') {
+              this.sessionApprovedDirectories.add(externalDirectory)
+              approvedExternalDirectory = true
+            }
+            executionExternalPaths = [...this.sessionApprovedDirectories, externalDirectory]
+          }
+        }
+      }
+
+      if (['write_file', 'patch_file', 'edit_file'].includes(tc.function.name)) {
+        const safePath = await resolveSafePath(requestedPath, this.orchestrator.toolContext({
+          workspacePath: this.workspacePath,
+          signal: this.abortController?.signal,
+          approvedExternalPaths: executionExternalPaths,
+        }))
+        effectiveArgs = { ...effectiveArgs, [pathTool.key]: safePath }
+      }
     }
 
     // Plan and Review may inspect Git and stateful helper tools, but never mutate them.
@@ -1430,17 +1520,7 @@ export class Agent {
     }
 
     // ── 1.5. Risk-level assessment. High risk is mandatory in every mode. ────
-    if (tc.function.name === 'write_file' || tc.function.name === 'patch_file') {
-      this.turnWriteCount++
-    }
-
-    const riskResult = assessRisk(tc.function.name, effectiveArgs, {
-      isSubAgent: false,
-      recentWriteCount: this.turnWriteCount,
-      config: this.settings.risk ?? {},
-    })
-
-    if (riskResult?.requiresConfirmation) {
+    if (riskResult?.requiresConfirmation && !approvedThisCall) {
       const riskContentKey = tc.function.name === 'shell'
         ? (effectiveArgs.command as string ?? '')
         : (effectiveArgs.path as string ?? '')
@@ -1455,13 +1535,20 @@ export class Agent {
             return { tc, result: blockMsg }
           }
           if (!await this.confirmHandler(`${riskResult.level} risk: ${riskResult.description}`)) throw new DenyAbortError()
+          approvedThisCall = true
         } else {
-          const userDecision = await this.toolPermissionHandler(tc.function.name, effectiveArgs)
+          const userDecision = await this.toolPermissionHandler({
+            toolName: tc.function.name,
+            args: effectiveArgs,
+            reason: 'risk',
+            riskDescription: `${riskResult.level} risk: ${riskResult.description}`,
+          })
           if (userDecision === 'deny') {
             auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied_risk: riskResult.level } })
             throw new DenyAbortError()
           }
           if (userDecision === 'session') this.sessionApprovedTools.add(riskSessionKey)
+          approvedThisCall = true
         }
       }
     }
@@ -1476,14 +1563,14 @@ export class Agent {
       return { tc, result: blockMsg }
     }
     const autoApproveLowRisk = this.settings.permissions?.autoApproveLowRisk === true && riskResult === null
-    if (ruleDecision === 'ask' && !autoApproveLowRisk && !this.sessionApprovedTools.has(tc.function.name)) {
+    if (ruleDecision === 'ask' && !autoApproveLowRisk && !approvedThisCall && !approvedExternalDirectory && !this.sessionApprovedTools.has(tc.function.name)) {
       if (!this.toolPermissionHandler) {
         const blockMsg = `Tool '${tc.function.name}' requires confirmation, but no confirmation handler is available.`
         cb.onToolCall(tc.function.name, effectiveArgs)
         cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
         return { tc, result: blockMsg }
       }
-      const userDecision = await this.toolPermissionHandler(tc.function.name, effectiveArgs)
+      const userDecision = await this.toolPermissionHandler({ toolName: tc.function.name, args: effectiveArgs, reason: 'permission' })
       if (userDecision === 'deny') {
         auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied: true } })
         throw new DenyAbortError()
@@ -1514,14 +1601,14 @@ export class Agent {
       }
     }
     // allowedTools === '*' means all tools require permission confirmation
-    if (this.allowedTools === '*' && !this.sessionApprovedTools.has(tc.function.name)) {
+    if (this.allowedTools === '*' && !approvedThisCall && !approvedExternalDirectory && !this.sessionApprovedTools.has(tc.function.name)) {
       if (!this.toolPermissionHandler) {
         const blockMsg = `Tool '${tc.function.name}' requires confirmation, but no confirmation handler is available.`
         cb.onToolCall(tc.function.name, effectiveArgs)
         cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
         return { tc, result: blockMsg }
       }
-      const decision = await this.toolPermissionHandler(tc.function.name, effectiveArgs)
+      const decision = await this.toolPermissionHandler({ toolName: tc.function.name, args: effectiveArgs, reason: 'agent_config' })
       if (decision === 'deny') {
         auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied: true } })
         throw new DenyAbortError()
@@ -1558,7 +1645,7 @@ export class Agent {
     auditLog({ type: 'tool_call', tool: tc.function.name, args: effectiveArgs })
     this.toolCallTotal++
     const t0 = Date.now()
-    const result = await this.executeTool(tc.function.name, effectiveArgs, riskResult?.requiresConfirmation === true)
+    const result = await this.executeTool(tc.function.name, effectiveArgs, riskResult?.requiresConfirmation === true, executionExternalPaths)
     auditLog({ type: 'tool_result', tool: tc.function.name, result: result.slice(0, 200), durationMs: Date.now() - t0 })
     this.orchestrator.emit('tool_finished', { tool: tc.function.name, durationMs: Date.now() - t0, result: result.slice(0, 200) })
 
@@ -1589,7 +1676,7 @@ export class Agent {
     return messages
   }
 
-  private async executeTool(name: string, args: Record<string, unknown>, dangerousOperationApproved = false): Promise<string> {
+  private async executeTool(name: string, args: Record<string, unknown>, dangerousOperationApproved = false, approvedExternalPaths: string[] = []): Promise<string> {
     const tool = this.toolMap.get(name)
     if (!tool) return `Unknown tool: ${name}`
 
@@ -1601,7 +1688,7 @@ export class Agent {
 
     try {
       return await tool.execute(args, this.orchestrator.toolContext({
-        workspacePath: this.workspacePath, signal: this.abortController?.signal, dangerousOperationApproved,
+        workspacePath: this.workspacePath, signal: this.abortController?.signal, dangerousOperationApproved, approvedExternalPaths,
       }))
     } catch (e: unknown) {
       return `Error: ${(e as Error).message}`

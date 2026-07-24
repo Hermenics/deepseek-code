@@ -3,7 +3,7 @@ import { useState, useCallback, useEffect, useRef } from 'react'
 import useInput from '../ink/hooks/use-input.js'
 import { execa } from 'execa'
 import type { Key } from '../ink/events/input-event.js'
-import { Agent, type ToolPermissionResult } from '../agent/agent.js'
+import { Agent, type ToolPermissionRequest, type ToolPermissionResult } from '../agent/agent.js'
 import { MessageList, getDiffPayload } from './messages/MessageList.js'
 import { DiffDialog, type DiffLine } from './messages/DiffDialog.js'
 import { TodoPanel } from './messages/TodoPanel.js'
@@ -72,8 +72,7 @@ interface ConfirmState {
 }
 
 interface ToolPermissionState {
-  toolName: string
-  args: object
+  request: ToolPermissionRequest
   resolve: (result: ToolPermissionResult) => void
 }
 
@@ -228,9 +227,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [agent, interactionMode])
 
   useEffect(() => {
-    agent.setToolPermissionHandler((toolName, args) => {
+    agent.setToolPermissionHandler((request) => {
       return new Promise<ToolPermissionResult>((resolve) => {
-        setToolPermissionState({ toolName, args, resolve })
+        setToolPermissionState({ request, resolve })
       })
     })
     return () => agent.setToolPermissionHandler(null)
@@ -1333,8 +1332,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           />
         ) : toolPermissionState ? (
           <ToolPermissionPrompt
-            toolName={toolPermissionState.toolName}
-            args={toolPermissionState.args}
+            request={toolPermissionState.request}
             onDecide={handleToolPermission}
           />
         ) : planApprovalState ? (
@@ -1392,53 +1390,76 @@ function ConfirmPrompt({ message, onConfirm }: { message: string; onConfirm: (ye
   )
 }
 
-const PERMISSION_OPTIONS = [
-  { key: '1', label: 'Allow this time', result: 'once' as ToolPermissionResult },
-  { key: '2', label: 'Allow for all session', result: 'session' as ToolPermissionResult },
-  { key: '3', label: 'Deny (say what DeepSeek should do instead)', result: 'deny' as ToolPermissionResult },
-]
+function permissionOptions(request: ToolPermissionRequest) {
+  const externalDirectory = request.reason === 'outside_workspace' ? request.externalDirectory : undefined
+  const sessionLabel = externalDirectory
+    ? `Allow file actions in ${externalDirectory} this session`
+    : request.reason === 'risk'
+      ? 'Do not ask again for this action this session'
+      : `Allow ${request.toolName} in this project this session`
+  const options = [
+    { key: '1', label: 'Allow this action', result: 'once' as ToolPermissionResult },
+    { key: '2', label: sessionLabel, result: (externalDirectory ? 'directory' : 'session') as ToolPermissionResult },
+    { key: '3', label: 'Deny (tell DeepSeek what to do instead)', result: 'deny' as ToolPermissionResult },
+  ]
+  if (request.reason === 'permission') {
+    options.push({ key: '4', label: `Always allow ${request.toolName}`, result: 'always' as ToolPermissionResult })
+  }
+  return options
+}
+
+function toolPermissionSummary({ toolName, args }: ToolPermissionRequest): string {
+  const input = args as Record<string, unknown>
+  if (typeof input.command === 'string') return `$ ${input.command}`
+  if (typeof input.path === 'string') return `${toolName} → ${input.path}`
+  if (typeof input.cwd === 'string') return `${toolName} → ${input.cwd}`
+  if (typeof input.action === 'string') return `${toolName} → ${input.action}`
+  return toolName
+}
 
 function ToolPermissionPrompt({
-  toolName,
-  args,
+  request,
   onDecide,
 }: {
-  toolName: string
-  args: object
+  request: ToolPermissionRequest
   onDecide: (result: ToolPermissionResult) => void
 }) {
   const [selected, setSelected] = useState(0)
+  const options = permissionOptions(request)
 
   useInput((input: string, key: Key) => {
     if (key.ctrl && input === 'c') { onDecide('deny'); return }
-    if (input === '1') { onDecide('once'); return }
-    if (input === '2') { onDecide('session'); return }
-    if (input === '3') { onDecide('deny'); return }
-    if (key.upArrow) { setSelected((i) => (i - 1 + PERMISSION_OPTIONS.length) % PERMISSION_OPTIONS.length); return }
-    if (key.downArrow) { setSelected((i) => (i + 1) % PERMISSION_OPTIONS.length); return }
-    if (key.return) { onDecide(PERMISSION_OPTIONS[selected]!.result); return }
+    const option = options.find(option => option.key === input)
+    if (option) { onDecide(option.result); return }
+    if (key.upArrow) { setSelected((i) => (i - 1 + options.length) % options.length); return }
+    if (key.downArrow) { setSelected((i) => (i + 1) % options.length); return }
+    if (key.return) { onDecide(options[selected]!.result); return }
     if (key.escape) { onDecide('deny'); return }
   })
 
-  const argsPreview = JSON.stringify(args, null, 0)
   const cols = Math.max((process.stdout.columns ?? 80) - 10, 30)
-  const preview = argsPreview.length > cols ? argsPreview.slice(0, cols) + '…' : argsPreview
+  const summary = toolPermissionSummary(request)
+  const preview = summary.length > cols ? summary.slice(0, cols) + '…' : summary
+  const reason = request.reason === 'outside_workspace'
+    ? 'This action accesses a directory outside the project.'
+    : request.riskDescription ?? 'This action needs your confirmation.'
 
   return (
     <Box flexDirection="column" marginTop={1} marginBottom={1}>
       <Box border borderStyle="rounded" borderColor="cyan" paddingLeft={2} paddingRight={2} flexDirection="column">
-        <Text color="cyan">{'◆ Tool permission'}</Text>
+        <Text color="cyan">{'◆ Confirmation required'}</Text>
         <Box marginTop={1} flexDirection="row" gap={1}>
           <Text color="#888888">tool:</Text>
-          <Text color="yellow">{toolName}</Text>
+          <Text color="yellow">{request.toolName}</Text>
         </Box>
         <Box flexDirection="row" gap={1}>
-          <Text color="#888888">args:</Text>
+          <Text color="#888888">action:</Text>
           <Text color="#888888">{preview}</Text>
         </Box>
+        <Text color="yellow">{reason}</Text>
       </Box>
       <Box flexDirection="column" marginTop={1} marginLeft={2}>
-        {PERMISSION_OPTIONS.map((opt, i) => (
+        {options.map((opt, i) => (
           <Box key={opt.key} flexDirection="row" gap={2}>
             <Text color={i === selected ? 'cyan' : 'white'}>
               {i === selected ? '❯' : ' '} [{opt.key}]
