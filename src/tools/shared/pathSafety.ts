@@ -25,6 +25,17 @@ function isContained(root: string, target: string): boolean {
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
 }
 
+/** Resolve a path exactly as tool execution will resolve it, without granting access. */
+export function resolvePathForContext(filePath: string, context?: ToolExecutionContext): string {
+  const workspaceRoot = path.resolve(context?.workspacePath ?? process.cwd())
+  const projectRoot = path.resolve(context?.projectRoot ?? workspaceRoot)
+  if (!path.isAbsolute(filePath)) return path.resolve(workspaceRoot, filePath)
+  const absolutePath = path.resolve(filePath)
+  if (isContained(workspaceRoot, absolutePath)) return absolutePath
+  if (isContained(projectRoot, absolutePath)) return path.resolve(workspaceRoot, path.relative(projectRoot, absolutePath))
+  return absolutePath
+}
+
 async function nearestExisting(target: string): Promise<string> {
   let current = target
   while (true) {
@@ -40,36 +51,37 @@ async function nearestExisting(target: string): Promise<string> {
 /** Resolves, translates and validates a path. Callers must use the returned path. */
 export async function resolveSafePath(filePath: string, context?: ToolExecutionContext): Promise<string> {
   const workspaceRoot = path.resolve(context?.workspacePath ?? process.cwd())
-  const projectRoot = path.resolve(context?.projectRoot ?? workspaceRoot)
-  let target: string
-  if (!path.isAbsolute(filePath)) {
-    target = path.resolve(workspaceRoot, filePath)
-  } else if (isContained(workspaceRoot, path.resolve(filePath))) {
-    target = path.resolve(filePath)
-  } else if (isContained(projectRoot, path.resolve(filePath))) {
-    target = path.resolve(workspaceRoot, path.relative(projectRoot, path.resolve(filePath)))
-  } else {
-    target = path.resolve(filePath)
-  }
-
-  const realRoot = await fs.realpath(workspaceRoot)
-  if (!isContained(workspaceRoot, target)) {
+  const target = resolvePathForContext(filePath, context)
+  const roots = [workspaceRoot, ...(context?.approvedExternalPaths ?? []).map(root => path.resolve(root))]
+  const realAncestor = await nearestExisting(target)
+  const allowedRoot = await Promise.all(roots.map(async root => ({ root, realRoot: await fs.realpath(root) })))
+    .then(candidates => candidates.find(candidate => isContained(candidate.realRoot, realAncestor))
+      ?? candidates.find(candidate => isContained(candidate.root, target)))
+  if (!allowedRoot) {
     throw new Error(`Path '${filePath}' is outside the working directory; outside the task workspace (${workspaceRoot})`)
   }
-  const realAncestor = await nearestExisting(target)
-  if (!isContained(realRoot, realAncestor)) {
-    throw new Error(`Path '${filePath}' escapes the task workspace through a symlink`)
+  if (!isContained(allowedRoot.realRoot, realAncestor)) {
+    throw new Error(`Path '${filePath}' escapes its approved directory through a symlink`)
   }
-  const canonicalRelative = path.relative(realRoot, realAncestor)
+  const canonicalRelative = path.relative(allowedRoot.realRoot, realAncestor)
   const canonicalTopDir = canonicalRelative.split(path.sep)[0]
   if (canonicalTopDir && BLOCKED_DIRS.includes(canonicalTopDir)) throw new Error(`Directory '${canonicalTopDir}/' is off-limits`)
   if (isSensitiveWorkspacePath(canonicalRelative)) throw new Error(`File '${path.basename(realAncestor)}' is sensitive and cannot be accessed by an agent`)
 
-  const relative = path.relative(workspaceRoot, target)
+  const relative = path.relative(allowedRoot.root, target)
   const topDir = relative.split(path.sep)[0]
   if (topDir && BLOCKED_DIRS.includes(topDir)) throw new Error(`Directory '${topDir}/' is off-limits`)
   if (isSensitiveWorkspacePath(relative)) throw new Error(`File '${path.basename(filePath)}' is sensitive and cannot be accessed by an agent`)
   return target
+}
+
+/** Canonical existing directory that can contain the requested path after approval. */
+export async function resolveExternalApprovalDirectory(filePath: string, isDirectory: boolean, context?: ToolExecutionContext): Promise<string> {
+  const target = resolvePathForContext(filePath, context)
+  const requestedDirectory = isDirectory ? target : path.dirname(target)
+  const existing = await nearestExisting(requestedDirectory)
+  const stat = await fs.stat(existing)
+  return stat.isDirectory() ? existing : path.dirname(existing)
 }
 
 export async function assertSafePath(filePath: string, context?: ToolExecutionContext): Promise<string> {

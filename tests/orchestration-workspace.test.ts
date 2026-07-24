@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execa } from 'execa'
 import { OrchestratorSession } from '../src/orchestration/index.js'
-import { resolveSafePath } from '../src/tools/shared/pathSafety.js'
+import { resolveExternalApprovalDirectory, resolveSafePath } from '../src/tools/shared/pathSafety.js'
 import { Shell } from '../src/tools/Shell/Shell.js'
 import { WriteFile } from '../src/tools/WriteFile/WriteFile.js'
 import { Git } from '../src/tools/Git/Git.js'
@@ -166,6 +166,30 @@ describe('task workspace isolation', () => {
     await writeFile(join(workspace, '.env'), 'secret')
     await symlink('.env', join(workspace, 'safe.txt'))
     await expect(resolveSafePath('safe.txt', context)).rejects.toThrow('sensitive')
+  })
+
+  it('limits approved external paths to their selected directory', async () => {
+    const workspace = await tempRoot('deepseek-mas-workspace-')
+    const external = await tempRoot('deepseek-mas-external-')
+    const sibling = await tempRoot('deepseek-mas-sibling-')
+    await mkdir(join(external, 'nested'))
+    await writeFile(join(external, 'nested', 'allowed.txt'), 'ok')
+    const context = {
+      sessionId: 's', workspacePath: workspace, projectRoot: workspace,
+      permissionProfile: 'coordinator-integrator' as const, approvedExternalPaths: [external],
+    }
+
+    expect(await resolveSafePath(join(external, 'nested', 'allowed.txt'), context)).toBe(join(external, 'nested', 'allowed.txt'))
+    const linkedExternal = join(workspace, 'linked-external')
+    await symlink(external, linkedExternal)
+    expect(await resolveSafePath(join(linkedExternal, 'nested', 'allowed.txt'), context)).toBe(join(linkedExternal, 'nested', 'allowed.txt'))
+    await expect(resolveSafePath(join(sibling, 'blocked.txt'), context)).rejects.toThrow('outside the working directory')
+    expect(await resolveExternalApprovalDirectory(join(external, 'new', 'file.txt'), false, context)).toBe(external)
+
+    await writeFile(join(external, '.env'), 'secret')
+    await expect(resolveSafePath(join(external, '.env'), context)).rejects.toThrow('sensitive')
+    await symlink(sibling, join(external, 'escape'))
+    await expect(resolveSafePath(join(external, 'escape', 'file.txt'), context)).rejects.toThrow('symlink')
   })
 
   it('reclaims an old incomplete filesystem lease', async () => {

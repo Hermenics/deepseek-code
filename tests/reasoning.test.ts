@@ -128,7 +128,7 @@ describe('reasoning_content', () => {
               tool_calls: [{
                 index: 0,
                 id: 'call_abc',
-                function: { name: 'read_file', arguments: '{"path":"/tmp/x.txt"}' },
+                function: { name: 'read_file', arguments: '{"path":"x.txt"}' },
               }],
             },
           }],
@@ -166,7 +166,7 @@ describe('reasoning_content', () => {
       const cb = makeCallbacks()
 
       // Act
-      await agent.run('Leia o arquivo /tmp/x.txt', cb)
+      await agent.run('Leia o arquivo x.txt', cb)
 
       // Assert — a mensagem assistant do primeiro turno DEVE ter reasoning_content (modelo é o reasoner)
       const messages = agent.getMessages()

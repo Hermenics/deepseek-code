@@ -218,6 +218,8 @@ export interface ToolExecutionContext {
   maxTokens?: number
   maxCostUsd?: number
   dangerousOperationApproved?: boolean
+  /** External filesystem roots explicitly approved for this agent session. */
+  approvedExternalPaths?: string[]
   session?: import('./OrchestratorSession.js').OrchestratorSession
   emit?(type: TaskEventType, payload: Record<string, unknown>): void
 }

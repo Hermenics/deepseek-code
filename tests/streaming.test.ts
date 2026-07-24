@@ -246,7 +246,7 @@ describe('Agent streaming callbacks', () => {
       const agent = new Agent()
       resolveReady(agent)
 
-      const toolArgs = { path: '/tmp/test.txt' }
+      const toolArgs = { path: 'test.txt' }
 
       // Stream que simula uma tool call completa (args chegam em chunks separados)
       const chunks = [
@@ -310,7 +310,7 @@ describe('Agent streaming callbacks', () => {
       const agent = new Agent()
       resolveReady(agent)
 
-      const toolArgs = { path: '/tmp/test.txt' }
+      const toolArgs = { path: 'test.txt' }
       const expectedResult = 'conteúdo do arquivo mockado'
 
       const chunks = [
