@@ -2,9 +2,11 @@ import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Github, Terminal, ArrowUpRight } from "lucide-react";
 import useNpmVersion from "@/lib/useNpmVersion";
+import useNpmDownloads from "@/lib/useNpmDownloads";
 
 export default function Header() {
   const version = useNpmVersion();
+  const downloads = useNpmDownloads();
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 20);
@@ -20,15 +22,15 @@ export default function Header() {
       transition={{ duration: 0.9, delay: 0.1, ease: [0.76, 0, 0.24, 1] }}
       className={`fixed top-0 left-0 right-0 z-50 transition-colors duration-500 ${scrolled ? "bg-void/80 backdrop-blur-xl border-b border-white/10" : ""}`}
     >
-      <div className="max-w-[1440px] mx-auto px-6 md:px-10 h-16 flex items-center justify-between">
-        <a href="#top" data-testid="brand-mark" className="flex items-center gap-2 font-mono text-[13px] tracking-tighter">
-          <Terminal className="w-4 h-4 text-neon-blue" strokeWidth={1.5} />
+      <div className="max-w-[1440px] mx-auto px-6 md:px-10 h-20 flex items-center justify-between">
+        <a href="#top" data-testid="brand-mark" className="flex shrink-0 items-center gap-2.5 whitespace-nowrap font-mono text-[15px] tracking-tighter">
+          <Terminal className="w-5 h-5 shrink-0 text-neon-blue" strokeWidth={1.5} />
           <span className="text-white">deepseek</span>
           <span className="text-white/40">/code</span>
-          <span className="ml-2 text-[10px] text-white/40 border border-white/10 px-1.5 py-0.5 tracking-widest">{version}</span>
+          <span className="ml-2 text-[11px] text-white/40 border border-white/10 px-2 py-1 tracking-widest">{version}</span>
         </a>
 
-        <nav className="hidden md:flex items-center gap-8 text-[11px] uppercase tracking-widest font-mono text-white/60">
+        <nav className="hidden md:flex items-center gap-10 text-[12px] uppercase tracking-widest font-mono text-white/60">
           <a href="#chapter-i" className="hover:text-white transition-colors">i. tools</a>
           <a href="#chapter-ii" className="hover:text-white transition-colors">ii. orchestration</a>
           <a href="#chapter-iii" className="hover:text-white transition-colors">iii. providers</a>
@@ -36,12 +38,18 @@ export default function Header() {
         </nav>
 
         <div className="flex items-center gap-3">
-          <a href="https://github.com/Hermenics/deepseek-code" target="_blank" rel="noreferrer" data-testid="header-github" className="hidden sm:flex items-center gap-2 text-[11px] uppercase tracking-widest font-mono text-white/70 hover:text-white transition-colors border border-white/10 hover:border-white/30 px-3 py-2">
-            <Github className="w-3.5 h-3.5" strokeWidth={1.5} />github
+          <a href="https://www.npmjs.com/package/@hermenics/deepseek-code" target="_blank" rel="noreferrer" data-testid="header-npm" title="npm downloads in the last year" className="hidden sm:flex items-center gap-2.5 text-[12px] uppercase tracking-widest font-mono text-white/70 hover:text-white transition-colors border border-white/10 hover:border-white/30 px-4 py-3">
+            <svg aria-hidden="true" viewBox="0 0 100 100" className="w-5 h-5 text-current">
+              <path d="M16 16h68v68H61V32H47v52H16z" fill="currentColor" />
+            </svg>
+            <span className="text-white/40">{downloads}</span>
           </a>
-          <a href="#quickstart" data-testid="header-install" className="group flex items-center gap-2 text-[11px] uppercase tracking-widest font-mono bg-white text-black hover:bg-neon-blue hover:text-white transition-colors px-4 py-2">
+          <a href="https://github.com/Hermenics/deepseek-code" target="_blank" rel="noreferrer" data-testid="header-github" className="hidden sm:flex items-center gap-2.5 text-[12px] uppercase tracking-widest font-mono text-white/70 hover:text-white transition-colors border border-white/10 hover:border-white/30 px-4 py-3">
+            <Github className="w-4 h-4" strokeWidth={1.5} />github
+          </a>
+          <a href="#quickstart" data-testid="header-install" className="group flex items-center gap-2.5 text-[12px] uppercase tracking-widest font-mono bg-white text-black hover:bg-neon-blue hover:text-white transition-colors px-5 py-3">
             install
-            <ArrowUpRight className="w-3.5 h-3.5 group-hover:translate-x-[2px] group-hover:-translate-y-[2px] transition-transform" strokeWidth={1.5} />
+            <ArrowUpRight className="w-4 h-4 group-hover:translate-x-[2px] group-hover:-translate-y-[2px] transition-transform" strokeWidth={1.5} />
           </a>
         </div>
       </div>
