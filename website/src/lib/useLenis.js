@@ -14,6 +14,24 @@ export default function useLenis() {
       touchMultiplier: 1.5,
     });
 
+    const onAnchorClick = (event) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!anchor) return;
+
+      const url = new URL(anchor.href, window.location.href);
+      if (url.origin !== window.location.origin || url.pathname !== window.location.pathname || !url.hash) return;
+
+      const target = document.querySelector(url.hash);
+      if (!target) return;
+
+      event.preventDefault();
+      window.history.pushState({}, "", url.hash);
+      lenis.scrollTo(target, { duration: 2.2, offset: -80 });
+    };
+
+    document.addEventListener("click", onAnchorClick);
+
     let raf;
     function loop(time) {
       lenis.raf(time);
@@ -22,6 +40,7 @@ export default function useLenis() {
     raf = requestAnimationFrame(loop);
 
     return () => {
+      document.removeEventListener("click", onAnchorClick);
       cancelAnimationFrame(raf);
       lenis.destroy();
     };
