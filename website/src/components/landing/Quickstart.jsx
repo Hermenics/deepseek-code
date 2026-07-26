@@ -52,7 +52,7 @@ export default function Quickstart() {
         </div>
 
         <div className="mt-16 grid md:grid-cols-2 gap-4 md:gap-6">
-          {[{ k: "or curl", v: "curl -fsSL get.deepseek.dev | sh" }, { k: "dev / source", v: "git clone && bun install && bun run dev" }].map((o) => (
+          {[{ k: "or curl", v: "curl -fsSL https://deepseek-code.vercel.app/install.sh | bash" }, { k: "dev / source", v: "git clone && bun install && bun run dev" }].map((o) => (
             <div key={o.k} className="border border-white/10 p-5 md:p-6 bg-void hover:border-white/25 transition-colors">
               <div className="text-[10px] uppercase tracking-widest font-mono text-white/40 mb-2">{o.k}</div>
               <div className="font-mono text-sm text-white/80 break-words">{o.v}</div>
