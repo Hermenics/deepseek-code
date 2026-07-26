@@ -1,0 +1,179 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+    --background: 0 0% 3.9%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 3.9%;
+    --card-foreground: 0 0% 98%;
+    --popover: 0 0% 3.9%;
+    --popover-foreground: 0 0% 98%;
+    --primary: 0 0% 98%;
+    --primary-foreground: 0 0% 9%;
+    --secondary: 0 0% 14.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 14.9%;
+    --muted-foreground: 0 0% 63.9%;
+    --accent: 0 0% 14.9%;
+    --accent-foreground: 0 0% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 14.9%;
+    --input: 0 0% 14.9%;
+    --ring: 0 0% 83.1%;
+    --radius: 0px;
+}
+
+* {
+    border-color: hsl(var(--border));
+}
+
+html,
+body {
+    background: #030303;
+    color: #ededed;
+    margin: 0;
+    padding: 0;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    font-family: "Outfit", ui-sans-serif, system-ui, sans-serif;
+    overflow-x: hidden;
+}
+
+body {
+    background-image:
+        radial-gradient(
+            circle at 20% 10%,
+            rgba(77, 107, 254, 0.06),
+            transparent 40%
+        ),
+        radial-gradient(
+            circle at 80% 60%,
+            rgba(0, 240, 255, 0.04),
+            transparent 40%
+        );
+    background-attachment: fixed;
+}
+
+/* Grain overlay */
+body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 100;
+    opacity: 0.05;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' /%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' /%3E%3C/svg%3E");
+}
+
+.font-serif {
+    font-family: "Playfair Display", ui-serif, Georgia, serif;
+}
+.font-sans {
+    font-family: "Outfit", ui-sans-serif, system-ui, sans-serif;
+}
+.font-mono {
+    font-family:
+        "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+        monospace;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+::-webkit-scrollbar-track {
+    background: #030303;
+}
+::-webkit-scrollbar-thumb {
+    background: #222;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: #4d6bfe;
+}
+
+/* Selection */
+::selection {
+    background: #4d6bfe;
+    color: #fff;
+}
+
+/* Blinking cursor */
+@keyframes blink {
+    0%,
+    49% {
+        opacity: 1;
+    }
+    50%,
+    100% {
+        opacity: 0;
+    }
+}
+.blink {
+    animation: blink 1s steps(1) infinite;
+}
+
+/* Marquee */
+@keyframes marquee {
+    from {
+        transform: translateX(0);
+    }
+    to {
+        transform: translateX(-50%);
+    }
+}
+.marquee-track {
+    animation: marquee 60s linear infinite;
+    will-change: transform;
+}
+
+/* Reveal helpers */
+.reveal-mask {
+    overflow: hidden;
+    display: inline-block;
+    vertical-align: bottom;
+    line-height: 1;
+}
+
+/* Lenis smooth scroll */
+html.lenis,
+html.lenis body {
+    height: auto;
+}
+.lenis.lenis-smooth {
+    scroll-behavior: auto !important;
+}
+.lenis.lenis-smooth [data-lenis-prevent] {
+    overscroll-behavior: contain;
+}
+.lenis.lenis-stopped {
+    overflow: hidden;
+}
+
+/* Diagonal noise stroke on outlined text (marquee) */
+.text-stroke {
+    -webkit-text-stroke: 1px rgba(237, 237, 237, 0.35);
+    color: transparent;
+}
+.text-stroke:hover {
+    color: #ededed;
+    -webkit-text-stroke: 1px rgba(237, 237, 237, 0);
+}
+
+/* Terminal spotlight */
+.terminal-glow {
+    position: absolute;
+    inset: -20% -10%;
+    background: radial-gradient(
+        ellipse at center,
+        rgba(77, 107, 254, 0.35),
+        rgba(0, 240, 255, 0.08) 40%,
+        transparent 70%
+    );
+    filter: blur(60px);
+    z-index: -1;
+    pointer-events: none;
+}
