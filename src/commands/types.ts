@@ -18,11 +18,15 @@ export type CommandResult =
   | { type: 'cost' }
   | { type: 'files' }
   | { type: 'tools' }
+  | { type: 'doctor' }
+  | { type: 'verify' }
+  | { type: 'catalog'; kind?: 'MCP' | 'Plugin' | 'Skill' }
   | { type: 'system' }
   | { type: 'checkpoint'; action: 'save'; label?: string }
   | { type: 'checkpoint'; action: 'list' }
   | { type: 'checkpoint'; action: 'restore'; id: string }
   | { type: 'sessions' }
+  | { type: 'sessions'; action: 'export'; id: string; format: 'json' | 'md' }
   | { type: 'plan'; task: string }
   | { type: 'review'; target: string }
   | { type: 'permissions' }

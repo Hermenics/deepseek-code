@@ -26,7 +26,7 @@ export function isReviewMode(mode: InteractionMode): boolean {
 
 // Ferramentas read-only permitidas em todos os modos
 const READ_ONLY_TOOLS = new Set([
-  'read_file', 'read_folder', 'glob', 'grep',
+  'read_file', 'read_folder', 'glob', 'grep', 'lsp',
   'web_fetch', 'introspect', 'todo', 'memory',
   'git',
 ])

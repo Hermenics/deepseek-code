@@ -51,6 +51,9 @@ Cycle: Plan -> Build -> Auto -> Plan
 - /cost — Show estimated session cost
 - /files — List files modified this session
 - /tools — List all available tools
+- /doctor — Check runtime, workspace, credentials and MCP setup
+- /verify — Run the detected project test command after confirmation
+- /catalog — Show curated MCP, plugin and skill recommendations
 - /system — Show active system prompt
 - /sessions — List recent sessions
 - /checkpoint [save|list|restore] — Manage session checkpoints
@@ -72,6 +75,7 @@ The agent has access to these tools:
 - read_folder — List directory contents (recursive option)
 - grep — Search regex pattern in files
 - glob — Find files by glob pattern
+- lsp — Read-only symbol navigation through user-configured language servers
 - shell — Execute shell commands
 - git — Execute git operations (status, diff, log, add, commit, branch, stash, pull, push)
 - web_fetch — Fetch content from a URL
@@ -126,6 +130,9 @@ Markdown files in .deepseek/steering/ are automatically injected into the system
 
 ## DEEPSEEK.md
 If a DEEPSEEK.md file exists in the working directory, its contents are injected into the system prompt on startup alongside steering files. The agent can update it via the update_knowledge tool.
+
+## AGENTS.md
+If the project root contains AGENTS.md, DeepSeek Code loads it as interoperable repository guidance alongside DEEPSEEK.md. Use AGENTS.md for rules shared with other coding agents; use DEEPSEEK.md for DeepSeek-specific durable knowledge.
 
 ## MCP Servers
 DeepSeek Code supports MCP (Model Context Protocol) servers. Tools from MCP servers are merged with native tools automatically.

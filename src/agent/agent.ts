@@ -12,7 +12,7 @@ import type { Model } from '../commands.js'
 import { loadAgentRegistry, type AgentConfig } from './config.js'
 import type { Tool } from '../tools/types.js'
 import { resolveAgentFiles } from './files.js'
-import { loadSteering, loadDeepSeekMd } from './steering.js'
+import { loadSteering, loadDeepSeekMd, loadAgentsMd } from './steering.js'
 import { setSessionRetention } from './session.js'
 import { loadMergedSettings } from '../settings/index.js'
 import type { DeepSeekSettings } from '../settings/types.js'
@@ -234,6 +234,7 @@ export class Agent {
   private turnWriteCount = 0
   private turnModifiedFiles: Set<string> = new Set()
   private diffReviewHandler: ((summary: string) => Promise<boolean>) | null = null
+  private verificationHandler: ((files: string[]) => Promise<void>) | null = null
   private allowedTools: string[] | '*' | null = null
   public interactionMode: InteractionMode = DEFAULT_MODE
   public effortLevel: EffortLevel = 'high'
@@ -268,6 +269,10 @@ export class Agent {
     this.diffReviewHandler = handler
   }
 
+  setVerificationHandler(handler: ((files: string[]) => Promise<void>) | null) {
+    this.verificationHandler = handler
+  }
+
   setPlanSubmitHandler(handler: ((planPath: string, summary?: string) => Promise<string>) | null) {
     this.planSubmitHandler = handler
   }
@@ -300,9 +305,10 @@ export class Agent {
 
   private async initialize(restorePersisted = true): Promise<void> {
     try {
-      const [steering, deepseekMd, settings, { tools: mcpTools, errors: mcpErrors }] = await Promise.all([
+      const [steering, deepseekMd, agentsMd, settings, { tools: mcpTools, errors: mcpErrors }] = await Promise.all([
         loadSteering(this.workspacePath),
         loadDeepSeekMd(this.workspacePath),
+        loadAgentsMd(this.workspacePath),
         loadMergedSettings(this.workspacePath),
         loadMcpTools(this.workspacePath),
       ])
@@ -328,6 +334,7 @@ export class Agent {
 
       const parts: string[] = []
       if (steering) parts.push(steering)
+      if (agentsMd) parts.push(`--- AGENTS.md ---\n${agentsMd}`)
       if (deepseekMd) parts.push(`--- DEEPSEEK.md ---\n${deepseekMd}`)
 
       const memorySnapshot = await this.orchestrator.memory.snapshot()
@@ -1372,6 +1379,9 @@ export class Agent {
           // The file list remains useful when the working directory is not a Git repository.
         }
         await this.diffReviewHandler(review)
+      }
+      if (this.settings.git?.verifyAfterEdit !== false && this.verificationHandler && this.turnModifiedFiles.size > 0) {
+        await this.verificationHandler([...this.turnModifiedFiles])
       }
     } finally {
       cb.onDone()

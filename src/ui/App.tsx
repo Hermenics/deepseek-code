@@ -243,6 +243,21 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [agent])
 
   useEffect(() => {
+    agent.setVerificationHandler(async (files) => {
+      const { detectVerificationCommand, runVerification } = await import('../agent/verify.js')
+      const command = await detectVerificationCommand(agent.getWorkingDirectory())
+      if (!command) return
+      const approved = await new Promise<boolean>((resolve) => {
+        setConfirmState({ message: `Files changed this turn:\n${files.map(file => `  ${file}`).join('\n')}\n\nRun verification?\n\n${command.display}`, resolve })
+      })
+      if (!approved) return
+      const result = await runVerification(command, agent.getWorkingDirectory())
+      setMessages((m) => [...m, { role: 'assistant', content: `${result.ok ? '✓' : '✗'} ${command.display}\n\n${result.output}` }])
+    })
+    return () => agent.setVerificationHandler(null)
+  }, [agent])
+
+  useEffect(() => {
     agent.setPlanSubmitHandler(async (planPath: string, summary?: string) => {
       const { readFile } = await import('fs/promises')
       let planContent = ''
@@ -269,7 +284,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   useEffect(() => {
     const init = async () => {
-      // Wait for async initialization (MCP tools, steering, DEEPSEEK.md) to complete
+      // Wait for async initialization (MCP tools, steering, AGENTS.md, DEEPSEEK.md) to complete
       await agent.readyPromise.catch(() => {})
       if (language) {
         agent.setLanguage(language)
@@ -747,6 +762,44 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setMessages((m) => [...m, { role: 'assistant', content: lines.join('\n') }])
           return
         }
+        case 'doctor': {
+          const { formatDoctorReport, runDoctor } = await import('../doctor.js')
+          setIsLoading(true)
+          try {
+            const report = await runDoctor(agent.getWorkingDirectory())
+            setMessages((m) => [...m, { role: 'assistant', content: formatDoctorReport(report) }])
+          } finally {
+            setIsLoading(false)
+          }
+          return
+        }
+        case 'verify': {
+          const { detectVerificationCommand, runVerification } = await import('../agent/verify.js')
+          const command = await detectVerificationCommand(agent.getWorkingDirectory())
+          if (!command) {
+            setMessages((m) => [...m, { role: 'assistant', content: 'No supported project test command found.' }])
+            return
+          }
+          const approved = await new Promise<boolean>((resolve) => {
+            setConfirmState({ message: `Run verification?\n\n${command.display}`, resolve })
+          })
+          if (!approved) return
+          setIsLoading(true)
+          try {
+            const result = await runVerification(command, agent.getWorkingDirectory())
+            setMessages((m) => [...m, { role: 'assistant', content: `${result.ok ? '✓' : '✗'} ${command.display}\n\n${result.output}` }])
+          } catch (error) {
+            setMessages((m) => [...m, { role: 'assistant', content: `✗ ${command.display}\n\n${(error as Error).message}` }])
+          } finally {
+            setIsLoading(false)
+          }
+          return
+        }
+        case 'catalog': {
+          const { formatCatalog } = await import('../catalog.js')
+          setMessages((m) => [...m, { role: 'assistant', content: formatCatalog(cmd.kind) }])
+          return
+        }
         case 'system': {
           const prompt = agent.getSystemPrompt()
           const preview = prompt.length > 2000 ? prompt.slice(0, 2000) + '\n\n...(truncated)' : prompt
@@ -772,6 +825,16 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           return
         }
         case 'sessions': {
+          if ('action' in cmd && cmd.action === 'export') {
+            try {
+              const { exportSession } = await import('../agent/session.js')
+              const path = await exportSession(cmd.id, cmd.format, agent.getWorkingDirectory())
+              setMessages((m) => [...m, { role: 'assistant', content: `Sanitized session export written to ${path}` }])
+            } catch (error) {
+              setMessages((m) => [...m, { role: 'assistant', content: `✗ ${(error as Error).message}` }])
+            }
+            return
+          }
           const { listSessions } = await import('../agent/session.js')
           const sessions = await listSessions()
           if (!sessions.length) {
@@ -782,7 +845,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               const msgs = s.uiMessages.filter((m) => m.role === 'user').length
               return `  ${s.id}  ${date}  ${msgs} messages  ${s.cwd}`
             })
-            setMessages((m) => [...m, { role: 'assistant', content: `Recent sessions:\n${lines.join('\n')}\n\nResume: deepseek --resume <id>` }])
+            setMessages((m) => [...m, { role: 'assistant', content: `Recent sessions:\n${lines.join('\n')}\n\nResume: deepseek --resume <id>\nExport: /sessions export <id> [json|md]` }])
           }
           return
         }

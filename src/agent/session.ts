@@ -1,10 +1,11 @@
 import { join } from 'path'
 import { homedir } from 'os'
-import { mkdir, readdir, unlink, rm } from 'fs/promises'
+import { mkdir, readdir, unlink, rm, writeFile } from 'fs/promises'
 import { randomBytes } from 'crypto'
 import { readJson, writeRaw } from '../utils/fs.js'
 import type { MessageOrBoundary } from './compactBoundary.js'
 import type { Message } from '../ui/App.js'
+import { redactSecrets } from '../orchestration/events.js'
 
 function getSessionsDir(): string {
   return join(process.env.HOME || homedir(), '.deepseek', 'sessions')
@@ -91,4 +92,39 @@ export async function clearSessions(scope: 'project' | 'global', cwd = process.c
 
 export async function getLastProjectSession(cwd = process.cwd()): Promise<SessionData | null> {
   return (await listSessions()).find(session => session.cwd === cwd) ?? null
+}
+
+export type SessionExportFormat = 'json' | 'md'
+const SESSION_ID = /^[a-f0-9]{12}$/i
+
+function formatExportMessage(message: Message): string {
+  const title = message.role[0]!.toUpperCase() + message.role.slice(1)
+  return `## ${title}\n\n${String(redactSecrets(message.content))}`
+}
+
+export function formatSessionExport(session: SessionData, format: SessionExportFormat): string {
+  const sanitized = redactSecrets(session) as SessionData
+  if (format === 'json') return `${JSON.stringify(sanitized, null, 2)}\n`
+  return [
+    '# DeepSeek Code session',
+    '',
+    `- ID: ${sanitized.id}`,
+    `- Updated: ${sanitized.updatedAt}`,
+    `- Workspace: ${sanitized.cwd}`,
+    `- Provider/model: ${sanitized.provider} / ${sanitized.model}`,
+    '',
+    ...sanitized.uiMessages.map(formatExportMessage),
+    '',
+  ].join('\n')
+}
+
+export async function exportSession(id: string, format: SessionExportFormat, cwd = process.cwd()): Promise<string> {
+  if (!SESSION_ID.test(id)) throw new Error('Invalid session ID.')
+  const session = await loadSession(id)
+  if (!session) throw new Error(`Session ${id} not found.`)
+  const dir = join(cwd, '.deepseek')
+  const path = join(dir, `session-${id}.sanitized.${format}`)
+  await mkdir(dir, { recursive: true })
+  await writeFile(path, formatSessionExport(session, format), { encoding: 'utf8', mode: 0o600 })
+  return path
 }

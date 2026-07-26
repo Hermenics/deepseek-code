@@ -22,12 +22,15 @@ export const HELP_TEXT = `Commands:
   /agents                list custom agents
   /vim                   toggle Vim input mode
   /checkpoint [save [label]|list|restore <id>]
-  /sessions              list recent sessions
+  /sessions [export <id> [json|md]]  list or export a sanitized session
   /undo [all|list]       restore agent file changes
   /retry                 rerun the last message
   /cost                  show estimated cost
   /files                 list session file changes
   /tools                 list available tools
+  /doctor                check runtime, workspace, credentials and MCP setup
+  /verify (or /test)     run the detected project test command
+  /catalog [mcp|plugin|skill]  show curated integrations
   /system                show the system prompt
   /permissions           show tool permissions
   /btw <question>        ask a side question
