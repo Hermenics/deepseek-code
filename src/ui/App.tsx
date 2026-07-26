@@ -920,19 +920,16 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           return
         }
         case 'memory': {
-          const { loadMemory } = await import('../agent/memory.js')
+          await agent.readyPromise
           if ((cmd as any).action === 'clear') {
             const target = (cmd as any).target
-            const { writeFile } = await import('fs/promises')
-            const { join } = await import('path')
-            const { getMemoryDir } = await import('../agent/memory.js')
-            const dir = getMemoryDir()
-            if (!target || target === 'agent') await writeFile(join(dir, 'MEMORY.md'), '', 'utf-8').catch(() => {})
-            if (!target || target === 'user') await writeFile(join(dir, 'USER.md'), '', 'utf-8').catch(() => {})
+            await agent.orchestrator.memory.clear(target)
             setMessages((m) => [...m, { role: 'assistant', content: `Memory cleared${target ? ` (${target})` : ''}.` }])
           } else {
-            const agentEntries = await loadMemory('agent')
-            const userEntries = await loadMemory('user')
+            const [agentEntries, userEntries] = await Promise.all([
+              agent.orchestrator.memory.load('agent'),
+              agent.orchestrator.memory.load('user'),
+            ])
             const lines: string[] = []
             lines.push('**Agent Memory** (' + agentEntries.length + ' entries)')
             if (agentEntries.length) agentEntries.forEach((e, i) => lines.push(`  ${i + 1}. ${e}`))

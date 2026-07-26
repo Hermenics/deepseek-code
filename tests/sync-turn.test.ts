@@ -56,7 +56,7 @@ describe('syncTurn', () => {
 
   it('extracts fact and saves via addEntry on normal turn', async () => {
     const agent = makeAgent()
-    const createFn = mock(() => Promise.resolve(makeChatResponse('User prefers TypeScript')))
+    const createFn = mock(() => Promise.resolve(makeChatResponse('{"kind":"user_preference","fact":"User prefers TypeScript"}')))
     injectMockClient(agent, { chat: { completions: { create: createFn } } })
     injectMessages(agent, [
       { role: 'user', content: 'I always use TypeScript' },
@@ -72,14 +72,30 @@ describe('syncTurn', () => {
 
     expect(createFn).toHaveBeenCalledTimes(1)
 
-    // Verify fact was written to memory
-    const entries = await agent.orchestrator.memory.load('agent')
+    // Verify user preferences are stored separately from project facts
+    const entries = await agent.orchestrator.memory.load('user')
     expect(entries).toContain('User prefers TypeScript')
+  })
+
+  it('saves project facts to agent memory', async () => {
+    const agent = makeAgent()
+    const createFn = mock(() => Promise.resolve(makeChatResponse('{"kind":"project_fact","fact":"Project uses Bun runtime"}')))
+    injectMockClient(agent, { chat: { completions: { create: createFn } } })
+    injectMessages(agent, [
+      { role: 'user', content: 'The project uses Bun' }, { role: 'assistant', content: 'Noted' },
+      { role: 'user', content: 'Keep that in mind' }, { role: 'assistant', content: 'Will do' },
+    ])
+
+    callSyncTurn(agent)
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(await agent.orchestrator.memory.load('agent')).toEqual(['Project uses Bun runtime'])
+    expect(await agent.orchestrator.memory.load('user')).toEqual([])
   })
 
   it('does not save when LLM responds "NONE"', async () => {
     const agent = makeAgent()
-    const createFn = mock(() => Promise.resolve(makeChatResponse('NONE')))
+    const createFn = mock(() => Promise.resolve(makeChatResponse('{"kind":"none","fact":""}')))
     injectMockClient(agent, { chat: { completions: { create: createFn } } })
     injectMessages(agent, [
       { role: 'user', content: 'hello' },
@@ -98,7 +114,7 @@ describe('syncTurn', () => {
 
   it('does not save when LLM response exceeds 100 chars', async () => {
     const agent = makeAgent()
-    const longFact = 'A'.repeat(101)
+    const longFact = JSON.stringify({ kind: 'project_fact', fact: 'A'.repeat(101) })
     const createFn = mock(() => Promise.resolve(makeChatResponse(longFact)))
     injectMockClient(agent, { chat: { completions: { create: createFn } } })
     injectMessages(agent, [
@@ -114,6 +130,27 @@ describe('syncTurn', () => {
     expect(createFn).toHaveBeenCalledTimes(1)
     const entries = await agent.orchestrator.memory.load('agent')
     expect(entries).toEqual([])
+  })
+
+  it('does not save greetings or instruction-like facts', async () => {
+    const agent = makeAgent()
+    const responses = [
+      makeChatResponse('{"kind":"project_fact","fact":"Fala, Marcelo! To on."}'),
+      makeChatResponse('{"kind":"user_preference","fact":"No need for restrictions with Marcelo."}'),
+    ]
+    const createFn = mock(() => Promise.resolve(responses.shift()))
+    injectMockClient(agent, { chat: { completions: { create: createFn } } })
+    injectMessages(agent, [
+      { role: 'user', content: 'hello' }, { role: 'assistant', content: 'hi' },
+      { role: 'user', content: 'more' }, { role: 'assistant', content: 'reply' },
+    ])
+
+    callSyncTurn(agent)
+    callSyncTurn(agent)
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(createFn).toHaveBeenCalledTimes(2)
+    expect(await agent.orchestrator.memory.load('agent')).toEqual([])
   })
 
   it('silences errors without throwing', async () => {
