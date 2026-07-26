@@ -110,7 +110,21 @@ export interface GitSettings {
   worktree?: 'off' | 'ask' | 'auto'
   branchPattern?: string
   reviewDiff?: boolean
+  verifyAfterEdit?: boolean
   generatedPatterns?: string[]
+}
+
+export interface LspServerSettings {
+  name: string
+  command: string
+  args?: string[]
+  extensions: string[]
+  languageId?: string
+}
+
+export interface LspSettings {
+  servers?: LspServerSettings[]
+  timeoutMs?: number
 }
 
 export type StatusBarItem = 'mode' | 'model' | 'tokens' | 'branch' | 'context'
@@ -141,6 +155,8 @@ export interface DeepSeekSettings {
   memory?: MemorySettings
   sessions?: SessionsSettings
   git?: GitSettings
+  /** User-scoped executable language-server configuration. */
+  lsp?: LspSettings
   interface?: InterfaceSettings
   hooks?: HooksConfig
 

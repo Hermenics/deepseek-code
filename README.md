@@ -33,6 +33,8 @@
 - **Unified agents** — scoped primary agents and sub-agents with editable base prompts
 - **Settings center** — fullscreen, searchable User/Project/Local configuration with visible origins
 - **MCP support** — connect to any Model Context Protocol server for extended tooling
+- **Project guidance** — loads a root `AGENTS.md` alongside `DEEPSEEK.md`
+- **Optional LSP navigation** — user-configured language servers expose definitions, references, hover, and symbols to the agent
 - **Extensible** — slash commands, custom tools, memory, sessions, themes
 
 ## Quick start
@@ -89,6 +91,10 @@ Each provider also exposes provider-specific models (Bedrock, Vertex, local).
 | `/vim` | Toggle vim keybindings |
 | `/theme` | Change color theme |
 | `/tools` | List available tools |
+| `/doctor` | Check runtime, workspace, credentials, settings, and MCP configuration |
+| `/verify` | Run the detected project test command |
+| `/sessions export <id> [json\|md]` | Export a sanitized session transcript |
+| `/catalog`, `/marketplace` | Browse curated MCP, plugin, and skill integrations |
 | `/permissions` | Explain mode, allow/deny rules, risk checks, and session approvals |
 | `/config`, `/settings` | Open the fullscreen settings center |
 | `/help` | Show all commands |

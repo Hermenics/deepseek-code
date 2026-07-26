@@ -33,3 +33,17 @@ export async function loadDeepSeekMd(cwd = process.cwd()): Promise<string> {
   }
   return parts.join('\n\n')
 }
+
+/**
+ * Load the interoperable project instructions file used by coding agents.
+ * DEEPSEEK.md remains DeepSeek-specific knowledge; AGENTS.md is user-authored
+ * repository guidance shared with other CLIs.
+ */
+export async function loadAgentsMd(cwd = process.cwd()): Promise<string> {
+  try {
+    const content = await readFile(join(cwd, 'AGENTS.md'), 'utf-8')
+    return content.trim()
+  } catch {
+    return ''
+  }
+}

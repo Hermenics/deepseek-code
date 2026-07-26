@@ -81,7 +81,7 @@ export default async function runPipe() {
 
   const agent = new Agent(providerConfig ?? { provider: 'deepseek' })
 
-  // Wait for async initialization (MCP tools, steering, DEEPSEEK.md) before running
+  // Wait for async initialization (MCP tools, steering, AGENTS.md, DEEPSEEK.md) before running
   await agent.readyPromise.catch(() => {})
 
   // Apply language preference if configured
