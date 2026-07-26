@@ -8,15 +8,15 @@ import type { PermissionProfile } from '../../orchestration/types.js'
 export type SubAgentRole = 'reader' | 'writer' | 'executor' | 'reviewer' | 'unrestricted'
 
 const ROLE_TOOLS: Record<SubAgentRole, Set<string> | '*'> = {
-  reader: new Set(['read_file', 'read_folder', 'grep', 'glob', 'web_fetch', 'introspect']),
+  reader: new Set(['read_file', 'read_folder', 'grep', 'glob', 'lsp', 'web_fetch', 'introspect']),
   writer: new Set(['read_file', 'read_folder', 'grep', 'glob', 'write_file', 'patch_file', 'introspect']),
   executor: new Set(['read_file', 'read_folder', 'grep', 'glob', 'write_file', 'patch_file', 'shell', 'web_fetch', 'introspect']),
-  reviewer: new Set(['read_file', 'read_folder', 'grep', 'glob', 'introspect']),
+  reviewer: new Set(['read_file', 'read_folder', 'grep', 'glob', 'lsp', 'introspect']),
   unrestricted: '*',
 }
 
 const PROFILE_TOOLS: Record<PermissionProfile, Set<string> | '*'> = {
-  'researcher-readonly': new Set(['read_file', 'read_folder', 'grep', 'glob', 'web_fetch', 'introspect']),
+  'researcher-readonly': new Set(['read_file', 'read_folder', 'grep', 'glob', 'lsp', 'web_fetch', 'introspect']),
   tester: new Set(['read_file', 'read_folder', 'grep', 'glob', 'shell', 'introspect']),
   'writer-worktree': new Set(['read_file', 'read_folder', 'grep', 'glob', 'write_file', 'patch_file', 'edit_file', 'shell', 'introspect']),
   'coordinator-integrator': '*',

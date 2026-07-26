@@ -29,8 +29,10 @@ export const DEFAULT_SETTINGS: DeepSeekSettings = {
     worktree: 'ask',
     branchPattern: 'deepseek/{slug}-{shortId}',
     reviewDiff: false,
+    verifyAfterEdit: true,
     generatedPatterns: [],
   },
+  lsp: { servers: [], timeoutMs: 10_000 },
   interface: {
     theme: 'dark',
     vim: false,
@@ -47,7 +49,7 @@ export const DEFAULT_SETTINGS: DeepSeekSettings = {
 
 const KNOWN_TOP_LEVEL = new Set([
   'provider', 'model', 'interaction', 'compaction', 'promptRefiner',
-  'permissions', 'risk', 'agents', 'memory', 'sessions', 'git', 'interface',
+  'permissions', 'risk', 'agents', 'memory', 'sessions', 'git', 'lsp', 'interface',
   'hooks', 'theme', 'language', 'autoCompact', 'autoCompactThreshold',
 ])
 
@@ -301,8 +303,24 @@ export function validateSettings(settings: DeepSeekSettings, level?: SettingsLev
     if (sessionStart !== undefined && !Array.isArray(sessionStart)) add('hooks.SessionStart', 'Must be an array')
     else (sessionStart ?? []).forEach((hook, index) => validateHook(hook, `hooks.SessionStart.${index}`))
   }
+  const lsp = settings.lsp as unknown
+  if (lsp !== undefined && !isObject(lsp)) add('lsp', 'Must be an object')
+  if (isObject(lsp)) {
+    if (lsp.timeoutMs !== undefined && (typeof lsp.timeoutMs !== 'number' || !Number.isFinite(lsp.timeoutMs) || lsp.timeoutMs < 100 || lsp.timeoutMs > 60_000)) add('lsp.timeoutMs', 'Must be between 100 and 60000 milliseconds')
+    if (lsp.servers !== undefined && !Array.isArray(lsp.servers)) add('lsp.servers', 'Must be an array')
+    for (const [index, server] of (Array.isArray(lsp.servers) ? lsp.servers : []).entries()) {
+      const path = `lsp.servers.${index}`
+      if (!isObject(server)) { add(path, 'Must be a server object'); continue }
+      if (typeof server.name !== 'string' || !server.name.trim()) add(`${path}.name`, 'Name cannot be empty')
+      if (typeof server.command !== 'string' || !server.command.trim()) add(`${path}.command`, 'Command cannot be empty')
+      if (!Array.isArray(server.extensions) || server.extensions.some(extension => typeof extension !== 'string' || !extension.startsWith('.'))) add(`${path}.extensions`, 'Must be extensions beginning with a dot')
+      if (server.args !== undefined && (!Array.isArray(server.args) || server.args.some(arg => typeof arg !== 'string'))) add(`${path}.args`, 'Must be an array of strings')
+      if (server.languageId !== undefined && typeof server.languageId !== 'string') add(`${path}.languageId`, 'Must be a string')
+    }
+  }
   if (level !== 'user' && settings.interaction?.defaultMode === 'auto') add('interaction.defaultMode', 'Auto can only be selected at User scope')
   if (level !== 'user' && settings.hooks && Object.keys(settings.hooks).length > 0) add('hooks', 'Executable hooks are ignored outside User scope', 'warning')
+  if (level !== 'user' && settings.lsp && Object.keys(settings.lsp).length > 0) add('lsp', 'Language-server commands are ignored outside User scope', 'warning')
   if (settings.git?.branchPattern !== undefined && !settings.git.branchPattern.includes('{shortId}')) add('git.branchPattern', 'Include {shortId} to keep branch names unique', 'warning')
   return issues
 }
@@ -314,6 +332,7 @@ export async function loadSettingsSnapshot(cwd?: string): Promise<SettingsSnapsh
   const safeScopedLevel = (data: DeepSeekSettings): DeepSeekSettings => {
     const safe = clone(data)
     safe.hooks = undefined
+    safe.lsp = undefined
     if (safe.interaction?.defaultMode === 'auto') delete safe.interaction.defaultMode
     return safe
   }
@@ -399,7 +418,7 @@ export function resolveSetting(snapshot: SettingsSnapshot, path: string): Settin
     ...LEVELS.flatMap(level => {
     const value = getAtPath(snapshot.levels[level].data, path)
     if (level !== 'user' && path === 'interaction.defaultMode' && value === 'auto') return []
-    if (level !== 'user' && path.startsWith('hooks.')) return []
+    if (level !== 'user' && (path.startsWith('hooks.') || path.startsWith('lsp.'))) return []
     return value === undefined ? [] : [{ level, value }]
     }),
   ]

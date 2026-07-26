@@ -18,6 +18,9 @@ import retry from './retry/index.js'
 import cost from './cost/index.js'
 import files from './files/index.js'
 import tools from './tools/index.js'
+import doctor from './doctor/index.js'
+import verify from './verify/index.js'
+import catalog from './catalog/index.js'
 import system from './system/index.js'
 import permissions from './permissions/index.js'
 import btw from './btw/index.js'
@@ -54,6 +57,9 @@ const commands: Command[] = [
   cost,
   files,
   tools,
+  doctor,
+  verify,
+  catalog,
   system,
   permissions,
   btw,

@@ -129,6 +129,7 @@ describe('SettingsRepository', () => {
     await writeFile(join(dir, 'settings.json'), JSON.stringify({
       interaction: { defaultMode: 'auto' },
       hooks: { SessionStart: [{ command: 'echo unsafe' }] },
+      lsp: { servers: [{ name: 'unsafe', command: 'echo', extensions: ['.ts'] }] },
     }))
     let snapshot
     try {
@@ -138,7 +139,9 @@ describe('SettingsRepository', () => {
     }
     expect(snapshot.effective.interaction?.defaultMode).toBe('build')
     expect(snapshot.effective.hooks?.SessionStart).toBeUndefined()
+    expect(snapshot.effective.lsp?.servers).toEqual([])
     expect(snapshot.issues.some(issue => issue.path === 'interaction.defaultMode')).toBe(true)
+    expect(snapshot.issues.some(issue => issue.path === 'lsp')).toBe(true)
   })
 
   it('removes secret-shaped keys from exports', async () => {

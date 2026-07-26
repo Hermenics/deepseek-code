@@ -72,7 +72,7 @@ if (process.env.NODE_ENV === 'development') {
 
 // Set terminal title
 process.title = 'deepseek'
-process.stdout.write('\x1b]0;DeepSeek\x07')
+if (process.stdout.isTTY) process.stdout.write('\x1b]0;DeepSeek\x07')
 
 import { useState, useEffect } from 'react'
 import { createRoot } from '../ink/root.js'
@@ -89,28 +89,31 @@ import { loadMergedSettings } from '../settings/loader.js'
 import type { DeepSeekSettings } from '../settings/types.js'
 import pkg from '../../package.json' with { type: 'json' }
 
-function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; update: boolean; logout: boolean; help: boolean; version: boolean } {
+function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; update: boolean; logout: boolean; doctor: boolean; help: boolean; version: boolean } {
   const args = process.argv.slice(2).filter((a) => a !== '--pipe' && a !== '--json')
   if (args[0] === 'update') {
-    return { agentName: null, initialMessage: null, resumeId: null, update: true, logout: false, help: false, version: false }
+    return { agentName: null, initialMessage: null, resumeId: null, update: true, logout: false, doctor: false, help: false, version: false }
   }
   if (args[0] === 'logout') {
-    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: true, help: false, version: false }
+    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: true, doctor: false, help: false, version: false }
+  }
+  if (args[0] === 'doctor') {
+    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: false, doctor: true, help: false, version: false }
   }
   if (args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
-    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: false, help: true, version: false }
+    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: false, doctor: false, help: true, version: false }
   }
   if (args[0] === 'version' || args[0] === 'v' || args[0] === '--version' || args[0] === '-v') {
-    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: false, help: false, version: true }
+    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: false, doctor: false, help: false, version: true }
   }
   const resumeIdx = args.indexOf('--resume')
   if (resumeIdx !== -1) {
-    return { agentName: null, initialMessage: null, resumeId: args[resumeIdx + 1] ?? null, update: false, logout: false, help: false, version: false }
+    return { agentName: null, initialMessage: null, resumeId: args[resumeIdx + 1] ?? null, update: false, logout: false, doctor: false, help: false, version: false }
   }
   if (args[0] === 'agent') {
-    return { agentName: args[1] ?? null, initialMessage: args[2] ?? null, resumeId: null, update: false, logout: false, help: false, version: false }
+    return { agentName: args[1] ?? null, initialMessage: args[2] ?? null, resumeId: null, update: false, logout: false, doctor: false, help: false, version: false }
   }
-  return { agentName: null, initialMessage: args[0] ?? null, resumeId: null, update: false, logout: false, help: false, version: false }
+  return { agentName: null, initialMessage: args[0] ?? null, resumeId: null, update: false, logout: false, doctor: false, help: false, version: false }
 }
 
 // Parse once at startup — reused by Root component
@@ -118,6 +121,13 @@ const ARGV = parseArgv()
 
 // ── deepseek update ───────────────────────────────────────────────────────────
 const { update, logout } = ARGV
+
+if (ARGV.doctor) {
+  const { formatDoctorReport, runDoctor } = await import('../doctor.js')
+  const report = await runDoctor()
+  process.stdout.write(`${formatDoctorReport(report)}\n`)
+  process.exit(report.checks.some(check => !check.ok) ? 1 : 0)
+}
 
 if (ARGV.version) {
   process.stdout.write(`${pkg.version}\n`)
@@ -135,6 +145,7 @@ Usage:
   deepseek agent <name>             Load a custom agent
   deepseek agent <name> "message"   Load agent with initial message
   deepseek --resume <session-id>    Resume a previous session
+  deepseek doctor                   Diagnose local setup
   deepseek update                   Update to latest version
   deepseek logout                   Remove saved credentials
   deepseek help                     Show this help
