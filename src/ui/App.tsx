@@ -952,12 +952,27 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             try {
               const { listSkills } = await import('../skills/installer.js')
               const { join } = await import('path')
-              const skills = await listSkills(join(agent.getWorkingDirectory(), '.claude', 'skills'))
-              if (!skills.length) {
+              const cwd = agent.getWorkingDirectory()
+              const primary = join(cwd, '.deepseek', 'skills')
+              const legacy = join(cwd, '.claude', 'skills')
+              const [primarySkills, legacySkills] = await Promise.all([
+                listSkills(primary).catch(() => []),
+                listSkills(legacy).catch(() => []),
+              ])
+              const merged = [...primarySkills]
+              const migrated: string[] = []
+              for (const ls of legacySkills) {
+                if (!merged.some(s => s.name === ls.name)) {
+                  merged.push(ls)
+                  migrated.push(ls.name)
+                }
+              }
+              if (!merged.length) {
                 setMessages((m) => [...m, { role: 'assistant', content: 'No skills installed via /skill. Use /skill install <owner/repo> to add one.' }])
               } else {
-                const lines = skills.map((s) => `  ${s.name}  (${s.repo})  ${s.description}`)
-                setMessages((m) => [...m, { role: 'assistant', content: `Installed skills:\n${lines.join('\n')}` }])
+                const lines = merged.map((s) => `  ${s.name}  (${s.repo})  ${s.description}`)
+                const notice = migrated.length ? `\n\n⚠️ ${migrated.join(', ')} still in legacy .claude/skills. Reinstall to migrate to .deepseek/skills.` : ''
+                setMessages((m) => [...m, { role: 'assistant', content: `Installed skills:\n${lines.join('\n')}${notice}` }])
               }
             } catch (e) {
               setMessages((m) => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
@@ -968,13 +983,26 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             setMessages((m) => [...m, { role: 'assistant', content: `Installing skill from ${cmd.repo}...` }])
             setIsLoading(true)
             try {
-              const { installSkill } = await import('../skills/installer.js')
+              const { installSkill, listSkills } = await import('../skills/installer.js')
               const { join } = await import('path')
-              const result = await installSkill(cmd.repo, join(agent.getWorkingDirectory(), '.claude', 'skills'))
-              if (result.ok) {
-                setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${result.name}' installed successfully.` }])
+              const cwd = agent.getWorkingDirectory()
+              const primary = join(cwd, '.deepseek', 'skills')
+              const legacy = join(cwd, '.claude', 'skills')
+              const [primarySkills, legacySkills] = await Promise.all([
+                listSkills(primary).catch(() => []),
+                listSkills(legacy).catch(() => []),
+              ])
+              const nameFromRepo = cmd.repo.split('/')[1]
+              if (nameFromRepo && [...primarySkills, ...legacySkills].some(s => s.name === nameFromRepo)) {
+                setMessages((m) => [...m, { role: 'assistant', content: `✗ Skill from '${cmd.repo}' already installed (found in .deepseek/skills or legacy .claude/skills). Use /skill update or remove first.` }])
+                setIsLoading(false)
               } else {
-                setMessages((m) => [...m, { role: 'assistant', content: `✗ ${result.error}` }])
+                const result = await installSkill(cmd.repo, primary)
+                if (result.ok) {
+                  setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${result.name}' installed successfully.` }])
+                } else {
+                  setMessages((m) => [...m, { role: 'assistant', content: `✗ ${result.error}` }])
+                }
               }
             } catch (e) {
               setMessages((m) => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
@@ -986,11 +1014,15 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             try {
               const { removeSkill } = await import('../skills/installer.js')
               const { join } = await import('path')
-              const result = await removeSkill(cmd.name, join(agent.getWorkingDirectory(), '.claude', 'skills'))
+              const cwd = agent.getWorkingDirectory()
+              const primary = join(cwd, '.deepseek', 'skills')
+              const legacy = join(cwd, '.claude', 'skills')
+              let result = await removeSkill(cmd.name, primary)
+              if (!result.ok) result = await removeSkill(cmd.name, legacy)
               if (result.ok) {
                 setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${result.name}' removed.` }])
               } else {
-                setMessages((m) => [...m, { role: 'assistant', content: `✗ ${result.error}` }])
+                setMessages((m) => [...m, { role: 'assistant', content: `✗ Skill '${cmd.name}' not found in .deepseek/skills or .claude/skills.` }])
               }
             } catch (e) {
               setMessages((m) => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
@@ -998,12 +1030,27 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               setIsLoading(false)
             }
           } else if (cmd.action === 'update') {
-            setMessages((m) => [...m, { role: 'assistant', content: `Updating skill '${cmd.name}'...` }])
             setIsLoading(true)
             try {
-              const { updateSkill } = await import('../skills/installer.js')
+              const { updateSkill, installSkill, removeSkill } = await import('../skills/installer.js')
               const { join } = await import('path')
-              const result = await updateSkill(cmd.name, join(agent.getWorkingDirectory(), '.claude', 'skills'))
+              const cwd = agent.getWorkingDirectory()
+              const primary = join(cwd, '.deepseek', 'skills')
+              const legacy = join(cwd, '.claude', 'skills')
+              let result = await updateSkill(cmd.name, primary)
+              if (!result.ok) {
+                result = await updateSkill(cmd.name, legacy)
+                if (result.ok) {
+                  const { readRegistry } = await import('../skills/registry.js')
+                  const reg = readRegistry(legacy)
+                  const entry = reg.skills[cmd.name]
+                  await installSkill(entry.repo, primary)
+                  await removeSkill(cmd.name, legacy)
+                  setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${cmd.name}' migrated from .claude/skills to .deepseek/skills and updated.` }])
+                  setIsLoading(false)
+                  return
+                }
+              }
               if (result.ok) {
                 setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${result.name}' updated.` }])
               } else {
