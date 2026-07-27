@@ -952,7 +952,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             try {
               const { listSkills } = await import('../skills/installer.js')
               const { join } = await import('path')
-              const skills = await listSkills(join(agent.getWorkingDirectory(), '.claude', 'skills'))
+              const skills = await listSkills(join(agent.getWorkingDirectory(), '.deepseek', 'skills'))
               if (!skills.length) {
                 setMessages((m) => [...m, { role: 'assistant', content: 'No skills installed via /skill. Use /skill install <owner/repo> to add one.' }])
               } else {
@@ -970,7 +970,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             try {
               const { installSkill } = await import('../skills/installer.js')
               const { join } = await import('path')
-              const result = await installSkill(cmd.repo, join(agent.getWorkingDirectory(), '.claude', 'skills'))
+              const result = await installSkill(cmd.repo, join(agent.getWorkingDirectory(), '.deepseek', 'skills'))
               if (result.ok) {
                 setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${result.name}' installed successfully.` }])
               } else {
@@ -986,7 +986,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             try {
               const { removeSkill } = await import('../skills/installer.js')
               const { join } = await import('path')
-              const result = await removeSkill(cmd.name, join(agent.getWorkingDirectory(), '.claude', 'skills'))
+              const result = await removeSkill(cmd.name, join(agent.getWorkingDirectory(), '.deepseek', 'skills'))
               if (result.ok) {
                 setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${result.name}' removed.` }])
               } else {
@@ -1003,7 +1003,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             try {
               const { updateSkill } = await import('../skills/installer.js')
               const { join } = await import('path')
-              const result = await updateSkill(cmd.name, join(agent.getWorkingDirectory(), '.claude', 'skills'))
+              const result = await updateSkill(cmd.name, join(agent.getWorkingDirectory(), '.deepseek', 'skills'))
               if (result.ok) {
                 setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${result.name}' updated.` }])
               } else {
