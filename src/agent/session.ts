@@ -6,6 +6,7 @@ import { readJson, writeRaw } from '../utils/fs.js'
 import type { MessageOrBoundary } from './compactBoundary.js'
 import type { Message } from '../ui/App.js'
 import { redactSecrets } from '../orchestration/events.js'
+import type { Goal } from './goal.js'
 
 function resolvedCwd(cwd = process.cwd()): string {
   return resolve(cwd)
@@ -65,6 +66,7 @@ export interface SessionData {
   agentMessages: MessageOrBoundary[]
   uiMessages: Message[]
   filesModified: string[]
+  goal?: Goal
 }
 
 export async function updateSessionTitle(id: string, title: string, cwd = process.cwd()): Promise<void> {

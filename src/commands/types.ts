@@ -65,6 +65,10 @@ export type CommandResult =
   | { type: 'logout' }
   | { type: 'cwd'; path?: string }
   | { type: 'mobile' }
+  | { type: 'goal'; action: 'show' }
+  | { type: 'goal'; action: 'set'; objective: string; maxContinuations?: number }
+  | { type: 'goal'; action: 'edit' }
+  | { type: 'goal'; action: 'pause' | 'resume' | 'clear' }
   | { type: 'unknown'; input: string }
 
 export interface Command {
