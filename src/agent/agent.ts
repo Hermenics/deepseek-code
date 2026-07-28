@@ -1404,11 +1404,57 @@ export class Agent {
     }
   }
 
-  /** Unified tool execution: mode check → permission rules → legacy permission → audit → execute */
+  /**
+   * Converts failures at the tool boundary into a result the model can inspect.
+   * DenyAbortError is intentionally excluded: it is the user's explicit cancel.
+   */
   private async checkAndExecuteTool(
     tc: { id: string; type: 'function'; function: { name: string; arguments: string } },
     parsedArgs: Record<string, unknown>,
     cb: AgentCallbacks,
+  ): Promise<{ tc: typeof tc; result: string }> {
+    let calledArgs: object = parsedArgs
+    let emittedCall = false
+    let emittedResult = false
+    const lifecycle = { startedAt: undefined as number | undefined }
+    const guardedCallbacks: AgentCallbacks = {
+      ...cb,
+      onToolCall: (name, args) => {
+        emittedCall = true
+        calledArgs = args
+        cb.onToolCall(name, args)
+      },
+      onToolResult: (name, result, args) => {
+        emittedResult = true
+        calledArgs = args
+        cb.onToolResult(name, result, args)
+      },
+    }
+
+    try {
+      return await this.executeToolWithChecks(tc, parsedArgs, guardedCallbacks, lifecycle)
+    } catch (error: unknown) {
+      if (error instanceof DenyAbortError) throw error
+
+      const message = error instanceof Error ? error.message : String(error)
+      const result = `Error: ${message}`
+      if (lifecycle.startedAt !== undefined) {
+        const durationMs = Date.now() - lifecycle.startedAt
+        await auditLog({ type: 'tool_result', tool: tc.function.name, result: result.slice(0, 200), durationMs })
+        this.orchestrator.emit('tool_finished', { tool: tc.function.name, durationMs, result: result.slice(0, 200) })
+      }
+      if (!emittedCall) cb.onToolCall(tc.function.name, calledArgs)
+      if (!emittedResult) cb.onToolResult(tc.function.name, result, calledArgs as Record<string, unknown>)
+      return { tc, result }
+    }
+  }
+
+  /** Unified tool execution: mode check → permission rules → legacy permission → audit → execute */
+  private async executeToolWithChecks(
+    tc: { id: string; type: 'function'; function: { name: string; arguments: string } },
+    parsedArgs: Record<string, unknown>,
+    cb: AgentCallbacks,
+    lifecycle: { startedAt?: number },
   ): Promise<{ tc: typeof tc; result: string }> {
     // ── 0a. submit_plan intercept (plan mode only) ────────────────────────────
     if (tc.function.name === 'submit_plan' && this.interactionMode === 'plan') {
@@ -1667,10 +1713,11 @@ export class Agent {
     // ── 4. Execute tool ──────────────────────────────────────────────────────
     cb.onToolCall(tc.function.name, effectiveArgs)
     this.orchestrator.emit('authorization', { tool: tc.function.name, decision: 'allow' })
+    const t0 = Date.now()
+    lifecycle.startedAt = t0
     this.orchestrator.emit('tool_started', { tool: tc.function.name })
     auditLog({ type: 'tool_call', tool: tc.function.name, args: effectiveArgs })
     this.toolCallTotal++
-    const t0 = Date.now()
     const result = await this.executeTool(tc.function.name, effectiveArgs, riskResult?.requiresConfirmation === true, executionExternalPaths)
     auditLog({ type: 'tool_result', tool: tc.function.name, result: result.slice(0, 200), durationMs: Date.now() - t0 })
     this.orchestrator.emit('tool_finished', { tool: tc.function.name, durationMs: Date.now() - t0, result: result.slice(0, 200) })
