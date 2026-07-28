@@ -79,6 +79,7 @@ Union type: `ChatCompletionMessageParam | CompactBoundaryMarker`
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | id | string | yes | Hex session identifier (12 chars) |
+| title | string | no | AI-generated display title for the conversation |
 | createdAt | string (ISO) | yes | Session creation timestamp |
 | updatedAt | string (ISO) | yes | Last update timestamp |
 | cwd | string | yes | Working directory |
@@ -331,7 +332,7 @@ Enum: `'once' | 'session' | 'always' | 'deny'`
 
 | Data | Location | Format |
 |------|----------|--------|
-| Sessions | `~/.deepseek/sessions/<id>.json` | JSON |
+| Sessions | `~/.deepseek/sessions/<project>-<cwd-hash>/<id>.json` (legacy root/project folders readable) | JSON |
 | Checkpoints | `~/.deepseek/checkpoints/<id>.json` | JSON |
 | File checkpoints | `~/.deepseek-code/checkpoints/<session>/` | JSON manifest + file backups |
 | Audit log | `~/.deepseek/logs/session-<id>.jsonl` | JSONL |

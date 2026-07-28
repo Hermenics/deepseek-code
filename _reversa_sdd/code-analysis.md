@@ -147,7 +147,7 @@ Context limit: 128k for all models/providers.
 
 ### session.ts — Session Persistence
 
-- Stored in `~/.deepseek/sessions/<id>.json`
+- Stored in `~/.deepseek/sessions/<project>-<cwd-hash>/<id>.json`; legacy root and pre-hash project folders remain readable
 - Max 50 sessions (FIFO pruning)
 - Saves: messages, UI state, model, provider, language, files modified
 

@@ -1,14 +1,50 @@
-import { join } from 'path'
+import { basename, join, resolve } from 'path'
 import { homedir } from 'os'
 import { mkdir, readdir, unlink, rm, writeFile } from 'fs/promises'
-import { randomBytes } from 'crypto'
+import { createHash, randomBytes } from 'crypto'
 import { readJson, writeRaw } from '../utils/fs.js'
 import type { MessageOrBoundary } from './compactBoundary.js'
 import type { Message } from '../ui/App.js'
 import { redactSecrets } from '../orchestration/events.js'
 
-function getSessionsDir(): string {
+function resolvedCwd(cwd = process.cwd()): string {
+  return resolve(cwd)
+}
+
+function readableProjectName(cwd = process.cwd()): string {
+  return basename(resolvedCwd(cwd)).replace(/[^a-zA-Z0-9._-]/g, '-') || 'project'
+}
+
+function getSessionsDir(cwd = process.cwd()): string {
+  const absoluteCwd = resolvedCwd(cwd)
+  const hash = createHash('sha256').update(absoluteCwd).digest('hex').slice(0, 8)
+  return join(process.env.HOME || homedir(), '.deepseek', 'sessions', `${readableProjectName(absoluteCwd)}-${hash}`)
+}
+
+function getPreviousProjectDir(cwd = process.cwd()): string {
+  return join(process.env.HOME || homedir(), '.deepseek', 'sessions', readableProjectName(cwd))
+}
+
+function getLegacySessionsDir(): string {
   return join(process.env.HOME || homedir(), '.deepseek', 'sessions')
+}
+
+async function readSessionsDir(dir: string): Promise<SessionData[]> {
+  try {
+    const files = await readdir(dir)
+    const sessions = await Promise.all(
+      files
+        .filter((f) => f.endsWith('.json'))
+        .map((f) => readJson<SessionData>(join(dir, f)).catch(() => null))
+    )
+    return sessions.filter(Boolean) as SessionData[]
+  } catch {
+    return []
+  }
+}
+
+function dedupeSessions(sessions: SessionData[]): SessionData[] {
+  return [...new Map(sessions.map(session => [session.id, session])).values()]
 }
 let maxSessions = 50
 
@@ -18,6 +54,7 @@ export function setSessionRetention(value: number): void {
 
 export interface SessionData {
   id: string
+  title?: string
   createdAt: string
   updatedAt: string
   cwd: string
@@ -30,13 +67,18 @@ export interface SessionData {
   filesModified: string[]
 }
 
+export async function updateSessionTitle(id: string, title: string, cwd = process.cwd()): Promise<void> {
+  const session = await loadSession(id, cwd)
+  if (session) await saveSession({ ...session, title })
+}
+
 export function newSessionId(): string {
   return randomBytes(6).toString('hex')
 }
 
 export async function saveSession(data: SessionData): Promise<void> {
   try {
-    const dir = getSessionsDir()
+    const dir = getSessionsDir(data.cwd)
     await mkdir(dir, { recursive: true })
     const path = join(dir, `${data.id}.json`)
     await writeRaw(path, JSON.stringify({ ...data, updatedAt: new Date().toISOString() }, null, 2))
@@ -46,25 +88,33 @@ export async function saveSession(data: SessionData): Promise<void> {
   }
 }
 
-export async function loadSession(id: string): Promise<SessionData | null> {
-  try {
-    return await readJson<SessionData>(join(getSessionsDir(), `${id}.json`))
-  } catch {
-    return null
-  }
+export async function loadSession(id: string, cwd?: string): Promise<SessionData | null> {
+  if (cwd) return (await listSessions(cwd)).find(session => session.id === id) ?? null
+  const sessions = await listSessions()
+  return sessions.find(session => session.id === id) ?? null
 }
 
-export async function listSessions(): Promise<SessionData[]> {
+export async function listSessions(cwd?: string): Promise<SessionData[]> {
   try {
-    const dir = getSessionsDir()
-    await mkdir(dir, { recursive: true })
-    const files = await readdir(dir)
-    const sessions = await Promise.all(
-      files
-        .filter((f) => f.endsWith('.json'))
-        .map((f) => readJson<SessionData>(join(dir, f)).catch(() => null))
-    )
-    return (sessions.filter(Boolean) as SessionData[])
+    if (cwd) {
+      const requestedCwd = resolvedCwd(cwd)
+      const sessions = [
+        ...(await readSessionsDir(getSessionsDir(requestedCwd))),
+        ...(await readSessionsDir(getPreviousProjectDir(requestedCwd))),
+        ...(await readSessionsDir(getLegacySessionsDir())),
+      ].filter(session => resolvedCwd(session.cwd) === requestedCwd)
+      return dedupeSessions(sessions)
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+    }
+
+    const root = join(process.env.HOME || homedir(), '.deepseek', 'sessions')
+    await mkdir(root, { recursive: true })
+    const entries = await readdir(root, { withFileTypes: true })
+    const sessions = [
+      ...(await readSessionsDir(getLegacySessionsDir())),
+      ...(await Promise.all(entries.filter(entry => entry.isDirectory()).map(entry => readSessionsDir(join(root, entry.name))))).flat(),
+    ]
+    return dedupeSessions(sessions)
       .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
   } catch {
     return []
@@ -73,25 +123,31 @@ export async function listSessions(): Promise<SessionData[]> {
 
 async function pruneOldSessions(): Promise<void> {
   try {
-    const dir = getSessionsDir()
     const sessions = await listSessions()
     if (sessions.length <= maxSessions) return
     const toDelete = sessions.slice(maxSessions)
     await Promise.all(
-      toDelete.map((s) => unlink(join(dir, `${s.id}.json`)).catch(() => {}))
+      toDelete.map((s) => Promise.all([
+        unlink(join(getSessionsDir(s.cwd), `${s.id}.json`)).catch(() => {}),
+        unlink(join(getPreviousProjectDir(s.cwd), `${s.id}.json`)).catch(() => {}),
+        unlink(join(getLegacySessionsDir(), `${s.id}.json`)).catch(() => {}),
+      ]))
     )
   } catch {}
 }
 
 export async function clearSessions(scope: 'project' | 'global', cwd = process.cwd()): Promise<number> {
-  const sessions = await listSessions()
-  const selected = scope === 'global' ? sessions : sessions.filter(session => session.cwd === cwd)
-  await Promise.all(selected.map(session => rm(join(getSessionsDir(), `${session.id}.json`), { force: true })))
+  const selected = scope === 'global' ? await listSessions() : await listSessions(cwd)
+  await Promise.all(selected.map(session => Promise.all([
+    rm(join(getSessionsDir(session.cwd), `${session.id}.json`), { force: true }),
+    rm(join(getPreviousProjectDir(session.cwd), `${session.id}.json`), { force: true }),
+    rm(join(getLegacySessionsDir(), `${session.id}.json`), { force: true }),
+  ])))
   return selected.length
 }
 
 export async function getLastProjectSession(cwd = process.cwd()): Promise<SessionData | null> {
-  return (await listSessions()).find(session => session.cwd === cwd) ?? null
+  return (await listSessions(cwd))[0] ?? null
 }
 
 export type SessionExportFormat = 'json' | 'md'
