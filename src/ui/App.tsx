@@ -25,7 +25,7 @@ import { appendInputHistory } from '../agent/inputHistory.js'
 import type { ThemeName, ProviderConfig } from '../types/provider.js'
 import type { DeepSeekSettings, InterfaceSettings } from '../settings/types.js'
 import { formatChatError } from '../utils/chatError.js'
-import { saveSession, type SessionData } from '../agent/session.js'
+import { saveSession, updateSessionTitle, type SessionData } from '../agent/session.js'
 import { DEFAULT_MODE, nextMode, isBuildMode, isAutoMode, type InteractionMode } from './interactionMode.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
@@ -109,6 +109,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const btwAbortRef = useRef<AbortController | null>(null)
   const queuedSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveSessionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sessionTitleRef = useRef<string | null>(initialSession?.title ?? null)
+  const titleRequestedRef = useRef(Boolean(initialSession?.title))
   const [messages, setMessages] = useState<Message[]>([])
   const [streamText, setStreamText] = useState('')
   const [thinkingText, setThinkingText] = useState('')
@@ -554,6 +556,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               setMessages((current) => {
                 saveSession({
                   id: sessionId,
+                  title: sessionTitleRef.current ?? undefined,
                   createdAt: initialSession?.createdAt ?? new Date().toISOString(),
                   updatedAt: new Date().toISOString(),
                   cwd: agent.getWorkingDirectory(),
@@ -597,8 +600,23 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     }
   }, [agent, sessionId, language, initialSession, providerConfig, showCompactBadge])
 
+  const generateSessionTitle = useCallback(() => {
+    if (!sessionId) return
+    void agent.askBtw('Create a concise title for this conversation. Return exactly one plain-text title, in the user language, with 3 to 7 words and no quotes, markdown, prefix, punctuation at the end, or explanation.')
+      .then(raw => {
+        const title = raw.split('\n').map(line => line.trim()).find(Boolean)
+          ?.replace(/^[-*#`]+\s*/, '').replace(/^['"]|['"]$/g, '').replace(/[.!?]+$/, '').trim().slice(0, 80)
+        if (!title) { titleRequestedRef.current = false; return }
+        sessionTitleRef.current = title
+        void updateSessionTitle(sessionId, title, agent.getWorkingDirectory())
+      })
+      .catch(() => { titleRequestedRef.current = false })
+  }, [agent, sessionId])
+
   const runWithPrompt = useCallback(async (label: string, prompt: string, intendedMode: InteractionMode) => {
     if (isLoading) return
+    const shouldGenerateTitle = Boolean(sessionId && !sessionTitleRef.current && !titleRequestedRef.current && !agent.getLastUserMessage())
+    if (shouldGenerateTitle) titleRequestedRef.current = true
     setMessages((m) => [...m, { role: 'user', content: label }])
     setIsLoading(true)
     setAgentPhase('refining')
@@ -612,6 +630,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         const projectRoot = originalProjectRoot.current
         if (!isGitRepository(projectRoot)) {
           await runAgent(prompt)
+          if (shouldGenerateTitle) generateSessionTitle()
           return
         }
         const active = await getActiveWorktree(projectRoot)
@@ -637,7 +656,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       }
     }
     await runAgent(prompt)
-  }, [isLoading, runAgent, agent])
+    if (shouldGenerateTitle) generateSessionTitle()
+  }, [isLoading, runAgent, agent, generateSessionTitle, sessionId])
 
   const handleSubmit = useCallback(async (text: string) => {
     if (!text.trim() || isLoading) return
@@ -843,7 +863,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             const lines = sessions.slice(0, 10).map((s) => {
               const date = new Date(s.updatedAt).toLocaleString()
               const msgs = s.uiMessages.filter((m) => m.role === 'user').length
-              return `  ${s.id}  ${date}  ${msgs} messages  ${s.cwd}`
+              return `  ${s.title ?? s.uiMessages.find(m => m.role === 'user')?.content?.split('\n')[0] ?? 'New conversation'}  ${date}  ${msgs} messages  ${s.cwd}`
             })
             setMessages((m) => [...m, { role: 'assistant', content: `Recent sessions:\n${lines.join('\n')}\n\nResume: deepseek --resume <id>\nExport: /sessions export <id> [json|md]` }])
           }
@@ -920,7 +940,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           return
         }
         case 'memory': {
-          await agent.readyPromise
+          await agent.readyPromise.catch(() => {})
           if ((cmd as any).action === 'clear') {
             const target = (cmd as any).target
             await agent.orchestrator.memory.clear(target)
@@ -1044,8 +1064,11 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
                   const { readRegistry } = await import('../skills/registry.js')
                   const reg = readRegistry(legacy)
                   const entry = reg.skills[cmd.name]
-                  await installSkill(entry.repo, primary)
-                  await removeSkill(cmd.name, legacy)
+                  if (!entry?.repo) throw new Error(`Cannot migrate skill '${cmd.name}': registry entry is missing.`)
+                  const installed = await installSkill(entry.repo, primary)
+                  if (!installed.ok) throw new Error(installed.error ?? `Failed to install skill '${cmd.name}' in .deepseek/skills.`)
+                  const removed = await removeSkill(cmd.name, legacy)
+                  if (!removed.ok) throw new Error(removed.error ?? `Failed to remove legacy skill '${cmd.name}'.`)
                   setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${cmd.name}' migrated from .claude/skills to .deepseek/skills and updated.` }])
                   setIsLoading(false)
                   return

@@ -81,39 +81,40 @@ import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
 import { AlternateScreen } from '../ink/components/AlternateScreen.js'
 import { ApiKeySetup, loadSavedConfig } from '../ui/setup/ApiKeySetup.js'
+import { ResumePicker } from '../ui/setup/ResumePicker.js'
 import type { ThemeName, ProviderConfig } from '../types/provider.js'
 import { migrateConfigIfNeeded, logout as doLogout } from '../utils/credentials.js'
 import { loadAgentConfig, type LoadedAgent } from '../agent/config.js'
-import { getLastProjectSession, loadSession, newSessionId, type SessionData } from '../agent/session.js'
+import { getLastProjectSession, listSessions, loadSession, newSessionId, type SessionData } from '../agent/session.js'
 import { loadMergedSettings } from '../settings/loader.js'
 import type { DeepSeekSettings } from '../settings/types.js'
 import pkg from '../../package.json' with { type: 'json' }
 
-function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; update: boolean; logout: boolean; doctor: boolean; help: boolean; version: boolean } {
+function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; resumePicker: boolean; update: boolean; logout: boolean; doctor: boolean; help: boolean; version: boolean } {
   const args = process.argv.slice(2).filter((a) => a !== '--pipe' && a !== '--json')
   if (args[0] === 'update') {
-    return { agentName: null, initialMessage: null, resumeId: null, update: true, logout: false, doctor: false, help: false, version: false }
+    return { agentName: null, initialMessage: null, resumeId: null, resumePicker: false, update: true, logout: false, doctor: false, help: false, version: false }
   }
   if (args[0] === 'logout') {
-    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: true, doctor: false, help: false, version: false }
+    return { agentName: null, initialMessage: null, resumeId: null, resumePicker: false, update: false, logout: true, doctor: false, help: false, version: false }
   }
   if (args[0] === 'doctor') {
-    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: false, doctor: true, help: false, version: false }
+    return { agentName: null, initialMessage: null, resumeId: null, resumePicker: false, update: false, logout: false, doctor: true, help: false, version: false }
   }
   if (args[0] === 'help' || args[0] === '--help' || args[0] === '-h') {
-    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: false, doctor: false, help: true, version: false }
+    return { agentName: null, initialMessage: null, resumeId: null, resumePicker: false, update: false, logout: false, doctor: false, help: true, version: false }
   }
   if (args[0] === 'version' || args[0] === 'v' || args[0] === '--version' || args[0] === '-v') {
-    return { agentName: null, initialMessage: null, resumeId: null, update: false, logout: false, doctor: false, help: false, version: true }
+    return { agentName: null, initialMessage: null, resumeId: null, resumePicker: false, update: false, logout: false, doctor: false, help: false, version: true }
   }
   const resumeIdx = args.indexOf('--resume')
   if (resumeIdx !== -1) {
-    return { agentName: null, initialMessage: null, resumeId: args[resumeIdx + 1] ?? null, update: false, logout: false, doctor: false, help: false, version: false }
+    return { agentName: null, initialMessage: null, resumeId: args[resumeIdx + 1] ?? null, resumePicker: args[resumeIdx + 1] === undefined, update: false, logout: false, doctor: false, help: false, version: false }
   }
   if (args[0] === 'agent') {
-    return { agentName: args[1] ?? null, initialMessage: args[2] ?? null, resumeId: null, update: false, logout: false, doctor: false, help: false, version: false }
+    return { agentName: args[1] ?? null, initialMessage: args[2] ?? null, resumeId: null, resumePicker: false, update: false, logout: false, doctor: false, help: false, version: false }
   }
-  return { agentName: null, initialMessage: args[0] ?? null, resumeId: null, update: false, logout: false, doctor: false, help: false, version: false }
+  return { agentName: null, initialMessage: args[0] ?? null, resumeId: null, resumePicker: false, update: false, logout: false, doctor: false, help: false, version: false }
 }
 
 // Parse once at startup — reused by Root component
@@ -261,6 +262,7 @@ function Root() {
   const [initialMessage, setInitialMessage] = useState<string | null>(null)
   const [initialSession, setInitialSession] = useState<SessionData | null>(null)
   const [resumeNotFound, setResumeNotFound] = useState(false)
+  const [resumeChoices, setResumeChoices] = useState<SessionData[] | null>(null)
   const [savedLanguage, setSavedLanguage] = useState<string | null>(null)
   const [savedEnchant, setSavedEnchant] = useState<boolean>(true)
   const [initialSettings, setInitialSettings] = useState<DeepSeekSettings>({})
@@ -268,7 +270,7 @@ function Root() {
   useEffect(() => {
     const init = async () => {
       try {
-        const { agentName, initialMessage: msg, resumeId } = ARGV
+        const { agentName, initialMessage: msg, resumeId, resumePicker } = ARGV
         await migrateConfigIfNeeded()
         const [{ providerConfig: saved, theme: savedTheme, language, enchant }, settings] = await Promise.all([
           loadSavedConfig(),
@@ -289,12 +291,16 @@ function Root() {
         }
 
         if (resumeId) {
-          const session = await loadSession(resumeId)
+          const session = await loadSession(resumeId, process.cwd())
           if (session) {
             setInitialSession(session)
           } else {
             setResumeNotFound(true)
           }
+        } else if (resumePicker) {
+          const sessions = await listSessions(process.cwd())
+          if (sessions.length > 0) setResumeChoices(sessions)
+          else setResumeNotFound(true)
         } else if (settings.sessions?.autoResume === 'project-last') {
           const session = await getLastProjectSession(process.cwd())
           if (session) setInitialSession(session)
@@ -324,6 +330,10 @@ function Root() {
         <Text color="yellow">{'⚠ Session not found. Starting a new session.'}</Text>
       </Box>
     )
+  }
+
+  if (resumeChoices) {
+    return <ResumePicker sessions={resumeChoices} theme={theme} onSelect={(session) => { setInitialSession(session); setResumeChoices(null) }} onCancel={() => setResumeChoices(null)} />
   }
 
   if (!ready) {
