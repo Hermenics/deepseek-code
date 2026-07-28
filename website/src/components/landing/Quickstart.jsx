@@ -33,31 +33,39 @@ export default function Quickstart() {
           </div>
         </div>
 
-        <div className="space-y-4">
-          {STEPS.map((s, i) => (
-            <motion.div key={s.n} initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.7, delay: i * 0.1 }} className="group relative border border-white/10 bg-void hover:bg-elevated/60 transition-colors">
-              <div className="grid md:grid-cols-12 gap-4 items-center px-6 md:px-8 py-6 md:py-7">
-                <div className="md:col-span-1 font-mono text-xs uppercase tracking-widest text-white/40">{s.n}</div>
-                <div className="md:col-span-2 font-mono text-xs uppercase tracking-widest text-white/60">{s.label}</div>
-                <div className="md:col-span-6 font-mono text-sm md:text-base text-white flex items-center gap-2 overflow-hidden">
-                  <TerminalIcon className="w-4 h-4 text-neon-blue shrink-0" strokeWidth={1.5} />
-                  <span className="truncate"><span className="text-white/40">$</span> {s.cmd}</span>
+        <div className="relative">
+          <div className="space-y-4">
+            {STEPS.map((s, i) => (
+              <motion.div key={s.n} initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} viewport={{ once: true, margin: "-60px" }} transition={{ duration: 0.7, delay: i * 0.1 }} className="group relative border border-white/10 bg-void hover:bg-elevated/60 transition-colors">
+                <div className="grid md:grid-cols-12 gap-4 items-center px-6 md:px-8 py-6 md:py-7">
+                  <div className="md:col-span-1 font-mono text-xs uppercase tracking-widest text-white/40">{s.n}</div>
+                  <div className="md:col-span-2 font-mono text-xs uppercase tracking-widest text-white/60">{s.label}</div>
+                  <div className="md:col-span-6 font-mono text-sm md:text-base text-white flex items-center gap-2 overflow-hidden">
+                    <TerminalIcon className="w-4 h-4 text-neon-blue shrink-0" strokeWidth={1.5} />
+                    <span className="truncate"><span className="text-white/40">$</span> {s.cmd}</span>
+                  </div>
+                  <div className="md:col-span-2 font-mono text-[11px] text-white/40 hidden md:block">{s.hint}</div>
+                  <div className="md:col-span-1 flex justify-end"><CopyButton text={s.cmd} id={s.label} /></div>
                 </div>
-                <div className="md:col-span-2 font-mono text-[11px] text-white/40 hidden md:block">{s.hint}</div>
-                <div className="md:col-span-1 flex justify-end"><CopyButton text={s.cmd} id={s.label} /></div>
-              </div>
-              <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-neon-blue scale-y-0 group-hover:scale-y-100 origin-top transition-transform duration-500" />
-            </motion.div>
-          ))}
-        </div>
+                <div className="absolute left-0 top-0 bottom-0 w-[2px] bg-neon-blue scale-y-0 group-hover:scale-y-100 origin-top transition-transform duration-500" />
+              </motion.div>
+            ))}
+          </div>
 
-        <div className="mt-16 grid md:grid-cols-2 gap-4 md:gap-6">
-          {[{ k: "or curl", v: "curl -fsSL https://deepseek-code.vercel.app/install.sh | bash" }, { k: "dev / source", v: "git clone && bun install && bun run dev" }].map((o) => (
-            <div key={o.k} className="border border-white/10 p-5 md:p-6 bg-void hover:border-white/25 transition-colors">
-              <div className="text-[10px] uppercase tracking-widest font-mono text-white/40 mb-2">{o.k}</div>
-              <div className="font-mono text-sm text-white/80 break-words">{o.v}</div>
-            </div>
-          ))}
+          <svg aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 hidden h-[calc(100%-1rem)] w-full overflow-visible md:block" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <path d="M-3 7 C-16 25 -15 55 -3 87" fill="none" stroke="currentColor" strokeWidth="0.24" strokeLinecap="round" className="text-white" />
+            <path d="M-3.55 81.3 L-3 87" fill="none" stroke="currentColor" strokeWidth="0.24" strokeLinecap="round" className="text-white" />
+            <path d="M-4.95 85.6 L-3 87" fill="none" stroke="currentColor" strokeWidth="0.24" strokeLinecap="round" className="text-white" />
+          </svg>
+
+          <div className="mt-16 grid md:grid-cols-2 gap-4 md:gap-6">
+            {[{ k: "or curl", mobileK: "or install it with curl", v: "curl -fsSL https://deepseek-code.vercel.app/install.sh | bash" }, { k: "dev / source", v: "git clone && bun install && bun run dev" }].map((o) => (
+              <div key={o.k} className="border border-white/10 p-5 md:p-6 bg-void hover:border-white/25 transition-colors">
+                <div className="text-[10px] uppercase tracking-widest font-mono text-white/40 mb-2"><span className="md:hidden">{o.mobileK || o.k}</span><span className="hidden md:inline">{o.k}</span></div>
+                <div className="font-mono text-sm text-white/80 break-words">{o.v}</div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </section>
