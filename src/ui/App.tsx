@@ -105,8 +105,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const projectRootRef = useRef(initialSession?.cwd && existsSync(initialSession.cwd) ? initialSession.cwd : process.cwd())
   const originalProjectRoot = useRef(process.cwd())  // never changes — used to scope worktree isolation
   const toolStatusClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastTurnTokenCountRef = useRef(0)
   const compactBadgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const btwAbortRef = useRef<AbortController | null>(null)
+  const goalContinuationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const queuedSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveSessionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const sessionTitleRef = useRef<string | null>(initialSession?.title ?? null)
@@ -301,6 +303,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       if (session?.uiMessages?.length) {
         setMessages(session.uiMessages)
       }
+      if (session?.goal) {
+        const { setGoal } = await import('../agent/goal.js')
+        setGoal(session.goal)
+      }
       if (agent.mcpErrors.length > 0) {
         const errMsg = `⚠ MCP connection errors:\n${agent.mcpErrors.map((e) => `  • ${e}`).join('\n')}`
         setMessages((m) => [...m, { role: 'assistant', content: errMsg }])
@@ -341,6 +347,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   const handleAbort = useCallback(() => {
     agent.abort()
+    if (goalContinuationTimerRef.current) {
+      clearTimeout(goalContinuationTimerRef.current)
+      goalContinuationTimerRef.current = null
+    }
     if (shellProcRef.current) {
       shellProcRef.current.kill()
       shellProcRef.current = null
@@ -412,6 +422,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [planApprovalState, agent])
 
   const runAgent = useCallback(async (prompt: string) => {
+    lastTurnTokenCountRef.current = agent.tokenCount
     let tokenBuffer = ''
     let streamTextAccum = ''
     let thinkingAccum = ''
@@ -572,6 +583,35 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               })
             }, 100)
           }
+          // Auto-continuation: if goal is active, schedule next turn
+          import('../agent/goal.js').then(({ getGoal, updateGoal, buildContinuationPrompt, GOAL_MAX_CONTINUATIONS }) => {
+            const activeGoal = getGoal()
+            const maxTurns = activeGoal?.maxContinuations ?? GOAL_MAX_CONTINUATIONS
+            if (activeGoal?.status !== 'active') return
+            const turnTokens = agent.tokenCount - lastTurnTokenCountRef.current
+            const now = new Date().toISOString()
+            updateGoal({
+              tokensUsed: activeGoal.tokensUsed + Math.max(0, turnTokens),
+              updatedAt: now,
+            })
+            if (activeGoal.continuations >= maxTurns) {
+              updateGoal({ status: 'budget_limited', updatedAt: new Date().toISOString() })
+              setMessages((m) => [...m, { role: 'assistant', content: `⚠ Goal turn limit reached (${activeGoal.continuations}/${maxTurns} turns). Goal paused.` }])
+              return
+            }
+            const updated = getGoal()!
+            if (updated.tokenBudget !== undefined && updated.tokensUsed >= updated.tokenBudget) {
+              updateGoal({ status: 'budget_limited', updatedAt: new Date().toISOString() })
+              setMessages((m) => [...m, { role: 'assistant', content: `⚠ Goal budget limit reached (${updated.tokensUsed}/${updated.tokenBudget} tokens). Goal paused.` }])
+            } else {
+              updated.continuations++
+              const prompt = buildContinuationPrompt(updated, updated.continuations)
+              goalContinuationTimerRef.current = setTimeout(() => {
+                goalContinuationTimerRef.current = null
+                setQueuedMessages((q) => enqueue(q, prompt))
+              }, 200)
+            }
+          })
         },
         onDenyAbort() {
           setMessages((m) => [...m, { role: 'assistant', content: '⛔ Execution aborted by user.' }])
@@ -1192,6 +1232,93 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           saveFeatures(next)
           setFeatureFlags(next)
           setMessages(m => [...m, { role: 'assistant', content: `Feature ${flag} ${value ? 'enabled' : 'disabled'}.` }])
+          return
+        }
+        case 'goal': {
+          const { getGoal, createGoal, setGoal, resumeGoal, updateGoal, buildContinuationPrompt, GOAL_MAX_CONTINUATIONS } = await import('../agent/goal.js')
+          const goal = getGoal()
+
+          if (cmd.action === 'show') {
+            if (!goal) {
+              setMessages((m) => [...m, { role: 'assistant', content: 'No goal is currently set. Usage: /goal <objective>' }])
+            } else {
+              const budgetLine = goal.tokenBudget !== undefined
+                ? `\nToken budget: ${goal.tokenBudget}`
+                : ''
+              const statusLine = goal.status === 'blocked' && goal.blockReason
+                ? `blocked (${goal.blockReason})`
+                : goal.status
+              const maxTurns = goal.maxContinuations ?? GOAL_MAX_CONTINUATIONS
+              setMessages((m) => [...m, { role: 'assistant', content: [
+                `Goal: ${goal.objective}`,
+                `Status: ${statusLine}`,
+                `Tokens: ${goal.tokensUsed}${budgetLine}`,
+                `Turns: ${goal.continuations}/${maxTurns}`,
+                '',
+                `Commands: /goal edit, /goal pause, /goal resume, /goal clear`,
+              ].join('\n') }])
+            }
+            return
+          }
+
+          if (cmd.action === 'set') {
+            const unfinished = new Set(['active', 'paused', 'blocked', 'budget_limited', 'usage_limited'])
+            if (goal && unfinished.has(goal.status)) {
+              setMessages((m) => [...m, { role: 'assistant', content: `An unfinished goal already exists: "${goal.objective}" (${goal.status}). Complete or clear it first with /goal clear.` }])
+              return
+            }
+            const newGoal = createGoal(cmd.objective, undefined, cmd.maxContinuations)
+            const injection = `Execute the following goal: "${cmd.objective}". When the goal is achieved, call update_goal with status "complete". If you are stuck on the same blocker for 3 consecutive turns, call update_goal with status "blocked" and describe the blocker.`
+            await runWithPrompt(`/goal ${cmd.objective}`, injection, interactionMode)
+            return
+          }
+
+          if (cmd.action === 'edit') {
+            if (!goal) {
+              setMessages((m) => [...m, { role: 'assistant', content: 'No goal to edit. Use /goal <objective> to set one.' }])
+            } else {
+              setMessages((m) => [...m, { role: 'assistant', content: `Current goal: "${goal.objective}"\nTo edit, use /goal <new objective> to replace it.` }])
+            }
+            return
+          }
+
+          if (cmd.action === 'pause') {
+            if (!goal) {
+              setMessages((m) => [...m, { role: 'assistant', content: 'No active goal to pause.' }])
+            } else {
+              if (goalContinuationTimerRef.current) {
+                clearTimeout(goalContinuationTimerRef.current)
+                goalContinuationTimerRef.current = null
+              }
+              updateGoal({ status: 'paused', updatedAt: new Date().toISOString() })
+              setMessages((m) => [...m, { role: 'assistant', content: `Goal paused: "${goal.objective}"` }])
+            }
+            return
+          }
+
+          if (cmd.action === 'resume') {
+            if (!goal) {
+              setMessages((m) => [...m, { role: 'assistant', content: 'No goal to resume.' }])
+            } else {
+              resumeGoal()
+              setMessages((m) => [...m, { role: 'assistant', content: `Goal resumed: "${goal.objective}"` }])
+            }
+            return
+          }
+
+          if (cmd.action === 'clear') {
+            if (!goal) {
+              setMessages((m) => [...m, { role: 'assistant', content: 'No goal to clear.' }])
+            } else {
+              if (goalContinuationTimerRef.current) {
+                clearTimeout(goalContinuationTimerRef.current)
+                goalContinuationTimerRef.current = null
+              }
+              setGoal(null)
+              setMessages((m) => [...m, { role: 'assistant', content: 'Goal cleared.' }])
+            }
+            return
+          }
           return
         }
         case 'tasks': {
