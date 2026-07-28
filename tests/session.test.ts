@@ -1,7 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
-import { mkdtemp, rm } from 'fs/promises'
+import { mkdtemp, readdir, rm } from 'fs/promises'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { basename, join } from 'path'
+import { createHash } from 'crypto'
 
 // ── Redireciona SESSIONS_DIR para diretório temporário ──────────────────────
 let testDir: string
@@ -41,6 +42,28 @@ describe('session', () => {
   })
 
   describe('saveSession / loadSession', () => {
+    it('salva na pasta do projeto dentro de ~/.deepseek/sessions', async () => {
+      const { saveSession, newSessionId } = await getModule()
+      const cwd = process.cwd()
+      await saveSession({
+        id: newSessionId(),
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        cwd,
+        model: 'deepseek-chat',
+        provider: 'deepseek',
+        language: null,
+        activeAgent: null,
+        agentMessages: [],
+        uiMessages: [],
+        filesModified: [],
+      })
+      const hash = createHash('sha256').update(cwd).digest('hex').slice(0, 8)
+      const files = await readdir(join(testDir, '.deepseek', 'sessions', `${basename(cwd)}-${hash}`))
+      expect(files).toHaveLength(1)
+      expect(files[0]).toMatch(/\.json$/)
+    })
+
     it('salva e carrega sessão com uiMessages', async () => {
       const { saveSession, loadSession, newSessionId } = await getModule()
       const id = newSessionId()
@@ -64,6 +87,28 @@ describe('session', () => {
       const loaded = await loadSession(id)
       expect(loaded).not.toBeNull()
       expect(loaded!.uiMessages).toEqual(uiMessages)
+    })
+
+    it('atualiza o título sem perder a conversa', async () => {
+      const { saveSession, loadSession, updateSessionTitle, newSessionId } = await getModule()
+      const id = newSessionId()
+      await saveSession({
+        id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        cwd: process.cwd(),
+        model: 'deepseek-chat',
+        provider: 'deepseek',
+        language: null,
+        activeAgent: null,
+        agentMessages: [],
+        uiMessages: [{ role: 'user' as const, content: 'conversa' }],
+        filesModified: [],
+      })
+      await updateSessionTitle(id, 'Título curto')
+      const loaded = await loadSession(id)
+      expect(loaded?.title).toBe('Título curto')
+      expect(loaded?.uiMessages).toHaveLength(1)
     })
 
     it('salva e carrega sessão com agentMessages', async () => {
