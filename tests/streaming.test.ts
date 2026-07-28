@@ -635,3 +635,43 @@ describe('Agent streaming callbacks', () => {
     })
   })
 })
+
+describe('Agent tool-call error boundary', () => {
+  it('continues a sequential batch after a tool failure and answers every call', async () => {
+    const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
+    resolveReady(agent)
+    ;(agent as any).settings = { risk: { enabled: false }, permissions: { autoApproveLowRisk: true } }
+    const executed: string[] = []
+    ;(agent as any).executeTool = async (name: string) => {
+      executed.push(name)
+      if (name === 'write_file') throw new Error('write failed')
+      return 'second result'
+    }
+
+    const chunks = [{
+      choices: [{
+        delta: {
+          tool_calls: [
+            { index: 0, id: 'call_failed', function: { name: 'write_file', arguments: JSON.stringify({ path: 'failed.txt', content: 'x' }) } },
+            { index: 1, id: 'call_ok', function: { name: 'read_file', arguments: JSON.stringify({ path: 'README.md' }) } },
+          ],
+        },
+      }],
+    }]
+    let requests = 0
+    injectMockClient(agent, {
+      chat: { completions: { create: () => ++requests === 1
+        ? makeStream(chunks)
+        : makeStream([{ choices: [{ delta: { content: 'done' } }] }]) } },
+    })
+
+    const cb = makeTrackedCallbacks()
+    await agent.run('run both', cb)
+
+    expect(executed).toEqual(['write_file', 'read_file'])
+    expect(requests).toBe(2)
+    expect(cb.toolResults.map(result => result.result)).toEqual(['Error: write failed', 'second result'])
+    const toolMessages = (agent as any).messages.filter((message: any) => message.role === 'tool')
+    expect(toolMessages.map((message: any) => message.tool_call_id)).toEqual(['call_failed', 'call_ok'])
+  })
+})
