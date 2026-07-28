@@ -10,6 +10,32 @@ const callbacks = () => ({
 })
 
 describe('agent authorization', () => {
+  it('returns unexpected execution failures as one tool result', async () => {
+    const agent = new Agent({ provider: 'local', localModel: 'test-model' })
+    await (agent as any).readyPromise
+    ;(agent as any).settings = { risk: { enabled: false } }
+    ;(agent as any).executeTool = async () => { throw new Error('executor exploded') }
+    const events: string[] = []
+    const lifecycleEvents: string[] = []
+    const unsubscribe = agent.orchestrator.events.subscribe(event => {
+      if (event.type === 'tool_started' || event.type === 'tool_finished') lifecycleEvents.push(event.type)
+    })
+    const result = await (agent as any).checkAndExecuteTool(
+      { id: 'unexpected', type: 'function', function: { name: 'read_file', arguments: '{}' } },
+      { path: 'README.md' },
+      {
+        ...callbacks(),
+        onToolCall: () => events.push('call'),
+        onToolResult: (_name: string, value: string) => events.push(`result:${value}`),
+      },
+    )
+
+    expect(result.result).toBe('Error: executor exploded')
+    expect(events).toEqual(['call', 'result:Error: executor exploded'])
+    expect(lifecycleEvents).toEqual(['tool_started', 'tool_finished'])
+    unsubscribe()
+  })
+
   it('authorizes hook-modified arguments and fails closed without a confirmation handler', async () => {
     const agent = new Agent({ provider: 'local', localModel: 'test-model' })
     await (agent as any).readyPromise
@@ -72,11 +98,13 @@ describe('agent authorization', () => {
       await agent.readyPromise
       ;(agent as any).settings = { risk: { enabled: false }, git: { checkpoint: true } }
       const call = { id: 'escape', type: 'function', function: { name: 'write_file', arguments: '{}' } }
-      await expect((agent as any).checkAndExecuteTool(call, { path: external, content: 'escape' }, callbacks())).rejects.toThrow('outside the task workspace')
+      const blocked = await (agent as any).checkAndExecuteTool(call, { path: external, content: 'escape' }, callbacks())
+      expect(blocked.result).toMatch(/^Error: .*outside the task workspace/)
       expect(await agent.undo()).toBe('Nothing to undo.')
       const directory = join(root, 'directory')
       await mkdir(directory)
-      await expect((agent as any).checkAndExecuteTool(call, { path: directory, content: 'escape' }, callbacks())).rejects.toThrow()
+      const invalidTarget = await (agent as any).checkAndExecuteTool(call, { path: directory, content: 'escape' }, callbacks())
+      expect(invalidTarget.result).toMatch(/^Error: /)
       expect(await agent.undo()).toBe('Nothing to undo.')
     } finally {
       await agent.shutdown()
