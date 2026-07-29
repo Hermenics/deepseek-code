@@ -129,6 +129,10 @@ export interface LspSettings {
 
 export type StatusBarItem = 'mode' | 'model' | 'tokens' | 'branch' | 'context'
 
+export interface GoalSettings {
+  maxContinuations?: number
+}
+
 export interface InterfaceSettings {
   theme?: ThemeName
   language?: string
@@ -159,6 +163,7 @@ export interface DeepSeekSettings {
   lsp?: LspSettings
   interface?: InterfaceSettings
   hooks?: HooksConfig
+  goal?: GoalSettings
 
   // Legacy settings remain readable for one compatibility cycle.
   theme?: ThemeName | string

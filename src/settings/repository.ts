@@ -33,6 +33,7 @@ export const DEFAULT_SETTINGS: DeepSeekSettings = {
     generatedPatterns: [],
   },
   lsp: { servers: [], timeoutMs: 10_000 },
+  goal: { maxContinuations: 3 },
   interface: {
     theme: 'dark',
     vim: false,
@@ -50,7 +51,7 @@ export const DEFAULT_SETTINGS: DeepSeekSettings = {
 const KNOWN_TOP_LEVEL = new Set([
   'provider', 'model', 'interaction', 'compaction', 'promptRefiner',
   'permissions', 'risk', 'agents', 'memory', 'sessions', 'git', 'lsp', 'interface',
-  'hooks', 'theme', 'language', 'autoCompact', 'autoCompactThreshold',
+  'hooks', 'goal', 'theme', 'language', 'autoCompact', 'autoCompactThreshold',
 ])
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -418,7 +419,7 @@ export function resolveSetting(snapshot: SettingsSnapshot, path: string): Settin
     ...LEVELS.flatMap(level => {
     const value = getAtPath(snapshot.levels[level].data, path)
     if (level !== 'user' && path === 'interaction.defaultMode' && value === 'auto') return []
-    if (level !== 'user' && (path.startsWith('hooks.') || path.startsWith('lsp.'))) return []
+    if (level !== 'user' && (path.startsWith('hooks.') || path === 'lsp' || path.startsWith('lsp.'))) return []
     return value === undefined ? [] : [{ level, value }]
     }),
   ]

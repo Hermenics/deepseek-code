@@ -608,7 +608,20 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               const prompt = buildContinuationPrompt(updated, updated.continuations)
               goalContinuationTimerRef.current = setTimeout(() => {
                 goalContinuationTimerRef.current = null
-                setQueuedMessages((q) => enqueue(q, prompt))
+                setQueuedMessages((q) => {
+                  const next = enqueue(q, prompt)
+                  // Queue processing already ran earlier in onDone, so if
+                  // the queue was empty before this enqueue we must trigger
+                  // the dequeue ourselves.
+                  if (q.length === 0 && next.length > 0) {
+                    if (queuedSubmitTimerRef.current) clearTimeout(queuedSubmitTimerRef.current)
+                    queuedSubmitTimerRef.current = setTimeout(() => {
+                      queuedSubmitTimerRef.current = null
+                      void handleSubmitRef.current!(next[0]!)
+                    }, 0)
+                  }
+                  return next
+                })
               }, 200)
             }
           })
@@ -1267,7 +1280,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               setMessages((m) => [...m, { role: 'assistant', content: `An unfinished goal already exists: "${goal.objective}" (${goal.status}). Complete or clear it first with /goal clear.` }])
               return
             }
-            const newGoal = createGoal(cmd.objective, undefined, cmd.maxContinuations)
+            const maxContinuations = cmd.maxContinuations ?? agent.settings.goal?.maxContinuations
+            const newGoal = createGoal(cmd.objective, undefined, maxContinuations)
             const injection = `Execute the following goal: "${cmd.objective}". When the goal is achieved, call update_goal with status "complete". If you are stuck on the same blocker for 3 consecutive turns, call update_goal with status "blocked" and describe the blocker.`
             await runWithPrompt(`/goal ${cmd.objective}`, injection, interactionMode)
             return
