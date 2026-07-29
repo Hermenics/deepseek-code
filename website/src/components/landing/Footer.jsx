@@ -1,6 +1,14 @@
 import React from "react";
-import { Github, ExternalLink, Package } from "lucide-react";
+import { Github, ExternalLink } from "lucide-react";
 import useNpmVersion from "@/lib/useNpmVersion";
+
+function NpmIcon(props) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 100 100" {...props}>
+      <path d="M16 16h68v68H61V32H47v52H16z" fill="currentColor" />
+    </svg>
+  );
+}
 
 export default function Footer() {
   const version = useNpmVersion();
@@ -19,7 +27,7 @@ export default function Footer() {
 
           <FooterCol title="project" links={[
             { label: "GitHub", href: "https://github.com/Hermenics/deepseek-code", icon: Github, external: true },
-            { label: "npm", href: "https://www.npmjs.com/package/@hermenics/deepseek-code", icon: Package, external: true },
+            { label: "npm", href: "https://www.npmjs.com/package/@hermenics/deepseek-code", icon: NpmIcon, external: true },
             { label: "Apache-2.0", href: "https://www.apache.org/licenses/LICENSE-2.0", external: true },
             { label: "Changelog", href: "https://github.com/Hermenics/deepseek-code/releases", external: true },
           ]} />
@@ -32,10 +40,10 @@ export default function Footer() {
           ]} />
 
           <FooterCol title="providers" links={[
-            { label: "DeepSeek API", href: "#" },
-            { label: "Amazon Bedrock", href: "#" },
-            { label: "Google Vertex AI", href: "#" },
-            { label: "Local / Ollama", href: "#" },
+            { label: "DeepSeek API", href: "https://api-docs.deepseek.com/", external: true },
+            { label: "Amazon Bedrock", href: "https://docs.aws.amazon.com/bedrock/", external: true },
+            { label: "Google Vertex AI", href: "https://cloud.google.com/vertex-ai/docs", external: true },
+            { label: "Local / Ollama", href: "https://ollama.com/", external: true },
           ]} />
         </div>
 
