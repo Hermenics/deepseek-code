@@ -69,6 +69,7 @@ const CATEGORIES: Category[] = [
       { path: 'promptRefiner.model', label: 'Refiner model', description: 'Optional model override; empty inherits the primary model.', kind: 'enum' },
       { path: 'promptRefiner.minimumLength', label: 'Minimum length', description: 'Messages shorter than this character count are never refined.', kind: 'number' },
       { path: 'promptRefiner.excludeTypes', label: 'Never refine', description: 'Comma-separated message types, such as command and follow-up.', kind: 'list' },
+      { path: 'goal.maxContinuations', label: 'Default goal turns', description: 'Maximum auto-continuation turns for /goal. Default 3. Override per-goal with --turns.', kind: 'number' },
       { path: 'permissions.autoApproveLowRisk', label: 'Autoapprove low risk', description: 'Allow low-risk operations without a prompt. Deny and high-risk checks remain mandatory.', kind: 'boolean' },
       { path: '$action.preview-refiner', label: 'Refiner preview', description: 'Use the current conversation model to compare original and refined prompts.', kind: 'action', action: 'preview-refiner' },
     ],
