@@ -27,6 +27,20 @@ const CRITICAL_ENV_VARS = new Set([
 const SHELL_INJECTION_RE = /[;|`<>]|&&|\|\||\$\(|>>|<</
 const PATH_TRAVERSAL_RE = /\.\.[/\\]/
 
+export interface McpLoadOptions {
+  enabled?: boolean
+  environment?: Record<string, string | undefined>
+}
+
+/** The only inherited process values MCP stdio servers need by default. */
+export function createMcpEnvironment(environment: Record<string, string | undefined> = process.env): Record<string, string> {
+  return {
+    PATH: environment.PATH || '/usr/local/bin:/usr/bin:/bin',
+    TMPDIR: environment.TMPDIR || '/tmp',
+    ...(environment.LANG ? { LANG: environment.LANG } : {}),
+  }
+}
+
 /**
  * Merges `base` with `override` while blocking overwrite of critical
  * environment variables. Critical vars absent from `base` are also not injected.
@@ -93,7 +107,8 @@ async function loadConfig(cwd: string): Promise<McpConfig | null> {
   }
 }
 
-export async function loadMcpTools(cwd = process.cwd()): Promise<{ tools: Tool[]; errors: string[] }> {
+export async function loadMcpTools(cwd = process.cwd(), options: McpLoadOptions = {}): Promise<{ tools: Tool[]; errors: string[] }> {
+  if (!options.enabled) return { tools: [], errors: [] }
   const config = await loadConfig(cwd)
   if (!config?.servers) return { tools: [], errors: [] }
 
@@ -114,9 +129,7 @@ export async function loadMcpTools(cwd = process.cwd()): Promise<{ tools: Tool[]
             command: serverConfig.command,
             args: serverConfig.args ?? [],
             env: sanitizeMcpEnv(
-              Object.fromEntries(
-                Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined)
-              ),
+              createMcpEnvironment(options.environment),
               serverConfig.env ?? {},
             ),
           })

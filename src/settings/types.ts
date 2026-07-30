@@ -127,6 +127,10 @@ export interface LspSettings {
   timeoutMs?: number
 }
 
+export interface McpSettings {
+  enabled?: boolean
+}
+
 export type StatusBarItem = 'mode' | 'model' | 'tokens' | 'branch' | 'context'
 
 export interface GoalSettings {
@@ -161,6 +165,8 @@ export interface DeepSeekSettings {
   git?: GitSettings
   /** User-scoped executable language-server configuration. */
   lsp?: LspSettings
+  /** User-scoped permission to load project MCP servers. */
+  mcp?: McpSettings
   interface?: InterfaceSettings
   hooks?: HooksConfig
   goal?: GoalSettings

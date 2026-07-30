@@ -33,6 +33,7 @@ export const DEFAULT_SETTINGS: DeepSeekSettings = {
     generatedPatterns: [],
   },
   lsp: { servers: [], timeoutMs: 10_000 },
+  mcp: { enabled: false },
   goal: { maxContinuations: 3 },
   interface: {
     theme: 'dark',
@@ -50,7 +51,7 @@ export const DEFAULT_SETTINGS: DeepSeekSettings = {
 
 const KNOWN_TOP_LEVEL = new Set([
   'provider', 'model', 'interaction', 'compaction', 'promptRefiner',
-  'permissions', 'risk', 'agents', 'memory', 'sessions', 'git', 'lsp', 'interface',
+  'permissions', 'risk', 'agents', 'memory', 'sessions', 'git', 'lsp', 'mcp', 'interface',
   'hooks', 'goal', 'theme', 'language', 'autoCompact', 'autoCompactThreshold',
 ])
 
@@ -319,9 +320,13 @@ export function validateSettings(settings: DeepSeekSettings, level?: SettingsLev
       if (server.languageId !== undefined && typeof server.languageId !== 'string') add(`${path}.languageId`, 'Must be a string')
     }
   }
+  const mcp = settings.mcp as unknown
+  if (mcp !== undefined && !isObject(mcp)) add('mcp', 'Must be an object')
+  if (isObject(mcp) && mcp.enabled !== undefined && typeof mcp.enabled !== 'boolean') add('mcp.enabled', 'Must be a boolean')
   if (level !== 'user' && settings.interaction?.defaultMode === 'auto') add('interaction.defaultMode', 'Auto can only be selected at User scope')
   if (level !== 'user' && settings.hooks && Object.keys(settings.hooks).length > 0) add('hooks', 'Executable hooks are ignored outside User scope', 'warning')
   if (level !== 'user' && settings.lsp && Object.keys(settings.lsp).length > 0) add('lsp', 'Language-server commands are ignored outside User scope', 'warning')
+  if (level !== 'user' && settings.mcp && Object.keys(settings.mcp).length > 0) add('mcp', 'Project MCP servers can only be enabled at User scope', 'warning')
   if (settings.git?.branchPattern !== undefined && !settings.git.branchPattern.includes('{shortId}')) add('git.branchPattern', 'Include {shortId} to keep branch names unique', 'warning')
   return issues
 }
@@ -334,6 +339,7 @@ export async function loadSettingsSnapshot(cwd?: string): Promise<SettingsSnapsh
     const safe = clone(data)
     safe.hooks = undefined
     safe.lsp = undefined
+    safe.mcp = undefined
     if (safe.interaction?.defaultMode === 'auto') delete safe.interaction.defaultMode
     return safe
   }
@@ -419,7 +425,7 @@ export function resolveSetting(snapshot: SettingsSnapshot, path: string): Settin
     ...LEVELS.flatMap(level => {
     const value = getAtPath(snapshot.levels[level].data, path)
     if (level !== 'user' && path === 'interaction.defaultMode' && value === 'auto') return []
-    if (level !== 'user' && (path.startsWith('hooks.') || path === 'lsp' || path.startsWith('lsp.'))) return []
+    if (level !== 'user' && (path.startsWith('hooks.') || path === 'lsp' || path.startsWith('lsp.') || path === 'mcp' || path.startsWith('mcp.'))) return []
     return value === undefined ? [] : [{ level, value }]
     }),
   ]

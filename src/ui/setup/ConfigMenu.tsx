@@ -167,6 +167,7 @@ const CATEGORIES: Category[] = [
       { path: '$action.diagnostics', label: 'Diagnostics', description: 'Show scope paths, validation issues and unknown top-level keys.', kind: 'action', action: 'diagnostics' },
       { path: 'lsp.servers', label: 'Language servers', description: 'User-scoped JSON array of trusted LSP commands and file extensions.', kind: 'json' },
       { path: 'lsp.timeoutMs', label: 'LSP timeout', description: 'Maximum language-server request time in milliseconds.', kind: 'number' },
+      { path: 'mcp.enabled', label: 'Enable project MCP servers', description: 'User-scoped consent to load project .deepseek/mcp.json files. Restart required.', kind: 'boolean', restart: true },
       { path: '$action.reset-scope', label: 'Reset scope', description: 'Remove all known and unknown settings overrides from the selected scope.', kind: 'action', action: 'reset-scope' },
       { path: '$action.export', label: 'Export effective settings', description: 'Write a secret-free diagnostic export into .deepseek.', kind: 'action', action: 'export' },
     ],

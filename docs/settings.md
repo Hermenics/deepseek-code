@@ -10,7 +10,7 @@ Settings merge in this order:
 2. `<project>/.deepseek/settings.json` — Project
 3. `<project>/.deepseek/settings.local.json` — Local
 
-The UI shows the effective value, its origin, the override chain and whether the selected scope inherits it. Writes are atomic and preserve unknown JSON keys. Invalid JSON is reported and blocks field writes until the file is corrected. Executable hooks are accepted only at User scope.
+The UI shows the effective value, its origin, the override chain and whether the selected scope inherits it. Writes are atomic and preserve unknown JSON keys. Invalid JSON is reported and blocks field writes until the file is corrected. Executable hooks, language servers, and project MCP consent are accepted only at User scope.
 
 Credentials and other secrets remain exclusively in `~/.deepseek/config.json`. Theme, language, provider metadata and other non-secret preferences belong in settings. Legacy keys remain readable during this compatibility cycle.
 
@@ -28,11 +28,13 @@ agents         default, additionalDirectories, basePrompt, concurrency, permissi
 memory         enabled, scope: user | project
 sessions       retention, autoResume: off | project-last
 git            checkpoint, worktree, branchPattern, reviewDiff, generatedPatterns
+lsp            user-scoped language-server commands and timeout
+mcp            user-scoped opt-in to load .deepseek/mcp.json (disabled by default)
 interface      theme, language, vim, density, motion, visibility, status bar
 hooks          PreToolUse, PostToolUse and SessionStart
 ```
 
-Arrays of permission and risk rules inherit. `permissions.suppress` can suppress an inherited allow rule by exact text; deny rules and high-risk rules cannot be suppressed. A Project setting cannot silently choose Auto as the default mode.
+Arrays of permission and risk rules inherit. `permissions.suppress` can suppress an inherited allow rule by exact text; deny rules and high-risk rules cannot be suppressed. A Project or Local setting cannot silently choose Auto as the default mode or enable MCP servers.
 
 ## Agents
 

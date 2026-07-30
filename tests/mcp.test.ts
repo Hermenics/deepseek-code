@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
-import { mkdir, rm } from 'fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
+import { tmpdir } from 'os'
 import { join } from 'path'
 
 const MCP_DIR = join(process.cwd(), '.deepseek')
@@ -10,7 +11,7 @@ describe('MCP config', () => {
     // Ensure no mcp.json
     await rm(MCP_PATH, { force: true })
     const { loadMcpTools } = await import('../src/agent/mcp.js')
-    const result = await loadMcpTools()
+    const result = await loadMcpTools(process.cwd(), { enabled: true })
     expect(result.tools).toBeArray()
     expect(result.tools.length).toBe(0)
   })
@@ -20,7 +21,7 @@ describe('MCP config', () => {
     await Bun.write(MCP_PATH, JSON.stringify({ servers: {} }))
     // Re-import to get fresh module
     const { loadMcpTools } = await import('../src/agent/mcp.js')
-    const result = await loadMcpTools()
+    const result = await loadMcpTools(process.cwd(), { enabled: true })
     expect(result.tools).toBeArray()
     expect(result.tools.length).toBe(0)
     await rm(MCP_PATH, { force: true })
@@ -29,8 +30,24 @@ describe('MCP config', () => {
   it('loadMcpTools returns errors array', async () => {
     await rm(MCP_PATH, { force: true })
     const { loadMcpTools } = await import('../src/agent/mcp.js')
-    const result = await loadMcpTools()
+    const result = await loadMcpTools(process.cwd(), { enabled: true })
     expect(result.errors).toBeArray()
+  })
+
+  it('does not load project MCP config until the User setting enables it', async () => {
+    const cwd = await mkdtemp(join(tmpdir(), 'deepseek-mcp-'))
+    try {
+      await mkdir(join(cwd, '.deepseek'), { recursive: true })
+      await writeFile(join(cwd, '.deepseek', 'mcp.json'), JSON.stringify({
+        servers: { unsafe: { transport: 'stdio', command: 'does-not-exist' } },
+      }))
+      const { loadMcpTools } = await import('../src/agent/mcp.js')
+
+      expect(await loadMcpTools(cwd)).toEqual({ tools: [], errors: [] })
+      expect((await loadMcpTools(cwd, { enabled: true })).errors).toHaveLength(1)
+    } finally {
+      await rm(cwd, { recursive: true, force: true })
+    }
   })
 })
 
@@ -41,6 +58,15 @@ describe('MCP config', () => {
 // =============================================================================
 
 describe('MCP security', () => {
+  it('starts MCP processes with a minimal environment', async () => {
+    const { createMcpEnvironment } = await import('../src/agent/mcp.js')
+    expect(createMcpEnvironment({ PATH: '/custom/bin', LANG: 'pt_BR.UTF-8', DEEPSEEK_API_KEY: 'secret', AWS_SECRET_ACCESS_KEY: 'secret' })).toEqual({
+      PATH: '/custom/bin',
+      TMPDIR: '/tmp',
+      LANG: 'pt_BR.UTF-8',
+    })
+  })
+
   // ---------------------------------------------------------------------------
   // sanitizeMcpEnv
   // ---------------------------------------------------------------------------
