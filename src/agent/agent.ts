@@ -747,6 +747,52 @@ export class Agent {
     this.orchestrator.configure({ model: m })
   }
 
+  async generateDescriptions(models: string[]): Promise<Record<string, string>> {
+    const { getKnownDescription, getModelDescription, saveCachedDescriptions } = await import('./modelInfo.js')
+    const cache = new Map<string, string>()
+    const missing = models.filter((m) => {
+      const cached = getModelDescription(m)
+      if (cached) cache.set(m, cached)
+      return !getKnownDescription(m) && !cached
+    })
+    if (missing.length === 0) return Object.fromEntries(cache)
+
+    // Batch into groups of 5 to avoid response truncation
+    const BATCH_SIZE = 5
+    const validated = new Map<string, string>()
+    for (let i = 0; i < missing.length; i += BATCH_SIZE) {
+      const batch = missing.slice(i, i + BATCH_SIZE)
+      const prompt = `For each of these AI models, write a short one-line description (max 80 chars). Include context window size if you know it. Return ONLY a JSON object mapping model ID → description, no other text.\n\nModels: ${batch.join(', ')}`
+
+      try {
+        const response = await this.client.chat.completions.create({
+          model: this.model,
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 200 * batch.length,
+          stream: false,
+        })
+        const text = response.choices[0]?.message?.content ?? ''
+        const parsed = JSON.parse(text)
+
+        for (const [k, v] of Object.entries(parsed)) {
+          // Validate: key must be in this batch, value must be a short non-empty string
+          if (!batch.includes(k)) continue
+          if (typeof v !== 'string' || v.length === 0 || v.length > 200) continue
+          validated.set(k, v)
+        }
+      } catch {
+        // One batch failed — descriptions for this batch are skipped, others continue
+      }
+    }
+
+    // Merge validated into existing cache and persist
+    const merged = Object.fromEntries(cache)
+    for (const [k, v] of validated) merged[k] = v
+    saveCachedDescriptions(merged)
+
+    return merged
+  }
+
   setEffortLevel(level: EffortLevel): void {
     this.effortLevel = level
     this.rebuildSystemPromptEffort()
