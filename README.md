@@ -40,7 +40,7 @@
 ## Quick start
 
 ```bash
-npm install -g @hermenics/deepseek-code
+bun add -g @hermenics/deepseek-code
 ```
 
 Then run `deepseek` inside any project. On first run you'll pick a **provider** and configure authentication.
@@ -54,7 +54,7 @@ cat src/index.tsx | deepseek --pipe --json "summarize"
 
 ### Requirements
 
-- Node.js 18+ or [Bun](https://bun.sh) 1.1+
+- [Bun](https://bun.sh) 1.1+
 - A supported LLM provider (see below)
 
 ## Providers & authentication
@@ -66,7 +66,7 @@ cat src/index.tsx | deepseek --pipe --json "summarize"
 | **Google Vertex AI** | GCP service account JSON key | `GCP_PROJECT`, `GCP_LOCATION`, `GCP_CREDENTIALS` |
 | **Local (Ollama / LM Studio)** | No auth — point to your local endpoint | `LOCAL_BASE_URL`, `LOCAL_MODEL` |
 
-Secrets are saved only to `~/.deepseek/config.json`. Non-secret preferences use `settings.json` with `User < Project < Local` precedence; legacy values remain readable for compatibility. See [docs/settings.md](docs/settings.md).
+Secrets are saved only to `~/.deepseek/config.json`. Non-secret preferences use `settings.json` with `User < Project < Local` precedence; legacy values remain readable for compatibility. Project MCP servers are off by default and require the User-scoped **Enable project MCP servers** setting; restart DeepSeek Code after changing it. See [docs/settings.md](docs/settings.md).
 
 ## Models
 

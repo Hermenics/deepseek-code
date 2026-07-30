@@ -3,9 +3,9 @@ import { motion } from "framer-motion";
 import { Check, Copy, Terminal as TerminalIcon } from "lucide-react";
 
 const STEPS = [
-  { n: "01", label: "install", cmd: "npm install -g @hermenics/deepseek-code", hint: "requires bun ≥ 1.1 or node ≥ 18" },
-  { n: "02", label: "authenticate", cmd: "deepseek login", hint: "set provider · api key · default model" },
-  { n: "03", label: "start", cmd: "deepseek", hint: "or pipe: echo \"explain this\" | deepseek --pipe" },
+  { n: "01", label: "install", cmd: "bun add -g @hermenics/deepseek-code", hint: "requires bun ≥ 1.1" },
+  { n: "02", label: "configure", cmd: "deepseek", hint: "choose provider · api key · default model" },
+  { n: "03", label: "start", cmd: "deepseek \"explain this project\"", hint: "or pipe: echo \"explain this\" | deepseek --pipe" },
 ];
 
 function CopyButton({ text, id }) {

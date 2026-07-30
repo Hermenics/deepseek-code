@@ -120,7 +120,7 @@ describe('SettingsRepository', () => {
     expect(issues.map(issue => issue.path)).toContain('hooks.SessionStart.1.command')
   })
 
-  it('never activates Auto mode or executable hooks from project files', async () => {
+  it('never activates Auto mode or executable configuration from project files', async () => {
     const cwd = await project()
     const fakeHome = await project()
     const homedirSpy = spyOn(os, 'homedir').mockReturnValue(fakeHome)
@@ -130,6 +130,7 @@ describe('SettingsRepository', () => {
       interaction: { defaultMode: 'auto' },
       hooks: { SessionStart: [{ command: 'echo unsafe' }] },
       lsp: { servers: [{ name: 'unsafe', command: 'echo', extensions: ['.ts'] }] },
+      mcp: { enabled: true },
     }))
     let snapshot
     try {
@@ -140,8 +141,10 @@ describe('SettingsRepository', () => {
     expect(snapshot.effective.interaction?.defaultMode).toBe('build')
     expect(snapshot.effective.hooks?.SessionStart).toBeUndefined()
     expect(snapshot.effective.lsp?.servers).toEqual([])
+    expect(snapshot.effective.mcp?.enabled).toBe(false)
     expect(snapshot.issues.some(issue => issue.path === 'interaction.defaultMode')).toBe(true)
     expect(snapshot.issues.some(issue => issue.path === 'lsp')).toBe(true)
+    expect(snapshot.issues.some(issue => issue.path === 'mcp')).toBe(true)
   })
 
   it('removes secret-shaped keys from exports', async () => {
@@ -197,5 +200,10 @@ describe('settings center topology', () => {
     for (const path of ['model.default', 'promptRefiner.model', 'agents.subagentModel']) {
       expect(items.find(item => item.path === path)?.kind).toBe('enum')
     }
+  })
+
+  it('exposes the user-scoped MCP opt-in', () => {
+    const item = SETTINGS_CATEGORIES.flatMap(category => category.items).find(item => item.path === 'mcp.enabled')
+    expect(item).toMatchObject({ kind: 'boolean', restart: true })
   })
 })
