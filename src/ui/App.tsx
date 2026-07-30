@@ -137,6 +137,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [, setSubagentTick] = useState(0)
   const [showModelSelector, setShowModelSelector] = useState(false)
   const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [modelDescriptions, setModelDescriptions] = useState<Record<string, string>>({})
   const [showEffortSelector, setShowEffortSelector] = useState(false)
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   const [toolPermissionState, setToolPermissionState] = useState<ToolPermissionState | null>(null)
@@ -751,6 +752,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           const models = await agent.getAvailableModels()
           setIsLoading(false)
           setAvailableModels(models)
+          // Generate descriptions for unknown models (background, non-blocking)
+          agent.generateDescriptions(models).then(setModelDescriptions)
           setShowModelSelector(true)
           return
         }
@@ -1579,6 +1582,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           <ModelSelector
             currentModel={agent.model}
             models={availableModels}
+            descriptions={modelDescriptions}
             onSelect={(m) => {
               agent.setModel(m)
               setMessages((prev) => [...prev, { role: 'assistant', content: `Model switched to ${m}` }])
