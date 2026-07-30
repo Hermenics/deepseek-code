@@ -135,7 +135,7 @@ If a DEEPSEEK.md file exists in the working directory, its contents are injected
 If the project root contains AGENTS.md, DeepSeek Code loads it as interoperable repository guidance alongside DEEPSEEK.md. Use AGENTS.md for rules shared with other coding agents; use DEEPSEEK.md for DeepSeek-specific durable knowledge.
 
 ## MCP Servers
-DeepSeek Code supports MCP (Model Context Protocol) servers. Tools from MCP servers are merged with native tools automatically.
+DeepSeek Code supports MCP (Model Context Protocol) servers. Project MCP servers stay disabled until you enable **Enable project MCP servers** in the User scope of /settings, then restart. MCP stdio servers receive a minimal environment; add any server-specific value explicitly in its env configuration.
 
 ### Configuration
 Create .deepseek/mcp.json in the project directory:

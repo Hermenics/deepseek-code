@@ -321,19 +321,19 @@ export class Agent {
 
   private async initialize(restorePersisted = true): Promise<void> {
     try {
-      const [steering, deepseekMd, agentsMd, settings, { tools: mcpTools, errors: mcpErrors }] = await Promise.all([
+      const [steering, deepseekMd, agentsMd, settings] = await Promise.all([
         loadSteering(this.workspacePath),
         loadDeepSeekMd(this.workspacePath),
         loadAgentsMd(this.workspacePath),
         loadMergedSettings(this.workspacePath),
-        loadMcpTools(this.workspacePath),
       ])
+      const { tools: mcpTools, errors: mcpErrors } = await loadMcpTools(this.workspacePath, { enabled: settings.mcp?.enabled === true })
       this.mcpErrors = mcpErrors
       this.settings = settings
       this.systemPrompt = DEFAULT_SYSTEM_PROMPT
-      this.tools = allTools
-      this.toolMap = new Map(allTools.map(tool => [tool.name, tool]))
-      this.openaiTools = toOpenAITools(allTools)
+      this.tools = mcpTools.length ? [...allTools, ...mcpTools] : allTools
+      this.toolMap = new Map(this.tools.map(tool => [tool.name, tool]))
+      this.openaiTools = toOpenAITools(this.tools)
       this.autoCompactConfig = createAutoCompactConfig(settings, CONTEXT_COMPACT_THRESHOLD)
 
       // Apply settings overrides
@@ -365,11 +365,6 @@ export class Agent {
         this.systemPrompt += buildBedrockToolsPrompt(this.tools)
       }
       this.messages = [{ role: 'system', content: this.systemPrompt }]
-      if (mcpTools.length) {
-        this.tools = [...allTools, ...mcpTools]
-        this.toolMap = new Map(this.tools.map((t) => [t.name, t]))
-        this.openaiTools = toOpenAITools(this.tools)
-      }
 
       // Run SessionStart hooks
       if (this.settings.hooks) {
