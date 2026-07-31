@@ -59,7 +59,13 @@ log "Bumping version (${VERSION})..."
 npm version "$VERSION"
 ok "Version bumped to ${NEXT}"
 
-# 7. Publish
+# 7. Rebuild artifacts with the new package version
+log "Rebuilding versioned artifacts..."
+bun run build
+bun run pack:check
+ok "Versioned artifacts rebuilt"
+
+# 8. Publish
 log "Publishing..."
 npm publish
 ok "Published ${PACKAGE_NAME}@${NEXT}"
