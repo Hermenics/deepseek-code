@@ -1,0 +1,2 @@
+# The terminal renderer is runtime infrastructure. Changes require its owner.
+/src/ink/ @Marcelo-Henry

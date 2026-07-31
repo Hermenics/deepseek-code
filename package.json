@@ -39,7 +39,9 @@
     "dev": "NODE_ENV=development bun --watch src/index.tsx",
     "build": "bun run build.ts",
     "typecheck": "bunx tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "test:ink": "bun test tests/ink",
+    "test:plugins": "bun test tests/plugins"
   },
   "dependencies": {
     "@alcalzone/ansi-tokenize": "^0.3.0",
