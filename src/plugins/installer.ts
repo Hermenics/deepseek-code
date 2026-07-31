@@ -53,6 +53,7 @@ function detectPluginDir(tmpDir: string): string | null {
 /** Spawn a git clone with a hard timeout. Kills the process if the deadline is reached. */
 async function spawnClone(url: string, dest: string): Promise<{ exitCode: number; stderr: string }> {
   const proc = Bun.spawn(['git', 'clone', '--depth', '1', url, dest], {
+    env: process.env,
     stdout: 'pipe', stderr: 'pipe',
   })
 
@@ -73,7 +74,9 @@ async function spawnClone(url: string, dest: string): Promise<{ exitCode: number
 
 /** Resolve a commit hash from cwd; returns null on failure. */
 async function resolveCommitHash(cwd: string): Promise<string | null> {
-  const proc = Bun.spawn(['git', 'rev-parse', 'HEAD'], { cwd, stdout: 'pipe', stderr: 'pipe' })
+  const proc = Bun.spawn(['git', 'rev-parse', 'HEAD'], {
+    cwd, env: process.env, stdout: 'pipe', stderr: 'pipe',
+  })
   const exitCode = await proc.exited
   if (exitCode !== 0) return null
   const hash = (await new Response(proc.stdout).text()).trim()
@@ -82,7 +85,9 @@ async function resolveCommitHash(cwd: string): Promise<string | null> {
 
 /** Await a `mv` spawn and return its exit code. */
 async function awaitedMv(src: string, dest: string): Promise<number> {
-  const proc = Bun.spawn(['mv', src, dest], { stdout: 'pipe', stderr: 'pipe' })
+  const proc = Bun.spawn(['mv', src, dest], {
+    env: process.env, stdout: 'pipe', stderr: 'pipe',
+  })
   return proc.exited
 }
 

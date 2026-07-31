@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'bun:test'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import {
@@ -9,14 +9,55 @@ import {
 } from '../../src/plugins/registry.js'
 
 let testDir: string
+let originalPath: string | undefined
+
+function useCommand(name: string, script: string): void {
+  const binDir = join(testDir, 'bin')
+  mkdirSync(binDir, { recursive: true })
+  const commandPath = join(binDir, name)
+  writeFileSync(commandPath, `#!/bin/sh\n${script}`, { mode: 0o755 })
+  process.env.PATH = `${binDir}:${originalPath ?? ''}`
+}
+
+function useSuccessfulGit(version = '2.0.0'): void {
+  useCommand('git', `
+if [ "$1" = "clone" ]; then
+  mkdir -p "$5/.git"
+  printf '%s' '{"name":"fixture-plugin","version":"${version}"}' > "$5/plugin.json"
+  exit 0
+fi
+if [ "$1" = "rev-parse" ]; then
+  printf '%s\\n' fixture-commit
+  exit 0
+fi
+exit 1
+`)
+}
+
+function addInstalledPlugin(version = '1.0.0'): void {
+  const pluginDir = join(testDir, 'fixture-plugin')
+  mkdirSync(pluginDir, { recursive: true })
+  writeFileSync(
+    join(pluginDir, 'plugin.json'),
+    JSON.stringify({ name: 'fixture-plugin', version }),
+  )
+  addPluginToRegistry({
+    name: 'fixture-plugin', repo: 'fixture/plugin', version,
+    installedAt: 'original-install', updatedAt: 'original-update',
+    commitHash: 'original-commit', description: '',
+    components: { commands: [], agents: [], skills: [], hasHooks: false },
+  }, testDir)
+}
 
 beforeEach(() => {
   testDir = mkdtempSync(join(tmpdir(), 'dsk-plugin-install-'))
+  originalPath = process.env.PATH
   process.env.DEEPSEEK_PLUGINS_DIR = testDir
 })
 
 afterEach(() => {
   delete process.env.DEEPSEEK_PLUGINS_DIR
+  process.env.PATH = originalPath
   rmSync(testDir, { recursive: true, force: true })
   vi.restoreAllMocks()
 })
@@ -74,6 +115,45 @@ describe('updatePlugin', () => {
     expect(result.ok).toBe(false)
     expect(result.error).toMatch(/invalid/i)
   })
+
+  it('updates a plugin cloned through local fake git', async () => {
+    useSuccessfulGit('2.0.0')
+    addInstalledPlugin()
+    const { updatePlugin } = await import('../../src/plugins/installer.js')
+
+    const result = await updatePlugin('fixture-plugin')
+
+    expect(result).toEqual({ ok: true, name: 'fixture-plugin' })
+    expect(readPluginRegistry(testDir).plugins['fixture-plugin']).toMatchObject({
+      version: '2.0.0', commitHash: 'fixture-commit',
+    })
+    expect(JSON.parse(readFileSync(join(testDir, 'fixture-plugin', 'plugin.json'), 'utf8'))).toMatchObject({
+      version: '2.0.0',
+    })
+  })
+
+  it('restores the original plugin when moving the update fails', async () => {
+    useSuccessfulGit('2.0.0')
+    useCommand('mv', `
+count_file="${testDir}/mv-count"
+count=$(cat "$count_file" 2>/dev/null || printf 0)
+count=$((count + 1))
+printf '%s' "$count" > "$count_file"
+if [ "$count" -eq 2 ]; then exit 1; fi
+exec /bin/mv "$@"
+`)
+    addInstalledPlugin()
+    const { updatePlugin } = await import('../../src/plugins/installer.js')
+
+    const result = await updatePlugin('fixture-plugin')
+
+    expect(result.ok).toBe(false)
+    expect(result.error).toMatch(/original restored/i)
+    expect(readPluginRegistry(testDir).plugins['fixture-plugin']?.version).toBe('1.0.0')
+    expect(JSON.parse(readFileSync(join(testDir, 'fixture-plugin', 'plugin.json'), 'utf8'))).toMatchObject({
+      version: '1.0.0',
+    })
+  })
 })
 
 describe('installPlugin', () => {
@@ -89,6 +169,41 @@ describe('installPlugin', () => {
     const result = await installPlugin('owner/repo; rm -rf /')
     expect(result.ok).toBe(false)
     expect(result.error).toMatch(/invalid repo/i)
+  })
+
+  it('installs through local fake git and records the resolved commit', async () => {
+    useSuccessfulGit('2.0.0')
+    const { installPlugin } = await import('../../src/plugins/installer.js')
+
+    const result = await installPlugin('fixture/plugin')
+
+    expect(result).toEqual({ ok: true, name: 'fixture-plugin' })
+    expect(readPluginRegistry(testDir).plugins['fixture-plugin']).toMatchObject({
+      version: '2.0.0', commitHash: 'fixture-commit',
+    })
+  })
+
+  it('reports a clone timeout and leaves no registry entry', async () => {
+    useCommand('git', `
+    if [ "$1" = "clone" ]; then exec /bin/sleep 60; fi
+exit 1
+`)
+    const realSetTimeout = globalThis.setTimeout
+    const fastSetTimeout = ((handler: (...args: any[]) => void, timeout?: number, ...args: any[]) =>
+      realSetTimeout(handler, timeout === 60_000 ? 1 : timeout, ...args)
+    ) as unknown as typeof setTimeout
+    const timeoutSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(fastSetTimeout)
+    try {
+      const { installPlugin } = await import('../../src/plugins/installer.js')
+
+      const result = await installPlugin('fixture/plugin')
+
+      expect(result.ok).toBe(false)
+      expect(result.error).toMatch(/timed out/i)
+      expect(readPluginRegistry(testDir).plugins['fixture-plugin']).toBeUndefined()
+    } finally {
+      timeoutSpy.mockRestore()
+    }
   })
 })
 
