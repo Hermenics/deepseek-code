@@ -26,12 +26,10 @@ CURRENT="$(node -p "require('./package.json').version")"
 NEXT="$(node -e "const s=require('semver'); console.log(s.valid('$VERSION') || s.inc('$CURRENT','$VERSION') || '')")"
 [[ -n "$NEXT" ]] || die "Invalid version/bump: $VERSION"
 
-# 3. Validate before changing the version or creating a tag
+# 3. Validate source before changing the version or creating a tag
 log "Running release checks..."
 bun run typecheck
 bun run test:coverage
-bun run build
-bun run pack:check
 ok "Release checks passed"
 
 # 4. Verify auth against the registry that will publish this package
@@ -56,13 +54,18 @@ ok "Version ${NEXT} is available"
 
 # 6. Bump version
 log "Bumping version (${VERSION})..."
+RELEASE_HEAD="$(git rev-parse HEAD)"
 npm version "$VERSION"
 ok "Version bumped to ${NEXT}"
 
 # 7. Rebuild artifacts with the new package version
 log "Rebuilding versioned artifacts..."
-bun run build
-bun run pack:check
+if ! bun run build || ! bun run pack:check; then
+  log "Rolling back ${NEXT}..."
+  git tag -d "$(npm config get tag-version-prefix)${NEXT}" >/dev/null 2>&1 || true
+  git reset --hard "$RELEASE_HEAD" >/dev/null || die "Versioned artifacts failed and rollback failed."
+  die "Versioned artifacts failed validation; ${NEXT} was rolled back."
+fi
 ok "Versioned artifacts rebuilt"
 
 # 8. Publish
