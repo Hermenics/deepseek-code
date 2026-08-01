@@ -322,12 +322,14 @@ describe('LeaseManager', () => {
     expect(leases.hasLease('t1')).toBe(false)
   })
 
-  it('should enforce mutual exclusion under concurrent acquisition', () => {
-    // Both acquirers race for the same resource. Only one may win.
-    const [a, b] = [leases.acquire('t1', 'h1', '/tmp/race'), leases.acquire('t2', 'h2', '/tmp/race')]
-    const winners = [a, b].filter(Boolean)
-    expect(winners.length).toBe(1)
-    expect(a === null || b === null).toBe(true)
+  it('should enforce sequential mutual exclusion on same resource', () => {
+    // Both calls run synchronously on one connection, so this tests the
+    // serialized mutual exclusion path — the partial unique index and
+    // INSERT OR IGNORE make the second acquire fail.
+    const a = leases.acquire('t1', 'h1', '/tmp/race')
+    const b = leases.acquire('t2', 'h2', '/tmp/race')
+    expect(a).not.toBeNull()
+    expect(b).toBeNull()
   })
 
   it('should heartbeat an active lease', () => {

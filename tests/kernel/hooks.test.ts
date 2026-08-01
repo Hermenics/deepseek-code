@@ -69,9 +69,10 @@ describe('Legacy hook executor audit', () => {
     }
     await runPreToolHooks(config, 'WriteFile', {}, 's1')
     const runs = hookAuditLog.slice(-2)
-    // Each hook gets a unique run_id, but both are part of the same group.
+    // Each hook gets a unique run_id, but both share the same correlation_id.
     expect(runs[0]!.run_id).not.toBe(runs[1]!.run_id)
     expect(runs.length).toBe(2)
+    expect(runs[0]!.correlation_id).toBe(runs[1]!.correlation_id)
   })
 })
 
@@ -161,5 +162,30 @@ describe('HookRuntime execution', () => {
     const result = await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: '/tmp' })
     expect(result.decision).toBe('block')
     expect(result.runs[0]!.error).toContain('No handler registered')
+  })
+
+  it('should chain modified_input through consecutive hooks', async () => {
+    runtime.registerHandler('command', async (_def, ctx) => {
+      if (!ctx.tool_input || !(ctx.tool_input as Record<string, string>).path) return { decision: 'allow', modified_input: { path: 'first.ts' } }
+      return { decision: 'allow', modified_input: { path: (ctx.tool_input as Record<string, string>).path + '.second' } }
+    })
+    runtime.register({ id: 'h1', event: 'PreToolUse', handler_type: 'command', handler_config: {}, scope: 'user', timeout_ms: 5000, enabled: true })
+    runtime.register({ id: 'h2', event: 'PreToolUse', handler_type: 'command', handler_config: {}, scope: 'user', timeout_ms: 5000, enabled: true })
+    runtime.trust('h1'); runtime.trust('h2')
+
+    const result = await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: '/tmp' })
+    expect(result.decision).toBe('allow')
+    expect(result.modifiedInput).toEqual({ path: 'first.ts.second' })
+    expect(result.runs.length).toBe(2)
+  })
+
+  it('should bounded in-memory runs use an in-process handler', async () => {
+    runtime.registerHandler('command', async () => ({ decision: 'allow' }))
+    const hook = { id: 'h-fast', event: 'PreToolUse', handler_type: 'command' as const, handler_config: {}, scope: 'user' as const, timeout_ms: 5000, enabled: true }
+    runtime.register(hook); runtime.trust('h-fast')
+    for (let i = 0; i < MAX_HOOK_RUNTIME_RUNS + 20; i++) {
+      await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: '/tmp' })
+    }
+    expect(runtime.getRuns({ limit: 10000 }).length).toBe(MAX_HOOK_RUNTIME_RUNS)
   })
 })

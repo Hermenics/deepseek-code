@@ -81,18 +81,19 @@
 | `src/kernel/hooks/hookRuntime.ts` | HookRuntime with trust-by-hash, multi-handler types, audit trail |
 | `src/kernel/workflows/workflowEngine.ts` | WorkflowEngine with dependency-ordered phases, 3 predefined workflows |
 | `tests/kernel/phase4.test.ts` | 15 tests: PathOwnership, IntegrationPipeline, WorktreeGC |
-| `tests/kernel/phases5-7.test.ts` | 25 tests: GoalEngine, HookRuntime, WorkflowEngine, 5 benchmark gates |
+| `tests/kernel/import.test.ts` | 4 tests: legacy JSON → SQLite import, dry-run, custom dir, error handling |
+| `tests/kernel/hooks.test.ts` | 16 tests: executor audit/decision/retention/correlation, HookRuntime handlers/trust/chaining/bounded |
 
 ## Final Test Summary
 
 - **Full suite total**: 1510 pass, 3 skip, 0 fail (110 test files) — includes all non-kernel tests
-- **Kernel test total**: 142 pass, 0 fail across 6 files under `tests/kernel/`:
+- **Kernel test total**: 144 pass, 0 fail across 6 files under `tests/kernel/`:
   - `store.test.ts` — 21 (Store CRUD, transactions, EventBus emit/query/replay/ordering)
   - `phase3.test.ts` — 47 (AgentSpec, ThreadRuntime, TaskBoard, LeaseManager, MessageRouter, GoalRepo)
   - `phase4.test.ts` — 24 (PathOwnership, IntegrationPipeline, WorktreeGC, restart recovery)
   - `phases5-7.test.ts` — 32 (GoalEngine, HookRuntime, WorkflowEngine, 5 benchmark gates)
   - `import.test.ts` — 4 (legacy JSON import, dry-run, custom dir)
-  - `hooks.test.ts` — 14 (legacy executor audit, HookRuntime handlers/retention)
+  - `hooks.test.ts` — 16 (legacy executor audit, HookRuntime handlers/trust/chaining/bounded runs)
 - **Benchmark gates**: 5 implemented (A: parallel writer safety, B: crash recovery file-backed, C: goal correctness, E: observability, G: UX control/messaging)
 - **Kernel modules**: 16 source files in `src/kernel/`
 - **Migration versions**: 5 (V1 initial, V2 leases + active-resource unique index, V3 event sequence, V4 workspace durability, V5 workflow runs)

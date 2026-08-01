@@ -161,7 +161,7 @@ describe('HookRuntime', () => {
 
   const testHook: HookDefinition = {
     id: 'hook-1', event: 'PreToolUse', matcher: 'WriteFile',
-    handler_type: 'command', handler_config: { command: 'echo ok' },
+    handler_type: 'shell', handler_config: { command: 'echo ok' },
     scope: 'user', timeout_ms: 30_000, enabled: true,
   }
 

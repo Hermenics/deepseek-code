@@ -47,6 +47,8 @@ export interface HookRun {
   hook_id?: string
   event: HookEvent
   command: string
+  correlation_id?: string
+  session_id?: string
   started_at: string
   finished_at?: string
   exit_code?: number

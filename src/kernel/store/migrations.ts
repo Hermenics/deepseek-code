@@ -302,6 +302,7 @@ export const MIGRATIONS: Migration[] = [
         status TEXT NOT NULL,
         current_phase TEXT,
         task_ids TEXT NOT NULL DEFAULT '[]',
+        session_id TEXT NOT NULL DEFAULT '',
         started_at TEXT NOT NULL,
         completed_at TEXT,
         error TEXT
