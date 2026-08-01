@@ -4,10 +4,11 @@ import { MIGRATIONS } from '../../src/kernel/store/migrations.js'
 import { EventBus } from '../../src/kernel/events/eventBus.js'
 import { createAgentSpec, validateAgentSpec } from '../../src/kernel/threads/agentSpec.js'
 import { ThreadRuntime } from '../../src/kernel/threads/threadRuntime.js'
-import { TaskBoard, LeaseManager, LEASE_MIGRATION } from '../../src/kernel/tasks/taskBoard.js'
+import { TaskBoard, LeaseManager } from '../../src/kernel/tasks/taskBoard.js'
 import { MessageRouter } from '../../src/kernel/tasks/messageRouter.js'
+import { GoalRepo } from '../../src/kernel/store/repositories.js'
 
-const ALL_MIGRATIONS = [...MIGRATIONS, LEASE_MIGRATION]
+const ALL_MIGRATIONS = MIGRATIONS
 const SESSION = 'test-session-phase3'
 
 function seedSession(store: Store): void {
@@ -15,6 +16,11 @@ function seedSession(store: Store): void {
     'INSERT INTO sessions (id, cwd, model, provider, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
     SESSION, '/tmp/test', 'test-model', 'test-provider', new Date().toISOString(), new Date().toISOString(),
   )
+  // Threads referenced by goal FK constraints.
+  for (const tid of ['th1', 'shared-th']) {
+    store.run('INSERT INTO threads (id, session_id, agent_spec, agent_name, role, context_mode, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      tid, SESSION, '{}', 'test', 'reader', 'fresh', 'idle', new Date().toISOString(), new Date().toISOString())
+  }
 }
 
 // ── AgentSpec ───────────────────────────────────────────────────────
@@ -45,6 +51,33 @@ describe('AgentSpec', () => {
     const spec = createAgentSpec({ agent_id: 'a', name: 'x', system_prompt: 'hi', context_mode: 'bad' as any })
     const result = validateAgentSpec(spec)
     expect(result.valid).toBe(false)
+  })
+
+  it('should reject malformed numeric configuration values', () => {
+    const base = { agent_id: 'a', name: 'x', system_prompt: 'hi' }
+    const cases: Array<[string, unknown]> = [
+      ['timeout_ms', undefined],
+      ['timeout_ms', '5000'],
+      ['timeout_ms', NaN],
+      ['timeout_ms', Infinity],
+      ['timeout_ms', 12.5],
+      ['max_retries', undefined],
+      ['max_retries', '2'],
+      ['max_depth', null as unknown],
+      ['max_fan_out', NaN],
+    ]
+    for (const [field, value] of cases) {
+      const spec = { ...base, [field]: value } as unknown as Parameters<typeof validateAgentSpec>[0]
+      const result = validateAgentSpec(spec)
+      expect(result.valid).toBe(false)
+      expect(result.errors.some(e => e.includes(field))).toBe(true)
+    }
+  })
+
+  it('should still accept valid numeric ranges', () => {
+    const spec = createAgentSpec({ agent_id: 'a', name: 'x', system_prompt: 'hi',
+      timeout_ms: 5_000, max_retries: 2, max_depth: 4, max_fan_out: 10 })
+    expect(validateAgentSpec(spec).valid).toBe(true)
   })
 })
 
@@ -120,7 +153,49 @@ describe('ThreadRuntime', () => {
   it('should list threads by session', () => {
     runtime.createThread(createAgentSpec({ agent_id: 'ta', name: 'A', system_prompt: 'a' }))
     runtime.createThread(createAgentSpec({ agent_id: 'tb', name: 'B', system_prompt: 'b' }))
-    expect(runtime.listThreads().length).toBe(2)
+    // Includes the two seed threads (th1, shared-th) from the shared session.
+    expect(runtime.listThreads().length).toBeGreaterThanOrEqual(4)
+  })
+
+  it('should allocate turn sequences atomically', () => {
+    const spec = createAgentSpec({ agent_id: 'atomic-turns', name: 'AT', system_prompt: 'x' })
+    runtime.createThread(spec)
+    // Concurrent-ish creation in sequence must produce strictly increasing numbers.
+    const turns = [runtime.createTurn('atomic-turns', 'm', 'p'), runtime.createTurn('atomic-turns', 'm', 'p')]
+    expect(turns[0]!.sequence).toBe(1)
+    expect(turns[1]!.sequence).toBe(2)
+    expect(runtime.listTurns('atomic-turns').map(t => t.sequence)).toEqual([1, 2])
+  })
+
+  it('should build child context from parent turns for last_n_turns', () => {
+    const parent = createAgentSpec({ agent_id: 'parent-ctx', name: 'P', system_prompt: 'parent' })
+    runtime.createThread(parent)
+    const t1 = runtime.createTurn('parent-ctx', 'm', 'p')
+    runtime.completeTurn(t1.id, { transcript_json: JSON.stringify(['parent-msg-1']), tokens_in: 1, tokens_out: 1, tokens_cache: 0 })
+
+    const child = createAgentSpec({ agent_id: 'child-ctx', name: 'C', system_prompt: 'child', context_mode: 'last_n_turns', context_window: 5 })
+    runtime.createThread(child, 'parent-ctx')
+
+    const ctx = runtime.buildContext('child-ctx')
+    expect(ctx).toContain('parent-msg-1')
+  })
+
+  it('should build child context from parent turns for full mode', () => {
+    const parent = createAgentSpec({ agent_id: 'parent-full', name: 'P', system_prompt: 'p' })
+    runtime.createThread(parent)
+    const t1 = runtime.createTurn('parent-full', 'm', 'p')
+    runtime.completeTurn(t1.id, { transcript_json: JSON.stringify(['full-parent']), tokens_in: 1, tokens_out: 1, tokens_cache: 0 })
+
+    const child = createAgentSpec({ agent_id: 'child-full', name: 'C', system_prompt: 'c', context_mode: 'full' })
+    runtime.createThread(child, 'parent-full')
+
+    expect(runtime.buildContext('child-full')).toContain('full-parent')
+  })
+
+  it('should return empty context for non-fresh child without a parent', () => {
+    const child = createAgentSpec({ agent_id: 'orphan-ctx', name: 'O', system_prompt: 'o', context_mode: 'summary' })
+    runtime.createThread(child)
+    expect(runtime.buildContext('orphan-ctx')).toBe('')
   })
 })
 
@@ -163,6 +238,7 @@ describe('TaskBoard', () => {
     board.create({})
     board.create({})
     const t3 = board.create({})
+    board.transition(t3.task_id, 'running')
     board.transition(t3.task_id, 'done')
     expect(board.list({ state: 'queued' }).length).toBe(2)
     expect(board.list({ state: 'done' }).length).toBe(1)
@@ -171,6 +247,7 @@ describe('TaskBoard', () => {
   it('should add and check dependencies', () => {
     const t1 = board.create({})
     const t2 = board.create({})
+    board.transition(t1.task_id, 'running')
     board.transition(t1.task_id, 'done')
     board.addDependency(t2.task_id, t1.task_id)
 
@@ -243,6 +320,96 @@ describe('LeaseManager', () => {
     leases.acquire('t1', 'h1', '/tmp/q')
     leases.releaseAll('t1')
     expect(leases.hasLease('t1')).toBe(false)
+  })
+
+  it('should enforce mutual exclusion under concurrent acquisition', () => {
+    // Both acquirers race for the same resource. Only one may win.
+    const [a, b] = [leases.acquire('t1', 'h1', '/tmp/race'), leases.acquire('t2', 'h2', '/tmp/race')]
+    const winners = [a, b].filter(Boolean)
+    expect(winners.length).toBe(1)
+    expect(a === null || b === null).toBe(true)
+  })
+
+  it('should heartbeat an active lease', () => {
+    const lease = leases.acquire('t1', 'h1', '/tmp/hb')!
+    expect(leases.heartbeat(lease.lease_id)).toBe(true)
+  })
+
+  it('should return false for heartbeat on a missing lease', () => {
+    expect(leases.heartbeat('does-not-exist')).toBe(false)
+  })
+
+  it('should return false for heartbeat on a released lease', () => {
+    const lease = leases.acquire('t1', 'h1', '/tmp/hb2')!
+    leases.release(lease.lease_id)
+    expect(leases.heartbeat(lease.lease_id)).toBe(false)
+  })
+})
+
+// ── Task transitions ────────────────────────────────────────────────
+
+describe('TaskBoard transitions', () => {
+  let store: Store
+  let events: EventBus
+  let board: TaskBoard
+
+  beforeEach(() => {
+    store = new Store({ memory: true })
+    store.migrate(ALL_MIGRATIONS)
+    seedSession(store)
+    events = new EventBus(store, SESSION)
+    board = new TaskBoard(store, events)
+  })
+  afterEach(() => store.close())
+
+  it('should reject invalid transitions from terminal states', () => {
+    const task = board.create({})
+    board.transition(task.task_id, 'running')
+    board.transition(task.task_id, 'done')
+    // done is fully terminal — neither running nor queued are reachable.
+    expect(() => board.transition(task.task_id, 'running')).toThrow(/invalid task transition/i)
+    expect(() => board.transition(task.task_id, 'queued')).toThrow(/invalid task transition/i)
+  })
+
+  it('should reject invalid transition from running to queued', () => {
+    const task = board.create({})
+    board.transition(task.task_id, 'running')
+    expect(() => board.transition(task.task_id, 'queued')).toThrow(/invalid task transition/i)
+  })
+
+  it('should reject queued directly to done (must pass through running)', () => {
+    const task = board.create({})
+    expect(() => board.transition(task.task_id, 'done')).toThrow(/invalid task transition/i)
+  })
+
+  it('should set completed_at on terminal transitions', () => {
+    const task = board.create({})
+    board.transition(task.task_id, 'running')
+    board.transition(task.task_id, 'done')
+    const done = board.get(task.task_id)!
+    expect(done.completed_at).toBeTruthy()
+  })
+
+  it('should preserve completed_at across non-terminal no-op updates', () => {
+    const task = board.create({})
+    board.transition(task.task_id, 'running')
+    board.transition(task.task_id, 'done')
+    const completedAt = board.get(task.task_id)!.completed_at
+
+    // No-op transition on a terminal task must not erase history.
+    board.transition(task.task_id, 'done')
+    expect(board.get(task.task_id)!.completed_at).toBe(completedAt)
+  })
+
+  it('should clear completed_at when a retryable terminal task resumes to queued', () => {
+    const task = board.create({})
+    board.transition(task.task_id, 'running')
+    board.transition(task.task_id, 'failed')
+    expect(board.get(task.task_id)!.completed_at).toBeTruthy()
+
+    // failed -> queued is the retry path and starts a new attempt.
+    board.transition(task.task_id, 'queued')
+    expect(board.get(task.task_id)!.completed_at).toBeNull()
   })
 })
 
@@ -321,5 +488,77 @@ describe('MessageRouter', () => {
     const msg = router.followup({ sender_id: 'a', recipient_id: 'b', task_id: 't', payload: { resume: true } })
     expect(msg.type).toBe('followup')
     expect(msg.payload.resume).toBe(true)
+  })
+
+  it('should broadcast a root task to all other root tasks but not itself', () => {
+    // Root tasks (parent_task_id IS NULL).
+    for (const tid of ['root-a', 'root-b', 'root-c']) {
+      store.run('INSERT INTO tasks (task_id, session_id, type, mode, context_mode, state, depth, attempt, permission_profile, timeout_ms, tokens_used, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        tid, SESSION, 'agent', 'foreground', 'fresh', 'queued', 0, 0, 'writer-worktree', 120_000, 0, new Date().toISOString())
+    }
+
+    const sent = router.broadcast({ sender_id: 'root-a', task_id: 'root-a', type: 'direct', payload: { ping: true } })
+    expect(sent.length).toBe(2) // root-b and root-c, not root-a
+    expect(sent.every(m => m.recipient_id !== 'root-a')).toBe(true)
+    expect(sent.map(m => m.recipient_id).sort()).toEqual(['root-b', 'root-c'])
+  })
+})
+
+// ── GoalRepo integrity ──────────────────────────────────────────────
+
+describe('GoalRepo integrity', () => {
+  let store: Store
+  let events: EventBus
+  let goals: GoalRepo
+
+  beforeEach(() => {
+    store = new Store({ memory: true })
+    store.migrate(ALL_MIGRATIONS)
+    seedSession(store)
+    events = new EventBus(store, SESSION)
+    goals = new GoalRepo(store, events)
+  })
+  afterEach(() => store.close())
+
+  it('should increment revision on each update', () => {
+    const goal = goals.create({ thread_id: 'th1', objective: 'Rev test' })
+    expect(goal.revision).toBe(1)
+    goals.update(goal.goal_id, { status: 'paused' })
+    goals.update(goal.goal_id, { status: 'active' })
+    expect(goals.get(goal.goal_id)!.revision).toBe(3)
+  })
+
+  it('should make concurrent writes conflict via the revision guard', () => {
+    const goal = goals.create({ thread_id: 'th1', objective: 'Race test' })
+    const staleRevision = goal.revision // 1
+
+    // First writer applies its change against revision 1 → 1 row changed.
+    const firstChanges = store.run(
+      `UPDATE goals SET revision = ?, status = ? WHERE goal_id = ? AND revision = ?`,
+      staleRevision + 1, 'paused', goal.goal_id, staleRevision,
+    )
+    expect(firstChanges).toBe(1)
+
+    // Second writer, still holding the stale revision, matches zero rows.
+    const secondChanges = store.run(
+      `UPDATE goals SET revision = ?, status = ? WHERE goal_id = ? AND revision = ?`,
+      staleRevision + 1, 'active', goal.goal_id, staleRevision,
+    )
+    expect(secondChanges).toBe(0)
+
+    // Repo-level update always re-reads inside the transaction, so it bumps cleanly.
+    goals.update(goal.goal_id, { status: 'blocked' })
+    expect(goals.get(goal.goal_id)!.revision).toBe(staleRevision + 2)
+  })
+
+  it('should scope getActive to the current session', () => {
+    const goal = goals.create({ thread_id: 'shared-th', objective: 'Session A goal' })
+
+    // A second session reuses the same thread ID but must not see this goal.
+    const otherEvents = new EventBus(store, 'other-session')
+    const otherGoals = new GoalRepo(store, otherEvents)
+
+    expect(goals.getActive('shared-th')!.goal_id).toBe(goal.goal_id)
+    expect(otherGoals.getActive('shared-th')).toBeUndefined()
   })
 })

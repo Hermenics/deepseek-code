@@ -4,15 +4,33 @@ import type { HooksConfig, HookCommand, HookInput, HookRun, PreToolHookOutput } 
 import { matchesHookPattern } from './matcher.js'
 
 const MAX_OUTPUT_BYTES = 100_000
+/** Bounded in-memory retention for hook audit entries. */
+export const MAX_HOOK_AUDIT_ENTRIES = 500
 
 /** In-memory audit log of hook runs. Survives for the session lifetime. */
 export const hookAuditLog: HookRun[] = []
 
-export function buildInput(base: Omit<HookInput, 'schema_version' | 'correlation_id' | 'run_id' | 'cwd'>): HookInput {
+function pushAudit(run: HookRun): void {
+  hookAuditLog.push(run)
+  // Evict oldest entries, preserving order.
+  if (hookAuditLog.length > MAX_HOOK_AUDIT_ENTRIES) {
+    hookAuditLog.splice(0, hookAuditLog.length - MAX_HOOK_AUDIT_ENTRIES)
+  }
+}
+
+/**
+ * Build the JSON input sent to a hook. `correlationId` links related hook
+ * executions (e.g. all PreToolUse hooks for one tool call); when omitted, a
+ * fresh ID is generated.
+ */
+export function buildInput(
+  base: Omit<HookInput, 'schema_version' | 'correlation_id' | 'run_id' | 'cwd'>,
+  correlationId?: string,
+): HookInput {
   return {
     ...base,
     schema_version: 1,
-    correlation_id: randomUUID(),
+    correlation_id: correlationId ?? randomUUID(),
     run_id: randomUUID(),
     cwd: process.cwd(),
   }
@@ -51,7 +69,8 @@ export async function runHookCommand(cmd: HookCommand, input: HookInput): Promis
     proc.on('error', (err) => {
       run.finished_at = new Date().toISOString()
       run.error = err.message
-      hookAuditLog.push(run)
+      run.decision = 'block'
+      pushAudit(run)
       resolve('')
     })
     proc.on('close', (code) => {
@@ -61,12 +80,14 @@ export async function runHookCommand(cmd: HookCommand, input: HookInput): Promis
       if (code !== 0) {
         const errInfo = stderr.trim() || `exited with code ${code}`
         run.error = errInfo
+        run.decision = 'block'
         console.error(`[hooks] Hook "${cmd.command}" failed: ${errInfo}`)
-        hookAuditLog.push(run)
+        pushAudit(run)
         resolve(JSON.stringify({ decision: 'block', reason: `Hook failed: ${errInfo}` }))
         return
       }
-      hookAuditLog.push(run)
+      run.decision = 'allow'
+      pushAudit(run)
       resolve(stdout.trim())
     })
 
@@ -77,10 +98,22 @@ export async function runHookCommand(cmd: HookCommand, input: HookInput): Promis
     } catch {
       run.finished_at = new Date().toISOString()
       run.error = 'Failed to write to hook stdin'
-      hookAuditLog.push(run)
+      run.decision = 'block'
+      pushAudit(run)
       resolve('')
     }
   })
+}
+
+/** Mark the most recent matching audit entry for a run as blocked (JSON block). */
+function markAuditBlocked(runId: string): void {
+  for (let i = hookAuditLog.length - 1; i >= 0; i--) {
+    const run = hookAuditLog[i]
+    if (run.run_id === runId) {
+      run.decision = 'block'
+      return
+    }
+  }
 }
 
 /**
@@ -98,6 +131,8 @@ export async function runPreToolHooks(
 
   let currentInput = toolInput
   let matched = false
+  // One correlation ID for the whole pre-tool group links all hooks for this tool call.
+  const correlationId = randomUUID()
 
   for (const matcher of config.PreToolUse) {
     if (matcher.enabled === false) continue
@@ -111,7 +146,7 @@ export async function runPreToolHooks(
         session_id: sessionId,
         tool_name: toolName,
         tool_input: currentInput,
-      })
+      }, correlationId)
 
       const output = await runHookCommand(hook, input)
       if (!output) continue
@@ -119,6 +154,7 @@ export async function runPreToolHooks(
       try {
         const parsed = JSON.parse(output) as PreToolHookOutput
         if (parsed.decision === 'block') {
+          markAuditBlocked(input.run_id)
           return { decision: 'block', reason: parsed.reason ?? 'Blocked by PreToolUse hook' }
         }
         if (parsed.modified_input) {
@@ -148,6 +184,7 @@ export async function runPostToolHooks(
 ): Promise<void> {
   if (!config?.PostToolUse?.length) return
 
+  const correlationId = randomUUID()
   for (const matcher of config.PostToolUse) {
     if (matcher.enabled === false) continue
     if (!matchesHookPattern(matcher.matcher, toolName)) continue
@@ -160,7 +197,7 @@ export async function runPostToolHooks(
         tool_name: toolName,
         tool_input: toolInput,
         tool_result: toolResult.slice(0, 10_000), // cap result size sent to hooks
-      })
+      }, correlationId)
       // Fire-and-forget but tracked via hookAuditLog
       runHookCommand(hook, input).catch(() => {})
     }
@@ -176,9 +213,10 @@ export async function runSessionStartHooks(
 ): Promise<void> {
   if (!config?.SessionStart?.length) return
 
+  const correlationId = randomUUID()
   for (const hook of config.SessionStart) {
     if (hook.enabled === false) continue
-    const input = buildInput({ event: 'SessionStart', session_id: sessionId })
+    const input = buildInput({ event: 'SessionStart', session_id: sessionId }, correlationId)
     await runHookCommand(hook, input).catch(() => {})
   }
 }

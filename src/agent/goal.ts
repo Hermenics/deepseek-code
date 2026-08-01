@@ -88,7 +88,11 @@ export function resumeGoal(): Goal {
 
 export function getElapsedSeconds(goal: Goal): number {
   if (goal.status === 'active') {
-    const started = new Date(goal.startedAt).getTime()
+    // Old persisted goals may lack a valid startedAt. Never return NaN: fall
+    // back to the stored elapsed time without adding invalid wall-clock time.
+    if (!goal.startedAt) return goal.timeUsedSeconds
+    const started = Date.parse(goal.startedAt)
+    if (Number.isNaN(started)) return goal.timeUsedSeconds
     const elapsed = Math.floor((Date.now() - started) / 1000)
     return goal.timeUsedSeconds + Math.max(0, elapsed)
   }
