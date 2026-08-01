@@ -1,5 +1,4 @@
 import React from "react";
-import { motion } from "framer-motion";
 
 const COMMANDS = [
   "/help", "/model", "/clear", "/compact", "/plan", "/review", "/config",
