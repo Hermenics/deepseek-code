@@ -26,6 +26,7 @@ import type { ThemeName, ProviderConfig } from '../types/provider.js'
 import type { DeepSeekSettings, InterfaceSettings } from '../settings/types.js'
 import { formatChatError } from '../utils/chatError.js'
 import { saveSession, updateSessionTitle, type SessionData } from '../agent/session.js'
+import { getGoal, getElapsedSeconds, resumeGoal, updateGoal, buildContinuationPrompt, GOAL_MAX_CONTINUATIONS } from '../agent/goal.js'
 import { DEFAULT_MODE, nextMode, isBuildMode, isAutoMode, type InteractionMode } from './interactionMode.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
@@ -579,6 +580,15 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
                   agentMessages: agent.getRawMessages(),
                   uiMessages: current,
                   filesModified: agent.getFilesModified(),
+                  goal: (() => {
+                    const g = getGoal()
+                    if (!g) return undefined
+                    // Only touch active goals: freeze elapsed time and reset the
+                    // active interval so a reload does not double-count it.
+                    if (g.status !== 'active') return g
+                    const now = new Date().toISOString()
+                    return { ...g, timeUsedSeconds: getElapsedSeconds(g), startedAt: now, updatedAt: now }
+                  })(),
                 })
                 return current
               })
@@ -1316,9 +1326,46 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           if (cmd.action === 'resume') {
             if (!goal) {
               setMessages((m) => [...m, { role: 'assistant', content: 'No goal to resume.' }])
+            } else if (goal.status === 'complete') {
+              setMessages((m) => [...m, { role: 'assistant', content: 'Goal is already complete. Use /goal <new objective> to set a new one.' }])
+            } else if (goal.status === 'budget_limited' || goal.status === 'usage_limited') {
+              setMessages((m) => [...m, { role: 'assistant', content: `Goal is ${goal.status}. Use /goal <new objective> to set a new goal.` }])
             } else {
-              resumeGoal()
-              setMessages((m) => [...m, { role: 'assistant', content: `Goal resumed: "${goal.objective}"` }])
+              // Enforce the same limits as automatic continuation before resuming.
+              const maxTurns = goal.maxContinuations ?? GOAL_MAX_CONTINUATIONS
+              if (goal.continuations >= maxTurns) {
+                updateGoal({ status: 'budget_limited', updatedAt: new Date().toISOString() })
+                setMessages((m) => [...m, { role: 'assistant', content: `⚠ Goal turn limit reached (${goal.continuations}/${maxTurns} turns). Goal paused.` }])
+                return
+              }
+              if (goal.tokenBudget !== undefined && goal.tokensUsed >= goal.tokenBudget) {
+                updateGoal({ status: 'budget_limited', updatedAt: new Date().toISOString() })
+                setMessages((m) => [...m, { role: 'assistant', content: `⚠ Goal budget limit reached (${goal.tokensUsed}/${goal.tokenBudget} tokens). Goal paused.` }])
+                return
+              }
+
+              const resumed = resumeGoal()
+              // Increment continuations so the displayed turn matches the scheduled turn.
+              updateGoal({ continuations: resumed.continuations + 1, updatedAt: new Date().toISOString() })
+              const nextTurn = resumed.continuations + 1
+              const prompt = buildContinuationPrompt(getGoal() ?? resumed, nextTurn)
+              setMessages((m) => [...m, { role: 'assistant', content: `Goal resumed: "${resumed.objective}" (turn ${nextTurn}/${maxTurns})\n\nResuming...` }])
+              // Schedule continuation immediately
+              if (goalContinuationTimerRef.current) clearTimeout(goalContinuationTimerRef.current)
+              goalContinuationTimerRef.current = setTimeout(() => {
+                goalContinuationTimerRef.current = null
+                setQueuedMessages((q) => {
+                  const next = enqueue(q, prompt)
+                  if (q.length === 0 && next.length > 0) {
+                    if (queuedSubmitTimerRef.current) clearTimeout(queuedSubmitTimerRef.current)
+                    queuedSubmitTimerRef.current = setTimeout(() => {
+                      queuedSubmitTimerRef.current = null
+                      void handleSubmitRef.current!(next[0]!)
+                    }, 0)
+                  }
+                  return next
+                })
+              }, 200)
             }
             return
           }

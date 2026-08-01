@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach } from 'bun:test'
 import {
   getGoal, setGoal, createGoal, updateGoal,
   markGoalComplete, markGoalBlocked, resumeGoal,
-  buildContinuationPrompt, GOAL_MAX_CONTINUATIONS,
+  buildContinuationPrompt, GOAL_MAX_CONTINUATIONS, getElapsedSeconds,
+  type Goal,
 } from '../src/agent/goal.js'
 
 beforeEach(() => {
@@ -20,10 +21,11 @@ describe('Goal creation', () => {
     expect(goal.continuations).toBe(0)
   })
 
-  it('should set createdAt and updatedAt', () => {
+  it('should set createdAt, updatedAt, and startedAt', () => {
     const goal = createGoal('Test')
     expect(goal.createdAt).toBeTruthy()
     expect(goal.updatedAt).toBe(goal.createdAt)
+    expect(goal.startedAt).toBe(goal.createdAt)
   })
 
   it('should retrieve the same goal via getGoal', () => {
@@ -148,5 +150,119 @@ describe('Continuation prompt', () => {
     const prompt = buildContinuationPrompt(goal, 1)
     expect(prompt).toContain('update_goal')
     expect(prompt).toContain('blocked')
+  })
+})
+
+describe('Time accounting', () => {
+  it('should set startedAt on creation', () => {
+    const goal = createGoal('Timed task')
+    expect(goal.startedAt).toBeTruthy()
+    expect(goal.timeUsedSeconds).toBe(0)
+  })
+
+  it('should compute elapsed seconds for active goals', () => {
+    const goal = createGoal('Timed task')
+    // Set startedAt 10 seconds in the past
+    const past = new Date(Date.now() - 10_000).toISOString()
+    updateGoal({ startedAt: past, updatedAt: new Date().toISOString() })
+    const elapsed = getElapsedSeconds(getGoal()!)
+    expect(elapsed).toBeGreaterThanOrEqual(9) // allow 1s tolerance
+    expect(elapsed).toBeLessThanOrEqual(15)
+  })
+
+  it('should freeze timeUsedSeconds when leaving active state', () => {
+    const goal = createGoal('Pause test')
+    const past = new Date(Date.now() - 5_000).toISOString()
+    updateGoal({ startedAt: past, updatedAt: new Date().toISOString() })
+
+    // Pause the goal — should freeze elapsed time
+    updateGoal({ status: 'paused', updatedAt: new Date().toISOString() })
+    const frozen = getGoal()!
+    expect(frozen.timeUsedSeconds).toBeGreaterThan(0)
+
+    // Elapsed should not increase after pausing (uses stored value)
+    const after = getElapsedSeconds(frozen)
+    expect(after).toBe(frozen.timeUsedSeconds)
+  })
+
+  it('should reset startedAt on resume', () => {
+    createGoal('Resume test')
+    updateGoal({ status: 'paused', timeUsedSeconds: 30, updatedAt: new Date().toISOString() })
+    const resumed = resumeGoal()
+    expect(resumed.startedAt).toBeTruthy()
+    expect(new Date(resumed.startedAt).getTime()).toBeGreaterThanOrEqual(Date.now() - 1000)
+  })
+
+  it('should not return NaN for an active goal with a missing startedAt', () => {
+    const goal = createGoal('Legacy goal')
+    // Simulate a pre-startedAt persisted goal.
+    const legacy = { ...goal, startedAt: '' } as unknown as Goal
+    const elapsed = getElapsedSeconds(legacy)
+    expect(Number.isNaN(elapsed)).toBe(false)
+    expect(elapsed).toBe(legacy.timeUsedSeconds)
+  })
+
+  it('should not return NaN for an active goal with an invalid startedAt', () => {
+    const goal = createGoal('Corrupt goal')
+    const legacy = { ...goal, startedAt: 'not-a-date' } as unknown as Goal
+    const elapsed = getElapsedSeconds(legacy)
+    expect(Number.isNaN(elapsed)).toBe(false)
+    expect(elapsed).toBe(legacy.timeUsedSeconds)
+  })
+
+  it('should keep working for valid timestamps', () => {
+    const goal = createGoal('Valid goal')
+    const past = new Date(Date.now() - 4_000).toISOString()
+    updateGoal({ startedAt: past, updatedAt: new Date().toISOString() })
+    const elapsed = getElapsedSeconds(getGoal()!)
+    expect(elapsed).toBeGreaterThanOrEqual(3)
+  })
+
+  it('should include startedAt in serialization round-trip', () => {
+    const goal = createGoal('Serialize test')
+    const serialized = JSON.stringify(goal)
+    const parsed = JSON.parse(serialized) as Goal
+    expect(parsed.startedAt).toBe(goal.startedAt)
+  })
+})
+
+describe('Goal persistence round-trip', () => {
+  it('should survive JSON serialization and deserialization', () => {
+    const goal = createGoal('Implement authentication', 100000, 5)
+    updateGoal({ tokensUsed: 500, continuations: 2, updatedAt: new Date().toISOString() })
+
+    // Simulate session save/load cycle
+    const serialized = JSON.stringify(getGoal())
+    const parsed = JSON.parse(serialized) as Goal
+
+    expect(parsed.objective).toBe('Implement authentication')
+    expect(parsed.status).toBe('active')
+    expect(parsed.tokenBudget).toBe(100000)
+    expect(parsed.maxContinuations).toBe(5)
+    expect(parsed.tokensUsed).toBe(500)
+    expect(parsed.continuations).toBe(2)
+    expect(parsed.createdAt).toBeTruthy()
+    expect(parsed.updatedAt).toBeTruthy()
+  })
+
+  it('should restore goal state from saved JSON', () => {
+    createGoal('Refactor DB', 50000)
+    markGoalBlocked('API key missing')
+
+    const saved = JSON.stringify(getGoal())
+    setGoal(null)
+    expect(getGoal()).toBeNull()
+
+    const restored = JSON.parse(saved) as Goal
+    setGoal(restored)
+    expect(getGoal()!.objective).toBe('Refactor DB')
+    expect(getGoal()!.status).toBe('active')
+    expect(getGoal()!.consecutiveBlockCount).toBe(1)
+  })
+
+  it('should handle null goal in session data', () => {
+    setGoal(null)
+    const sessionData = { goal: getGoal() ?? undefined }
+    expect(sessionData.goal).toBeUndefined()
   })
 })

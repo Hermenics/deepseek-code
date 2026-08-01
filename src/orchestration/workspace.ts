@@ -118,7 +118,8 @@ export class TaskWorkspaceManager {
     const { patch, files } = await this.capturePatch(workspace)
     if (!patch) {
       workspace.integrated = true
-      return { integrated: true, files: [] }
+      workspace.integratedPatchHash = createHash('sha256').update('').digest('hex')
+      return { integrated: true, files: [], patchHash: workspace.integratedPatchHash }
     }
     const forbidden = files.find(file => BLOCKED_DIRS.includes(file.split('/')[0] ?? '') || isSensitiveWorkspacePath(file))
     if (forbidden) {
