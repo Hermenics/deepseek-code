@@ -214,14 +214,14 @@ describe('EventBus', () => {
     expect(otherReceived).toBe(1)
   })
 
-  it('should isolate rejected async listeners', () => {
+  it('should isolate rejected async listeners', async () => {
     let otherReceived = 0
     bus.subscribe(() => Promise.reject(new Error('async boom')))
     bus.subscribe(() => { otherReceived++; return undefined })
     expect(() => bus.emit('async-reject', {})).not.toThrow()
-    // Give the microtask queue a tick to surface any unhandled rejection.
-    const done = Promise.resolve()
-    done.then(() => { expect(otherReceived).toBe(1) })
+    // Await the microtask flush so expect runs within the test.
+    await Promise.resolve()
+    expect(otherReceived).toBe(1)
   })
 
   it('should emit a monotonic event_seq', () => {

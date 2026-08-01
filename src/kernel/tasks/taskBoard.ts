@@ -145,28 +145,29 @@ export class TaskBoard {
 
     // completed_at rules:
     // - Entering a terminal state sets completed_at to now.
-    // - A valid terminal -> queued transition (resume/retry) clears completed_at.
+    // - A valid terminal -> queued transition (resume/retry) clears completed_at
+    //   AND starts a new attempt.
     // - Non-terminal -> non-terminal updates preserve any existing completed_at.
     const toTerminal = TERMINAL_TASK_STATES.has(to)
     const fromTerminal = TERMINAL_TASK_STATES.has(current.state)
     const completedAt = toTerminal
       ? now
       : (fromTerminal && to === 'queued' ? null : current.completed_at)
+    const attempt = (fromTerminal && to === 'queued') ? current.attempt + 1 : current.attempt
+    const startedAt = (fromTerminal && to === 'queued') ? null : (to === 'running' ? now : current.started_at)
 
     this.store.run(
-      `UPDATE tasks SET state = ?, started_at = COALESCE(started_at, ?), completed_at = ?,
+      `UPDATE tasks SET state = ?, started_at = ?, completed_at = ?,
         block_reason = ?, error_code = ?, error_message = ?,
-        tokens_used = ?, cost_usd = ?, latency_ms = ? WHERE task_id = ?`,
-      to,
-      to === 'running' ? now : current.started_at,
-      completedAt,
+        tokens_used = ?, cost_usd = ?, latency_ms = ?, attempt = ? WHERE task_id = ?`,
+      to, startedAt, completedAt,
       extra.block_reason ?? current.block_reason,
       extra.error_code ?? current.error_code,
       extra.error_message ?? current.error_message,
       extra.tokens_used ?? current.tokens_used,
       extra.cost_usd ?? current.cost_usd,
       extra.latency_ms ?? current.latency_ms,
-      taskId,
+      attempt, taskId,
     )
 
     this.events.emit('TaskStateChanged', { task_id: taskId, from: current.state, to }, { task_id: taskId })
