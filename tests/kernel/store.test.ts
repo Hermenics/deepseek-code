@@ -1,18 +1,31 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
+import { mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { Store } from '../../src/kernel/store/store.js'
 import { MIGRATIONS } from '../../src/kernel/store/migrations.js'
 import { EventBus } from '../../src/kernel/events/eventBus.js'
 
 describe('Store', () => {
-  let store: Store
+  let store!: Store
 
   afterEach(() => {
-    store.close()
+    store?.close()
   })
 
   it('should create an in-memory database', () => {
     store = new Store({ memory: true })
     expect(store.path).toBe(':memory:')
+  })
+
+  it('should open a database in a nested custom directory', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsk-kernel-'))
+    const dbPath = join(dir, 'nested', 'deeper', 'custom.db')
+    const custom = new Store({ path: dbPath })
+    custom.migrate(MIGRATIONS)
+    expect(existsSync(dbPath)).toBe(true)
+    custom.close()
+    rmSync(dir, { recursive: true, force: true })
   })
 
   it('should run migrations without error', () => {
@@ -31,6 +44,35 @@ describe('Store', () => {
     store.migrate(MIGRATIONS)
     const count2 = store.query<{ c: number }>('SELECT COUNT(*) as c FROM _schema_version')[0]!.c
     expect(count1).toBe(count2)
+  })
+
+  it('should upgrade an existing database by applying only missing migrations', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsk-migrate-'))
+    const dbPath = join(dir, 'kernel.db')
+    let oldStore: Store | undefined
+    let upgraded: Store | undefined
+    try {
+      // "Old" database: only migrations v1 and v2 applied.
+      oldStore = new Store({ path: dbPath })
+      oldStore.migrate(MIGRATIONS.filter(m => m.version <= 2))
+      expect(oldStore.query<{ c: number }>('SELECT COUNT(*) as c FROM _schema_version')[0]!.c).toBe(2)
+      oldStore.close(); oldStore = undefined
+
+      // Upgrade path: applying the full migration set adds only the missing ones.
+      upgraded = new Store({ path: dbPath })
+      upgraded.migrate(MIGRATIONS)
+      const versions = upgraded.query<{ version: number }>('SELECT version FROM _schema_version ORDER BY version').map(r => r.version)
+      expect(versions).toEqual([1, 2, 3, 4, 5])
+      // New tables/columns exist after the upgrade.
+      expect(upgraded.query('SELECT name FROM sqlite_master WHERE name = \'workflow_runs\'').length).toBe(1)
+      expect(upgraded.query('SELECT name FROM sqlite_master WHERE name = \'path_claims\'').length).toBe(1)
+      // event_seq column added to events.
+      expect(upgraded.query('SELECT name FROM pragma_table_info(\'events\') WHERE name = \'event_seq\'').length).toBe(1)
+    } finally {
+      oldStore?.close()
+      upgraded?.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   it('should execute within a transaction', () => {
@@ -162,5 +204,49 @@ describe('EventBus', () => {
     const events = bus.query({ type: 'struct' })
     // payload is JSON-stringified in the store, parse to verify
     expect(typeof (events[0]!.payload as unknown)).toBe('object')
+  })
+
+  it('should isolate synchronous listener throws', () => {
+    let otherReceived = 0
+    bus.subscribe(() => { throw new Error('listener boom') })
+    bus.subscribe(() => { otherReceived++ })
+    expect(() => bus.emit('sync-throw', {})).not.toThrow()
+    expect(otherReceived).toBe(1)
+  })
+
+  it('should isolate rejected async listeners', () => {
+    let otherReceived = 0
+    bus.subscribe(() => Promise.reject(new Error('async boom')))
+    bus.subscribe(() => { otherReceived++; return undefined })
+    expect(() => bus.emit('async-reject', {})).not.toThrow()
+    // Give the microtask queue a tick to surface any unhandled rejection.
+    const done = Promise.resolve()
+    done.then(() => { expect(otherReceived).toBe(1) })
+  })
+
+  it('should emit a monotonic event_seq', () => {
+    const e1 = bus.emit('seq', { n: 1 })
+    const e2 = bus.emit('seq', { n: 2 })
+    expect(e1.event_seq).toBeGreaterThan(0)
+    expect(e2.event_seq).toBe(e1.event_seq! + 1)
+  })
+
+  it('should order events deterministically by event_seq', () => {
+    // Emit several events within the same millisecond to defeat timestamp ordering.
+    const ids: number[] = []
+    for (let i = 0; i < 10; i++) ids.push(bus.emit('burst', { i }).event_seq!)
+    const replayed = bus.query({ type: 'burst' })
+    expect(replayed.map(e => e.event_seq)).toEqual([...ids].sort((a, b) => a - b))
+    // Stable on replay
+    const replay2 = bus.replay({ type: 'burst' })
+    expect(replay2.map(e => e.event_seq)).toEqual(ids)
+  })
+
+  it('should support after_seq cursors', () => {
+    const e1 = bus.emit('cursor', { n: 1 })
+    bus.emit('cursor', { n: 2 })
+    bus.emit('cursor', { n: 3 })
+    const after = bus.query({ type: 'cursor', after_seq: e1.event_seq })
+    expect(after.length).toBe(2)
   })
 })

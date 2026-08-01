@@ -32,13 +32,33 @@ export interface IntegrationVerifier {
   (result: IntegrationResult): Promise<{ passed: boolean; reason?: string }>
 }
 
+interface IntegrationRow {
+  integration_id: string
+  task_id: string
+  status: string
+  patch_hash: string | null
+  conflict_reason: string | null
+  files_integrated: string
+  verified: number
+  rolled_back: number
+  started_at: string
+  completed_at: string | null
+}
+
+/**
+ * Durable integration pipeline. Results are persisted to the
+ * `integration_results` table (migration v4) and rehydrated on construction,
+ * so active and terminal integration state survives restarts.
+ */
 export class IntegrationPipeline {
   private readonly active = new Map<string, IntegrationResult>()
 
   constructor(
     private readonly store: Store,
     private readonly events: EventBus,
-  ) {}
+  ) {
+    this.rehydrate()
+  }
 
   /** Begin integration of a workspace's changes. */
   async start(request: IntegrationRequest, verifier?: IntegrationVerifier): Promise<IntegrationResult> {
@@ -60,45 +80,60 @@ export class IntegrationPipeline {
     }
 
     this.active.set(request.task_id, result)
+    this.persistResult(result)
     this.events.emit('IntegrationStarted', {
       integration_id: id, task_id: request.task_id, files: request.files_changed,
     }, { task_id: request.task_id })
 
     // Phase 1: Pre-check
     result.status = 'checking'
+    this.persistResult(result)
     this.events.emit('IntegrationChecking', { integration_id: id }, { task_id: request.task_id })
 
-    // Simulate check (real implementation would run git apply --check, protected path checks, etc.)
-    const checkOk = request.files_changed.length > 0 && request.patch
-    if (!checkOk) {
-      // Empty change set — integration is trivially complete
+    if (request.files_changed.length === 0) {
+      // Empty change set — trivially successful integration.
       result.status = 'integrated'
-      result.files_integrated = request.files_changed
+      result.files_integrated = []
       result.verified = true
       result.completed_at = new Date().toISOString()
+      this.persistResult(result)
       this.events.emit('IntegrationCompleted', {
-        integration_id: id, files: result.files_integrated, verified: result.verified,
+        integration_id: id, files: [], verified: true,
+      }, { task_id: request.task_id })
+      return result
+    }
+
+    if (!request.patch) {
+      // Non-empty change set without a patch is a conflict, not a success.
+      result.status = 'conflict'
+      result.conflict_reason = 'Changed files declared but no patch was provided'
+      result.completed_at = new Date().toISOString()
+      this.persistResult(result)
+      this.events.emit('IntegrationConflict', {
+        integration_id: id, reason: result.conflict_reason, files: request.files_changed,
       }, { task_id: request.task_id })
       return result
     }
 
     // Phase 2: Apply
     result.status = 'applying'
+    this.persistResult(result)
     this.events.emit('IntegrationApplying', { integration_id: id, patch_hash: patchHash }, { task_id: request.task_id })
     result.files_integrated = request.files_changed
 
     // Phase 3: Verify
     result.status = 'verifying'
+    this.persistResult(result)
     this.events.emit('IntegrationVerifying', { integration_id: id }, { task_id: request.task_id })
 
     if (verifier) {
       const verdict = await verifier(result)
       if (!verdict.passed) {
-        // Rollback
         result.status = 'rolled_back'
         result.rolled_back = true
         result.conflict_reason = verdict.reason ?? 'Verification failed'
         result.completed_at = new Date().toISOString()
+        this.persistResult(result)
         this.events.emit('IntegrationRolledBack', {
           integration_id: id, reason: result.conflict_reason,
         }, { task_id: request.task_id })
@@ -110,6 +145,7 @@ export class IntegrationPipeline {
     result.status = 'integrated'
     result.verified = true
     result.completed_at = new Date().toISOString()
+    this.persistResult(result)
     this.events.emit('IntegrationCompleted', {
       integration_id: id, files: result.files_integrated, verified: result.verified,
     }, { task_id: request.task_id })
@@ -126,6 +162,7 @@ export class IntegrationPipeline {
     result.rolled_back = true
     result.conflict_reason = reason
     result.completed_at = new Date().toISOString()
+    this.persistResult(result)
     this.events.emit('IntegrationRolledBack', { integration_id: result.integration_id, reason }, { task_id: taskId })
     return result
   }
@@ -138,6 +175,47 @@ export class IntegrationPipeline {
   /** List all integrations. */
   list(): IntegrationResult[] {
     return [...this.active.values()]
+  }
+
+  private persistResult(result: IntegrationResult): void {
+    this.store.run(
+      `INSERT OR REPLACE INTO integration_results
+        (integration_id, task_id, status, patch_hash, conflict_reason, files_integrated,
+         verified, rolled_back, started_at, completed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      result.integration_id, result.task_id, result.status, result.patch_hash ?? null,
+      result.conflict_reason ?? null, JSON.stringify(result.files_integrated),
+      result.verified ? 1 : 0, result.rolled_back ? 1 : 0,
+      result.started_at, result.completed_at ?? null,
+    )
+  }
+
+  private rehydrate(): void {
+    const rows = this.store.query<IntegrationRow>('SELECT * FROM integration_results')
+    for (const row of rows) {
+      const result: IntegrationResult = {
+        integration_id: row.integration_id,
+        task_id: row.task_id,
+        status: row.status as IntegrationStatus,
+        patch_hash: row.patch_hash ?? undefined,
+        conflict_reason: row.conflict_reason ?? undefined,
+        files_integrated: this.parseJsonArray(row.files_integrated),
+        verified: row.verified === 1,
+        rolled_back: row.rolled_back === 1,
+        started_at: row.started_at,
+        completed_at: row.completed_at ?? undefined,
+      }
+      this.active.set(row.task_id, result)
+    }
+  }
+
+  private parseJsonArray(value: string): string[] {
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
   }
 }
 
@@ -178,13 +256,27 @@ export class WorktreeGC {
         continue
       }
 
-      if (wt.integrated_patch_hash && wt.current_patch_hash && wt.integrated_patch_hash !== wt.current_patch_hash) {
+      // Fail safe on unknown hashes: if either hash is missing, we cannot prove
+      // the worktree still matches what was integrated, so preserve it.
+      if (!wt.integrated_patch_hash) {
+        result.preserved.push(`${wt.path} (unknown integrated patch hash)`)
+        this.events.emit('WorktreePreserved', { reason: 'unknown integrated patch hash', task_id: wt.task_id }, { task_id: wt.task_id })
+        continue
+      }
+
+      if (!wt.current_patch_hash) {
+        result.preserved.push(`${wt.path} (unknown current patch hash)`)
+        this.events.emit('WorktreePreserved', { reason: 'unknown current patch hash', task_id: wt.task_id }, { task_id: wt.task_id })
+        continue
+      }
+
+      if (wt.integrated_patch_hash !== wt.current_patch_hash) {
         result.preserved.push(`${wt.path} (patch changed after integration)`)
         this.events.emit('WorktreePreserved', { reason: 'patch changed', task_id: wt.task_id }, { task_id: wt.task_id })
         continue
       }
 
-      // Safe to clean
+      // Both known hashes match — safe to clean.
       result.cleaned.push(wt.path)
       this.events.emit('WorktreeRemoved', { path: wt.path, task_id: wt.task_id }, { task_id: wt.task_id })
     }

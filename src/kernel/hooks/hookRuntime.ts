@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { spawn } from 'node:child_process'
 import type { Store } from '../store/store.js'
 import type { EventBus } from '../events/eventBus.js'
 
@@ -37,17 +38,115 @@ export interface HookRunResult {
   finished_at: string
 }
 
+export interface HookExecContext {
+  session_id: string
+  cwd: string
+  event: string
+  tool_name?: string
+  tool_input?: Record<string, unknown>
+}
+
+export type HookHandler = (def: HookDefinition, ctx: HookExecContext) => Promise<HookDecisionResult>
+
+/** Bounded in-memory retention for runtime run records. */
+export const MAX_HOOK_RUNTIME_RUNS = 500
+
+// ── Default handlers ────────────────────────────────────────────────
+
+function parseDecisionOutput(text: string): HookDecisionResult {
+  try {
+    const parsed = JSON.parse(text) as HookDecisionResult
+    return parsed
+  } catch {
+    return { decision: 'allow' }
+  }
+}
+
+function runProcessHandler(useShell: boolean): HookHandler {
+  return async (def, ctx) => {
+    const config = def.handler_config as { command?: string; argv?: string[] }
+    const command = config.command ?? ''
+    const timeoutMs = def.timeout_ms || 30_000
+
+    const argv = config.argv ?? (useShell ? ['-c', command] : command.split(' ').filter(Boolean))
+
+    const stdout = await new Promise<string>((resolve, reject) => {
+      const proc = useShell
+        ? spawn('sh', argv, { cwd: ctx.cwd, stdio: ['pipe', 'pipe', 'pipe'] })
+        : spawn(argv[0] ?? '', argv.slice(1), { cwd: ctx.cwd, stdio: ['pipe', 'pipe', 'pipe'] })
+
+      let out = ''
+      let err = ''
+      const timer = setTimeout(() => proc.kill('SIGKILL'), timeoutMs)
+      proc.stdout?.on('data', (c: Buffer) => { if (out.length < 100_000) out += c.toString() })
+      proc.stderr?.on('data', (c: Buffer) => { err += c.toString() })
+      proc.on('error', reject)
+      proc.on('close', (code) => {
+        clearTimeout(timer)
+        if (code !== 0) {
+          reject(new Error(err.trim() || `exited with code ${code}`))
+          return
+        }
+        resolve(out.trim())
+      })
+      try {
+        proc.stdin?.write(JSON.stringify({
+          schema_version: 1, event: ctx.event, session_id: ctx.session_id, cwd: ctx.cwd,
+          tool_name: ctx.tool_name, tool_input: ctx.tool_input,
+        }))
+        proc.stdin?.end()
+      } catch (e) { reject(e as Error) }
+    })
+
+    return parseDecisionOutput(stdout)
+  }
+}
+
+const runHttpHandler: HookHandler = async (def, ctx) => {
+  const config = def.handler_config as { url?: string; method?: string; headers?: Record<string, string> }
+  if (!config.url) return { decision: 'block', reason: 'http handler requires a url' }
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), def.timeout_ms || 30_000)
+  try {
+    const response = await fetch(config.url, {
+      method: config.method ?? 'POST',
+      headers: { 'content-type': 'application/json', ...(config.headers ?? {}) },
+      body: JSON.stringify({ session_id: ctx.session_id, cwd: ctx.cwd, event: ctx.event, tool_name: ctx.tool_name }),
+      signal: controller.signal,
+    })
+    const text = await response.text()
+    return parseDecisionOutput(text)
+  } catch (e) {
+    return { decision: 'block', reason: e instanceof Error ? e.message : String(e) }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
 // ── Hook Runtime ────────────────────────────────────────────────────
 
 export class HookRuntime {
   private readonly definitions = new Map<string, HookDefinition>()
   private readonly trustStore = new Map<string, string>() // hook_id → trusted_hash
   private readonly runs: HookRunResult[] = []
+  private readonly handlers = new Map<HookHandlerType, HookHandler>()
 
   constructor(
     private readonly store: Store,
     private readonly events: EventBus,
-  ) {}
+  ) {
+    // Default handlers for command/shell/http; prompt/agent require a
+    // registered handler via registerHandler.
+    this.handlers.set('command', runProcessHandler(false))
+    this.handlers.set('shell', runProcessHandler(true))
+    this.handlers.set('http', runHttpHandler)
+  }
+
+  /** Register or override a handler for a handler type. */
+  registerHandler(type: HookHandlerType, handler: HookHandler): void {
+    this.handlers.set(type, handler)
+  }
 
   /** Register a hook definition. */
   register(def: HookDefinition): void {
@@ -103,15 +202,32 @@ export class HookRuntime {
       const runId = randomUUID()
       let decision: HookDecision | null = null
       let error: string | null = null
+      let modifiedInput: Record<string, unknown> | undefined
 
-      try {
-        // Simulate hook execution (real impl would spawn process/call HTTP/run prompt)
-        // decision stays null for now; actual execution happens in real implementation
-      } catch (err) {
-        error = err instanceof Error ? err.message : String(err)
+      const handler = this.handlers.get(hook.handler_type)
+      if (!handler) {
+        error = `No handler registered for handler_type '${hook.handler_type}'`
         decision = 'block'
+      } else {
+        try {
+          const outcome = await handler(hook, {
+            session_id: context.session_id,
+            cwd: context.cwd,
+            event,
+            tool_name: toolName,
+            tool_input: toolInput,
+          })
+          decision = outcome.decision
+          modifiedInput = outcome.modified_input
+          if (outcome.reason && outcome.decision === 'block') error = outcome.reason
+        } catch (err) {
+          error = err instanceof Error ? err.message : String(err)
+          decision = 'block'
+        }
       }
+
       const finalDecision: HookDecision = decision ?? 'allow'
+      if (modifiedInput) currentInput = modifiedInput
 
       const result: HookRunResult = {
         run_id: runId,
@@ -124,9 +240,9 @@ export class HookRuntime {
         finished_at: new Date().toISOString(),
       }
       results.push(result)
-      this.runs.push(result)
+      this.pushRun(result)
 
-      // Persist run
+      // Persist run durably.
       this.store.run(
         `INSERT INTO hook_runs (run_id, hook_id, event, command, scope, decision, exit_code, error, started_at, finished_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -134,8 +250,8 @@ export class HookRuntime {
         finalDecision, error ? 1 : 0, error, result.started_at, result.finished_at,
       )
 
-      if (finalDecision === 'block' || (finalDecision as string) === 'stop') {
-        return { decision: finalDecision, runs: results }
+      if (finalDecision === 'block' || finalDecision === 'stop') {
+        return { decision: finalDecision, modifiedInput, runs: results }
       }
     }
 
@@ -164,6 +280,14 @@ export class HookRuntime {
       }
     }
     return invalidated
+  }
+
+  private pushRun(result: HookRunResult): void {
+    this.runs.push(result)
+    // Bounded in-memory retention, oldest first.
+    if (this.runs.length > MAX_HOOK_RUNTIME_RUNS) {
+      this.runs.splice(0, this.runs.length - MAX_HOOK_RUNTIME_RUNS)
+    }
   }
 
   private computeHash(def: HookDefinition): string {

@@ -85,10 +85,22 @@
 
 ## Final Test Summary
 
-- **Total**: 224 pass, 0 fail (9 kernel test files)
+- **Full suite total**: 1510 pass, 3 skip, 0 fail (110 test files) — includes all non-kernel tests
+- **Kernel test total**: 142 pass, 0 fail across 6 files under `tests/kernel/`:
+  - `store.test.ts` — 21 (Store CRUD, transactions, EventBus emit/query/replay/ordering)
+  - `phase3.test.ts` — 47 (AgentSpec, ThreadRuntime, TaskBoard, LeaseManager, MessageRouter, GoalRepo)
+  - `phase4.test.ts` — 24 (PathOwnership, IntegrationPipeline, WorktreeGC, restart recovery)
+  - `phases5-7.test.ts` — 32 (GoalEngine, HookRuntime, WorkflowEngine, 5 benchmark gates)
+  - `import.test.ts` — 4 (legacy JSON import, dry-run, custom dir)
+  - `hooks.test.ts` — 14 (legacy executor audit, HookRuntime handlers/retention)
+- **Benchmark gates**: 5 implemented (A: parallel writer safety, B: crash recovery file-backed, C: goal correctness, E: observability, G: UX control/messaging)
 - **Kernel modules**: 16 source files in `src/kernel/`
-- **Migration versions**: 2 (V1 initial, V2 leases)
-- **Predefined workflows**: 3 (review, implement, research)
+- **Migration versions**: 5 (V1 initial, V2 leases + active-resource unique index, V3 event sequence, V4 workspace durability, V5 workflow runs)
+
+## CodeRabbit PR #12 Fixes
+
+All 35 findings addressed (1 critical, 22 major, 12 minor) across the kernel modules:
+taskBoard (lease race/heartbeat/transitions), migrations single-source, GoalRepo concurrency + session scoping, Store custom-path dirname, EventBus observer isolation + deterministic ordering, threadRuntime atomic turns + parent-context, agentSpec numeric validation, messageRouter root broadcast, PathOwnership/Integration durability + glob-overlap, integration pre-check, WorktreeGC fail-safe, GoalEngine elapsed-time, goal.ts/getElapsedSeconds compat, App.tsx snapshot + resume limits, legacy import FK + options, hooks executor decision/retention/correlation, HookRuntime handlers + bounded runs, WorkflowEngine template/spawnTask/persist/phases, docs metrics + Gate B file-backed.
 
 ## Current Blockers
 

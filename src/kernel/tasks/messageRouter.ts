@@ -109,12 +109,17 @@ export class MessageRouter {
     )[0]
 
     const parentId = task?.parent_task_id ?? null
-    const siblings = this.store.query<{ task_id: string }>(
-      parentId
-        ? 'SELECT task_id FROM tasks WHERE parent_task_id = ? AND task_id != ?'
-        : 'SELECT task_id FROM tasks WHERE parent_task_id IS NULL AND task_id != ?',
-      parentId ?? 'N/A', input.task_id,
-    )
+    // Bind SQL parameters separately per branch: the parent branch uses two
+    // placeholders, the root branch uses exactly one.
+    const siblings = parentId
+      ? this.store.query<{ task_id: string }>(
+          'SELECT task_id FROM tasks WHERE parent_task_id = ? AND task_id != ?',
+          parentId, input.task_id,
+        )
+      : this.store.query<{ task_id: string }>(
+          'SELECT task_id FROM tasks WHERE parent_task_id IS NULL AND task_id != ?',
+          input.task_id,
+        )
 
     const results: AgentMessage[] = []
     for (const sib of siblings) {

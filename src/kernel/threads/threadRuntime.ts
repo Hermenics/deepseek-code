@@ -99,19 +99,16 @@ export class ThreadRuntime {
     this.events.emit('ThreadStatusChanged', { thread_id: threadId, status }, { thread_id: threadId })
   }
 
-  /** Create a new turn in a thread. */
+  /** Create a new turn in a thread. Sequence allocation and insert are atomic. */
   createTurn(threadId: string, model: string, provider: string): TurnRow {
     const thread = this.getThread(threadId)
     if (!thread) throw new Error(`Thread '${threadId}' not found`)
 
-    const nextSeq = this.store.query<{ s: number }>(
-      'SELECT COALESCE(MAX(sequence), 0) + 1 as s FROM turns WHERE thread_id = ?', threadId,
-    )[0]!.s
-
+    let nextSeq = 0
     const row: TurnRow = {
       id: randomUUID(),
       thread_id: threadId,
-      sequence: nextSeq,
+      sequence: 0,
       model,
       provider,
       status: 'pending',
@@ -124,15 +121,27 @@ export class ThreadRuntime {
       cost_usd: null,
     }
 
-    this.store.run(
-      `INSERT INTO turns (id, thread_id, sequence, model, provider, status, transcript_json,
-        started_at, completed_at, tokens_in, tokens_out, tokens_cache, cost_usd)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      row.id, row.thread_id, row.sequence, row.model, row.provider, row.status,
-      row.transcript_json, row.started_at, row.completed_at,
-      row.tokens_in, row.tokens_out, row.tokens_cache, row.cost_usd,
-    )
+    // MAX(sequence)+1 and the insert run in the same transaction. SQLite's
+    // single-writer serialization plus the UNIQUE(thread_id, sequence)
+    // constraint make the sequence allocation safe under concurrency.
+    this.store.transaction(() => {
+      const maxRow = this.store.query<{ s: number }>(
+        'SELECT COALESCE(MAX(sequence), 0) + 1 as s FROM turns WHERE thread_id = ?', threadId,
+      )[0]
+      nextSeq = maxRow?.s ?? 1
+      row.sequence = nextSeq
 
+      this.store.run(
+        `INSERT INTO turns (id, thread_id, sequence, model, provider, status, transcript_json,
+          started_at, completed_at, tokens_in, tokens_out, tokens_cache, cost_usd)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        row.id, row.thread_id, row.sequence, row.model, row.provider, row.status,
+        row.transcript_json, row.started_at, row.completed_at,
+        row.tokens_in, row.tokens_out, row.tokens_cache, row.cost_usd,
+      )
+    })
+
+    // Status updates and event emission happen only after the transaction succeeds.
     this.updateStatus(threadId, 'running')
     this.events.emit('TurnCreated', { turn_id: row.id, thread_id: threadId, sequence: nextSeq }, { thread_id: threadId })
     return row
@@ -213,7 +222,11 @@ export class ThreadRuntime {
     )
   }
 
-  /** Build context for a child thread based on context_mode. */
+  /**
+   * Build context for a child thread based on context_mode.
+   * For non-fresh modes, the context is derived from the PARENT thread's
+   * turns (a child delegates and should see its parent's history).
+   */
   buildContext(threadId: string): string {
     const thread = this.getThread(threadId)
     if (!thread) return ''
@@ -221,12 +234,17 @@ export class ThreadRuntime {
     const spec = this.getAgentSpec(threadId)
     if (!spec) return ''
 
+    // Non-fresh modes need a parent thread to draw context from.
+    const sourceThreadId = thread.parent_thread_id ?? threadId
+
     switch (spec.context_mode) {
       case 'fresh':
         return ''
 
       case 'summary': {
-        const turns = this.getLastTurns(threadId, 3)
+        // A non-fresh child with no parent has nothing to summarize.
+        if (!thread.parent_thread_id) return ''
+        const turns = this.getLastTurns(sourceThreadId, 3)
         if (turns.length === 0) return ''
         const summaries = turns.map(t => {
           try { return JSON.parse(t.transcript_json) } catch { return null }
@@ -235,13 +253,15 @@ export class ThreadRuntime {
       }
 
       case 'last_n_turns': {
+        if (!thread.parent_thread_id) return ''
         const n = spec.context_window ?? 3
-        const turns = this.getLastTurns(threadId, n)
+        const turns = this.getLastTurns(sourceThreadId, n)
         return turns.map(t => t.transcript_json).join('\n')
       }
 
       case 'full': {
-        const turns = this.listTurns(threadId)
+        if (!thread.parent_thread_id) return ''
+        const turns = this.listTurns(sourceThreadId)
         return turns.map(t => t.transcript_json).join('\n')
       }
 

@@ -193,6 +193,31 @@ describe('Time accounting', () => {
     expect(new Date(resumed.startedAt).getTime()).toBeGreaterThanOrEqual(Date.now() - 1000)
   })
 
+  it('should not return NaN for an active goal with a missing startedAt', () => {
+    const goal = createGoal('Legacy goal')
+    // Simulate a pre-startedAt persisted goal.
+    const legacy = { ...goal, startedAt: '' } as unknown as Goal
+    const elapsed = getElapsedSeconds(legacy)
+    expect(Number.isNaN(elapsed)).toBe(false)
+    expect(elapsed).toBe(legacy.timeUsedSeconds)
+  })
+
+  it('should not return NaN for an active goal with an invalid startedAt', () => {
+    const goal = createGoal('Corrupt goal')
+    const legacy = { ...goal, startedAt: 'not-a-date' } as unknown as Goal
+    const elapsed = getElapsedSeconds(legacy)
+    expect(Number.isNaN(elapsed)).toBe(false)
+    expect(elapsed).toBe(legacy.timeUsedSeconds)
+  })
+
+  it('should keep working for valid timestamps', () => {
+    const goal = createGoal('Valid goal')
+    const past = new Date(Date.now() - 4_000).toISOString()
+    updateGoal({ startedAt: past, updatedAt: new Date().toISOString() })
+    const elapsed = getElapsedSeconds(getGoal()!)
+    expect(elapsed).toBeGreaterThanOrEqual(3)
+  })
+
   it('should include startedAt in serialization round-trip', () => {
     const goal = createGoal('Serialize test')
     const serialized = JSON.stringify(goal)

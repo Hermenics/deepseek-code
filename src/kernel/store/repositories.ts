@@ -164,29 +164,46 @@ export class GoalRepo {
 
   getActive(threadId: string): GoalRow | undefined {
     return this.store.query<GoalRow>(
-      "SELECT * FROM goals WHERE thread_id = ? AND status NOT IN ('complete', 'failed', 'cancelled') ORDER BY created_at DESC LIMIT 1",
-      threadId,
+      `SELECT * FROM goals WHERE session_id = ? AND thread_id = ?
+        AND status NOT IN ('complete', 'failed', 'cancelled')
+        ORDER BY created_at DESC LIMIT 1`,
+      this.events.sessionId, threadId,
     )[0]
   }
 
+  /**
+   * Concurrency-safe update. Reads the current goal, merges fields, increments
+   * revision, and writes inside one transaction guarded by a revision check.
+   * Throws on a concurrent-write conflict (zero rows updated).
+   */
   update(goalId: string, fields: Partial<Omit<GoalRow, 'goal_id' | 'session_id' | 'created_at'>>): void {
     const now = new Date().toISOString()
-    const current = this.get(goalId)
-    if (!current) throw new Error(`Goal '${goalId}' not found`)
 
-    const merged = { ...current, ...fields, updated_at: now }
-    this.store.run(
-      `UPDATE goals SET revision = ?, objective = ?, status = ?, token_budget = ?, max_continuations = ?,
-        tokens_used = ?, time_used_seconds = ?, continuations = ?, consecutive_blocks = ?,
-        block_reason = ?, started_at = ?, updated_at = ?, paused_at = ?, resumed_at = ?,
-        completed_at = ?, cancelled_at = ? WHERE goal_id = ?`,
-      merged.revision, merged.objective, merged.status, merged.token_budget,
-      merged.max_continuations, merged.tokens_used, merged.time_used_seconds,
-      merged.continuations, merged.consecutive_blocks, merged.block_reason,
-      merged.started_at, merged.updated_at, merged.paused_at, merged.resumed_at,
-      merged.completed_at, merged.cancelled_at, goalId,
-    )
+    let updated = false
+    this.store.transaction(() => {
+      const current = this.get(goalId)
+      if (!current) throw new Error(`Goal '${goalId}' not found`)
 
+      const merged = { ...current, ...fields, revision: current.revision + 1, updated_at: now }
+      const changes = this.store.run(
+        `UPDATE goals SET revision = ?, objective = ?, status = ?, token_budget = ?, max_continuations = ?,
+          tokens_used = ?, time_used_seconds = ?, continuations = ?, consecutive_blocks = ?,
+          block_reason = ?, started_at = ?, updated_at = ?, paused_at = ?, resumed_at = ?,
+          completed_at = ?, cancelled_at = ? WHERE goal_id = ? AND revision = ?`,
+        merged.revision, merged.objective, merged.status, merged.token_budget,
+        merged.max_continuations, merged.tokens_used, merged.time_used_seconds,
+        merged.continuations, merged.consecutive_blocks, merged.block_reason,
+        merged.started_at, merged.updated_at, merged.paused_at, merged.resumed_at,
+        merged.completed_at, merged.cancelled_at, goalId, current.revision,
+      )
+      updated = changes > 0
+    })
+
+    if (!updated) {
+      throw new Error(`Concurrent write conflict while updating goal '${goalId}'`)
+    }
+
+    const merged = this.get(goalId)!
     this.events.emit('GoalUpdated', { goal_id: goalId, status: merged.status }, { goal_id: goalId, thread_id: merged.thread_id })
   }
 

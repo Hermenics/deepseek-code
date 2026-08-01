@@ -2,7 +2,7 @@ import { readFileSync, existsSync, readdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { homedir } from 'node:os'
 import type { Store } from '../store/store.js'
-import type { EventBus } from '../events/eventBus.js'
+import { EventBus } from '../events/eventBus.js'
 import { SessionRepo, GoalRepo } from '../store/repositories.js'
 import { MIGRATIONS } from '../store/migrations.js'
 
@@ -36,8 +36,13 @@ export interface LegacyGoalData {
   startedAt?: string
 }
 
-export function listLegacySessionFiles(cwd?: string): { file: string; id: string }[] {
-  const sessionsDir = join(homedir(), '.deepseek', 'sessions')
+/**
+ * List legacy session JSON files. When `baseDir` is provided it is used as
+ * the sessions directory (top-level files plus one level of subdirectories);
+ * otherwise the default `~/.deepseek/sessions` is scanned.
+ */
+export function listLegacySessionFiles(baseDir?: string): { file: string; id: string }[] {
+  const sessionsDir = baseDir ? resolve(baseDir) : join(homedir(), '.deepseek', 'sessions')
   if (!existsSync(sessionsDir)) return []
 
   const results: { file: string; id: string }[] = []
@@ -81,15 +86,36 @@ export interface ImportResult {
   errors: string[]
 }
 
+export interface ImportOptions {
+  /** Legacy sessions directory. Defaults to ~/.deepseek/sessions. */
+  cwd?: string
+  /** Discover, parse, and validate without writing anything to the store. */
+  dryRun?: boolean
+}
+
 export function importLegacySessions(
   store: Store,
   events: EventBus,
-  options: { cwd?: string; dryRun?: boolean } = {},
+  options: ImportOptions = {},
 ): ImportResult {
+  const result: ImportResult = { sessions: 0, goals: 0, errors: [] }
+
+  // Dry-run performs discovery, parsing, and validation only — no writes.
+  if (options.dryRun) {
+    const files = listLegacySessionFiles(options.cwd)
+    for (const { file } of files) {
+      const legacy = readLegacySession(file)
+      if (!legacy) { result.errors.push(`Failed to read: ${file}`); continue }
+      // Validation of parsed legacy data (session identity + optional goal shape).
+      if (!legacy.id || !legacy.cwd) { result.errors.push(`Invalid session in: ${file}`); continue }
+      result.sessions++
+      if (legacy.goal) result.goals++
+    }
+    return result
+  }
+
   store.migrate(MIGRATIONS)
   const sessions = new SessionRepo(store, events)
-  const goals = new GoalRepo(store, events)
-  const result: ImportResult = { sessions: 0, goals: 0, errors: [] }
 
   const files = listLegacySessionFiles(options.cwd)
   for (const { file } of files) {
@@ -97,8 +123,9 @@ export function importLegacySessions(
     if (!legacy) { result.errors.push(`Failed to read: ${file}`); continue }
 
     try {
-      // Create session
       const threadId = `imported-${legacy.id}`
+      // Create the session and its root thread first so imported goals have a
+      // valid FK target.
       sessions.create({
         id: legacy.id,
         title: legacy.title ?? null,
@@ -108,12 +135,19 @@ export function importLegacySessions(
         language: legacy.language ?? null,
         active_agent: legacy.activeAgent ?? null,
       })
+      store.run(
+        `INSERT INTO threads (id, session_id, agent_spec, agent_name, role, context_mode, status, created_at, updated_at)
+         VALUES (?, ?, '{}', 'imported', 'reader', 'fresh', 'idle', ?, ?)`,
+        threadId, legacy.id, legacy.createdAt, legacy.updatedAt,
+      )
       result.sessions++
 
-      // Import goal if present
+      // Import goal if present. Goals belong to the imported session, so use
+      // an EventBus scoped to that session for the GoalRepo.
       if (legacy.goal) {
-        const now = new Date().toISOString()
-        goals.create({
+        const sessionEvents = new EventBus(store, legacy.id)
+        const sessionGoals = new GoalRepo(store, sessionEvents)
+        sessionGoals.create({
           goal_id: `imported-goal-${legacy.id}`,
           thread_id: threadId,
           objective: legacy.goal.objective,
@@ -121,9 +155,9 @@ export function importLegacySessions(
           max_continuations: legacy.goal.maxContinuations,
         })
         // Restore goal state
-        const active = goals.getActive(threadId)
+        const active = sessionGoals.getActive(threadId)
         if (active) {
-          goals.update(active.goal_id, {
+          sessionGoals.update(active.goal_id, {
             status: mapLegacyStatus(legacy.goal.status),
             tokens_used: legacy.goal.tokensUsed,
             time_used_seconds: legacy.goal.timeUsedSeconds,

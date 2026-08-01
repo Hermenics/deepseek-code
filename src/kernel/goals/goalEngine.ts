@@ -112,6 +112,7 @@ export class GoalEngine {
 
     this.repo.update(goalId, {
       status: 'complete',
+      time_used_seconds: this.freezeElapsed(goal),
       completed_at: new Date().toISOString(),
     })
 
@@ -133,18 +134,30 @@ export class GoalEngine {
 
   /** Block goal with reason. */
   block(goalId: string, reason: string): void {
-    this.repo.update(goalId, { status: 'blocked', block_reason: reason })
+    const goal = this.repo.get(goalId)
+    if (!goal) throw new Error(`Goal '${goalId}' not found`)
+    this.repo.update(goalId, {
+      status: 'blocked',
+      block_reason: reason,
+      time_used_seconds: this.freezeElapsed(goal),
+    })
     this.events.emit('GoalBlocked', { goal_id: goalId, reason }, { goal_id: goalId })
   }
 
   /** Pause goal. */
   pause(goalId: string): void {
+    const goal = this.repo.get(goalId)
+    if (!goal) throw new Error(`Goal '${goalId}' not found`)
     const now = new Date().toISOString()
-    this.repo.update(goalId, { status: 'paused', paused_at: now })
+    this.repo.update(goalId, {
+      status: 'paused',
+      paused_at: now,
+      time_used_seconds: this.freezeElapsed(goal),
+    })
     this.events.emit('GoalPaused', { goal_id: goalId }, { goal_id: goalId })
   }
 
-  /** Resume goal. */
+  /** Resume goal. Starts a new active interval with a fresh started_at. */
   resume(goalId: string): void {
     const now = new Date().toISOString()
     this.repo.update(goalId, { status: 'active', resumed_at: now, started_at: now })
@@ -153,8 +166,26 @@ export class GoalEngine {
 
   /** Cancel goal. */
   cancel(goalId: string): void {
-    this.repo.update(goalId, { status: 'cancelled', cancelled_at: new Date().toISOString() })
+    const goal = this.repo.get(goalId)
+    if (!goal) throw new Error(`Goal '${goalId}' not found`)
+    this.repo.update(goalId, {
+      status: 'cancelled',
+      cancelled_at: new Date().toISOString(),
+      time_used_seconds: this.freezeElapsed(goal),
+    })
     this.events.emit('GoalCancelled', { goal_id: goalId }, { goal_id: goalId })
+  }
+
+  /**
+   * Compute elapsed active time for a GoalRow before it leaves 'active'.
+   * Only adds wall-clock time since started_at when the status is active and
+   * started_at is a valid timestamp.
+   */
+  private freezeElapsed(goal: GoalRow): number {
+    if (goal.status !== 'active') return goal.time_used_seconds
+    const started = Date.parse(goal.started_at)
+    if (Number.isNaN(started)) return goal.time_used_seconds
+    return goal.time_used_seconds + Math.max(0, Math.floor((Date.now() - started) / 1000))
   }
 
   private hashEvaluation(e: GoalEvaluation): string {

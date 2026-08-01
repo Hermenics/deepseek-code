@@ -81,9 +81,30 @@ export function validateAgentSpec(spec: AgentSpec): { valid: boolean; errors: st
   if (!['fresh', 'summary', 'last_n_turns', 'full'].includes(spec.context_mode)) {
     errors.push(`Invalid context_mode: ${spec.context_mode}`)
   }
-  if (spec.timeout_ms < 1 || spec.timeout_ms > 86_400_000) errors.push('timeout_ms out of range [1, 86400000]')
-  if (spec.max_retries < 0 || spec.max_retries > 10) errors.push('max_retries out of range [0, 10]')
-  if (spec.max_depth < 0 || spec.max_depth > 32) errors.push('max_depth out of range [0, 32]')
-  if (spec.max_fan_out < 1 || spec.max_fan_out > 100) errors.push('max_fan_out out of range [1, 100]')
+  assertFiniteInteger(spec.timeout_ms, 'timeout_ms', errors, 1, 86_400_000)
+  assertFiniteInteger(spec.max_retries, 'max_retries', errors, 0, 10)
+  assertFiniteInteger(spec.max_depth, 'max_depth', errors, 0, 32)
+  assertFiniteInteger(spec.max_fan_out, 'max_fan_out', errors, 1, 100)
   return { valid: errors.length === 0, errors }
+}
+
+function assertFiniteInteger(
+  value: unknown,
+  name: string,
+  errors: string[],
+  min: number,
+  max: number,
+): void {
+  // Reject undefined, null, NaN, Infinity, strings, and other non-number values.
+  if (value === undefined || value === null) {
+    errors.push(`${name} is required`)
+    return
+  }
+  if (typeof value !== 'number' || !Number.isFinite(value) || !Number.isInteger(value)) {
+    errors.push(`${name} must be a finite integer number`)
+    return
+  }
+  if (value < min || value > max) {
+    errors.push(`${name} out of range [${min}, ${max}]`)
+  }
 }
