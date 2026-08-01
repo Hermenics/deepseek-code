@@ -1,120 +1,64 @@
-# Project Inventory — deepseek-code
+# DeepSeek Code — Current Inventory
 
-> Confidence: 🟢 CONFIRMED — extracted directly from the filesystem.
+> Re-extracted on 2026-08-01 from source at `v0.4.15`.
+> Confidence: 🟢 **CONFIRMED** unless marked otherwise.
 
-**Generated at:** 2026-07-01  
-**Version:** 0.1.11  
-**Package:** `@hermenics/deepseek-code`  
-**License:** Apache-2.0
+## Product
 
-## Overview
+DeepSeek Code is a Bun-based terminal coding agent. Its interactive client is built with React 19 and an in-repository Ink-compatible renderer; its non-interactive `--pipe` mode streams a single agent run through stdin/stdout.
 
-AI-powered coding assistant that lives in your terminal. A CLI/TUI application built with Bun, React 19, and a forked Ink renderer. Supports multiple LLM providers (DeepSeek API, AWS Bedrock, Google Vertex, local via proxy).
+## Repository surface
 
-## File Statistics
+| Area | Files | Purpose |
+|---|---:|---|
+| `src/` | 358 TypeScript/TSX | CLI, agent runtime, tools, TUI, renderer, orchestration, and integrations |
+| `tests/` | 103 test files | Bun test coverage for core, TUI, MCP, orchestration, permissions, sessions, tools, plugins, and skills |
+| `website/` | 16 JS/JSX files | Separate React marketing site |
+| `examples/` | 2 source/example files | Example agents and multi-agent orchestration |
+| `.github/workflows/ci.yml` | 1 workflow | CI for CLI and website |
 
-| Metric | Count |
-|--------|-------|
-| Total project files (excluding deps/git) | 950 |
-| TypeScript/TSX files | 393 |
-| Lines of code (src/) | 38,076 |
-| Test files | 69 |
-| React component files | 56 |
+The tracked project surface contains 512 files after excluding generated, dependency, Git, and Reversa folders. The CLI source contains 45,771 TypeScript/TSX lines.
 
-## Directory Structure
+## Runtime and entry points
 
-```
-src/
-├── agent/              # Core agent loop, LLM client, providers, session, memory
-│   └── providers/      # Bedrock, Vertex, OAuth, Proxy (DeepSeek API relay)
-│       └── proxy/      # Full HTTP proxy server (Hono-based)
-│           ├── browser/      # Playwright browser pool
-│           ├── formatters/   # Anthropic/OpenAI format adapters
-│           ├── middleware/   # Auth, CORS, rate-limit, error-handler
-│           ├── routes/       # Anthropic & OpenAI-compatible endpoints
-│           ├── services/     # DeepSeek API, orchestrator, cache, history
-│           ├── tools/        # Tool schema, registry, prompt emulation
-│           └── types/        # Proxy type definitions
-├── bootstrap/          # App initialization state
-├── commands/           # Slash commands (22 commands)
-├── constants/          # App-wide constants
-├── context/            # React context (AppContext)
-├── entrypoints/        # CLI and pipe entry points
-├── hooks/              # Pre/post tool hooks system
-├── ink/                # Forked Ink renderer (terminal React)
-│   ├── components/     # Box, Text, Button, ScrollBox, Link, etc.
-│   ├── events/         # Event system (keyboard, click, focus, paste)
-│   ├── hooks/          # Terminal hooks (input, stdin, viewport, focus)
-│   ├── layout/         # Layout engine (geometry, yoga)
-│   └── termio/         # Terminal I/O (ANSI, CSI, SGR, ESC, OSC)
-├── native-ts/          # Yoga layout bindings (pure TS)
-├── permissions/        # Permission system (risk assessment, matching)
-├── public/             # Static assets
-├── screens/            # Top-level screens (REPL, Setup)
-├── services/           # MCP client, session management, auto-compact
-├── settings/           # Settings loader/writer
-├── state/              # Global state store (selectors)
-├── stubs/              # Dev stubs (react-devtools-core)
-├── tools/              # Agent tools (15 tools)
-├── types/              # Shared type definitions
-├── ui/                 # Application UI layer
-│   ├── input/          # InputBox, cursor, ghost text, hooks, render
-│   ├── layout/         # StatusBar, WelcomeScreen
-│   ├── messages/       # MessageList, DiffView, MarkdownText, TodoPanel
-│   ├── setup/          # ApiKey, Theme, Model, Language setup screens
-│   └── subagent/       # SubagentList, SubagentLine, color manager
-└── utils/              # Utilities (fs, credentials, env, log, debug)
-tests/                  # Vitest test suite
-packages/
-├── relay-server/       # Relay server sub-package (deps only)
-└── remote-shared/      # Shared remote utilities (deps only)
-external/               # External documentation/overview
-```
+| Entry point | Role |
+|---|---|
+| `src/index.tsx` | Bun shebang entry point; delegates to the interactive CLI |
+| `src/entrypoints/cli.tsx` | Parses CLI flags, executes one-shot commands, initializes the React/Ink application |
+| `src/entrypoints/pipe.ts` | Headless stdin/stdout execution with optional JSON result |
+| `build.ts` | Produces `dist/cli.mjs` and the executable `dist/deepseek` wrapper |
 
-## Modules Identified (13)
+The CLI supports `deepseek`, an initial prompt, `agent <name>`, `--resume`, `--pipe`, `--json`, `doctor`, `update`, `logout`, `help`, and `version` paths. The packaged binary is `deepseek`.
 
-| Module | Path | Responsibility |
-|--------|------|---------------|
-| agent | `src/agent/` | Core agent loop, LLM communication, session, memory, cost tracking |
-| proxy | `src/agent/providers/proxy/` | HTTP proxy server translating API formats to DeepSeek |
-| tools | `src/tools/` | File, shell, git, glob, grep, memory, subagent, web tools |
-| commands | `src/commands/` | CLI slash commands (model, theme, help, undo, etc.) |
-| ink | `src/ink/` | Forked Ink terminal React renderer |
-| ui | `src/ui/` | Application UI components and screens |
-| hooks | `src/hooks/` | Pre/post tool execution hooks |
-| permissions | `src/permissions/` | Permission rules, risk assessment, glob matching |
-| settings | `src/settings/` | Settings loader/writer/types |
-| state | `src/state/` | Global state store and selectors |
-| services | `src/services/` | MCP client, session management, compaction |
-| constants | `src/constants/` | Application-wide constants |
-| utils | `src/utils/` | Shared utilities |
+## Source modules
 
-## Entry Points
+| Module | Role |
+|---|---|
+| `agent` | Core loop, providers, MCP, memory, goals, sessions, worktrees, planning, steering, verification, and context management |
+| `orchestration` | Persistent multi-agent task tree, mailbox, runtime slots, review and workspace isolation |
+| `tools` | Model-callable tools, including files, shell, Git, web, LSP, goals, subagents, plans, MCP-related introspection and memory |
+| `commands` | Slash-command handlers for runtime capabilities and configuration |
+| `ui` | Application TUI, setup flows, input, messages, plan, side questions, QR and subagent presentation |
+| `ink` | In-repository React terminal renderer and terminal/event/layout primitives |
+| `plugins` | Plugin discovery, validation, install, registry, variables and command integration |
+| `skills` | Skill discovery, validation, installation and slash-command parsing |
+| `settings` | Hierarchical settings loading, repository scope and persistence |
+| `permissions` | Allow/deny matching, risk classification and human-readable explanations |
+| `hooks` | Configurable command hooks and tool-permission integration |
+| `services` | Compaction and post-compaction cleanup |
+| `entrypoints` | Interactive and pipe-mode startup |
+| `utils` | Credentials, filesystem, terminal, environment, logging and update helpers |
+| `constants` | Product, agent, tool and UI constants |
+| `types` | Shared provider and permission contracts |
+| `bootstrap` | Initial application state |
+| `native-ts` | TypeScript port/wrapper of Yoga layout support |
 
-| File | Type |
-|------|------|
-| `src/index.tsx` | App entry (main) |
-| `src/entrypoints/cli.tsx` | CLI entrypoint |
-| `src/entrypoints/pipe.ts` | Pipe/stdin entrypoint |
-| `build.ts` | Build script |
+`src/catalog.ts`, `src/doctor.ts`, `src/lsp.ts`, `src/features.ts`, `src/commands.ts`, and `src/constants.ts` are root-level cross-cutting modules.
 
-## CI/CD
+## Test and delivery surface
 
-- `.github/workflows/ci.yml` — Bun-based CI: typecheck + test on push/PR to main
+Bun's built-in test runner executes the 103 test files. CI uses Bun 1.3.13, installs with `bun install --frozen-lockfile`, then type-checks, tests with coverage, builds, and smoke-checks the published package. The website runs separately with Node 24, `npm ci`, lint, tests, and build. GitHub Actions permissions are restricted to read-only repository contents.
 
-## Database / Persistence
+## Persistence and external systems
 
-No traditional database. Persistence is JSON-file based:
-- Session files
-- Settings JSON
-- Memory/knowledge files
-- Audit log
-- Todo store
-
-## Test Coverage
-
-| Framework | Files | Pattern |
-|-----------|-------|---------|
-| Vitest | 69 | `tests/**/*.test.ts`, `tests/**/*.test.tsx` |
-
-Test areas: agent, tools, UI components, hooks, proxy, permissions, streaming, subagents, MCP, providers.
+There is no relational database schema, migration, or ORM. Local persistence consists of configuration, sessions, task/orchestration state, skills, plugins, credentials, and logs stored in user/project filesystem locations. External integrations include the OpenAI-compatible DeepSeek API, AWS Bedrock, Google Vertex authentication, Model Context Protocol servers, LSP processes, Git, shell commands, HTTP fetches, and npm registry access for updates.

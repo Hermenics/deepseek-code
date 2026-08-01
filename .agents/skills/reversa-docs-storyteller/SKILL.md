@@ -22,22 +22,22 @@ Terceiro agente do pipeline `/reversa-docs`. **Não exige Analyst nem Cartograph
 
 - `_reversa_sdd/` (specs por feature)
 - `.reversa/soul.md` (alma do projeto)
-- `.reversa/documentation/.config.json`
-- `.reversa/documentation/assets/data/features-index.json` (gerado pelo próprio Storyteller)
+- `_reversa_docs/.config.json`
+- `_reversa_docs/assets/data/features-index.json` (gerado pelo próprio Storyteller)
 - Skill `reversa-image-prompt-json` (opcional, capas em estilo premium)
 
 ## Outputs
 
-- `.reversa/documentation/glossario.html`
-- `.reversa/documentation/deck.html`
-- `.reversa/documentation/features/<nome-kebab>.html` (uma por spec selecionada)
-- `.reversa/documentation/assets/data/soul.json`
-- `.reversa/documentation/assets/data/features-index.json`
+- `_reversa_docs/glossario.html`
+- `_reversa_docs/deck.html`
+- `_reversa_docs/features/<nome-kebab>.html` (uma por spec selecionada)
+- `_reversa_docs/assets/data/soul.json`
+- `_reversa_docs/assets/data/features-index.json`
 
 ## Antes de começar
 
 1. Leia `.reversa/state.json` para `user_name`, `chat_language`.
-2. Leia `.reversa/documentation/.config.json`. Se ausente, conduza entrevista mínima.
+2. Leia `_reversa_docs/.config.json`. Se ausente, conduza entrevista mínima.
 3. Verifique fontes disponíveis: `soul.md`, `_reversa_sdd/*/requirements.md`.
 4. Storyteller geralmente não usa libs externas pesadas (glossário é HTML puro + JS inline, deck é navegação por setas), mas se algum recurso premium (capa com canvas, slide com chart) for habilitado, garanta vendor disponível em `assets/vendor/` antes (em modo isolado, execute o Passo 0 do Publisher; em modo orquestrado já foi feito na Fase 0).
 
@@ -54,7 +54,7 @@ Se `.reversa/soul.md` existe:
 ```
 python templates/documentation/scripts/convert_soul.py \
     --src .reversa/soul.md \
-    --out .reversa/documentation/assets/data/soul.json
+    --out _reversa_docs/assets/data/soul.json
 ```
 
 Se Python indisponível, faça parsing inline: cada seção `##` vira chave em `sections`, e termos em **negrito** + descrição em sequência viram `concepts` no formato `{term, definition}`.
@@ -66,7 +66,7 @@ Se `soul.md` ausente, **omita** `glossario.html` e registre em `pagesOmitted`.
 ```
 python templates/documentation/scripts/list_specs.py \
     --sdd-root _reversa_sdd \
-    --out .reversa/documentation/assets/data/features-index.json
+    --out _reversa_docs/assets/data/features-index.json
 ```
 
 Filtra apenas pastas com `requirements.md` presente. Se `_reversa_sdd/` ausente ou vazio, registra `features-index.json` com `specs: []` e omite páginas de feature.
@@ -84,7 +84,7 @@ Filtra apenas pastas com `requirements.md` presente. Se `_reversa_sdd/` ausente 
    - REVERSA_PRODUCER_AGENT = "reversa-docs-storyteller"
    - REVERSA_TEMPLATE = "glossario"
    - Deixe `<!-- NAV_LINKS -->` como está (Publisher backpatcha).
-6. Salve em `.reversa/documentation/glossario.html`.
+6. Salve em `_reversa_docs/glossario.html`.
 
 ### 4. Gerar `deck.html`
 
@@ -118,7 +118,7 @@ Slide deck navegável (setas direita/esquerda + fullscreen) com 6 a 10 slides, a
 
 **Quando profundidade é "Só features X, Y, Z"** (do `.config.json.interview.depth`): substitua slide 9 por uma sequência de slides, um por feature selecionada.
 
-Salve em `.reversa/documentation/deck.html`.
+Salve em `_reversa_docs/deck.html`.
 
 ### 5. Gerar `features/<slug>.html` (uma por spec)
 
@@ -133,7 +133,7 @@ Para cada spec em `features-index.json` que deve ser renderizada:
    - Extraia: TL;DR (primeiro parágrafo ou seção "Resumo"/"Visão geral"), seções principais como accordion, code snippets em abas (se houver).
    - Use `templates/documentation/pages/features/feature.html.tpl`.
    - Aplique chassis com PAGE_ID = `feature-<slug>`, REVERSA_TEMPLATE = "feature".
-   - Salve em `.reversa/documentation/features/<slug>.html`.
+   - Salve em `_reversa_docs/features/<slug>.html`.
 
 Se nenhuma spec disponível, omita totalmente o diretório `features/` e registre em `pagesOmitted`.
 
@@ -145,11 +145,11 @@ Se nenhuma spec disponível, omita totalmente o diretório `features/` e registr
 
 ## Backup automático
 
-`.reversa/documentation/.backup-<YYYYMMDD-HHMMSS>/` antes de sobrescrever. Inclua diretório `features/` no backup.
+`_reversa_docs/.backup-<YYYYMMDD-HHMMSS>/` antes de sobrescrever. Inclua diretório `features/` no backup.
 
 ## Diretiva non-destructive
 
-Apenas escreve em `.reversa/documentation/`. `soul.md` e `_reversa_sdd/` são lidos sem modificação.
+Apenas escreve em `_reversa_docs/`. `soul.md` e `_reversa_sdd/` são lidos sem modificação.
 
 ## Tratamento gracioso
 
@@ -181,7 +181,7 @@ Apenas escreve em `.reversa/documentation/`. `soul.md` e `_reversa_sdd/` são li
 
 ## Regras absolutas
 
-- Nunca escreva fora de `.reversa/documentation/`.
+- Nunca escreva fora de `_reversa_docs/`.
 - Nunca modifique `soul.md`, `chronicle.md` ou specs em `_reversa_sdd/`.
 - Nunca rode varredura de credenciais.
 - Sempre backup antes de sobrescrever.

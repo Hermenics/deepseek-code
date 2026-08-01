@@ -1,450 +1,77 @@
-# Code Analysis — deepseek-code
-
-> Confidence: 🟢 CONFIRMED — extracted directly from source code.  
-> Generated at: 2026-07-01  
-> Doc level: detailed
-
-## Module Summary
-
-| Module | Path | Lines | Key Files | Complexity |
-|--------|------|-------|-----------|------------|
-| agent | `src/agent/` | 2,818 | agent.ts (1259), mcp.ts (164), fileCheckpoint.ts (147) | high |
-| proxy | `src/agent/providers/proxy/` | 2,889 | orchestrator.ts (382), openai.ts (358), headers.ts (325) | high |
-| tools | `src/tools/` | ~1,200 | SubAgent.ts (329), WebFetch.ts (159), pathSafety.ts (112) | medium |
-| commands | `src/commands/` | ~800 | 26 slash commands, each in own folder | low |
-| ink | `src/ink/` | ~3,500 | reconciler.ts, dom.ts, renderer.ts, event system | high |
-| ui | `src/ui/` | ~2,500 | App.tsx (908), InputBox.tsx (353), MessageList.tsx (244) | medium |
-| hooks | `src/hooks/` | ~180 | executor.ts (137), types.ts (35), matcher.ts (10) | low |
-| permissions | `src/permissions/` | ~250 | risk.ts (130), matcher.ts (117) | medium |
-| settings | `src/settings/` | ~130 | loader.ts (102), types.ts (26) | low |
-| state | `src/state/` | ~100 | store.ts (65), selectors.ts | low |
-| services | `src/services/` | ~200 | autoCompact.ts (81), mcp/client.ts, session/ | low |
-| constants | `src/constants/` | ~50 | tools.ts, agent.ts, product.ts, ui.ts | trivial |
-| utils | `src/utils/` | ~400 | fs.ts, credentials.ts, env.ts, sliceAnsi.ts | low |
-
----
-
-## Module: agent (`src/agent/`)
-
-### Core Class: `Agent` (1259 lines)
-
-The heart of the system. Manages the entire agent loop: user input → LLM call → tool execution → response.
-
-#### Key Properties
-
-| Property | Type | Purpose |
-|----------|------|---------|
-| `client` | OpenAI | LLM API client |
-| `messages` | MessageOrBoundary[] | Full conversation history with compact boundaries |
-| `tools` | Tool[] | Available tools (built-in + MCP) |
-| `toolMap` | Map<string, Tool> | Fast tool lookup by name |
-| `model` | Model | Active model name |
-| `provider` | ProviderConfig['provider'] | Active provider (deepseek/bedrock/vertex/local) |
-| `interactionMode` | InteractionMode | plan/build/auto |
-| `effortLevel` | EffortLevel | low/high/max |
-| `tokenUsage` | TokenUsage | Prompt/completion/cached token counts |
-| `undoStack` | UndoEntry[] | File content before writes (max 10) |
-| `compactState` | CompactState | Circuit breaker for auto-compact |
-| `sessionApprovedTools` | Set<string> | Tools user approved for this session |
-
-#### Key Methods
-
-| Method | Params | Returns | Purpose |
-|--------|--------|---------|---------|
-| `run()` | userMessage, callbacks | void | Main entry: refine prompt → inject notes → start loop |
-| `runLoop()` | callbacks | void | Core agent loop (max 100 iterations) |
-| `checkAndExecuteTool()` | tc, args, cb | {tc, result} | Unified pipeline: mode → risk → permission → hooks → execute |
-| `compact()` | — | string (summary) | Summarize conversation via LLM and reset history |
-| `initialize()` | — | void | Async init: load steering, MCP, settings, run hooks |
-| `setModel()` | model | void | Switch model + update context limit |
-| `setEffortLevel()` | level | void | Inject effort hint into system prompt |
-| `saveCheckpoint()` | label? | string (id) | Persist conversation state to disk |
-
-#### Agent Loop Algorithm (streaming path)
-
-```
-1. Reset abort controller
-2. Get active messages (after last compact boundary)
-3. Call LLM with streaming (stream_options: include_usage)
-4. Accumulate tokens:
-   - reasoning_content → cb.onThinking()
-   - content → cb.onToken()
-   - tool_calls → buffer by index
-5. If no tool calls → save history, syncTurn (auto-learn), done
-6. If tool calls:
-   a. Parse all arguments
-   b. Partition: parallel-safe vs sequential
-   c. Execute (parallel via Promise.allSettled or sequential)
-   d. Append tool results to messages
-   e. Continue loop (next iteration)
-7. Mid-turn auto-compact if context > 85%
-```
-
-#### Permission Pipeline (`checkAndExecuteTool`)
-
-```
-0. Auto mode → bypass ALL checks
-1. Mode restriction (plan mode blocks writes)
-2. Risk assessment (Build mode: destructive patterns, write bursts)
-3. Permission rules (deny/allow/ask from settings)
-4. Legacy allowedTools (agent-config whitelist)
-5. PreToolUse hooks (may block or modify args)
-6. Undo snapshot (file content before write)
-7. Execute tool
-8. PostToolUse hooks (fire-and-forget)
-```
-
-### llmClient.ts — Factory Pattern
-
-Creates OpenAI-compatible clients per provider:
-- `deepseek` → api.deepseek.com (native)
-- `bedrock` → Custom fetch with SigV4 signing (R1: InvokeModel, V3.x: bedrock-mantle)
-- `vertex` → Custom fetch with Google OAuth
-- `local` → Any OpenAI-compatible endpoint
+# DeepSeek Code — Code Analysis
 
-### cost.ts — Token Pricing
+> Re-extracted from `v0.4.15` on 2026-08-01. Confidence: 🟢 **CONFIRMED** unless stated otherwise.
 
-| Model | Input $/M | Cached $/M | Output $/M |
-|-------|-----------|------------|------------|
-| deepseek-chat | 0.27 | 0.07 | 1.10 |
-| deepseek-reasoner | 0.55 | 0.14 | 2.19 |
-| deepseek-v4-flash | 0.27 | 0.07 | 1.10 |
-| deepseek-v4-pro | 0.55 | 0.14 | 2.19 |
+## Runtime model
 
-Context limit: 128k for all models/providers.
+DeepSeek Code is a Bun CLI with two execution surfaces. `src/entrypoints/cli.tsx` starts the React terminal UI; `src/entrypoints/pipe.ts` accepts stdin and produces plain text or a terminal JSON envelope. `src/index.tsx` delegates to the CLI and `build.ts` bundles it into `dist/cli.mjs` plus the `deepseek` shell wrapper.
 
-### memory.ts — Simple Flat-File Memory
+The interactive bootstrap migrates legacy credentials, loads merged settings and saved provider data, resolves a requested or automatic session, optionally loads a custom agent, then renders either setup or `ui/App`. One-shot `doctor`, `version`, `help`, `update`, and `logout` paths exit before rendering. Pipe mode disables destructive shell confirmation because no human can answer it.
 
-- Two files: `MEMORY.md` (agent), `USER.md` (user preferences)
-- Delimiter: `\n§\n`
-- Max 2000 chars total per file
-- Operations: add, replace (by substring match), remove, snapshot
+## Core agent loop
 
-### promptRefiner.ts — Automatic Prompt Enhancement
+`Agent` owns the model client, message history, tool registry, session approvals, per-turn write tracking, context usage, compaction state, and an `OrchestratorSession`. Construction starts asynchronous initialization that loads steering (`AGENTS.md`, `DEEPSEEK.md`), merged settings, opt-in MCP tools, persistent memory, and session-start hooks.
 
-- Triggers on messages ≥ 30 chars, not starting with `/`
-- Sends to same model with a "Prompt Engineer" system prompt
-- Returns `SKIP` if refinement not useful
-- Silent fallback on any error
+For every user turn, `Agent.run()` waits for initialization, resets per-turn state, creates one `AbortController`, micro-compacts old read-only results, optionally fully compacts the conversation, optionally refines a sufficiently long prompt, appends pending asynchronous notes, and enters the model/tool loop.
 
-### fileCheckpoint.ts — Granular File Rollback
+The loop is bounded to 100 iterations and retries 429/503 failures with 1/2/4-second backoff. DeepSeek/local use streaming native tool calls. Vertex and non-mantle Bedrock use non-streaming calls. Bedrock R1 receives XML-like tool definitions in the system prompt and tool results as user messages; Bedrock V3 models use native OpenAI-compatible chat completions. Final responses are saved to history and may asynchronously extract at most one safe memory fact.
 
-- Per-session manifest (`~/.deepseek-code/checkpoints/<sessionId>/manifest.json`)
-- Backs up file content before each write/patch
-- Supports rollbackLast, rollbackAll, list
-
-### compactBoundary.ts — Conversation Windowing
-
-- `CompactBoundaryMarker` separates compacted history from active context
-- `getMessagesAfterBoundary()` returns only the active window + system prompt
-- Enables multiple compaction cycles without losing system prompt
-
-### steering.ts — Project Context Loading
-
-- Loads `.deepseek/steering/*.md` files (custom instructions)
-- Loads `DEEPSEEK.md` from project root and/or `.deepseek/` directory
-- Both injected into system prompt at initialization
-
-### session.ts — Session Persistence
+Tool calls are schema-validated before permission checks. The effective tool gate is: interaction mode, workspace path boundary, risk assessment, settings allow/deny rules, active-agent allowlist, pre-tool hooks, execution, post-tool hooks, optional diff review and verification. Mutating tools create file checkpoints for undo. A turn abort cascades to foreground orchestration tasks.
 
-- Stored in `~/.deepseek/sessions/<project>-<cwd-hash>/<id>.json`; legacy root and pre-hash project folders remain readable
-- Max 50 sessions (FIFO pruning)
-- Saves: messages, UI state, model, provider, language, files modified
+## Providers, context and persistence
 
-### syncTurn — Auto-Learning
+`llmClient` builds the OpenAI client for DeepSeek and local endpoints, a SigV4 fetch adapter for Bedrock, and an OAuth-token adapter for Vertex. Bedrock model discovery filters AWS foundation models; Vertex caches OAuth tokens with a five-minute refresh buffer. Context limits are one million tokens for native DeepSeek models and 128k for Bedrock/Vertex/custom fallback. Cost estimation separates regular, cached, and output tokens.
 
-- After each completed turn, fires a background LLM call
-- Extracts 0-1 new facts about user/project
-- Adds to agent memory (fire-and-forget, never blocks)
-
----
-
-## Module: proxy (`src/agent/providers/proxy/`)
-
-### Architecture
+Session records are project-isolated by a hash of the absolute current directory under `~/.deepseek/sessions/`. They preserve agent/UI messages, provider/model, modified files, language, active agent and goal; exports redact secrets. Memory is stored as bounded, delimiter-separated entries in user or project scope, rejects instruction-like entries, serializes mutation with a cross-process file lease, and writes private files with mode `0600`.
 
-Full HTTP proxy server built with Hono that:
-1. Accepts OpenAI-compatible and Anthropic-compatible requests
-2. Translates them to DeepSeek's native browser-based API
-3. Streams responses back in the requested format
+## Persistent goals and task orchestration
 
-### Components
+Goals are explicit state with a status, optional token budget, continuation cap, accumulated tokens/time, and repeated-blocker counter. A blocker only turns into `blocked` after the same reason occurs three consecutive times.
 
-| Layer | Files | Purpose |
-|-------|-------|---------|
-| Server | `index.ts`, `start.ts`, `config.ts` | Hono app setup, lifecycle |
-| Middleware | `auth.ts`, `cors.ts`, `rate-limit.ts`, `error-handler.ts`, `request-logger.ts` | Request pipeline |
-| Routes | `openai.ts`, `anthropic.ts` | API format adapters |
-| Services | `orchestrator.ts`, `deepseek-api.ts`, `cache.ts`, `history.ts`, `output-sanitizer.ts` | Core logic |
-| Browser | `playwright.ts`, `pool.ts`, `headers.ts`, `observer.ts`, `sessionParent.ts` | Chromium page pool |
-| Tools | `prompt-emulation.ts`, `schema.ts`, `registry.ts`, `executor.ts` | Tool calling via prompt injection |
+`OrchestratorSession` composes a `TaskRegistry`, event sink, mailbox, snapshot store, workspace manager, and memory store. A task is a typed node in a bounded DAG with dependencies, depth/fan-out limits, retries, deadline, cancellation policy, tool profile, workspace policy, artifacts, metrics and result envelope. Valid state transitions are enforced; task and result JSON are checked with AJV. The queue respects configured concurrency and propagates dependency success, failure, cancellation or blocking.
 
-### Key Algorithm: `orchestrate()` (382 lines)
+Task events redact secret-bearing fields before in-memory delivery or JSONL persistence. Snapshots are atomically written and validated on restore; interrupted running tasks become retryable failures. The mailbox deduplicates by message ID and records acknowledgement. Cross-process file leases protect memory, file writes, writer execution and integration.
 
-```
-1. Filter messages
-2. Build prompt (system + conversation + tools via prompt injection)
-3. Force parent_message_id: null (stateless per request)
-4. Create DeepSeek stream via browser pool
-5. Parse SSE chunks:
-   - Handle thinking tokens vs content tokens
-   - Hold back trailing buffer (150 chars) for tool call detection
-   - Sanitize output (remove markers)
-6. Retry up to 3 times on network errors
-7. Abort on permanent auth errors (OAuth expired, WAF)
-```
+Writer tasks use either a detached Git worktree or a serialized shared workspace fallback. Integration captures a binary patch, rejects protected/sensitive paths and overlap with parent changes, checks it with `git apply --check`, then applies it. Cleanup only removes an owned worktree after its integrated patch hash still matches.
 
-### Tool Calling Strategy
+## Tools
 
-DeepSeek doesn't support native function calling in browser mode. The proxy uses **prompt emulation**:
-- Injects tool definitions into the system prompt
-- Instructs the model to output `{"tool_use": {"name": ..., "arguments": ...}}`
-- Parses JSON from model output to detect tool calls
-- Executes tools and feeds results back
+The model sees 23 built-ins: file read/write/line edit/patch/folder read, `grep`, `glob`, shell, Git, web fetch, LSP, introspection, todo, memory, knowledge update, mixture-of-agents, plan submission/writing, subagent/ask-agent, and create/get/update goal. MCP tools are appended only when `settings.mcp.enabled` explicitly permits project MCP loading.
 
----
+All filesystem tools use canonical path resolution. They remain in the task workspace or an explicitly approved external directory, reject symlink escape, blocked metadata/dependency directories and sensitive credential names, and publish writes atomically under a lease. `web_fetch` fail-closes for invalid DNS, localhost, private/link-local addresses, cloud metadata, unsafe redirects, excessive redirects and timeout. LSP creates a short-lived JSON-RPC process only from user-scoped settings and supports definition, references, hover, document/workspace symbols.
 
-## Module: tools (`src/tools/`)
+The subagent tool maps roles to narrow tool sets, requires a typed terminal result, can work foreground or background, validates structured results, and optionally invokes an independent verifier. Fixed `coder`, `reviewer`, and `tester` profiles specialize this mechanism. The separate review pipeline fans out configured perspectives, deduplicates findings by hash, optionally verifies them, then runs a gap sweep.
 
-### Tool Interface
+## User interaction
 
-```typescript
-interface Tool {
-  name: string
-  description: string
-  parameters: object  // JSON Schema
-  execute(args: Record<string, unknown>): Promise<string>
-}
-```
+The command registry parses 38 slash commands into typed `CommandResult` values. It covers model/configuration, plans/review, provider/session/checkpoint/cost/context actions, agent/skill/plugin management, goals, worktrees, task DAG control, permissions, memory, experimental features, mobile QR and diagnostics.
 
-### Tool Registry (15 tools)
+`ui/App` binds the agent to TUI state: history, streamed text and reasoning, current tool, token/context counters, interaction mode, message queue, side question, dialogs, diff viewer, configuration screens and persistent sessions. It subscribes to orchestration events to render subagent state and lets the user decide tool permission, plan approval, diff review and verification. The input layer supports queued prompts, fuzzy commands/files, paste, history, Vim motions/operators, cursor measurement and double-key safeguards.
 
-| Tool | File | Lines | Key Feature |
-|------|------|-------|-------------|
-| WriteFile | WriteFile.ts | 78 | Creates/overwrites files |
-| PatchFile | PatchFile.ts | 88 | LCS-based diff patching |
-| ReadFile | ReadFile.ts | — | File reading with line range |
-| ReadFolder | ReadFolder.ts | — | Directory listing |
-| Grep | Grep.ts | — | Regex search (max 200 lines) |
-| Glob | Glob.ts | — | File pattern matching (max 500) |
-| Shell | Shell.ts | 66 | Command execution with destructive detection |
-| Introspect | Introspect.ts | — | Agent self-inspection |
-| WebFetch | WebFetch.ts | 159 | URL fetching with SSRF protection |
-| SubAgent | SubAgent.ts | 329 | Spawn child agents with role-based permissions |
-| UpdateKnowledge | UpdateKnowledge.ts | — | Updates memory/knowledge base |
-| Todo | Todo.ts | — | Task list management |
-| Git | Git.ts | — | Git operations |
-| Memory | MemoryTool.ts | 63 | Read/write agent memory |
-| MoA | MoA.ts | 57 | Mixture of Agents (multi-model synthesis) |
+Messages render Markdown, live thinking, terminal output, tools and structured file diffs. The status bar is responsive, showing mode, model, tokens, Git branch and context pressure. Six themes include light/dark, daltonized and ANSI variants.
 
-### Security: pathSafety.ts
+## Local terminal renderer
 
-- **Path sandbox**: Files must be within `process.cwd()`
-- **Symlink traversal protection**: Resolves real path before access
-- **Blocked directories**: `.agent`, `.claude`, `.kiro`, `.github`, `.deepseek`, `node_modules`, `dist`, `build`, `.git`
-- **Sensitive files blocked**: `.env*`, `*.pem`, `*.key`, credentials, SSH keys, service accounts
+`src/ink/` is an in-tree React renderer: React reconciliation builds a custom DOM tree, a TypeScript Yoga implementation calculates layout, terminal conversion produces ANSI frame updates, and screen diffing writes only changed physical cells. It owns resize, alternate screen, keyboard/paste/mouse dispatch, focus restoration, scroll clamping, Unicode grapheme widths, hyperlinks, cursor visibility and frame invalidation. UI code must use its public components and root APIs rather than write terminal frames directly.
 
-### Shell: Destructive Command Detection
+## Extensibility and configuration
 
-Patterns that trigger confirmation:
-- `rm -rf`, `git reset --hard`, `git push --force`
-- `drop table`, `truncate table`, `mkfs`, `dd`, `chmod -R 777`, `sudo rm`
+Plugins are cloned shallowly from a validated `owner/repo`, inspected for a manifest and component folders, stripped of `.git`, moved into the plugin directory and registered with commit metadata. Update stages a backup and restores it when replacement or registry update fails. Skills follow the same model but require a valid `SKILL.md` frontmatter manifest and a kebab-case name.
 
-### SubAgent: Role-Based Spawning
+Settings merge in precedence order: legacy `~/.deepseek/config.json`, user `~/.deepseek/settings.json`, project `.deepseek/settings.json`, then local `.deepseek/settings.local.json`. Permission and hook arrays concatenate/deduplicate; normal arrays replace. Project/local scopes cannot activate Auto mode, executable hooks, LSP commands or MCP loading. Writers validate ranges and schemas, reject secrets, and atomically rename `0600` JSON output.
 
-- Roles: researcher, coder, reviewer (auto-inferred from task)
-- Each role has different tool access
-- Contracts: structured output format (SubAgentResult)
-- Memory: cross-agent task memory (per user turn)
-- Verification: optional result verification via second LLM call
-- Max iterations: 15
+## Security-relevant invariants
 
-### MoA (Mixture of Agents)
+| Invariant | Evidence |
+|---|---|
+| Filesystem access is workspace-contained and symlink-safe | `tools/shared/pathSafety.ts` |
+| Sensitive filenames and agent metadata directories are not model-readable/writable | `pathSafety.ts` blocked/sensitive lists |
+| High-risk rules cannot be disabled by a custom rule override | `permissions/risk.ts` merge policy |
+| Permission denies win before allows | `permissions/matcher.ts` |
+| Snapshots, events and session exports redact secrets | `orchestration/events.ts`, `snapshot.ts`, `session.ts` |
+| Project MCP servers require user-scoped opt-in | `settings/repository.ts`, `agent/mcp.ts` |
+| Task graph cycles, identity mismatches and unsafe restored workspaces are rejected | `TaskRegistry.ts`, `snapshot.ts`, `workspace.ts` |
 
-- Sends same prompt to multiple reference models in parallel
-- Aggregator model synthesizes the diverse responses
-- Configurable reference models and temperatures
+## Removed / obsolete architecture
 
----
-
-## Module: hooks (`src/hooks/`)
-
-### Architecture
-
-Shell-command-based hook system with three event types:
-
-| Event | Timing | Can Block? | Can Modify? |
-|-------|--------|-----------|-------------|
-| PreToolUse | Before tool execution | Yes | Yes (modified_input) |
-| PostToolUse | After tool execution | No | No |
-| SessionStart | On agent initialization | No | No |
-
-### Execution Flow (PreToolUse)
-
-```
-1. Check config.PreToolUse matchers
-2. For each matching hook:
-   a. Spawn shell process
-   b. Send JSON to stdin: {event, session_id, tool_name, tool_input}
-   c. Read stdout (JSON): {decision: approve|block, reason?, modified_input?}
-3. If any returns "block": stop execution, return reason
-4. If modified_input: pass to next hook and ultimately to tool
-```
-
-### Pattern Matching
-
-- `*` → matches all tools
-- `Shell` → exact match
-- `Shell|WriteFile` → pipe-separated list (case-insensitive)
-
----
-
-## Module: permissions (`src/permissions/`)
-
-### Two-Layer System
-
-1. **Permission Rules** (`matcher.ts`): Allow/deny patterns from settings
-2. **Risk Assessment** (`risk.ts`): Heuristic-based risk scoring
-
-### Permission Resolution Order
-
-```
-1. Check deny rules → if match: DENY
-2. Check allow rules → if match: ALLOW
-3. Fallback:
-   - If allow rules exist but none matched → ASK
-   - If only deny rules exist and none matched → ALLOW
-```
-
-### Glob Matching (Anti-ReDoS)
-
-- Iterative algorithm (no regex backtracking)
-- Max 10 wildcards per pattern
-- Case-insensitive comparison
-- Supports `*` (any chars) and `?` (single char)
-
-### Risk Rules (46 default rules)
-
-Two levels:
-- **HIGH** (always require confirmation): destructive shell, sudo, deploy, build, config writes
-- **MEDIUM** (require confirmation only in subagent): git push/commit, config files, write bursts
-
-Special conditions:
-- `large_overwrite`: file has ≥100 existing lines
-- `multi_edit_burst`: ≥3 writes in current turn
-
----
-
-## Module: settings (`src/settings/`)
-
-### Three-Level Merge
-
-```
-user (~/.deepseek/settings.json)
-  ↓ merged with
-project (.deepseek/settings.json)
-  ↓ merged with
-local (.deepseek/settings.local.json)
-```
-
-### Security Measure
-
-**Hooks are stripped from project and local level** — only user-level settings can define hooks. This prevents malicious repos from executing arbitrary commands.
-
-### Merge Strategy
-
-- Arrays: concat + dedup
-- Objects: deep merge (one level)
-- Scalars: higher priority wins (local > project > user)
-
----
-
-## Module: state (`src/state/`)
-
-### Minimal Store Pattern
-
-Simple pub/sub state management:
-- `getState()` → read-only snapshot
-- `setState(partial)` → shallow merge + notify listeners
-- `subscribe(listener)` → returns unsubscribe function
-
-No external libraries. ~65 lines total.
-
----
-
-## Module: services (`src/services/`)
-
-### Auto-Compact (context management)
-
-- Triggers when context usage > 85% of limit
-- Circuit breaker: disables after 3 consecutive failures
-- MicroCompact: truncates old tool results (keeps last 5 intact)
-- Summary generated by LLM using specialized compact prompts
-
-### MCP Client
-
-- Re-exported from `@modelcontextprotocol/sdk`
-- Configuration via `.deepseek/mcp.json`
-- Security: blocks critical env vars, validates commands for injection
-
----
-
-## Module: interactionMode (`src/ui/interactionMode.ts`)
-
-### Three Modes
-
-| Mode | Write Tools | Confirmation | Description |
-|------|------------|-------------|-------------|
-| plan | No | — | Read-only exploration |
-| build | Yes | Risk-based | Default. Writes with safety checks |
-| auto | Yes | None | Zero restrictions. User-only activation |
-
-Cycle: plan → build → auto → plan (via Shift+Tab or `/plan` command)
-
----
-
-## Cross-Cutting Concerns
-
-### Audit Log (`agent/auditLog.ts`)
-
-- JSONL file per session: `~/.deepseek/logs/session-<id>.jsonl`
-- Events: session_start, tool_call, tool_result, compact, checkpoint, mcp_server_load, session_end
-- Never crashes the agent on failure
-
-### Error Handling
-
-- `DenyAbortError`: Special error class for user denial → graceful abort
-- `withRetry()`: Exponential backoff (1s, 2s, 4s) on 429/503
-- Never retries aborted requests
-
-### Token Management
-
-- Tracks prompt, completion, and cached tokens separately
-- Context limit: 128k for all models
-- Auto-compact at 85% usage
-- MicroCompact clears old tool results
-
----
-
-## Business Rules (🟢 CONFIRMED)
-
-1. **Max agent iterations**: 100 per user turn
-2. **Undo stack**: max 10 entries
-3. **Checkpoint limit**: max 20 on disk
-4. **Session limit**: max 50 stored
-5. **Input history**: max 200 entries, excludes `/` and `!` prefixes
-6. **Shell timeout**: 30s default
-7. **Shell output**: max 50k chars
-8. **Grep**: max 200 lines
-9. **Glob**: max 500 files
-10. **SubAgent**: max 15 iterations
-11. **Memory**: max 2000 chars per file
-12. **MCP tool timeout**: 30s
-13. **Auto-compact threshold**: 85% context usage
-14. **MicroCompact**: keeps last 5 tool results
-15. **Prompt refiner**: min 30 chars to trigger
-16. **Risk detection**: confirmation required for HIGH rules always, MEDIUM only in subagent context
-17. **Hooks only from user settings**: project/local hooks stripped for security
-18. **Critical env vars blocked**: PATH, HOME, LD_PRELOAD, NODE_OPTIONS, etc.
-19. **Parallel-safe tools**: subagent, shell, grep, glob, read_file, read_folder, web_fetch, introspect
-20. **Effort levels**: low (disable thinking), high (default), max (deep reasoning)
+🟢 **CONFIRMED:** there is no current Hono proxy server, Playwright browser pool, relay package, OAuth proxy flow, `src/state/` store, or Vitest dependency. Existing prior documentation naming those components is obsolete. Tests run with Bun.

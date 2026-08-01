@@ -1,34 +1,29 @@
-# Constants Module — Requirements
-
-> Confidence: 🟢 CONFIRMED  
-> Generated at: 2026-07-01
+# Constants
 
 ## Overview
 
-The Constants module centralizes all magic numbers and configuration defaults used across the system.
+Constants define stable operational defaults, provider/model metadata, rendering tokens, limits, and shared command values. 🟢
 
-## Functional Requirements
+## Requirements
 
-### FR-01: Agent Constants 🟢
-- `UNDO_STACK_MAX` = 10 (file checkpoints)
-- `CONTEXT_COMPACT_THRESHOLD` = 0.85 (85%)
-- `AUTO_COMPACT_BUFFER_TOKENS` = 13,000
-- `MICRO_COMPACT_KEEP_LAST` = 5
-- `CHECKPOINT_MAX` = 20
-- `REFINER_MAX_TOKENS` = 1024
-- `REFINER_MIN_LENGTH` = 30
+| ID | Requirement | Priority |
+| --- | --- | --- |
+| CO-RF-01 | Shared limits/defaults must have one source to avoid divergent behavior. 🟢 | Must |
+| CO-RF-02 | Provider/model metadata must expose supported capabilities to UI/agent selection. 🟢 | Must |
+| CO-RF-03 | Constants must remain validated by consumers at trust boundaries. 🟡 | Must |
 
-### FR-02: Tool Constants 🟢
-- `SHELL_OUTPUT_MAX_CHARS` = 50,000
-- `SHELL_TIMEOUT_MS` = 30,000
-- `GREP_MAX_LINES` = 200
-- `GLOB_MAX_FILES` = 500
-- `SUBAGENT_MAX_ITERATIONS` = 15
+## Acceptance criteria
 
-### FR-03: Product Constants 🟢
-- `PRODUCT_NAME` = 'DeepSeek Code'
-- `PRODUCT_CLI_NAME` = 'deepseek'
-- `CONFIG_DIR` = '.deepseek'
+```gherkin
+Given a configured value exceeds its allowed range
+When a consumer validates it
+Then the configured value is bounded or rejected using the canonical limit
 
-### FR-04: UI Constants 🟢
-- `DIFF_MAX_LINES` = 50
+Given a model catalog entry
+When UI/provider selection uses it
+Then capability metadata is available consistently
+```
+
+## Traceability
+
+`src/constants/`, `src/types/provider.ts`, settings/agent consumers. 🟢

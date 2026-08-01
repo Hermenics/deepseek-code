@@ -1,30 +1,15 @@
-# Hooks Module — Tasks
+# Hooks — implementation tasks
 
-> Confidence: 🟢 CONFIRMED  
-> Generated at: 2026-07-01
+- [ ] T-01 Implement typed lifecycle hook runner with JSON input/output.
+  - Origin: `src/hooks/`
+  - Done when: valid hook output can modify/block a pre-tool request.
+  - Confidence: 🟢
+- [ ] T-02 Enforce timeout, result cap, failures, and user-scope restriction.
+  - Origin: `src/hooks/`, `src/settings/repository.ts`
+  - Done when: project configuration cannot cause execution.
+  - Confidence: 🟢
 
-## Tasks for Reimplementation
+## Tests
 
-### T-01: Implement Hook Command Executor
-- **Source:** `src/hooks/executor.ts:9-44`
-- **Description:** Spawn shell process, send JSON to stdin, capture stdout, handle timeout and errors.
-- **Done when:** Hooks execute with correct input, timeout fires, errors handled gracefully.
-- **Confidence:** 🟢
-
-### T-02: Implement PreToolUse Hook Pipeline
-- **Source:** `src/hooks/executor.ts:51-93`
-- **Description:** Match hooks by pattern, chain execution, handle block/approve/modify decisions.
-- **Done when:** Blocking stops execution, modified input propagates, unmatched returns pass.
-- **Confidence:** 🟢
-
-### T-03: Implement PostToolUse Hooks
-- **Source:** `src/hooks/executor.ts:98-121`
-- **Description:** Fire-and-forget after tool execution. Cap result at 10k chars.
-- **Done when:** Hooks fire without blocking, errors swallowed.
-- **Confidence:** 🟢
-
-### T-04: Implement Hook Matcher
-- **Source:** `src/hooks/matcher.ts`
-- **Description:** Match tool name against pattern: exact match, `*` (all), or pipe-separated list.
-- **Done when:** All pattern formats match correctly.
-- **Confidence:** 🟢
+- [ ] TT-01 Pre block/modify chain.
+- [ ] TT-02 Timeout and disallowed scope.

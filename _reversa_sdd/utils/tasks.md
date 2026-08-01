@@ -1,18 +1,15 @@
-# Utils Module — Tasks
+# Utilities — implementation tasks
 
-> Confidence: 🟢 CONFIRMED  
-> Generated at: 2026-07-01
+- [ ] T-01 Implement/redact credential and configuration helpers.
+  - Origin: `src/utils/`, `src/agent/credentials.ts`
+  - Done when: diagnostics never expose raw secret values.
+  - Confidence: 🟢
+- [ ] T-02 Implement shared filesystem, terminal, log, and update helpers.
+  - Origin: `src/utils/`
+  - Done when: callers have one tested implementation per boundary.
+  - Confidence: 🟡
 
-## Tasks for Reimplementation
+## Tests
 
-### T-01: Implement readJson
-- **Source:** `src/utils/fs.ts`
-- **Description:** Read file, parse JSON, return typed result or null on error.
-- **Done when:** Valid JSON returns typed object, missing/invalid returns null.
-- **Confidence:** 🟢
-
-### T-02: Implement globFiles
-- **Source:** `src/utils/fs.ts`
-- **Description:** Read directory entries, filter by regex pattern, return matching filenames.
-- **Done when:** Files matching pattern returned, non-matching excluded.
-- **Confidence:** 🟢
+- [ ] TT-01 Config migration and redaction.
+- [ ] TT-02 Update/version helper behavior.

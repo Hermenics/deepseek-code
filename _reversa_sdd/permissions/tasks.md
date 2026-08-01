@@ -1,30 +1,19 @@
-# Permissions Module — Tasks
+# Permissions — implementation tasks
 
-> Confidence: 🟢 CONFIRMED  
-> Generated at: 2026-07-01
+- [ ] T-01 Implement bounded permission rule parsing and precedence.
+  - Origin: `src/permissions/`
+  - Done when: deny/allow/ask and wildcard limits are tested.
+  - Confidence: 🟢
+- [ ] T-02 Implement risk rules and session confirmations.
+  - Origin: `src/permissions/risk.ts`, `src/agent/agent.ts`
+  - Done when: high risk remains confirmable despite low-risk auto-approval.
+  - Confidence: 🟢
+- [ ] T-03 Integrate canonical filesystem safety.
+  - Origin: `src/tools/file/pathSafety.ts`
+  - Done when: symlink/traversal/external/sensitive cases are denied correctly.
+  - Confidence: 🟢
 
-## Tasks for Reimplementation
+## Tests
 
-### T-01: Implement Permission Types
-- **Source:** `src/permissions/types.ts`
-- **Description:** Define PermissionRule, PermissionDecision, RiskLevel, RiskRule, RiskConfig, RiskContext, RiskAssessment.
-- **Done when:** All types exported and usable by other modules.
-- **Confidence:** 🟢
-
-### T-02: Implement Glob Matcher
-- **Source:** `src/permissions/matcher.ts:18-52`
-- **Description:** Iterative glob matching with wildcard limit (10), case-insensitive, O(n) worst-case.
-- **Done when:** Matches correctly, rejects > 10 wildcards, no backtracking.
-- **Confidence:** 🟢
-
-### T-03: Implement Permission Resolution
-- **Source:** `src/permissions/matcher.ts:89-116`
-- **Description:** Parse deny/allow rules, evaluate in order (deny first), return decision.
-- **Done when:** Deny-first semantics correct, fallback logic handles all cases.
-- **Confidence:** 🟢
-
-### T-04: Implement Risk Assessment
-- **Source:** `src/permissions/risk.ts`
-- **Description:** 46 default rules, merge with user rules, sort by specificity, evaluate patterns and conditions.
-- **Done when:** All default rules fire correctly, user overrides work, conditions evaluated.
-- **Confidence:** 🟢
+- [ ] TT-01 Rule precedence and ReDoS-bound patterns.
+- [ ] TT-02 Risk and external-directory approval paths.

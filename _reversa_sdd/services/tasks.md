@@ -1,30 +1,15 @@
-# Services Module — Tasks
+# Services — implementation tasks
 
-> Confidence: 🟢 CONFIRMED  
-> Generated at: 2026-07-01
+- [ ] T-01 Implement micro-compaction eligibility and retention policy.
+  - Origin: `src/services/compact/`
+  - Done when: old eligible tool results shrink without deleting recent context.
+  - Confidence: 🟢
+- [ ] T-02 Implement structured full summary and breaker integration.
+  - Origin: `src/services/compact/`, `src/agent/agent.ts`
+  - Done when: failures do not cause infinite compact/retry loops.
+  - Confidence: 🟢
 
-## Tasks for Reimplementation
+## Tests
 
-### T-01: Implement shouldAutoCompact()
-- **Source:** `src/services/compact/autoCompact.ts`
-- **Description:** Check if ratio exceeds threshold, respect enabled flag and cooldown.
-- **Done when:** Returns true at 85%+ usage, respects disabled setting.
-- **Confidence:** 🟢
-
-### T-02: Implement microCompact()
-- **Source:** `src/services/compact/autoCompact.ts`
-- **Description:** Clear old tool result bodies, keep last 5, respect boundary markers.
-- **Done when:** Old results cleared, recent preserved, boundary honored.
-- **Confidence:** 🟢
-
-### T-03: Implement Full Compact (Summary Prompt)
-- **Source:** `src/services/compact/summaryPrompt.ts`
-- **Description:** Define 9-section summary prompt and system prompt for the compaction LLM call.
-- **Done when:** Prompt covers all 9 sections, system prompt is concise.
-- **Confidence:** 🟢
-
-### T-04: Integrate Compaction in Agent Loop
-- **Source:** `src/agent/agent.ts` (compact check points)
-- **Description:** After tool execution, check shouldAutoCompact. Run micro then full if needed. Insert boundary. Update state.
-- **Done when:** Compaction triggers correctly mid-loop, conversation continues.
-- **Confidence:** 🟢
+- [ ] TT-01 Threshold summary shape.
+- [ ] TT-02 Micro compaction retention and breaker.

@@ -1,36 +1,29 @@
-# Hooks Module — Requirements
-
-> Confidence: 🟢 CONFIRMED  
-> Generated at: 2026-07-01
+# Hooks
 
 ## Overview
 
-The Hooks module provides lifecycle hooks that execute shell commands at key points: before tool use, after tool use, and at session start.
+Hooks let a user-scoped configuration inspect, block, or adjust lifecycle/tool activity through bounded shell children. 🟢
 
-## Functional Requirements
+## Requirements
 
-### FR-01: PreToolUse Hooks 🟢
-- **Must** match hooks by tool name pattern (exact, `*`, or pipe-separated)
-- **Must** send JSON to hook stdin (event, session_id, tool_name, tool_input)
-- **Must** respect hook decisions: approve, block, or modify input
-- **Must** chain multiple hooks (output of one feeds next)
+| ID | Requirement | Priority |
+| --- | --- | --- |
+| HO-RF-01 | Hooks must be ignored outside user scope. 🟢 | Must |
+| HO-RF-02 | Pre-tool hooks may block or modify input; post hooks observe bounded results. 🟢 | Must |
+| HO-RF-03 | Each child uses JSON stdin and a bounded default timeout. 🟢 | Must |
 
-### FR-02: PostToolUse Hooks 🟢
-- **Must** fire after tool execution (fire-and-forget)
-- **Must** include tool result in input (capped at 10,000 chars)
-- **Must** not block on hook completion or errors
+## Acceptance criteria
 
-### FR-03: SessionStart Hooks 🟢
-- **Must** fire during initialization after settings load
-- **Must** not block session startup on hook failure
+```gherkin
+Given a pre-tool hook returns a blocking response
+When a tool request reaches hooks
+Then the tool is not executed
 
-### FR-04: Security 🟢
-- **Must** only load hooks from user-level settings (R05)
-- **Must** timeout hooks at 30s (configurable per hook)
-- **Must** handle hook process errors gracefully
+Given a project-scope hook configuration
+When settings load
+Then it does not execute
+```
 
-## Non-Functional Requirements
+## Traceability
 
-### NFR-01: Reliability 🟢
-- Hook failures never crash the agent
-- Timeout prevents hanging hooks from blocking execution
+`src/hooks/`, `src/settings/repository.ts`. 🟢
