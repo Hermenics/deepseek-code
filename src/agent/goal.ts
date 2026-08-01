@@ -12,6 +12,7 @@ export interface Goal {
   blockReason?: string
   createdAt: string
   updatedAt: string
+  startedAt: string
 }
 
 export const GOAL_MAX_CONTINUATIONS = 3
@@ -28,6 +29,10 @@ export function setGoal(g: Goal | null): void {
 
 export function updateGoal(update: Partial<Goal> & { updatedAt: string }): Goal {
   if (!currentGoal) throw new Error('No active goal.')
+  // Freeze elapsed time when leaving active state
+  if (update.status && update.status !== 'active' && currentGoal.status === 'active') {
+    currentGoal.timeUsedSeconds = getElapsedSeconds(currentGoal)
+  }
   currentGoal = { ...currentGoal, ...update }
   return currentGoal
 }
@@ -45,6 +50,7 @@ export function createGoal(objective: string, tokenBudget?: number, maxContinuat
     continuations: 0,
     createdAt: now,
     updatedAt: now,
+    startedAt: now,
   }
   setGoal(goal)
   return goal
@@ -70,19 +76,34 @@ export function markGoalBlocked(blocker: string): Goal {
 export function resumeGoal(): Goal {
   if (!currentGoal) throw new Error('No active goal.')
   if (currentGoal.status === 'complete') return currentGoal
+  const now = new Date().toISOString()
   return updateGoal({
     status: 'active',
     consecutiveBlockCount: 0,
     blockReason: undefined,
-    updatedAt: new Date().toISOString(),
+    startedAt: now,
+    updatedAt: now,
   })
+}
+
+export function getElapsedSeconds(goal: Goal): number {
+  if (goal.status === 'active') {
+    // Old persisted goals may lack a valid startedAt. Never return NaN: fall
+    // back to the stored elapsed time without adding invalid wall-clock time.
+    if (!goal.startedAt) return goal.timeUsedSeconds
+    const started = Date.parse(goal.startedAt)
+    if (Number.isNaN(started)) return goal.timeUsedSeconds
+    const elapsed = Math.floor((Date.now() - started) / 1000)
+    return goal.timeUsedSeconds + Math.max(0, elapsed)
+  }
+  return goal.timeUsedSeconds
 }
 
 export function buildContinuationPrompt(goal: Goal, turnNumber: number): string {
   const budget = goal.tokenBudget !== undefined ? `${goal.tokenBudget}` : 'no limit'
   const max = goal.maxContinuations ?? GOAL_MAX_CONTINUATIONS
   const used = goal.tokensUsed
-  const elapsed = formatElapsed(goal.timeUsedSeconds)
+  const elapsed = formatElapsed(getElapsedSeconds(goal))
   return [
     `[Goal continuation ${turnNumber}/${max}]`,
     '',
