@@ -1,41 +1,30 @@
-# Permissions Module — Requirements
-
-> Confidence: 🟢 CONFIRMED  
-> Generated at: 2026-07-01
+# Permissions
 
 ## Overview
 
-The Permissions module handles tool access control through glob-based rules and risk assessment. It determines whether a tool invocation should be allowed, denied, or requires user confirmation.
+Permissions resolve local tool authority from interaction mode, path safety, risk rules, configured allow/deny/ask rules, hooks, and operator confirmation. 🟢
 
-## Functional Requirements
+## Requirements
 
-### FR-01: Permission Rule Resolution 🟢
-- **Must** parse rules in format `ToolName(pattern)` or `ToolName` (no pattern)
-- **Must** evaluate deny rules before allow rules
-- **Must** return `allow`, `deny`, or `ask` decision
-- **Must** default to `allow` when no rules defined
+| ID | Requirement | Priority |
+| --- | --- | --- |
+| PE-RF-01 | Deny rules must win before allow/ask matching. 🟢 | Must |
+| PE-RF-02 | High-risk operations must require confirmation even with low-risk auto-approval. 🟢 | Must |
+| PE-RF-03 | Permission glob complexity must remain bounded. 🟢 | Must |
+| PE-RF-04 | External directories need explicit approval and sensitive paths remain blocked. 🟢 | Must |
 
-### FR-02: Glob Pattern Matching 🟢
-- **Must** support `*` wildcard (match any characters)
-- **Must** support `?` wildcard (match single character)
-- **Must** use iterative matching algorithm (anti-ReDoS)
-- **Must** reject patterns with > 10 wildcards (safety limit)
-- **Must** be case-insensitive
+## Acceptance criteria
 
-### FR-03: Risk Assessment 🟢
-- **Must** evaluate 46 default risk rules
-- **Must** support user-defined rules (override by id, or append with new id)
-- **Must** classify as `high` (always confirm) or `medium` (confirm in subagent only)
-- **Must** support pattern-based rules and condition-based rules
-- **Must** sort rules by specificity (longer pattern first)
+```gherkin
+Given overlapping allow and deny rules
+When both match a tool request
+Then the deny decision wins
 
-### FR-04: Conditions 🟢
-- **Must** support `large_overwrite` condition (file >= 100 lines)
-- **Must** support `multi_edit_burst` condition (>= 3 writes this turn)
+Given a destructive high-risk request
+When auto-approve-low-risk is enabled
+Then the request still requires a confirmation
+```
 
-## Non-Functional Requirements
+## Traceability
 
-### NFR-01: Security 🟢
-- Iterative glob matching prevents ReDoS
-- Wildcard limit prevents pathological patterns
-- Content-scoped session approval prevents over-broad access
+`src/permissions/`, `src/tools/file/pathSafety.ts`, `src/agent/agent.ts`. 🟢

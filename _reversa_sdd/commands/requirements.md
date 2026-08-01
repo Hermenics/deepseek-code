@@ -1,38 +1,35 @@
-# Commands Module — Requirements
-
-> Confidence: 🟢 CONFIRMED  
-> Generated at: 2026-07-01
+# Commands
 
 ## Overview
 
-The Commands module handles 26 slash-prefixed commands (e.g., `/help`, `/model`, `/effort`) that are processed directly by the CLI without being sent to the LLM.
+Commands turn slash-prefixed terminal input into typed application intents without making parsing an authority bypass. 🟢
 
-## Functional Requirements
+## Responsibilities
 
-### FR-01: Command Routing 🟢
-- **Must** detect input starting with `/` and route to command handler
-- **Must** support 26 built-in commands
-- **Must** return structured CommandResult for UI rendering
+- Parse the current command vocabulary into discriminated values. 🟢
+- Validate command arguments and preserve plain chat input when no command matches. 🟢
+- Drive session, provider, config, goal, task, plugin, skill, plan, review, and diagnostic flows. 🟢
 
-### FR-02: Core Commands 🟢
-- `/help` — display available commands
-- `/model` — switch LLM model
-- `/effort` — change reasoning effort (low/high/max)
-- `/mode` — display/change interaction mode
-- `/clear` — clear conversation history
-- `/compact` — force context compaction
-- `/undo` — rollback last file modification
-- `/history` — show/manage conversation history
-- `/checkpoint` — save/restore session state
-- `/rc` — remote control (start/stop/status/devices/unpair)
-- `/cost` — display token usage and cost estimate
+## Functional requirements
 
-### FR-03: Command Autocomplete 🟢
-- **Should** provide ghost text suggestions for commands via Tab
-- **Should** support fuzzy matching for command names
+| ID | Requirement | Priority |
+| --- | --- | --- |
+| CM-RF-01 | Parsing must distinguish malformed commands from ordinary user text. 🟢 | Must |
+| CM-RF-02 | Goal commands must expose bounded continuation configuration. 🟢 | Must |
+| CM-RF-03 | Setup/config commands must route to scoped settings behavior. 🟢 | Must |
 
-## Non-Functional Requirements
+## Acceptance criteria
 
-### NFR-01: Responsiveness 🟢
-- Commands execute synchronously (no LLM call)
-- Instant feedback to user
+```gherkin
+Given `/goal ship --turns 2`
+When parsed
+Then a typed goal command with objective and continuation limit is returned
+
+Given an unknown slash token
+When parsed
+Then it is reported as a command error rather than executing a tool
+```
+
+## Traceability
+
+`src/commands.ts`, `src/commands/`, `src/ui/App.tsx`. 🟢

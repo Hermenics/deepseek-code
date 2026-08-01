@@ -16,7 +16,7 @@
 #  - "files[].url" é a primeira tentativa. Se ela falhar (HEAD != 200), o
 #    Publisher percorre "fallbacks" na ordem. Sempre prefira pelo menos 2
 #    CDNs por arquivo: unpkg + jsdelivr cobrem 99% das falhas observadas.
-#  - "local" é o caminho relativo dentro de .reversa/documentation/. Os
+#  - "local" é o caminho relativo dentro de _reversa_docs/. Os
 #    templates HTML referenciam exatamente esse caminho via <script src>.
 
 schema_version: 1

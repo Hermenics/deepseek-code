@@ -1,25 +1,5 @@
-# Utils Module — Design
+# Utilities — technical design
 
-> Confidence: 🟢 CONFIRMED  
-> Generated at: 2026-07-01
+Utilities are shared leaf modules, not an alternate domain layer. They normalize filesystem/terminal/environment work and keep credentials/config migration separate from Agent control flow. Update notifier exports a testable version getter. 🟢
 
-## Architecture
-
-Minimal utility module providing filesystem helpers consumed by other modules.
-
-## Structure
-
-```
-utils/
-└── fs.ts    — readJson(), globFiles()
-```
-
-## Key Functions
-
-```typescript
-async function readJson<T>(path: string): Promise<T | null>
-// Read file, JSON.parse, return typed. Returns null on error.
-
-async function globFiles(pattern: RegExp, dir: string): Promise<string[]>
-// List files in dir matching regex pattern.
-```
+Consumers should reuse the existing helper matching the boundary instead of duplicating local process/filesystem behavior. 🟡

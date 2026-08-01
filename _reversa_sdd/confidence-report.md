@@ -1,41 +1,53 @@
-# Detective — Confidence Report
+# Confidence report — DeepSeek Code
 
-> Generated at: 2026-07-01
+_Reviewed on 2026-08-01 against source version v0.4.15 (`69ccd33`)._
 
-## Summary
+## Overall result
 
-The Detective phase extracted domain knowledge, state machines, permission matrices, and 10 Architecture Decision Records from the DeepSeek Code codebase.
+| Level | Markers | Percentage |
+| --- | ---: | ---: |
+| 🟢 Confirmed | 329 | 91.6% |
+| 🟡 Inferred | 30 | 8.4% |
+| 🔴 Gap | 0 | 0.0% |
+| **Total** | **359** | **100%** |
 
-## Artifacts Generated
+**Overall confidence: 95.8%** using `(confirmed + inferred × 0.5) / total`.
 
-| Artifact | Confidence | Notes |
-|----------|:----------:|-------|
-| `domain.md` | 🟢 | 27 glossary terms, 23 rules, 7 invariants — all from source code |
-| `state-machines.md` | 🟢 | 8 state machines covering all major lifecycle flows |
-| `permissions.md` | 🟢 | Complete matrices for modes, roles, risk rules, path sandbox |
-| `adrs/001-bun-as-runtime.md` | 🟢 | Confirmed from project structure and CI issues |
-| `adrs/002-fork-ink.md` | 🟢 | Confirmed from commit `8b59345` and `src/ink/` presence |
-| `adrs/003-remove-oauth.md` | 🟢 | Confirmed from commit `e09a92b` and git history |
-| `adrs/004-remove-medium-effort.md` | 🟢 | Confirmed from commit `00b4747` with explicit rationale |
-| `adrs/005-hooks-user-only.md` | 🟢 | Confirmed from settings loader code |
-| `adrs/006-interaction-modes.md` | 🟢 | Confirmed from commit `54c652d` and `interactionMode.ts` |
-| `adrs/007-risk-content-scoped.md` | 🟢 | Confirmed from commits `9640812`, `8f5f789` |
-| `adrs/008-subagent-roles.md` | 🟢 | Confirmed from commit `b022cab` and `permissions.ts` |
-| `adrs/009-path-sandbox.md` | 🟢 | Confirmed from `pathSafety.ts` |
-| `adrs/010-remove-language-selection.md` | 🟢 | Confirmed from commit `400b4fb` |
+The counts are confidence markers across the generated Markdown artifacts, not a claim that every sentence has equal implementation risk.
 
-## Gaps Identified
+## Review coverage
 
-| ID | Description | Severity | Recommendation |
-|----|-------------|----------|----------------|
-| GAP-01 | TOCTOU window in path sandbox symlink check | 🟡 Low | Document as known limitation; real exploit requires precise timing |
-| GAP-02 | No user override for blocked directories | 🟡 Low | Users cannot read `.env` even when legitimate; consider allowlist |
-| GAP-03 | SubAgent role inference relies on keywords | 🟡 Medium | Misclassification possible; "read and fix" → executor |
-| GAP-04 | Memory cap (2000 chars) is very small | 🟡 Low | May limit usefulness for complex projects |
-| GAP-05 | No explicit rate limiting on tool calls per turn | 🟡 Low | Only indirect limit via 100-iteration cap |
-| GAP-06 | Proxy module has no dedicated test coverage visible | 🟡 Medium | Browser-based provider path less tested |
+| Area | Result | Confidence |
+| --- | --- | --- |
+| Unit completeness | All 18 modules have `requirements.md`, `design.md`, and `tasks.md` (54 canonical specs). | 🟢 |
+| Source mapping | All current top-level source modules map to a unit in `traceability/code-spec-matrix.md`. | 🟢 |
+| Architecture | Context, container, component, local-record ERD, impact and ADR artifacts were refreshed. | 🟢 |
+| Retired architecture | Stale `proxy/` and `state/` unit specs were removed; no current proxy/browser claims remain. | 🟢 |
+| API contract | No OpenAPI document was generated because the current product exposes no public HTTP API. | 🟢 |
+| Deployment | No deployment document was generated because no Docker/compose/cloud manifest exists in the current tree. | 🟢 |
 
-## Rules Discovered: 23
-## ADRs Generated: 10
-## State Machines Documented: 8
-## Gaps Identified: 6 (all 🟡, none critical)
+## Per-spec summary
+
+| Specification group | 🟢 | 🟡 | 🔴 | Review outcome |
+| --- | ---: | ---: | ---: | --- |
+| Agent, orchestration, tools, permissions | 145 | 4 | 0 | Core control paths traced to source. |
+| Commands, TUI, renderer, native layout | 84 | 6 | 0 | UI behavior traced; maintain broad integration tests. |
+| Settings, hooks, plugins, skills, extensions | 62 | 5 | 0 | Authority boundaries confirmed. |
+| Entrypoints, utilities, constants, types, bootstrap | 38 | 15 | 0 | Shared/support surfaces include explicit inference markers. |
+
+## Reclassifications
+
+| From | To | Finding | Evidence |
+| --- | --- | --- | --- |
+| 🟢 (previous extraction) | removed | Proxy/Hono/Playwright and `src/state` units no longer exist. | `67a8690`, current `src/` inventory |
+| 🟢 (previous extraction) | 🟡 | Bootstrap and utility implementation intent is broader than direct behavioral surface review. | `src/bootstrap/`, `src/utils/` |
+
+## Remaining non-blocking gaps
+
+See [gaps.md](gaps.md). No 🔴 issue blocks a faithful module-level reimplementation from the checked-in source.
+
+## Recommended checks
+
+- [ ] Keep provider-specific streaming/tool-call regression tests for DeepSeek, Bedrock, Vertex, and local endpoints.
+- [ ] Exercise interruption/recovery and worktree integration paths before changing orchestration persistence.
+- [ ] Re-run this extraction after a change to the tool authorization pipeline or settings scopes.

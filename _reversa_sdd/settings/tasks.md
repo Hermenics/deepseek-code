@@ -1,24 +1,19 @@
-# Settings Module — Tasks
+# Settings — implementation tasks
 
-> Confidence: 🟢 CONFIRMED  
-> Generated at: 2026-07-01
+- [ ] T-01 Define settings types, defaults, bounds, and secret filters.
+  - Origin: `src/settings/types.ts`, `repository.ts`
+  - Done when: invalid/sensitive boundary input is rejected.
+  - Confidence: 🟢
+- [ ] T-02 Implement hierarchy, merge, origin diagnostics, and atomic persistence.
+  - Origin: `src/settings/repository.ts`
+  - Done when: per-scope overrides have predictable effective values.
+  - Confidence: 🟢
+- [ ] T-03 Enforce user-only executable capabilities.
+  - Origin: `src/settings/repository.ts`
+  - Done when: repository configuration cannot run commands by itself.
+  - Confidence: 🟢
 
-## Tasks for Reimplementation
+## Tests
 
-### T-01: Implement Settings Types
-- **Source:** `src/settings/types.ts`
-- **Description:** Define DeepSeekSettings interface with all optional fields. PermissionsConfig, SettingsLevel.
-- **Done when:** Types cover all known settings fields.
-- **Confidence:** 🟢
-
-### T-02: Implement Settings Loader
-- **Source:** `src/settings/index.ts`
-- **Description:** Load from 3 paths in parallel. Strip hooks from project/local. Merge with priority.
-- **Done when:** All levels load, hooks stripped from untrusted, merge correct.
-- **Confidence:** 🟢
-
-### T-03: Implement Merge Algorithm
-- **Source:** `src/settings/index.ts`
-- **Description:** Arrays: concat+dedup. Objects: deep merge one level. Scalars: override.
-- **Done when:** All merge cases handled correctly.
-- **Confidence:** 🟢
+- [ ] TT-01 Merge/validation/origin snapshot.
+- [ ] TT-02 Project-scope hooks, LSP, MCP and auto denials.

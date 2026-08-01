@@ -20,25 +20,25 @@ Primeiro agente do pipeline `/reversa-docs`. Pode ser invocado isolado para rege
 
 ## Inputs
 
-- `.reversa/documentation/.config.json` (entrevista, seed, estilo visual)
+- `_reversa_docs/.config.json` (entrevista, seed, estilo visual)
 - Código fonte do projeto legado (LOC, complexidade, dependências)
 - `_reversa_sdd/architecture.md` se houver (topologia detectada)
 - Skills: `reversa-arquitetura-3d` (3D), `especialista-d3` (2D)
 
 ## Outputs
 
-- `.reversa/documentation/arquitetura.html`
-- `.reversa/documentation/modulos.html`
-- `.reversa/documentation/topologia.html` (omitido se sem topologia detectada)
-- `.reversa/documentation/assets/data/modules.json`
-- `.reversa/documentation/assets/data/deps.json`
+- `_reversa_docs/arquitetura.html`
+- `_reversa_docs/modulos.html`
+- `_reversa_docs/topologia.html` (omitido se sem topologia detectada)
+- `_reversa_docs/assets/data/modules.json`
+- `_reversa_docs/assets/data/deps.json`
 
 Schemas formais em `specs/reversa-docs/design.md`, seção "JSONs intermediários em assets/data/".
 
 ## Antes de começar
 
 1. Leia `.reversa/state.json` para `user_name`, `chat_language`.
-2. Leia `.reversa/documentation/.config.json`. Se não existir, conduza a entrevista mínima.
+2. Leia `_reversa_docs/.config.json`. Se não existir, conduza a entrevista mínima.
 3. Verifique `templates/documentation/scripts/extract_modules.py` e `extract_deps.py` acessíveis.
 
 ## Entrevista mínima (apenas isolado e sem .config.json)
@@ -68,13 +68,13 @@ Leia `references/extraction-policy.md` para a política de cache. Resumo:
   ```
   python templates/documentation/scripts/extract_modules.py \
       --root . \
-      --out .reversa/documentation/assets/data/modules.json
+      --out _reversa_docs/assets/data/modules.json
   ```
 - Mesmo para `deps.json`:
   ```
   python templates/documentation/scripts/extract_deps.py \
-      --modules .reversa/documentation/assets/data/modules.json \
-      --out .reversa/documentation/assets/data/deps.json
+      --modules _reversa_docs/assets/data/modules.json \
+      --out _reversa_docs/assets/data/deps.json
   ```
 
 Se Python não estiver disponível, gere os JSONs lendo o código fonte direto via Glob + Read e aplique a mesma estrutura definida nos schemas.
@@ -95,7 +95,7 @@ Se Python não estiver disponível, gere os JSONs lendo o código fonte direto v
    - **NUNCA** use `fetch("assets/data/modules.json")`. O script inline lê `window.RV_DATA.modules` e `window.RV_DATA.deps` (injetado pelo `assets/js/data.js` que o Publisher gera). Páginas com `fetch()` local quebram quando o usuário abre via `file://` (CORS).
    - Use o template `templates/documentation/pages/arquitetura.html.tpl` como referência de estrutura do PAYLOAD.
 4. Adicione sidebar com `data-param` controlando: escala vertical, intensidade da luz, paleta. Use o helper `templates/documentation/assets/js/sidebar.js` (já incluso pelo viewer).
-5. Salve em `.reversa/documentation/arquitetura.html`.
+5. Salve em `_reversa_docs/arquitetura.html`.
 
 ### 3. Gerar `modulos.html` (force-directed 2D)
 
@@ -105,7 +105,7 @@ Se Python não estiver disponível, gere os JSONs lendo o código fonte direto v
 4. **NUNCA** use `fetch("assets/data/modules.json")` no script da página. Leia `window.RV_DATA.modules` e `window.RV_DATA.deps`. Em modo standalone (Mapper invocado sozinho sem Publisher), embed os JSONs via `<script id="data" type="application/json">{...}</script>`.
 5. Highlight em vermelho para nós que aparecem em `deps.json.cycles`.
 6. Sidebar com filtros: linguagem, tipo, força de repulsão, distância mínima.
-7. Salve em `.reversa/documentation/modulos.html`.
+7. Salve em `_reversa_docs/modulos.html`.
 
 ### 4. Gerar `topologia.html` (apenas se topologia detectada)
 
@@ -113,21 +113,21 @@ Se Python não estiver disponível, gere os JSONs lendo o código fonte direto v
 2. Se ausente, **omita** a página e registre em `.config.json.pagesOmitted` com motivo "topology not detected".
 3. Se presente, parse as 2 (ou 3) variantes (legado, moderno, híbrido opcional).
 4. Renderize side-by-side usando `templates/documentation/pages/topologia.html.tpl`. HTML manual ou D3 hierárquico, depende da complexidade.
-5. Salve em `.reversa/documentation/topologia.html`.
+5. Salve em `_reversa_docs/topologia.html`.
 
 ### 5. Atualizar `.state.json`
 
-Após cada página gerada, atualize `.reversa/documentation/.state.json`:
+Após cada página gerada, atualize `_reversa_docs/.state.json`:
 - Adicione `cartographer` (mapper) ao array `completedAgents` ao final.
 - Para cada página gerada: adicione `{status: "created", agent: "reversa-docs-mapper", hash: sha256(conteudo)}` em `pages`.
 
 ## Backup automático
 
-Se qualquer página alvo já existe, mova para `.reversa/documentation/.backup-<YYYYMMDD-HHMMSS>/` antes de escrever. Backup é por execução, não por arquivo.
+Se qualquer página alvo já existe, mova para `_reversa_docs/.backup-<YYYYMMDD-HHMMSS>/` antes de escrever. Backup é por execução, não por arquivo.
 
 ## Diretiva non-destructive
 
-Apenas escreve em `.reversa/documentation/`. Código fonte do projeto legado é lido para análise estática, nunca modificado.
+Apenas escreve em `_reversa_docs/`. Código fonte do projeto legado é lido para análise estática, nunca modificado.
 
 ## Tratamento gracioso de fontes ausentes
 
@@ -159,7 +159,7 @@ Apenas escreve em `.reversa/documentation/`. Código fonte do projeto legado é 
 
 ## Regras absolutas
 
-- Nunca escreva fora de `.reversa/documentation/`.
+- Nunca escreva fora de `_reversa_docs/`.
 - Nunca modifique código fonte do projeto legado.
 - Nunca rode varredura de credenciais. Use gitleaks/trufflehog externos se o usuário pedir.
 - Sempre faça backup em `.backup-<timestamp>/` antes de sobrescrever páginas existentes.

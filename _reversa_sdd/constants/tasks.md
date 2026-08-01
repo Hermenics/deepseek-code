@@ -1,12 +1,15 @@
-# Constants Module — Tasks
+# Constants — implementation tasks
 
-> Confidence: 🟢 CONFIRMED  
-> Generated at: 2026-07-01
+- [ ] T-01 Consolidate operational defaults and limits.
+  - Origin: `src/constants/`
+  - Done when: no duplicated magic policy values remain in consumers.
+  - Confidence: 🟡
+- [ ] T-02 Maintain provider/model and UI constant metadata.
+  - Origin: `src/constants/`, `src/types/provider.ts`
+  - Done when: selection UI and Agent agree on supported values.
+  - Confidence: 🟢
 
-## Tasks for Reimplementation
+## Tests
 
-### T-01: Define All Constants
-- **Source:** `src/constants/agent.ts`, `src/constants/tools.ts`, `src/constants/product.ts`, `src/constants/ui.ts`
-- **Description:** Define all named constants with correct values. Export from index.
-- **Done when:** All constants exported, values match documented specification.
-- **Confidence:** 🟢
+- [ ] TT-01 Boundary/default regression.
+- [ ] TT-02 Catalog selection regression.

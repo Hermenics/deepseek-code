@@ -1,36 +1,19 @@
-# Commands Module — Tasks
+# Commands — implementation tasks
 
-> Confidence: 🟢 CONFIRMED  
-> Generated at: 2026-07-01
+- [ ] T-01 Define typed command union and parser validation.
+  - Origin: `src/commands.ts`
+  - Done when: valid/invalid option cases are distinguishable.
+  - Confidence: 🟢
+- [ ] T-02 Dispatch commands into UI/agent/settings/task flows.
+  - Origin: `src/ui/App.tsx`, `src/entrypoints/cli.tsx`
+  - Done when: command input cannot bypass capability checks.
+  - Confidence: 🟢
+- [ ] T-03 Keep help and diagnostics aligned with registry.
+  - Origin: `src/commands/`
+  - Done when: documented forms parse in regression tests.
+  - Confidence: 🟡
 
-## Tasks for Reimplementation
+## Tests
 
-### T-01: Implement Command Router
-- **Source:** `src/commands/index.ts`
-- **Description:** Parse slash input, match command name, dispatch to handler, return CommandResult.
-- **Done when:** All 26 commands routed correctly, unknown commands return error message.
-- **Confidence:** 🟢
-
-### T-02: Implement Effort Command
-- **Source:** `src/commands/effort/index.ts`
-- **Description:** `/effort` shows current level. `/effort [low|high|max]` changes it.
-- **Done when:** Status displayed, level changed, invalid values rejected.
-- **Confidence:** 🟢
-
-### T-03: Implement Model Command
-- **Source:** `src/commands/model/index.ts`
-- **Description:** Switch active model. Update context limit. Propagate to SubAgent.
-- **Done when:** Model switches, context limit recalculated.
-- **Confidence:** 🟢
-
-### T-04: Implement RC (Remote Control) Command
-- **Source:** `src/commands/rc/`
-- **Description:** Subcommands: start (begin pairing), stop, status, devices (list), unpair.
-- **Done when:** QR code generated for pairing, device trust managed.
-- **Confidence:** 🟢
-
-### T-05: Implement Remaining Commands
-- **Source:** `src/commands/*/`
-- **Description:** Implement help, clear, compact, undo, history, checkpoint, cost, mode, and others.
-- **Done when:** Each command produces correct CommandResult and side effects.
-- **Confidence:** 🟢
+- [ ] TT-01 Goal/config/plan happy paths.
+- [ ] TT-02 Unknown and malformed command errors.

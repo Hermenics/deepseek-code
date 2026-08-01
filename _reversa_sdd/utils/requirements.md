@@ -1,18 +1,29 @@
-# Utils Module — Requirements
-
-> Confidence: 🟢 CONFIRMED  
-> Generated at: 2026-07-01
+# Utilities
 
 ## Overview
 
-The Utils module provides shared filesystem utilities and general helpers used across multiple modules.
+Utilities centralize credentials, configuration migration, filesystem, terminal, logging, formatting, and update-notification support used across the CLI. 🟢
 
-## Functional Requirements
+## Requirements
 
-### FR-01: File System Utilities 🟢
-- **Must** provide `readJson<T>(path)` — read and parse JSON file with type safety
-- **Must** provide `globFiles(pattern, dir)` — find files matching regex in directory
-- **Must** handle missing files gracefully (return null/empty)
+| ID | Requirement | Priority |
+| --- | --- | --- |
+| UT-RF-01 | Credential/config helpers must not expose secret values in diagnostics. 🟢 | Must |
+| UT-RF-02 | File and terminal helpers must provide consistent local behavior to callers. 🟢 | Must |
+| UT-RF-03 | Update checks must be independently testable. 🟡 | Should |
 
-### FR-02: General Utilities 🟡
-- **Should** provide any shared string/path manipulation helpers used across modules
+## Acceptance criteria
+
+```gherkin
+Given a diagnostic/export path containing a credential
+When it is formatted for output
+Then the secret is redacted
+
+Given a supported legacy configuration
+When migration runs
+Then current consumers receive the normalized value
+```
+
+## Traceability
+
+`src/utils/`, `src/agent/credentials.ts`. 🟢

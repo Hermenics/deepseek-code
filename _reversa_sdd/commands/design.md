@@ -1,54 +1,19 @@
-# Commands Module — Design
+# Commands — technical design
 
-> Confidence: 🟢 CONFIRMED  
-> Generated at: 2026-07-01
+## Interface
 
-## Architecture
+The command parser returns a discriminated union for about 38 registered forms; TUI/CLI dispatches the intent to the relevant module. 🟢
 
-Each command is a separate module in `src/commands/<name>/index.ts`. Commands are registered and dispatched via a router that matches the slash prefix.
+## Main flow
 
-## Structure
+1. Input detects command syntax and tokenizes options/arguments. 🟢
+2. Parser validates command-specific form and emits typed data or error. 🟢
+3. `App` dispatches it, switching mode or invoking the service. 🟢
 
-```
-commands/
-├── types.ts          — CommandResult type, EffortLevel, Model
-├── index.ts          — command registry and dispatcher
-├── help/             — /help
-├── model/            — /model [name]
-├── effort/           — /effort [low|high|max]
-├── mode/             — /mode
-├── clear/            — /clear
-├── compact/          — /compact
-├── undo/             — /undo
-├── history/          — /history
-├── checkpoint/       — /checkpoint [save|restore|list]
-├── rc/               — /rc [start|stop|status|devices|unpair]
-├── cost/             — /cost
-└── ... (26 total)
-```
+## Dependencies
 
-## Command Result Type
+Settings, sessions, Agent, goals, orchestration, extension managers, and UI components. 🟢
 
-```typescript
-type CommandResult =
-  | { type: 'message'; text: string }
-  | { type: 'model'; model: Model }
-  | { type: 'mode'; mode: InteractionMode }
-  | { type: 'effort'; action: 'status' }
-  | { type: 'effort'; action: 'set'; level: EffortLevel }
-  | { type: 'clear' }
-  | { type: 'compact' }
-  | { type: 'undo' }
-  | ... // other variants
-```
+## Risk
 
-## Data Flow
-
-```
-User types "/effort high"
-  → InputBox detects "/" prefix
-  → Command router parses "effort" + args ["high"]
-  → effort/index.ts validates level
-  → Returns { type: 'effort', action: 'set', level: 'high' }
-  → App.tsx applies state change
-```
+Commands route intent only; writes/process execution still meet tool/mode authorization. Exact help copy is UI policy. 🟡
