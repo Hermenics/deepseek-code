@@ -120,9 +120,10 @@ export class EventBus {
     if (filters.goal_id) { conditions.push('goal_id = ?'); params.push(filters.goal_id) }
     if (filters.after_seq !== undefined) { conditions.push('event_seq > ?'); params.push(filters.after_seq) }
     else if (filters.after) { conditions.push('created_at > ?'); params.push(filters.after) }
+    params.push(filters.limit ?? 1000)
 
     const sql = `SELECT * FROM events WHERE ${conditions.join(' AND ')}
-                 ORDER BY event_seq ASC, created_at ASC LIMIT ${filters.limit ?? 1000}`
+                 ORDER BY event_seq ASC, created_at ASC LIMIT ?`
     return this.mapRows(this.store.query<Record<string, unknown>>(sql, ...params))
   }
 

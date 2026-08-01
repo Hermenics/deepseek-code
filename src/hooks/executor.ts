@@ -12,10 +12,16 @@ export const hookAuditLog: HookRun[] = []
 
 function pushAudit(run: HookRun): void {
   hookAuditLog.push(run)
-  // Evict oldest entries, preserving order.
   if (hookAuditLog.length > MAX_HOOK_AUDIT_ENTRIES) {
     hookAuditLog.splice(0, hookAuditLog.length - MAX_HOOK_AUDIT_ENTRIES)
   }
+}
+
+/** Append bytes from a Buffer to a string, respecting MAX_OUTPUT_BYTES. */
+function appendCapped(target: string, chunk: Buffer): string {
+  if (target.length >= MAX_OUTPUT_BYTES) return target
+  const remaining = MAX_OUTPUT_BYTES - target.length
+  return target + chunk.toString('utf8', 0, Math.min(chunk.length, remaining))
 }
 
 /**
@@ -38,7 +44,9 @@ export function buildInput(
 
 /**
  * Run a single hook command. Sends JSON to stdin, captures stdout.
- * Returns stdout string or empty on timeout/error.
+ * Every exit path returns a block-decision JSON payload or stdout text.
+ * The finalization guard ensures error and close handlers cannot duplicate
+ * audit entries.
  */
 export async function runHookCommand(cmd: HookCommand, input: HookInput): Promise<string> {
   if (cmd.enabled === false) return ''
@@ -49,6 +57,8 @@ export async function runHookCommand(cmd: HookCommand, input: HookInput): Promis
     hook_id: cmd.id,
     event: input.event,
     command: cmd.command,
+    correlation_id: input.correlation_id,
+    session_id: input.session_id,
     started_at: new Date().toISOString(),
   }
 
@@ -60,34 +70,56 @@ export async function runHookCommand(cmd: HookCommand, input: HookInput): Promis
 
     let stdout = ''
     let stderr = ''
+    let finalized = false
+    let killedByTimeout = false
 
-    proc.stdout?.on('data', (chunk: Buffer) => {
-      if (stdout.length < MAX_OUTPUT_BYTES) stdout += chunk.toString()
+    const timer = setTimeout(() => {
+      killedByTimeout = true
+      proc.kill('SIGKILL')
+    }, timeoutMs)
+
+    function finalize(decision: string, error?: string, exitCode?: number, outputTruncated?: boolean): void {
+      if (finalized) return
+      finalized = true
+      clearTimeout(timer)
+      run.finished_at = new Date().toISOString()
+      run.decision = decision
+      if (exitCode !== undefined) run.exit_code = exitCode
+      run.error = error
+      run.output_truncated = outputTruncated ?? (stdout.length >= MAX_OUTPUT_BYTES)
+      pushAudit(run)
+    }
+
+    proc.stdout?.on('data', (chunk: Buffer) => { stdout = appendCapped(stdout, chunk) })
+    proc.stderr?.on('data', (chunk: Buffer) => { stderr = appendCapped(stderr, chunk) })
+
+    // Register stdin error listener BEFORE writing or ending input.
+    proc.stdin?.on('error', (err) => {
+      finalize('block', `stdin error: ${err.message}`)
+      resolve(JSON.stringify({ decision: 'block', reason: `stdin error: ${err.message}` }))
     })
-    proc.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
 
     proc.on('error', (err) => {
-      run.finished_at = new Date().toISOString()
-      run.error = err.message
-      run.decision = 'block'
-      pushAudit(run)
-      resolve('')
+      finalize('block', err.message)
+      resolve(JSON.stringify({ decision: 'block', reason: err.message }))
     })
-    proc.on('close', (code) => {
-      run.finished_at = new Date().toISOString()
-      run.exit_code = code ?? undefined
-      run.output_truncated = stdout.length >= MAX_OUTPUT_BYTES
-      if (code !== 0) {
-        const errInfo = stderr.trim() || `exited with code ${code}`
-        run.error = errInfo
-        run.decision = 'block'
-        console.error(`[hooks] Hook "${cmd.command}" failed: ${errInfo}`)
-        pushAudit(run)
-        resolve(JSON.stringify({ decision: 'block', reason: `Hook failed: ${errInfo}` }))
+
+    proc.on('close', (code, signal) => {
+      if (killedByTimeout || (code === null && signal === 'SIGKILL')) {
+        finalize('block', 'Hook timed out')
+        resolve(JSON.stringify({ decision: 'block', reason: 'Hook timed out' }))
         return
       }
-      run.decision = 'allow'
-      pushAudit(run)
+      const errInfo = stderr.trim()
+      const truncated = stdout.length >= MAX_OUTPUT_BYTES || stderr.length >= MAX_OUTPUT_BYTES
+      if (code !== 0) {
+        const reason = errInfo || `exited with code ${code}`
+        finalize('block', reason, code ?? undefined, truncated)
+        console.error(`[hooks] Hook "${cmd.command}" failed: ${reason}`)
+        resolve(JSON.stringify({ decision: 'block', reason: `Hook failed: ${reason}` }))
+        return
+      }
+      finalize('allow', undefined, 0, truncated)
       resolve(stdout.trim())
     })
 
@@ -96,11 +128,7 @@ export async function runHookCommand(cmd: HookCommand, input: HookInput): Promis
       proc.stdin?.write(JSON.stringify(input))
       proc.stdin?.end()
     } catch {
-      run.finished_at = new Date().toISOString()
-      run.error = 'Failed to write to hook stdin'
-      run.decision = 'block'
-      pushAudit(run)
-      resolve('')
+      // stdin error listener above already handles this path.
     }
   })
 }
@@ -108,18 +136,23 @@ export async function runHookCommand(cmd: HookCommand, input: HookInput): Promis
 /** Mark the most recent matching audit entry for a run as blocked (JSON block). */
 function markAuditBlocked(runId: string): void {
   for (let i = hookAuditLog.length - 1; i >= 0; i--) {
-    const run = hookAuditLog[i]
-    if (run.run_id === runId) {
-      run.decision = 'block'
+    if (hookAuditLog[i]?.run_id === runId) {
+      hookAuditLog[i]!.decision = 'block'
       return
     }
   }
 }
 
+function isValidString(v: unknown): v is string {
+  return typeof v === 'string'
+}
+
+function isValidRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v)
+}
+
 /**
  * Run PreToolUse hooks for a tool invocation.
- * Returns: approve (proceed), block (stop), or pass (no hooks matched).
- * If a hook returns modified_input, it's passed to the next hook and ultimately used for execution.
  */
 export async function runPreToolHooks(
   config: HooksConfig | undefined,
@@ -131,7 +164,6 @@ export async function runPreToolHooks(
 
   let currentInput = toolInput
   let matched = false
-  // One correlation ID for the whole pre-tool group links all hooks for this tool call.
   const correlationId = randomUUID()
 
   for (const matcher of config.PreToolUse) {
@@ -153,6 +185,21 @@ export async function runPreToolHooks(
 
       try {
         const parsed = JSON.parse(output) as PreToolHookOutput
+
+        // Validate field types before using them.
+        if (parsed.decision !== undefined && !isValidString(parsed.decision)) {
+          console.error(`[hooks] PreToolUse hook "${hook.command}" returned non-string decision (run ${input.run_id})`)
+          continue
+        }
+        if (parsed.reason !== undefined && !isValidString(parsed.reason)) {
+          console.error(`[hooks] PreToolUse hook "${hook.command}" returned non-string reason (run ${input.run_id})`)
+          continue
+        }
+        if (parsed.modified_input !== undefined && !isValidRecord(parsed.modified_input)) {
+          console.error(`[hooks] PreToolUse hook "${hook.command}" returned non-object modified_input (run ${input.run_id})`)
+          continue
+        }
+
         if (parsed.decision === 'block') {
           markAuditBlocked(input.run_id)
           return { decision: 'block', reason: parsed.reason ?? 'Blocked by PreToolUse hook' }
@@ -161,7 +208,6 @@ export async function runPreToolHooks(
           currentInput = parsed.modified_input
         }
       } catch {
-        // Malformed JSON — audit and continue
         console.error(`[hooks] PreToolUse hook "${hook.command}" returned non-JSON output (run ${input.run_id})`)
       }
     }
@@ -173,7 +219,6 @@ export async function runPreToolHooks(
 
 /**
  * Run PostToolUse hooks (fire-and-forget, non-blocking errors).
- * Each run is tracked in hookAuditLog for diagnostics.
  */
 export async function runPostToolHooks(
   config: HooksConfig | undefined,
@@ -196,9 +241,8 @@ export async function runPostToolHooks(
         session_id: sessionId,
         tool_name: toolName,
         tool_input: toolInput,
-        tool_result: toolResult.slice(0, 10_000), // cap result size sent to hooks
+        tool_result: toolResult.slice(0, 10_000),
       }, correlationId)
-      // Fire-and-forget but tracked via hookAuditLog
       runHookCommand(hook, input).catch(() => {})
     }
   }

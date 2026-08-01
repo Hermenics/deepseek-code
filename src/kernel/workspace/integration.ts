@@ -128,6 +128,8 @@ export class IntegrationPipeline {
 
     if (verifier) {
       const verdict = await verifier(result)
+      // Detect a concurrent rollback that happened while we awaited.
+      if (result.rolled_back) return result
       if (!verdict.passed) {
         result.status = 'rolled_back'
         result.rolled_back = true
@@ -167,14 +169,15 @@ export class IntegrationPipeline {
     return result
   }
 
-  /** Get integration status for a task. */
+  /** Get integration status (defensive copy so callers cannot mutate active state). */
   get(taskId: string): IntegrationResult | undefined {
-    return this.active.get(taskId)
+    const r = this.active.get(taskId)
+    return r ? structuredClone(r) : undefined
   }
 
-  /** List all integrations. */
+  /** List all integrations (defensive copies). */
   list(): IntegrationResult[] {
-    return [...this.active.values()]
+    return [...this.active.values()].map(r => structuredClone(r))
   }
 
   private persistResult(result: IntegrationResult): void {
@@ -191,7 +194,8 @@ export class IntegrationPipeline {
   }
 
   private rehydrate(): void {
-    const rows = this.store.query<IntegrationRow>('SELECT * FROM integration_results')
+    // Order by started_at ASC so later attempts overwrite earlier results for the same task_id.
+    const rows = this.store.query<IntegrationRow>('SELECT * FROM integration_results ORDER BY started_at ASC')
     for (const row of rows) {
       const result: IntegrationResult = {
         integration_id: row.integration_id,

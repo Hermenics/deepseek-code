@@ -124,52 +124,52 @@ export function importLegacySessions(
 
     try {
       const threadId = `imported-${legacy.id}`
-      // Create the session and its root thread first so imported goals have a
-      // valid FK target.
-      sessions.create({
-        id: legacy.id,
-        title: legacy.title ?? null,
-        cwd: resolve(legacy.cwd),
-        model: legacy.model,
-        provider: legacy.provider,
-        language: legacy.language ?? null,
-        active_agent: legacy.activeAgent ?? null,
-      })
-      store.run(
-        `INSERT INTO threads (id, session_id, agent_spec, agent_name, role, context_mode, status, created_at, updated_at)
-         VALUES (?, ?, '{}', 'imported', 'reader', 'fresh', 'idle', ?, ?)`,
-        threadId, legacy.id, legacy.createdAt, legacy.updatedAt,
-      )
-      result.sessions++
-
-      // Import goal if present. Goals belong to the imported session, so use
-      // an EventBus scoped to that session for the GoalRepo.
-      if (legacy.goal) {
-        const sessionEvents = new EventBus(store, legacy.id)
-        const sessionGoals = new GoalRepo(store, sessionEvents)
-        sessionGoals.create({
-          goal_id: `imported-goal-${legacy.id}`,
-          thread_id: threadId,
-          objective: legacy.goal.objective,
-          token_budget: legacy.goal.tokenBudget,
-          max_continuations: legacy.goal.maxContinuations,
+      // Wrap all per-session writes in a transaction so any failure rolls back
+      // the entire legacy session import before continuing.
+      store.transaction(() => {
+        sessions.create({
+          id: legacy.id,
+          title: legacy.title ?? null,
+          cwd: resolve(legacy.cwd),
+          model: legacy.model,
+          provider: legacy.provider,
+          language: legacy.language ?? null,
+          active_agent: legacy.activeAgent ?? null,
         })
-        // Restore goal state
-        const active = sessionGoals.getActive(threadId)
-        if (active) {
-          sessionGoals.update(active.goal_id, {
-            status: mapLegacyStatus(legacy.goal.status),
-            tokens_used: legacy.goal.tokensUsed,
-            time_used_seconds: legacy.goal.timeUsedSeconds,
-            continuations: legacy.goal.continuations,
-            consecutive_blocks: legacy.goal.consecutiveBlockCount,
-            block_reason: legacy.goal.blockReason ?? null,
-            started_at: legacy.goal.startedAt ?? legacy.goal.createdAt,
-            updated_at: legacy.goal.updatedAt,
+        store.run(
+          `INSERT INTO threads (id, session_id, agent_spec, agent_name, role, context_mode, status, created_at, updated_at)
+           VALUES (?, ?, '{}', 'imported', 'reader', 'fresh', 'idle', ?, ?)`,
+          threadId, legacy.id, legacy.createdAt, legacy.updatedAt,
+        )
+
+        // Import goal if present. Goals belong to the imported session.
+        if (legacy.goal) {
+          const sessionEvents = new EventBus(store, legacy.id)
+          const sessionGoals = new GoalRepo(store, sessionEvents)
+          sessionGoals.create({
+            goal_id: `imported-goal-${legacy.id}`,
+            thread_id: threadId,
+            objective: legacy.goal.objective,
+            token_budget: legacy.goal.tokenBudget,
+            max_continuations: legacy.goal.maxContinuations,
           })
+          const active = sessionGoals.getActive(threadId)
+          if (active) {
+            sessionGoals.update(active.goal_id, {
+              status: mapLegacyStatus(legacy.goal.status),
+              tokens_used: legacy.goal.tokensUsed,
+              time_used_seconds: legacy.goal.timeUsedSeconds,
+              continuations: legacy.goal.continuations,
+              consecutive_blocks: legacy.goal.consecutiveBlockCount,
+              block_reason: legacy.goal.blockReason ?? null,
+              started_at: legacy.goal.startedAt ?? legacy.goal.createdAt,
+              updated_at: legacy.goal.updatedAt,
+            })
+          }
         }
-        result.goals++
-      }
+      })
+      result.sessions++
+      if (legacy.goal) result.goals++
     } catch (err) {
       result.errors.push(`Import failed for ${legacy.id}: ${err instanceof Error ? err.message : String(err)}`)
     }
