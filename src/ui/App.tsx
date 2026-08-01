@@ -26,6 +26,7 @@ import type { ThemeName, ProviderConfig } from '../types/provider.js'
 import type { DeepSeekSettings, InterfaceSettings } from '../settings/types.js'
 import { formatChatError } from '../utils/chatError.js'
 import { saveSession, updateSessionTitle, type SessionData } from '../agent/session.js'
+import { getGoal, getElapsedSeconds, resumeGoal, updateGoal, buildContinuationPrompt, GOAL_MAX_CONTINUATIONS } from '../agent/goal.js'
 import { DEFAULT_MODE, nextMode, isBuildMode, isAutoMode, type InteractionMode } from './interactionMode.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
@@ -579,6 +580,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
                   agentMessages: agent.getRawMessages(),
                   uiMessages: current,
                   filesModified: agent.getFilesModified(),
+                  goal: (() => { const g = getGoal(); if (!g) return undefined; return { ...g, timeUsedSeconds: getElapsedSeconds(g) }; })(),
                 })
                 return current
               })
@@ -1316,9 +1318,29 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           if (cmd.action === 'resume') {
             if (!goal) {
               setMessages((m) => [...m, { role: 'assistant', content: 'No goal to resume.' }])
+            } else if (goal.status === 'complete') {
+              setMessages((m) => [...m, { role: 'assistant', content: 'Goal is already complete. Use /goal <new objective> to set a new one.' }])
             } else {
-              resumeGoal()
-              setMessages((m) => [...m, { role: 'assistant', content: `Goal resumed: "${goal.objective}"` }])
+              const resumed = resumeGoal()
+              const maxTurns = resumed.maxContinuations ?? GOAL_MAX_CONTINUATIONS
+              const prompt = buildContinuationPrompt(resumed, resumed.continuations)
+              setMessages((m) => [...m, { role: 'assistant', content: `Goal resumed: "${resumed.objective}" (turn ${resumed.continuations}/${maxTurns})\n\nResuming...` }])
+              // Schedule continuation immediately
+              if (goalContinuationTimerRef.current) clearTimeout(goalContinuationTimerRef.current)
+              goalContinuationTimerRef.current = setTimeout(() => {
+                goalContinuationTimerRef.current = null
+                setQueuedMessages((q) => {
+                  const next = enqueue(q, prompt)
+                  if (q.length === 0 && next.length > 0) {
+                    if (queuedSubmitTimerRef.current) clearTimeout(queuedSubmitTimerRef.current)
+                    queuedSubmitTimerRef.current = setTimeout(() => {
+                      queuedSubmitTimerRef.current = null
+                      void handleSubmitRef.current!(next[0]!)
+                    }, 0)
+                  }
+                  return next
+                })
+              }, 200)
             }
             return
           }

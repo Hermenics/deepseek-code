@@ -86,13 +86,14 @@ export default function HookLibrary({ scope, theme, onBack }: Props) {
       setSessionConfirmed(true)
     }
     const started = Date.now()
-    const output = await runHookCommand(selected.command, {
+    const { buildInput } = await import('../../hooks/executor.js')
+    const output = await runHookCommand(selected.command, buildInput({
       event: selected.event,
       session_id: 'settings-preview',
       tool_name: selected.event === 'SessionStart' ? undefined : 'read_file',
       tool_input: selected.event === 'SessionStart' ? undefined : { path: 'README.md', simulated: true },
       tool_result: selected.event === 'PostToolUse' ? 'simulated result' : undefined,
-    })
+    }))
     setStatus(`Test ${output ? `output: ${output}` : 'completed'} · ${Date.now() - started}ms`)
   }
 

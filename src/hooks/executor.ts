@@ -1,6 +1,22 @@
 import { spawn } from 'child_process'
-import type { HooksConfig, HookCommand, HookInput, PreToolHookOutput } from './types.js'
+import { randomUUID } from 'node:crypto'
+import type { HooksConfig, HookCommand, HookInput, HookRun, PreToolHookOutput } from './types.js'
 import { matchesHookPattern } from './matcher.js'
+
+const MAX_OUTPUT_BYTES = 100_000
+
+/** In-memory audit log of hook runs. Survives for the session lifetime. */
+export const hookAuditLog: HookRun[] = []
+
+export function buildInput(base: Omit<HookInput, 'schema_version' | 'correlation_id' | 'run_id' | 'cwd'>): HookInput {
+  return {
+    ...base,
+    schema_version: 1,
+    correlation_id: randomUUID(),
+    run_id: randomUUID(),
+    cwd: process.cwd(),
+  }
+}
 
 /**
  * Run a single hook command. Sends JSON to stdin, captures stdout.
@@ -9,6 +25,14 @@ import { matchesHookPattern } from './matcher.js'
 export async function runHookCommand(cmd: HookCommand, input: HookInput): Promise<string> {
   if (cmd.enabled === false) return ''
   const timeoutMs = (cmd.timeout ?? 30) * 1000
+
+  const run: HookRun = {
+    run_id: input.run_id,
+    hook_id: cmd.id,
+    event: input.event,
+    command: cmd.command,
+    started_at: new Date().toISOString(),
+  }
 
   return new Promise<string>((resolve) => {
     const proc = spawn('sh', ['-c', cmd.command], {
@@ -19,18 +43,30 @@ export async function runHookCommand(cmd: HookCommand, input: HookInput): Promis
     let stdout = ''
     let stderr = ''
 
-    proc.stdout?.on('data', (chunk: Buffer) => { stdout += chunk.toString() })
+    proc.stdout?.on('data', (chunk: Buffer) => {
+      if (stdout.length < MAX_OUTPUT_BYTES) stdout += chunk.toString()
+    })
     proc.stderr?.on('data', (chunk: Buffer) => { stderr += chunk.toString() })
 
-    proc.on('error', () => resolve(''))
+    proc.on('error', (err) => {
+      run.finished_at = new Date().toISOString()
+      run.error = err.message
+      hookAuditLog.push(run)
+      resolve('')
+    })
     proc.on('close', (code) => {
+      run.finished_at = new Date().toISOString()
+      run.exit_code = code ?? undefined
+      run.output_truncated = stdout.length >= MAX_OUTPUT_BYTES
       if (code !== 0) {
         const errInfo = stderr.trim() || `exited with code ${code}`
+        run.error = errInfo
         console.error(`[hooks] Hook "${cmd.command}" failed: ${errInfo}`)
-        // Return a JSON error so callers can detect hook failure
+        hookAuditLog.push(run)
         resolve(JSON.stringify({ decision: 'block', reason: `Hook failed: ${errInfo}` }))
         return
       }
+      hookAuditLog.push(run)
       resolve(stdout.trim())
     })
 
@@ -39,6 +75,9 @@ export async function runHookCommand(cmd: HookCommand, input: HookInput): Promis
       proc.stdin?.write(JSON.stringify(input))
       proc.stdin?.end()
     } catch {
+      run.finished_at = new Date().toISOString()
+      run.error = 'Failed to write to hook stdin'
+      hookAuditLog.push(run)
       resolve('')
     }
   })
@@ -67,12 +106,12 @@ export async function runPreToolHooks(
 
     for (const hook of matcher.hooks) {
       if (hook.enabled === false) continue
-      const input: HookInput = {
+      const input = buildInput({
         event: 'PreToolUse',
         session_id: sessionId,
         tool_name: toolName,
         tool_input: currentInput,
-      }
+      })
 
       const output = await runHookCommand(hook, input)
       if (!output) continue
@@ -86,7 +125,8 @@ export async function runPreToolHooks(
           currentInput = parsed.modified_input
         }
       } catch {
-        // Non-JSON output — ignore
+        // Malformed JSON — audit and continue
+        console.error(`[hooks] PreToolUse hook "${hook.command}" returned non-JSON output (run ${input.run_id})`)
       }
     }
   }
@@ -97,6 +137,7 @@ export async function runPreToolHooks(
 
 /**
  * Run PostToolUse hooks (fire-and-forget, non-blocking errors).
+ * Each run is tracked in hookAuditLog for diagnostics.
  */
 export async function runPostToolHooks(
   config: HooksConfig | undefined,
@@ -113,14 +154,15 @@ export async function runPostToolHooks(
 
     for (const hook of matcher.hooks) {
       if (hook.enabled === false) continue
-      const input: HookInput = {
+      const input = buildInput({
         event: 'PostToolUse',
         session_id: sessionId,
         tool_name: toolName,
         tool_input: toolInput,
         tool_result: toolResult.slice(0, 10_000), // cap result size sent to hooks
-      }
-      await runHookCommand(hook, input).catch(() => {})
+      })
+      // Fire-and-forget but tracked via hookAuditLog
+      runHookCommand(hook, input).catch(() => {})
     }
   }
 }
@@ -136,7 +178,7 @@ export async function runSessionStartHooks(
 
   for (const hook of config.SessionStart) {
     if (hook.enabled === false) continue
-    const input: HookInput = { event: 'SessionStart', session_id: sessionId }
+    const input = buildInput({ event: 'SessionStart', session_id: sessionId })
     await runHookCommand(hook, input).catch(() => {})
   }
 }
