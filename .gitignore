@@ -7,6 +7,7 @@ kiro.json
 DEEPSEEK.md
 .deepseek/
 dist/
+coverage/
 .agent
 .env.test.bedrock
 CLAUDE.md

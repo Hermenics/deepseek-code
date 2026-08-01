@@ -62,7 +62,7 @@ const DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT_MD
 // DeepSeek R1 on Bedrock does not support native tool calling.
 // We inject tool definitions into the system prompt and parse XML-style calls.
 
-function buildBedrockToolsPrompt(tools: Tool[]): string {
+export function buildBedrockToolsPrompt(tools: Tool[]): string {
   const defs = tools.map((t) => {
     const props = Object.entries((t.parameters as any)?.properties ?? {})
       .map(([k, v]: [string, any]) => `    - ${k} (${v.type ?? 'string'}): ${v.description ?? ''}`)

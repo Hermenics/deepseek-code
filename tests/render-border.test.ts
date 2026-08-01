@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'bun:test'
 import cliBoxes from 'cli-boxes'
 import { resolveBorderStyle } from '../src/ink/render-border.js'
 

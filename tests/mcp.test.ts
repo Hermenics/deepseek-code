@@ -1,53 +1,50 @@
-import { describe, it, expect, beforeAll, afterAll } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
-const MCP_DIR = join(process.cwd(), '.deepseek')
-const MCP_PATH = join(MCP_DIR, 'mcp.json')
-
 describe('MCP config', () => {
+  let cwd: string
+
+  beforeEach(async () => {
+    cwd = await mkdtemp(join(tmpdir(), 'deepseek-mcp-'))
+  })
+
+  afterEach(async () => {
+    await rm(cwd, { recursive: true, force: true })
+  })
+
   it('loadMcpTools returns empty tools when no mcp.json exists', async () => {
-    // Ensure no mcp.json
-    await rm(MCP_PATH, { force: true })
     const { loadMcpTools } = await import('../src/agent/mcp.js')
-    const result = await loadMcpTools(process.cwd(), { enabled: true })
+    const result = await loadMcpTools(cwd, { enabled: true })
     expect(result.tools).toBeArray()
     expect(result.tools.length).toBe(0)
   })
 
   it('loadMcpTools returns empty tools for empty servers config', async () => {
-    await mkdir(MCP_DIR, { recursive: true })
-    await Bun.write(MCP_PATH, JSON.stringify({ servers: {} }))
-    // Re-import to get fresh module
+    await mkdir(join(cwd, '.deepseek'), { recursive: true })
+    await writeFile(join(cwd, '.deepseek', 'mcp.json'), JSON.stringify({ servers: {} }))
     const { loadMcpTools } = await import('../src/agent/mcp.js')
-    const result = await loadMcpTools(process.cwd(), { enabled: true })
+    const result = await loadMcpTools(cwd, { enabled: true })
     expect(result.tools).toBeArray()
     expect(result.tools.length).toBe(0)
-    await rm(MCP_PATH, { force: true })
   })
 
   it('loadMcpTools returns errors array', async () => {
-    await rm(MCP_PATH, { force: true })
     const { loadMcpTools } = await import('../src/agent/mcp.js')
-    const result = await loadMcpTools(process.cwd(), { enabled: true })
+    const result = await loadMcpTools(cwd, { enabled: true })
     expect(result.errors).toBeArray()
   })
 
   it('does not load project MCP config until the User setting enables it', async () => {
-    const cwd = await mkdtemp(join(tmpdir(), 'deepseek-mcp-'))
-    try {
-      await mkdir(join(cwd, '.deepseek'), { recursive: true })
-      await writeFile(join(cwd, '.deepseek', 'mcp.json'), JSON.stringify({
-        servers: { unsafe: { transport: 'stdio', command: 'does-not-exist' } },
-      }))
-      const { loadMcpTools } = await import('../src/agent/mcp.js')
+    await mkdir(join(cwd, '.deepseek'), { recursive: true })
+    await writeFile(join(cwd, '.deepseek', 'mcp.json'), JSON.stringify({
+      servers: { unsafe: { transport: 'stdio', command: 'does-not-exist' } },
+    }))
+    const { loadMcpTools } = await import('../src/agent/mcp.js')
 
-      expect(await loadMcpTools(cwd)).toEqual({ tools: [], errors: [] })
-      expect((await loadMcpTools(cwd, { enabled: true })).errors).toHaveLength(1)
-    } finally {
-      await rm(cwd, { recursive: true, force: true })
-    }
+    expect(await loadMcpTools(cwd)).toEqual({ tools: [], errors: [] })
+    expect((await loadMcpTools(cwd, { enabled: true })).errors).toHaveLength(1)
   })
 })
 
