@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import { mkdirSync } from 'node:fs'
 import { runMigrations, type Migration } from './migrations.js'
@@ -18,7 +18,11 @@ export class Store {
       this.path = ':memory:'
     } else {
       this.path = options.path ?? join(homedir(), '.deepseek', 'kernel.db')
-      mkdirSync(join(homedir(), '.deepseek'), { recursive: true })
+      // Ensure the parent directory exists before opening the database,
+      // without forcing the default ~/.deepseek dir when a custom path is used.
+      if (this.path !== ':memory:') {
+        mkdirSync(dirname(this.path), { recursive: true })
+      }
     }
 
     this.db = new Database(this.path, { create: true })
@@ -46,14 +50,23 @@ export class Store {
     return this.db.query(sql).all() as T[]
   }
 
-  /** Run a mutation with positional `?` params. */
-  run(sql: string, ...params: unknown[]): void {
+  /** Run a mutation with positional `?` params. Returns the number of changed rows. */
+  run(sql: string, ...params: unknown[]): number {
     if (params.length > 0) {
       const stmt = this.db.query(sql)
-      ;(stmt as unknown as { run(...args: unknown[]): void }).run(...params)
-    } else {
-      this.db.run(sql)
+      const result = (stmt as unknown as { run(...args: unknown[]): { changes: number } }).run(...params)
+      return Number(result.changes)
     }
+    const result = this.db.run(sql) as unknown as { changes?: number }
+    return Number(result?.changes ?? 0)
+  }
+
+  /**
+   * Run a mutation and return the changed-row count.
+   * Alias for `run` that makes the mutation intent and count explicit.
+   */
+  runChanges(sql: string, ...params: unknown[]): number {
+    return this.run(sql, ...params)
   }
 
   /** Execute within a transaction. */

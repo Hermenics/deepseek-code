@@ -6,25 +6,24 @@ import { EventBus } from '../../src/kernel/events/eventBus.js'
 import { GoalEngine } from '../../src/kernel/goals/goalEngine.js'
 import { HookRuntime, type HookDefinition } from '../../src/kernel/hooks/hookRuntime.js'
 import { WorkflowEngine, REVIEW_WORKFLOW, IMPLEMENT_WORKFLOW, RESEARCH_WORKFLOW } from '../../src/kernel/workflows/workflowEngine.js'
-import { LEASE_MIGRATION } from '../../src/kernel/tasks/taskBoard.js'
 import { PathOwnership } from '../../src/kernel/workspace/pathOwnership.js'
 import { TaskBoard } from '../../src/kernel/tasks/taskBoard.js'
 import { MessageRouter } from '../../src/kernel/tasks/messageRouter.js'
 
-const ALL = [...MIGRATIONS, LEASE_MIGRATION]
+const ALL = MIGRATIONS
 const SID = 'test-phases5-7'
 
 function seed(store: Store): void {
-  store.run('INSERT INTO sessions (id, cwd, model, provider, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+  store.run('INSERT OR IGNORE INTO sessions (id, cwd, model, provider, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
     SID, '/tmp', 'test', 'test', new Date().toISOString(), new Date().toISOString())
   // Threads needed for FK refs from goals
-  for (const tid of ['th1', 'th2', 'th3', 'th4', 'th5', 'th6', 'th7', 'gc-th']) {
-    store.run('INSERT INTO threads (id, session_id, agent_spec, agent_name, role, context_mode, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+  for (const tid of ['th1', 'th2', 'th3', 'th4', 'th5', 'th6', 'th7', 'th8', 'gc-th']) {
+    store.run('INSERT OR IGNORE INTO threads (id, session_id, agent_spec, agent_name, role, context_mode, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       tid, SID, '{}', 'test', 'reader', 'fresh', 'idle', new Date().toISOString(), new Date().toISOString())
   }
   // Tasks needed for FK refs from leases/messages
   for (const tid of ['task-x', 't1']) {
-    store.run('INSERT INTO tasks (task_id, session_id, type, mode, context_mode, state, depth, attempt, permission_profile, timeout_ms, tokens_used, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+    store.run('INSERT OR IGNORE INTO tasks (task_id, session_id, type, mode, context_mode, state, depth, attempt, permission_profile, timeout_ms, tokens_used, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       tid, SID, 'agent', 'foreground', 'fresh', 'queued', 0, 0, 'writer-worktree', 120_000, 0, new Date().toISOString())
   }
 }
@@ -99,6 +98,41 @@ describe('GoalEngine', () => {
 
     engine.cancel(goal.goal_id)
     expect(engine.repo.get(goal.goal_id)!.status).toBe('cancelled')
+  })
+
+  it('should freeze elapsed time when leaving active state', () => {
+    const goal = engine.create({ thread_id: 'th8', objective: 'Time test', criteria: [] })
+    // Backdate the active interval by 10s.
+    const past = new Date(Date.now() - 10_000).toISOString()
+    engine.repo.update(goal.goal_id, { started_at: past })
+
+    engine.pause(goal.goal_id)
+    const paused = engine.repo.get(goal.goal_id)!
+    expect(paused.status).toBe('paused')
+    expect(paused.time_used_seconds).toBeGreaterThanOrEqual(9)
+
+    const frozen = paused.time_used_seconds
+    engine.resume(goal.goal_id)
+    // Resume starts a fresh interval but keeps accumulated time.
+    const resumed = engine.repo.get(goal.goal_id)!
+    expect(resumed.time_used_seconds).toBe(frozen)
+    expect(resumed.started_at).not.toBe(past)
+  })
+
+  it('should accumulate elapsed time across block/complete/cancel', () => {
+    // Pause accumulates time.
+    const g1 = engine.create({ thread_id: 'th8', objective: 'Accumulate', criteria: [] })
+    const past1 = new Date(Date.now() - 5_000).toISOString()
+    engine.repo.update(g1.goal_id, { started_at: past1 })
+    engine.pause(g1.goal_id)
+    const acc1 = engine.repo.get(g1.goal_id)!.time_used_seconds
+
+    // Block accumulates from the accumulated base.
+    engine.resume(g1.goal_id)
+    engine.repo.update(g1.goal_id, { started_at: new Date(Date.now() - 3_000).toISOString() })
+    engine.block(g1.goal_id, 'stuck')
+    const acc2 = engine.repo.get(g1.goal_id)!.time_used_seconds
+    expect(acc2).toBeGreaterThanOrEqual(acc1 + 2)
   })
 
   it('should evaluate a goal with criteria', () => {
@@ -203,44 +237,127 @@ describe('WorkflowEngine', () => {
   beforeEach(() => { store = new Store({ memory: true }); store.migrate(ALL); seed(store); events = new EventBus(store, SID); engine = new WorkflowEngine(store, events) })
   afterEach(() => store.close())
 
-  it('should run review workflow', () => {
+  it('should run review workflow', async () => {
     const spawned: string[] = []
-    const run = engine.start(REVIEW_WORKFLOW, { task: 'Check PR #42', context: 'auth module' },
-      (_phase, _prompt) => { const id = `task-${randomUUID().slice(0, 8)}`; spawned.push(id); return id })
+    const run = await engine.start(REVIEW_WORKFLOW, { task: 'Check PR #42', context: 'auth module' },
+      (_phase, _prompt) => { const id = `task-${randomUUID().slice(0, 8)}`; spawned.push(id); return id },
+      async () => true)
     expect(run.status).toBe('completed')
     expect(run.task_ids.length).toBe(5) // 3 Find + 2 Verify
     expect(spawned.length).toBe(5)
   })
 
-  it('should run implement workflow with dependency order', () => {
+  it('should run implement workflow with dependency order', async () => {
     const spawned: { phase: string; id: string }[] = []
-    const run = engine.start(IMPLEMENT_WORKFLOW, { task: 'Add login endpoint' },
-      (phase, _prompt) => { const id = `task-${randomUUID().slice(0, 8)}`; spawned.push({ phase: phase.title, id }); return id })
+    const run = await engine.start(IMPLEMENT_WORKFLOW, { task: 'Add login endpoint' },
+      (phase, _prompt) => { const id = `task-${randomUUID().slice(0, 8)}`; spawned.push({ phase: phase.title, id }); return id },
+      async () => true)
     expect(run.status).toBe('completed')
-    // 1 Plan + 1 Implement + 2 Review = 4
     expect(run.task_ids.length).toBe(4)
-    // Verify order: Plan first
+    // Order: Plan first, then Implement, then Review.
     expect(spawned[0]!.phase).toBe('Plan')
     expect(spawned[1]!.phase).toBe('Implement')
     expect(spawned[2]!.phase).toBe('Review')
   })
 
-  it('should run research workflow', () => {
-    const run = engine.start(RESEARCH_WORKFLOW, { task: 'Database migration patterns' },
-      (_phase, _prompt) => randomUUID())
+  it('should run research workflow', async () => {
+    const run = await engine.start(RESEARCH_WORKFLOW, { task: 'Database migration patterns' },
+      (_phase, _prompt) => randomUUID(),
+      async () => true)
     expect(run.status).toBe('completed')
     expect(run.task_ids.length).toBe(5) // 4 Scan + 1 Synthesize
   })
 
-  it('should track runs', () => {
-    engine.start(REVIEW_WORKFLOW, { task: 'T1' }, () => randomUUID())
-    engine.start(REVIEW_WORKFLOW, { task: 'T2' }, () => randomUUID())
+  it('should not advance dependent phases until tasks complete', async () => {
+    const phaseOrder: string[] = []
+    const run = await engine.start(IMPLEMENT_WORKFLOW, { task: 'T' },
+      (phase, _prompt) => { phaseOrder.push(phase.title); return randomUUID() },
+      async (taskIds) => {
+        // Emulate task completion, but verify dependency gating by order.
+        return taskIds.length > 0
+      })
+    expect(run.status).toBe('completed')
+    // Verify only starts after Implement tasks "complete".
+    expect(phaseOrder.indexOf('Implement')).toBeGreaterThan(phaseOrder.indexOf('Plan'))
+    expect(phaseOrder.indexOf('Review')).toBeGreaterThan(phaseOrder.indexOf('Implement'))
+  })
+
+  it('should fail the run when prerequisite tasks fail', async () => {
+    let first = true
+    const run = await engine.start(IMPLEMENT_WORKFLOW, { task: 'T' },
+      (_phase, _prompt) => randomUUID(),
+      async () => {
+        if (first) { first = false; return false } // Plan tasks fail
+        return true
+      })
+    expect(run.status).toBe('failed')
+    expect(run.error).toContain('did not complete successfully')
+  })
+
+  it('should preserve spawned task IDs and fail when a later spawn throws', async () => {
+    let count = 0
+    const run = await engine.start(REVIEW_WORKFLOW, { task: 'T' },
+      (_phase, _prompt) => {
+        count++
+        if (count === 4) throw new Error('spawn boom')
+        return `task-${count}`
+      },
+      async () => true)
+    expect(run.status).toBe('failed')
+    expect(run.error).toContain('spawn boom')
+    // Tasks spawned before the failure are preserved.
+    expect(run.task_ids).toContain('task-1')
+    expect(run.task_ids).toContain('task-2')
+  })
+
+  it('should substitute template variables without mangling dollar sequences', async () => {
+    const captured: string[] = []
+    await engine.start(REVIEW_WORKFLOW, { task: 'cost is $1 and $& stays', context: 'use $` and $& here' },
+      (_phase, prompt) => { captured.push(prompt); return randomUUID() },
+      async () => true)
+    expect(captured[0]).toContain('cost is $1 and $& stays')
+    expect(captured[0]).toContain('use $` and $& here')
+  })
+
+  it('should track runs', async () => {
+    await engine.start(REVIEW_WORKFLOW, { task: 'T1' }, () => randomUUID(), async () => true)
+    await engine.start(REVIEW_WORKFLOW, { task: 'T2' }, () => randomUUID(), async () => true)
     expect(engine.listRuns().length).toBe(2)
   })
 
-  it('should get run by ID', () => {
-    const run = engine.start(IMPLEMENT_WORKFLOW, { task: 'T' }, () => randomUUID())
+  it('should get run by ID', async () => {
+    const run = await engine.start(IMPLEMENT_WORKFLOW, { task: 'T' }, () => randomUUID(), async () => true)
     expect(engine.getRun(run.run_id)!.workflow_name).toBe('implement-and-review')
+  })
+
+  it('should rehydrate workflow runs across restarts', async () => {
+    const { mkdtempSync, rmSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+    const dir = mkdtempSync(join(tmpdir(), 'dsk-wf-'))
+    const dbPath = join(dir, 'kernel.db')
+
+    try {
+      const s1 = new Store({ path: dbPath })
+      s1.migrate(ALL)
+      const e1 = new EventBus(s1, SID)
+      const eng1 = new WorkflowEngine(s1, e1)
+      const run = await eng1.start(REVIEW_WORKFLOW, { task: 'R' }, () => randomUUID(), async () => true)
+      expect(run.status).toBe('completed')
+      s1.close()
+
+      const s2 = new Store({ path: dbPath })
+      s2.migrate(ALL)
+      const e2 = new EventBus(s2, SID)
+      const eng2 = new WorkflowEngine(s2, e2)
+      const restored = eng2.getRun(run.run_id)
+      expect(restored).toBeDefined()
+      expect(restored!.status).toBe('completed')
+      expect(restored!.task_ids.length).toBe(5)
+      s2.close()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 
@@ -261,16 +378,37 @@ describe('Benchmark Harness', () => {
     expect(result.ok).toBe(false)
   })
 
-  // Gate B: Crash recovery — tasks survive restart
-  it('Gate B: task state persists across store instances', () => {
-    const board = new TaskBoard(store, events)
-    const task = board.create({ type: 'agent' })
-    board.transition(task.task_id, 'running')
+  // Gate B: Crash recovery — tasks survive a process restart (file-backed).
+  it('Gate B: task state persists across store instances', async () => {
+    const { mkdtempSync, rmSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const { tmpdir } = await import('node:os')
+    const dir = mkdtempSync(join(tmpdir(), 'dsk-gateb-'))
+    const dbPath = join(dir, 'kernel.db')
 
-    // Simulate restart — new board on same store
-    const board2 = new TaskBoard(store, events)
-    const restored = board2.get(task.task_id)!
-    expect(restored.state).toBe('running')
+    try {
+      // First "process": create and transition a task.
+      const s1 = new Store({ path: dbPath })
+      s1.migrate(ALL)
+      seed(s1)
+      const e1 = new EventBus(s1, SID)
+      const board1 = new TaskBoard(s1, e1)
+      const task = board1.create({ type: 'agent' })
+      board1.transition(task.task_id, 'running')
+      s1.close()
+
+      // Second "process": reopen the same file and read the persisted state.
+      const s2 = new Store({ path: dbPath })
+      s2.migrate(ALL)
+      seed(s2)
+      const e2 = new EventBus(s2, SID)
+      const board2 = new TaskBoard(s2, e2)
+      const restored = board2.get(task.task_id)!
+      expect(restored.state).toBe('running')
+      s2.close()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 
   // Gate C: Goal correctness — no false completion

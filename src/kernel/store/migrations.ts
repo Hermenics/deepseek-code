@@ -229,4 +229,83 @@ export const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_hook_runs_event ON hook_runs(event);
     `,
   },
+  {
+    version: 2,
+    name: 'add-leases',
+    up: `
+      CREATE TABLE IF NOT EXISTS leases (
+        lease_id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE CASCADE,
+        holder_id TEXT NOT NULL,
+        resource_path TEXT NOT NULL,
+        acquired_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        heartbeat_at TEXT NOT NULL,
+        released_at TEXT,
+        status TEXT NOT NULL DEFAULT 'active'
+      );
+      CREATE INDEX IF NOT EXISTS idx_leases_resource ON leases(resource_path);
+      CREATE INDEX IF NOT EXISTS idx_leases_task ON leases(task_id);
+      -- Mutual exclusion: only one active lease per resource path.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_leases_active_resource
+        ON leases(resource_path) WHERE status = 'active';
+    `,
+  },
+  {
+    version: 3,
+    name: 'event-sequence',
+    up: `
+      -- Deterministic event ordering. event_seq is assigned on insert as
+      -- MAX(event_seq)+1 (see EventBus), which is monotonic and stable for
+      -- replay and cursors. For existing rows, backfill from rowid.
+      ALTER TABLE events ADD COLUMN event_seq INTEGER;
+      UPDATE events SET event_seq = rowid WHERE event_seq IS NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_events_seq ON events(event_seq);
+    `,
+  },
+  {
+    version: 4,
+    name: 'workspace-durability',
+    up: `
+      -- Durable path ownership claims.
+      CREATE TABLE IF NOT EXISTS path_claims (
+        task_id TEXT PRIMARY KEY,
+        paths TEXT NOT NULL,
+        acquired_at TEXT NOT NULL
+      );
+
+      -- Durable integration pipeline results.
+      CREATE TABLE IF NOT EXISTS integration_results (
+        integration_id TEXT PRIMARY KEY,
+        task_id TEXT NOT NULL,
+        status TEXT NOT NULL,
+        patch_hash TEXT,
+        conflict_reason TEXT,
+        files_integrated TEXT NOT NULL DEFAULT '[]',
+        verified INTEGER NOT NULL DEFAULT 0,
+        rolled_back INTEGER NOT NULL DEFAULT 0,
+        started_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_integration_task ON integration_results(task_id);
+    `,
+  },
+  {
+    version: 5,
+    name: 'workflow-runs',
+    up: `
+      -- Durable workflow run records.
+      CREATE TABLE IF NOT EXISTS workflow_runs (
+        run_id TEXT PRIMARY KEY,
+        workflow_name TEXT NOT NULL,
+        workflow_version INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        current_phase TEXT,
+        task_ids TEXT NOT NULL DEFAULT '[]',
+        started_at TEXT NOT NULL,
+        completed_at TEXT,
+        error TEXT
+      );
+    `,
+  },
 ]

@@ -6,6 +6,19 @@ import type { EventBus } from '../events/eventBus.js'
 
 export type TaskState = 'queued' | 'running' | 'blocked' | 'done' | 'failed' | 'cancelled' | 'timed_out'
 
+const TERMINAL_TASK_STATES = new Set<TaskState>(['done', 'failed', 'cancelled', 'timed_out'])
+
+/** Allowed state transitions for the task model. */
+export const ALLOWED_TASK_TRANSITIONS: Record<TaskState, ReadonlyArray<TaskState>> = {
+  queued: ['running', 'blocked', 'cancelled'],
+  running: ['done', 'failed', 'blocked', 'cancelled', 'timed_out'],
+  blocked: ['queued', 'failed', 'cancelled'],
+  done: [],
+  failed: ['queued'],
+  cancelled: ['queued'],
+  timed_out: ['queued'],
+}
+
 export interface TaskRow {
   task_id: string
   session_id: string
@@ -120,13 +133,33 @@ export class TaskBoard {
     const current = this.get(taskId)
     if (!current) throw new Error(`Task '${taskId}' not found`)
 
+    if (current.state === to) {
+      // No-op transition: preserve state and history unchanged.
+      return
+    }
+
+    const allowed = ALLOWED_TASK_TRANSITIONS[current.state]
+    if (!allowed.includes(to)) {
+      throw new Error(`Invalid task transition for '${taskId}': ${current.state} -> ${to}`)
+    }
+
+    // completed_at rules:
+    // - Entering a terminal state sets completed_at to now.
+    // - A valid terminal -> queued transition (resume/retry) clears completed_at.
+    // - Non-terminal -> non-terminal updates preserve any existing completed_at.
+    const toTerminal = TERMINAL_TASK_STATES.has(to)
+    const fromTerminal = TERMINAL_TASK_STATES.has(current.state)
+    const completedAt = toTerminal
+      ? now
+      : (fromTerminal && to === 'queued' ? null : current.completed_at)
+
     this.store.run(
       `UPDATE tasks SET state = ?, started_at = COALESCE(started_at, ?), completed_at = ?,
         block_reason = ?, error_code = ?, error_message = ?,
         tokens_used = ?, cost_usd = ?, latency_ms = ? WHERE task_id = ?`,
       to,
       to === 'running' ? now : current.started_at,
-      ['done', 'failed', 'cancelled', 'timed_out'].includes(to) ? now : null,
+      completedAt,
       extra.block_reason ?? current.block_reason,
       extra.error_code ?? current.error_code,
       extra.error_message ?? current.error_message,
@@ -190,10 +223,6 @@ export class LeaseManager {
 
   /** Acquire a lease on a resource. Returns null if already leased. */
   acquire(taskId: string, holderId: string, resourcePath: string, durationMs = LEASE_DURATION_MS): LeaseRow | null {
-    // Check for existing active lease on this resource
-    const existing = this.findActive(resourcePath)
-    if (existing) return null
-
     const now = new Date().toISOString()
     const expires = new Date(Date.now() + durationMs).toISOString()
     const row: LeaseRow = {
@@ -208,27 +237,38 @@ export class LeaseManager {
       status: 'active',
     }
 
-    this.store.run(
-      `INSERT INTO leases (lease_id, task_id, holder_id, resource_path, acquired_at, expires_at, heartbeat_at, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      row.lease_id, row.task_id, row.holder_id, row.resource_path,
-      row.acquired_at, row.expires_at, row.heartbeat_at, row.status,
-    )
+    // Lookup + insert happen in one transaction. The partial unique index on
+    // (resource_path) WHERE status='active' makes concurrent acquisition safe:
+    // INSERT OR IGNORE silently no-ops on a uniqueness conflict, and the 0
+    // changed-row count is the failed-acquisition signal.
+    let inserted = false
+    this.store.transaction(() => {
+      // Expire stale leases before attempting acquisition.
+      this.store.run("UPDATE leases SET status = 'expired' WHERE status = 'active' AND expires_at < ?", now)
+      const changes = this.store.run(
+        `INSERT OR IGNORE INTO leases (lease_id, task_id, holder_id, resource_path, acquired_at, expires_at, heartbeat_at, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        row.lease_id, row.task_id, row.holder_id, row.resource_path,
+        row.acquired_at, row.expires_at, row.heartbeat_at, row.status,
+      )
+      inserted = changes > 0
+    })
+
+    if (!inserted) return null
 
     this.events.emit('LeaseAcquired', { lease_id: row.lease_id, task_id: taskId, resource: resourcePath }, { task_id: taskId })
     return row
   }
 
-  /** Heartbeat a lease to extend it. */
+  /** Heartbeat a lease to extend it. Returns true only if an active lease row changed. */
   heartbeat(leaseId: string, durationMs = LEASE_DURATION_MS): boolean {
     const now = new Date().toISOString()
     const expires = new Date(Date.now() + durationMs).toISOString()
-    const result = this.store.query<{ c: number }>(
+    const changes = this.store.run(
       "UPDATE leases SET heartbeat_at = ?, expires_at = ? WHERE lease_id = ? AND status = 'active'",
       now, expires, leaseId,
     )
-    // bun:sqlite .run() doesn't return affected rows easily; we just return true for now
-    return true
+    return changes > 0
   }
 
   /** Release a lease. */
@@ -273,24 +313,5 @@ export class LeaseManager {
   }
 }
 
-// ── Schema extension for leases table ──────────────────────────────
-
-export const LEASE_MIGRATION = {
-  version: 2,
-  name: 'add-leases',
-  up: `
-    CREATE TABLE IF NOT EXISTS leases (
-      lease_id TEXT PRIMARY KEY,
-      task_id TEXT NOT NULL REFERENCES tasks(task_id) ON DELETE CASCADE,
-      holder_id TEXT NOT NULL,
-      resource_path TEXT NOT NULL,
-      acquired_at TEXT NOT NULL,
-      expires_at TEXT NOT NULL,
-      heartbeat_at TEXT NOT NULL,
-      released_at TEXT,
-      status TEXT NOT NULL DEFAULT 'active'
-    );
-    CREATE INDEX IF NOT EXISTS idx_leases_resource ON leases(resource_path);
-    CREATE INDEX IF NOT EXISTS idx_leases_task ON leases(task_id);
-  `,
-}
+// The leases table schema lives in src/kernel/store/migrations.ts as
+// migration v2 (single migration source). No schema is declared here.

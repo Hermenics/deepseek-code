@@ -1,6 +1,5 @@
 import type { Store } from '../store/store.js'
 import type { EventBus } from '../events/eventBus.js'
-import type { TaskBoard } from '../tasks/taskBoard.js'
 import { randomUUID } from 'node:crypto'
 
 // ── Workflow Engine ─────────────────────────────────────────────────
@@ -47,65 +46,102 @@ export interface WorkflowContext {
   artifacts?: Record<string, unknown>
 }
 
+interface WorkflowRunRow {
+  run_id: string
+  workflow_name: string
+  workflow_version: number
+  status: string
+  current_phase: string | null
+  task_ids: string
+  started_at: string
+  completed_at: string | null
+  error: string | null
+}
+
+/**
+ * Durable workflow engine. Runs are persisted to the `workflow_runs` table
+ * (migration v5) and rehydrated on construction. Phases advance only after
+ * their spawned tasks complete successfully (via the `waitTasks` callback).
+ */
 export class WorkflowEngine {
   private readonly runs = new Map<string, WorkflowRun>()
 
   constructor(
     private readonly store: Store,
     private readonly events: EventBus,
-  ) {}
+  ) {
+    this.rehydrate()
+  }
 
-  /** Register and start a workflow. Returns the run ID for tracking. */
-  start(
+  /**
+   * Register and start a workflow. Returns the run ID for tracking.
+   * `waitTasks` resolves to true when every spawned task completed
+   * successfully; a phase does not complete and dependent phases do not
+   * start until it does.
+   */
+  async start(
     definition: WorkflowDefinition,
     context: WorkflowContext,
     spawnTask: (phase: WorkflowPhase, prompt: string) => string,
-  ): WorkflowRun {
+    waitTasks?: (taskIds: string[]) => Promise<boolean>,
+  ): Promise<WorkflowRun> {
     const runId = randomUUID()
-    const now = new Date().toISOString()
-
     const run: WorkflowRun = {
       run_id: runId,
       workflow_name: definition.name,
       workflow_version: definition.version,
       status: 'running',
       task_ids: [],
-      started_at: now,
+      started_at: new Date().toISOString(),
     }
+    this.persistRun(run)
 
-    // Resolve phases in dependency order
-    const completed = new Set<string>()
     const phaseOrder = this.topologicalSort(definition.phases)
+    const completed = new Set<string>()
 
     for (const phase of phaseOrder) {
-      // Check dependencies are complete
       if (phase.depends_on) {
         for (const dep of phase.depends_on) {
           if (!completed.has(dep)) {
-            run.status = 'failed'
-            run.error = `Phase '${phase.title}' depends on '${dep}' which is not yet complete`
-            run.completed_at = new Date().toISOString()
-            this.runs.set(runId, run)
-            this.events.emit('WorkflowFailed', { run_id: runId, error: run.error }, {})
+            this.fail(run, `Phase '${phase.title}' depends on '${dep}' which is not yet complete`)
             return run
           }
         }
       }
 
       run.current_phase = phase.title
+      this.persistRun(run)
+      this.events.emit('WorkflowPhaseStarted', { run_id: runId, phase: phase.title }, {})
 
-      // Substitute template variables
-      let prompt = phase.prompt_template
-        .replace(/\$\{task\}/g, context.task)
-        .replace(/\$\{context\}/g, context.context ?? '')
+      // Substitute template variables with replacer functions so `$&`, `$1`,
+      // and other dollar sequences inside free-form task/context text survive.
+      const prompt = this.substitute(phase.prompt_template, context)
 
-      // Spawn fan-out tasks
-      for (let i = 0; i < phase.fan_out; i++) {
-        const taskId = spawnTask(phase, prompt)
-        run.task_ids.push(taskId)
-        this.events.emit('WorkflowTaskSpawned', {
-          run_id: runId, phase: phase.title, task_id: taskId, index: i,
-        }, { task_id: taskId })
+      const spawnedIds: string[] = []
+      try {
+        for (let i = 0; i < phase.fan_out; i++) {
+          const taskId = spawnTask(phase, prompt)
+          spawnedIds.push(taskId)
+          run.task_ids.push(taskId)
+          this.persistRun(run)
+          this.events.emit('WorkflowTaskSpawned', {
+            run_id: runId, phase: phase.title, task_id: taskId, index: i,
+          }, { task_id: taskId })
+        }
+      } catch (err) {
+        // Preserve IDs already spawned in earlier iterations.
+        const message = err instanceof Error ? err.message : String(err)
+        this.fail(run, `Failed to spawn tasks for phase '${phase.title}': ${message}`)
+        return run
+      }
+
+      // Do not advance until this phase's tasks have actually completed.
+      if (waitTasks) {
+        const ok = await waitTasks(spawnedIds)
+        if (!ok) {
+          this.fail(run, `Tasks for phase '${phase.title}' did not complete successfully`)
+          return run
+        }
       }
 
       completed.add(phase.title)
@@ -113,7 +149,7 @@ export class WorkflowEngine {
 
     run.status = 'completed'
     run.completed_at = new Date().toISOString()
-    this.runs.set(runId, run)
+    this.persistRun(run)
     this.events.emit('WorkflowCompleted', {
       run_id: runId, workflow: definition.name, tasks: run.task_ids.length,
     }, {})
@@ -129,6 +165,58 @@ export class WorkflowEngine {
   /** List all workflow runs. */
   listRuns(): WorkflowRun[] {
     return [...this.runs.values()]
+  }
+
+  private substitute(template: string, context: WorkflowContext): string {
+    let prompt = template.replace(/\$\{task\}/g, () => context.task)
+    prompt = prompt.replace(/\$\{context\}/g, () => context.context ?? '')
+    return prompt
+  }
+
+  private fail(run: WorkflowRun, message: string): void {
+    run.status = 'failed'
+    run.error = message
+    run.completed_at = new Date().toISOString()
+    this.persistRun(run)
+    this.events.emit('WorkflowFailed', { run_id: run.run_id, error: message }, {})
+  }
+
+  private persistRun(run: WorkflowRun): void {
+    this.runs.set(run.run_id, run)
+    this.store.run(
+      `INSERT OR REPLACE INTO workflow_runs
+        (run_id, workflow_name, workflow_version, status, current_phase, task_ids, started_at, completed_at, error)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      run.run_id, run.workflow_name, run.workflow_version, run.status,
+      run.current_phase ?? null, JSON.stringify(run.task_ids), run.started_at,
+      run.completed_at ?? null, run.error ?? null,
+    )
+  }
+
+  private rehydrate(): void {
+    const rows = this.store.query<WorkflowRunRow>('SELECT * FROM workflow_runs')
+    for (const row of rows) {
+      this.runs.set(row.run_id, {
+        run_id: row.run_id,
+        workflow_name: row.workflow_name,
+        workflow_version: row.workflow_version,
+        status: row.status as WorkflowRun['status'],
+        current_phase: row.current_phase ?? undefined,
+        task_ids: this.parseJsonArray(row.task_ids),
+        started_at: row.started_at,
+        completed_at: row.completed_at ?? undefined,
+        error: row.error ?? undefined,
+      })
+    }
+  }
+
+  private parseJsonArray(value: string): string[] {
+    try {
+      const parsed = JSON.parse(value)
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
   }
 
   private topologicalSort(phases: WorkflowPhase[]): WorkflowPhase[] {

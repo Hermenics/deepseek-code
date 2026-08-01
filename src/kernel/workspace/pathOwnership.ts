@@ -4,30 +4,38 @@ import type { EventBus } from '../events/eventBus.js'
 // ── Simple glob matching (no extra deps) ────────────────────────────
 
 function matchGlob(pattern: string, filePath: string): boolean {
-  // Exact match
   if (pattern === filePath) return true
-  // Trailing ** matches everything under that directory
   if (pattern.endsWith('/**')) {
     const dir = pattern.slice(0, -3)
     return filePath.startsWith(dir + '/') || filePath === dir
   }
-  // Leading ** matches any path ending with the suffix
   if (pattern.startsWith('**/')) {
     const suffix = pattern.slice(3)
     return filePath.endsWith('/' + suffix) || filePath === suffix
   }
-  // Simple * wildcard (single segment)
   if (pattern.includes('*')) {
     const regex = new RegExp(
       '^' + pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '[^/]*') + '$'
     )
     return regex.test(filePath)
   }
-  // Prefix match for directories
-  if (pattern.endsWith('/')) {
-    return filePath.startsWith(pattern)
-  }
+  if (pattern.endsWith('/')) return filePath.startsWith(pattern)
   return false
+}
+
+/**
+ * Static root of a pattern, split into path segments, or null when the pattern
+ * begins with a wildcard (which can match anywhere).
+ */
+function staticSegments(pattern: string): string[] | null {
+  const beforeWildcard = pattern.split(/[*?[]/)[0]
+  if (!beforeWildcard) return null
+  return beforeWildcard.split('/').filter(Boolean)
+}
+
+function isSegmentPrefixOf(a: string[], b: string[]): boolean {
+  if (a.length > b.length) return false
+  return a.every((seg, i) => seg === b[i])
 }
 
 // ── Path Ownership ──────────────────────────────────────────────────
@@ -44,13 +52,20 @@ export interface OverlapReport {
   overlapping_paths: string[]
 }
 
+/**
+ * Durable path ownership. Claims are persisted to the `path_claims` table
+ * (migration v4) and rehydrated on construction, so active claims survive
+ * process restarts.
+ */
 export class PathOwnership {
   private readonly claims = new Map<string, PathClaim>()
 
   constructor(
     private readonly store: Store,
     private readonly events: EventBus,
-  ) {}
+  ) {
+    this.rehydrate()
+  }
 
   /** Declare path ownership for a task. Fails if overlap with another active task. */
   declare(taskId: string, paths: string[]): { ok: true } | { ok: false; overlaps: OverlapReport[] } {
@@ -70,6 +85,11 @@ export class PathOwnership {
       return { ok: false, overlaps }
     }
 
+    // Persist before advertising the claim.
+    this.store.run(
+      'INSERT OR REPLACE INTO path_claims (task_id, paths, acquired_at) VALUES (?, ?, ?)',
+      taskId, JSON.stringify(paths), claim.acquired_at,
+    )
     this.claims.set(taskId, claim)
     this.events.emit('PathClaimed', { task_id: taskId, paths }, { task_id: taskId })
     return { ok: true }
@@ -77,6 +97,8 @@ export class PathOwnership {
 
   /** Release all path claims for a task. */
   release(taskId: string): void {
+    if (!this.claims.has(taskId)) return
+    this.store.run('DELETE FROM path_claims WHERE task_id = ?', taskId)
     this.claims.delete(taskId)
     this.events.emit('PathReleased', { task_id: taskId }, { task_id: taskId })
   }
@@ -97,6 +119,22 @@ export class PathOwnership {
     return [...this.claims.values()]
   }
 
+  /** Rehydrate claims from durable storage (restart recovery). */
+  private rehydrate(): void {
+    const rows = this.store.query<{ task_id: string; paths: string; acquired_at: string }>(
+      'SELECT task_id, paths, acquired_at FROM path_claims',
+    )
+    for (const row of rows) {
+      try {
+        this.claims.set(row.task_id, {
+          task_id: row.task_id,
+          paths: JSON.parse(row.paths) as string[],
+          acquired_at: row.acquired_at,
+        })
+      } catch { /* skip corrupt rows */ }
+    }
+  }
+
   private findOverlap(pathsA: string[], pathsB: string[]): string[] {
     const overlapping: string[] = []
     for (const a of pathsA) {
@@ -110,11 +148,14 @@ export class PathOwnership {
   }
 
   private globsIntersect(a: string, b: string): boolean {
-    // Extract the static prefix (before any wildcard) and check if they share a root
-    const staticPrefix = (s: string) => s.split(/[*?[]/)[0] ?? ''
-    const prefixA = staticPrefix(a)
-    const prefixB = staticPrefix(b)
-    // If one static prefix starts with the other, they could intersect
-    return prefixA.startsWith(prefixB) || prefixB.startsWith(prefixA)
+    const segmentsA = staticSegments(a)
+    const segmentsB = staticSegments(b)
+
+    // A pattern with no static root (starts with a wildcard) can match anywhere.
+    if (segmentsA === null || segmentsB === null) return true
+
+    // Compare static roots by complete path segments, not raw string prefixes,
+    // so 'src/a/**' and 'src/ab/**' do not overlap.
+    return isSegmentPrefixOf(segmentsA, segmentsB) || isSegmentPrefixOf(segmentsB, segmentsA)
   }
 }
