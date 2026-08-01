@@ -54,7 +54,13 @@ export function enforceTaskBudget(record: TaskRecordV1, result: TaskResultEnvelo
   if (record.maxTokens !== undefined && result.metrics.tokens !== undefined && result.metrics.tokens > record.maxTokens) {
     throw new TaskRuntimeError('TOKEN_BUDGET_EXCEEDED', `Task used ${result.metrics.tokens} tokens; limit is ${record.maxTokens}`)
   }
-  if (record.maxCostUsd !== undefined && result.metrics.costUsd !== undefined && result.metrics.costUsd > record.maxCostUsd) {
-    throw new TaskRuntimeError('COST_BUDGET_EXCEEDED', `Task cost $${result.metrics.costUsd}; limit is $${record.maxCostUsd}`)
+  if (record.maxCostUsd !== undefined) {
+    if (result.metrics.costUsd !== undefined) {
+      if (result.metrics.costUsd > record.maxCostUsd) {
+        throw new TaskRuntimeError('COST_BUDGET_EXCEEDED', `Task cost $${result.metrics.costUsd}; limit is $${record.maxCostUsd}`)
+      }
+    }
+    // When cost budget is requested but provider cannot report cost,
+    // the budget is unenforceable. usageAvailable remains false.
   }
 }
