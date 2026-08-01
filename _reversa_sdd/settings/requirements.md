@@ -1,36 +1,30 @@
-# Settings Module — Requirements
-
-> Confidence: 🟢 CONFIRMED  
-> Generated at: 2026-07-01
+# Settings
 
 ## Overview
 
-The Settings module loads, merges, and provides configuration from three levels: user, project, and local.
+Settings combine defaults, legacy values, user scope, project scope, and local scope while preserving explicit authority boundaries. 🟢
 
-## Functional Requirements
+## Requirements
 
-### FR-01: Three-Level Loading 🟢
-- **Must** load from `~/.deepseek/settings.json` (user level)
-- **Must** load from `.deepseek/settings.json` (project level)
-- **Must** load from `.deepseek/settings.local.json` (local level)
-- **Must** handle missing files gracefully (empty config)
+| ID | Requirement | Priority |
+| --- | --- | --- |
+| SE-RF-01 | Merge scopes predictably and report validation/origin diagnostics. 🟢 | Must |
+| SE-RF-02 | Project/local settings must not activate hooks, LSP commands, MCP, or default auto mode. 🟢 | Must |
+| SE-RF-03 | Secret-like values must not be persisted through settings write paths. 🟢 | Must |
+| SE-RF-04 | Persist valid settings atomically with restrictive permissions. 🟢 | Must |
 
-### FR-02: Security Stripping 🟢
-- **Must** strip `hooks` field from project-level settings
-- **Must** strip `hooks` field from local-level settings
-- **Must** preserve hooks only from user-level settings
+## Acceptance criteria
 
-### FR-03: Merge Algorithm 🟢
-- **Must** merge levels in priority order: user (low) → project (med) → local (high)
-- **Must** concatenate + deduplicate arrays
-- **Must** deep merge objects one level
-- **Must** override scalars with higher-priority value
+```gherkin
+Given a project settings file enabling hooks
+When effective settings load
+Then the executable hook is ignored and a scope warning is available
 
-### FR-04: Settings Interface 🟢
-- **Must** support: permissions, hooks, model, theme, autoCompact, autoCompactThreshold, promptRefiner, risk
-- **Must** be extensible (unknown keys preserved)
+Given a valid user-scope MCP opt-in
+When the agent restarts
+Then project MCP definitions become eligible to load
+```
 
-## Non-Functional Requirements
+## Traceability
 
-### NFR-01: Security 🟢
-- Hook isolation prevents repository-based command injection
+`src/settings/repository.ts`, `types.ts`. 🟢

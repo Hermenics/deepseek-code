@@ -1,157 +1,76 @@
-# Permissions Matrix
+# Authority and permission model
 
-> Confidence: 🟢 CONFIRMED (extracted from source code)  
-> Generated at: 2026-07-01
+_Re-extracted on 2026-08-01. This is a local-tool authorization model, not application RBAC._
 
-## Interaction Mode × Tool Access
+## Decision pipeline
 
-| Tool | Plan | Build | Auto |
-|------|:----:|:-----:|:----:|
-| `read_file` | ✅ | ✅ | ✅ |
-| `read_folder` | ✅ | ✅ | ✅ |
-| `glob` | ✅ | ✅ | ✅ |
-| `grep` | ✅ | ✅ | ✅ |
-| `git` | ✅ | ✅ | ✅ |
-| `web_fetch` | ✅ | ✅ | ✅ |
-| `introspect` | ✅ | ✅ | ✅ |
-| `todo` | ✅ | ✅ | ✅ |
-| `subagent` | ✅ | ✅ | ✅ |
-| `shell` | ❌ | ✅ | ✅ |
-| `write_file` | ❌ | ✅ | ✅ |
-| `patch_file` | ❌ | ✅ | ✅ |
-| `update_knowledge` | ❌ | ✅ | ✅ |
-| MCP tools (`*__*`) | ❌ | ✅ | ✅ |
-
-**Note:** Auto mode bypasses the matrix entirely — `canUseTool()` returns `true` for everything when `mode === 'auto'`.
-
----
-
-## SubAgent Role × Tool Access
-
-| Tool | reader | reviewer | writer | executor | unrestricted |
-|------|:------:|:--------:|:------:|:--------:|:------------:|
-| `read_file` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `read_folder` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `grep` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `glob` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `introspect` | ✅ | ✅ | ✅ | ✅ | ✅ |
-| `web_fetch` | ✅ | ❌ | ❌ | ✅ | ✅ |
-| `write_file` | ❌ | ❌ | ✅ | ✅ | ✅ |
-| `patch_file` | ❌ | ❌ | ✅ | ✅ | ✅ |
-| `shell` | ❌ | ❌ | ❌ | ✅ | ✅ |
-| All others | ❌ | ❌ | ❌ | ❌ | ✅ |
-
----
-
-## Risk Level Matrix
-
-### High Risk (always requires confirmation in Build mode)
-
-| Rule ID | Tool | Pattern/Condition | Description |
-|---------|------|-------------------|-------------|
-| `shell:rm` | shell | `rm *` | File deletion |
-| `shell:rm-rf` | shell | `rm -rf *` | Recursive forced deletion |
-| `shell:force-push` | shell | `git push *--force*` | Force push |
-| `shell:reset-hard` | shell | `git reset --hard*` | Destructive git reset |
-| `shell:checkout-destructive` | shell | `git checkout -- *` | Discard changes |
-| `shell:clean` | shell | `git clean *` | Remove untracked files |
-| `shell:npm-install` | shell | `npm install*` | Package installation |
-| `shell:bun-add` | shell | `bun add*` | Package installation |
-| `shell:pip-install` | shell | `pip install*` | Package installation |
-| `shell:apt-install` | shell | `apt install*` | System package install |
-| `shell:sudo` | shell | `sudo *` | Privilege escalation |
-| `shell:systemctl` | shell | `systemctl *` | Service management |
-| `shell:docker-rm` | shell | `docker *--rm*` | Container removal |
-| `shell:chmod` | shell | `chmod *` | Permission change |
-| `shell:deploy-*` | shell | `*deploy*` (various) | Deployment commands |
-| `shell:build` | shell | `bun run build*` | Production build |
-| `write:deepseek-config` | write_file | `*.deepseek/*` | Config modification |
-| `patch:deepseek-config` | patch_file | `*.deepseek/*` | Config modification |
-| `write:steering` | write_file | `*.deepseek/steering/*` | Steering override |
-| `write:large-overwrite` | write_file | `large_overwrite` condition | File ≥ 100 existing lines |
-
-### Medium Risk (requires confirmation only for subagents)
-
-| Rule ID | Tool | Pattern/Condition | Description |
-|---------|------|-------------------|-------------|
-| `shell:git-push` | shell | `git push*` | Push to remote |
-| `shell:git-commit` | shell | `git commit*` | Create commit |
-| `write:config-package` | write_file | `*package.json` | Package manifest |
-| `write:config-tsconfig` | write_file | `*tsconfig*` | TypeScript config |
-| `write:config-dockerfile` | write_file | `*Dockerfile*` | Container config |
-| `write:burst` | write_file | `multi_edit_burst` condition | ≥ 3 writes this turn |
-| `patch:burst` | patch_file | `multi_edit_burst` condition | ≥ 3 patches this turn |
-| `shell:npm-install-dev` | shell | `npm install --save-dev*` | Dev dependency |
-| `shell:bun-add-dev` | shell | `bun add -d*` | Dev dependency |
-
----
-
-## Path Sandbox — Blocked Directories
-
-| Directory | Reason |
-|-----------|--------|
-| `.agent` | Agent internal config |
-| `.claude` | Claude Code config |
-| `.kiro` | Kiro config |
-| `.github` | GitHub workflows/actions |
-| `.deepseek` | DeepSeek Code config |
-| `node_modules` | Dependencies (large, untrusted) |
-| `dist` | Build output |
-| `build` | Build output |
-| `.git` | Git internals |
-
----
-
-## Path Sandbox — Sensitive File Patterns
-
-| Pattern | Examples |
-|---------|----------|
-| `.env*` | `.env`, `.env.local`, `.env.production` |
-| `*.pem` | Private keys |
-| `*.key` | Key files |
-| `*.p12`, `*.pfx` | PKCS#12 certificates |
-| `credentials*` | `credentials.json` |
-| `secrets*` | `secrets.yaml`, `secrets.toml` |
-| `.netrc`, `.npmrc`, `.pypirc` | Registry tokens |
-| `id_rsa*`, `id_ed25519*`, `id_ecdsa*`, `id_dsa*` | SSH keys |
-| `service*account*.json` | GCP service accounts |
-| `gcloud*.json` | GCP credentials |
-| `.aws/credentials`, `.aws/config` | AWS credentials |
-
----
-
-## SSRF Protection — Blocked Targets
-
-| Category | Blocked Values |
-|----------|---------------|
-| Loopback | `localhost`, `127.0.0.1`, `::1`, `0.0.0.0` |
-| Cloud Metadata | `169.254.169.254`, `metadata.google.internal` |
-| Private IPv4 | `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` |
-| Link-local | `169.254.0.0/16` |
-| Private IPv6 | `::1`, `fe80::/10`, `fc00::/7`, `::ffff:` mapped private |
-
-DNS resolution is performed and the resolved IP is re-checked against the same private ranges (prevents DNS rebinding).
-
----
-
-## Settings Security Model
-
-| Setting Level | Path | Hooks Allowed | Priority |
-|---------------|------|:-------------:|:--------:|
-| User | `~/.deepseek/settings.json` | ✅ | Low |
-| Project | `.deepseek/settings.json` | ❌ (stripped) | Medium |
-| Local | `.deepseek/settings.local.json` | ❌ (stripped) | High |
-
-**Rationale:** A cloned repository could contain a malicious `.deepseek/settings.json` with hooks that execute arbitrary commands. Stripping hooks from non-user sources prevents this attack vector.
-
----
-
-## Permission Rule Syntax
-
-```
-"Shell(git *)"     → tool=shell, pattern="git *"
-"WriteFile"        → tool=write_file, pattern=undefined (matches all)
-"ReadFile(*.env)"  → tool=read_file, pattern="*.env"
+```mermaid
+flowchart LR
+  A[Model requests a tool] --> B[Validate tool arguments]
+  B --> C{Interaction mode permits it?}
+  C -- no --> X[Return denial]
+  C -- yes --> D{Path is workspace/approved and non-sensitive?}
+  D -- no --> X
+  D -- yes --> E[Evaluate risk]
+  E --> F[Resolve deny / allow / ask rules]
+  F --> G[Run pre-tool hooks]
+  G --> H{Operator confirmation required?}
+  H -- no --> I[Execute tool]
+  H -- yes --> J{Operator approves?}
+  J -- no --> X
+  J -- yes --> I
+  I --> K[Post-tool hooks, audit and model result]
 ```
 
-Resolution: `deny` rules first → `allow` rules → fallback (`ask` if allow rules exist, `allow` if only deny rules exist).
+## Interaction modes
+
+| Capability | Plan | Review | Build | Auto |
+| --- | --- | --- | --- | --- |
+| Read/search/LSP/web/git inspection/memory | allowed | allowed | allowed | allowed |
+| Write or patch workspace files | denied | denied | allowed | allowed |
+| Shell and MCP tools | denied | denied | allowed | allowed |
+| Delegate / ask subagent | denied | denied | allowed | allowed |
+| Write or submit plan | allowed | denied | denied | allowed |
+| Tools not named by the mode list | denied | denied | denied | allowed |
+| Model may activate mode | yes | yes | yes | **no** |
+
+`auto` bypasses only this table; it does not bypass schema validation, filesystem safety, risk evaluation, configured rules, hooks, or confirmations. 🟢
+
+## Subagent roles and orchestration profiles
+
+| Role/profile | Read/search | Write/patch | Shell | LSP/web | Purpose |
+| --- | --- | --- | --- | --- | --- |
+| `reader` / `researcher-readonly` | yes | no | no | yes | Inspect and report. |
+| `reviewer` | yes | no | no | LSP only | Audit without side effects. |
+| `writer` | yes | yes | no | no | Edit without command execution. |
+| `executor` | yes | yes | yes | web | Explicit development/test execution. |
+| `tester` | yes | no | yes | no | Run checks without edits. |
+| `writer-worktree` | yes | yes | yes | no | Modify isolated worktree. |
+| `coordinator-integrator` / `unrestricted` | all | all | all | all | Integration or explicitly unrestricted task. |
+
+The inferred role defaults to read-only when wording is ambiguous. Subagent calls are additionally risk-assessed; confirmation-required operations are denied to them rather than delegated to an invisible prompt. 🟢
+
+## Filesystem and extension boundaries
+
+| Boundary | Enforcement | Confidence |
+| --- | --- | --- |
+| Workspace | Canonical resolution and nearest-existing-ancestor checks prevent traversal and symlink escape. | 🟢 |
+| External path | Requires a recorded, explicit approval; it is not silently treated as workspace content. | 🟢 |
+| Sensitive paths | Credentials, secret-like files and protected implementation directories are blocked even when a path is otherwise reachable. | 🟢 |
+| Project configuration | Project/local settings cannot enable executable hooks, LSP commands, project MCP, or default `auto`. | 🟢 |
+| MCP | Project `.deepseek/mcp.json` stays inactive until user-scope opt-in and restart; stdio gets a minimal environment. | 🟢 |
+| Plugin / skill sources | Names and layouts are validated; updates preserve a recoverable backup until replacement succeeds. | 🟢 |
+
+## Configured permission and risk rules
+
+1. A matching deny rule wins first.
+2. A matching allow rule is considered next.
+3. With only deny rules configured, unmatched actions are allowed by that rule layer; otherwise unmatched actions ask.
+4. Risk remains authoritative: destructive shell operations, broad writes, configuration writes, deployments and similar built-in high-risk actions require confirmation. Low-risk auto-approval does not suppress high risk.
+5. Session approval can remember an operator approval only for the live session and matching risk key.
+
+The implementation caps wildcard complexity while parsing permission patterns, limiting patterns to ten wildcard segments to keep authorization matching bounded. 🟢
+
+## Auditability
+
+Tool decisions and results may be written to a local JSONL audit log. Known secret names and values are redacted, and sensitive operational files use restrictive permissions where the filesystem supports them. 🟢

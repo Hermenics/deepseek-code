@@ -7,7 +7,7 @@ scan_roots:
   - path: ".reversa/"
     description: "Artefatos transversais do core."
     exclude:
-      - ".reversa/documentation/"
+      - "_reversa_docs/"
       - ".reversa/_config/"
       - ".reversa/context/"
 

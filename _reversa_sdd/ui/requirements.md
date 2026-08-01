@@ -1,51 +1,30 @@
-# UI Module — Requirements
-
-> Confidence: 🟢 CONFIRMED  
-> Generated at: 2026-07-01
+# Terminal UI
 
 ## Overview
 
-The UI module provides the React component layer that renders the terminal user interface — input handling, message display, tool call visualization, subagent progress, and status bar.
+The UI presents conversation, setup, commands, approval decisions, session/goal/task state, and responsive terminal controls over the Agent. 🟢
 
-## Functional Requirements
+## Requirements
 
-### FR-01: App Shell 🟢
-- **Must** bootstrap Ink renderer with App root component
-- **Must** manage interaction mode state (plan/build/auto)
-- **Must** wire Agent callbacks to UI state updates
-- **Must** handle first-run setup flow (API key, model, theme)
+| ID | Requirement | Priority |
+| --- | --- | --- |
+| UI-RF-01 | Show streamed assistant/tool progress without blocking user cancellation. 🟢 | Must |
+| UI-RF-02 | Present approval/plan/verification decisions before agent continuation. 🟢 | Must |
+| UI-RF-03 | Support `plan`, `review`, `build`, and user-only `auto` interaction modes. 🟢 | Must |
+| UI-RF-04 | Support themes, Vim-style input option, narrow layouts, and mobile QR flow. 🟢 | Should |
 
-### FR-02: Input Handling 🟢
-- **Must** provide InputBox with text input, cursor, and submit
-- **Must** support vim mode (via useVimMode hook)
-- **Must** support input history navigation (Up/Down)
-- **Must** support command autocomplete with ghost text (Tab)
-- **Must** cycle interaction modes (Shift+Tab)
-- **Must** handle Ctrl+C (abort or quit)
+## Acceptance criteria
 
-### FR-03: Message Rendering 🟢
-- **Must** render conversation messages with markdown syntax highlighting
-- **Must** display assistant thinking/reasoning in a separate panel
-- **Must** display tool calls with expand/collapse
-- **Must** render file diffs with DiffView component
-- **Must** show auto-compact notifications
+```gherkin
+Given a high-risk tool request
+When the agent asks for confirmation
+Then the UI exposes approve/deny and no execution proceeds before a decision
 
-### FR-04: SubAgent Display 🟢
-- **Must** show running subagents with spinner, task, tool info
-- **Must** assign unique color per subagent
-- **Must** display result summary and cost on completion
-- **Must** show role and verification status
+Given the model requests auto mode
+When mode activation is evaluated
+Then auto is not activated without a user action
+```
 
-### FR-05: Status Bar 🟢
-- **Must** display: mode badge (colored), model name, token count, context %, cost
-- **Must** update in real-time during agent processing
+## Traceability
 
-### FR-06: Theme System 🟢
-- **Must** support 6 themes: dark, light, dark-daltonized, light-daltonized, dark-ansi, light-ansi
-- **Must** apply theme colors consistently across all components
-
-## Non-Functional Requirements
-
-### NFR-01: Responsiveness 🟢
-- Streaming tokens render immediately (no buffering)
-- Input responsive during agent processing (abort via Ctrl+C)
+`src/ui/App.tsx`, `input/`, `layout/`, `setup/`, `subagent/`. 🟢

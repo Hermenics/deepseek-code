@@ -20,6 +20,30 @@ O Reversa é um time de especialistas. Cada agente faz uma coisa só — e faz b
 
 ---
 
+## Menu principal
+
+| O que você quer fazer? | Comando | Time |
+|---|---|---|
+| Descobrir e documentar um sistema legado | `/reversa` | Reversa Agents Core |
+| Criar um projeto novo a partir de uma ideia | `/reversa-new` | Code New Project Agents |
+| Implementar ou evoluir código a partir das specs | `/reversa-forward` | Code Forward Agents |
+| Planejar a migração de um legado | `/reversa-migrate` | Migration Agents |
+| Gerar um mini-site visual da documentação | `/reversa-docs` | Documentation Agents |
+| Entender qual agente usar | `/reversa-agents-help` | Guia de agentes |
+
+Os times de Pricing e Translators têm comandos especializados. Use `/reversa-pricing-profile`, `/reversa-pricing-size`, `/reversa-pricing-estimate` ou `/reversa-n8n` conforme a necessidade.
+
+---
+
+## 🆕 Reversa New — o fundador de produto
+**Comando:** `/reversa-new`
+
+O fundador começa com uma ideia ainda bruta, investiga o problema, entende para quem o produto existe, consolida um PRD e transforma tudo em especificações prontas para implementação.
+
+> Use o Reversa New para projetos greenfield. Ele conduz `Ideator → Researcher → Drafter → Spec SDD` e entrega o resultado ao `/reversa-forward`.
+
+---
+
 ## 🎼 Reversa — orquestrador central
 **Comando:** `/reversa`
 
@@ -122,11 +146,13 @@ O estilista cataloga o guarda-roupa: paleta de cores, tipografia, espaçamentos,
 ## Sequência recomendada
 
 ```
-/reversa → orquestra tudo automaticamente
+Projeto legado: /reversa → descoberta e especificações
+Projeto novo:   /reversa-new → PRD e specs → /reversa-forward
+Migração:       /reversa → /reversa-migrate → /reversa-forward
 
-Ou manualmente:
+Pipeline legado manual:
 Scout → Archaeologist (N sessões) → Detective → Architect → Writer → Reviewer
 
 Opcionais em qualquer fase:
-Soul Extractor · Visor · Data Master · Design System
+Soul Extractor · Visor · Data Master · Design System · Reversa Docs
 ```

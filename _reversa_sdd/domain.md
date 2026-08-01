@@ -1,136 +1,69 @@
-# Domain Model
+# DeepSeek Code domain model
 
-> Confidence: 🟢 CONFIRMED (extracted from source code)  
-> Generated at: 2026-07-01
+_Re-extracted on 2026-08-01 from source at `69ccd33` (v0.4.15)._
+_Confidence: 🟢 confirmed by implementation unless marked otherwise._
 
-## Ubiquitous Language (Glossary)
+DeepSeek Code is a local, terminal-native coding agent. Its domain is not a remote service or a database-backed product: it coordinates a provider-backed agent, the local workspace, explicit operator consent, and persistent local state.
 
-| Term | Definition | Source |
-|------|-----------|--------|
-| **Agent** | Core orchestrator class that manages the LLM conversation loop, tool execution, and context compaction. One instance per session. | `src/agent/agent.ts` |
-| **Provider** | An LLM backend that the Agent connects to. Four supported: DeepSeek (native API), Bedrock (AWS), Vertex (GCP), Local (Ollama/LM Studio). | `src/types/provider.ts` |
-| **Tool** | A capability the Agent can invoke during a conversation turn (e.g., shell, read_file, write_file). Each tool has a name, description, and JSON Schema parameters. | `src/tools/types.ts` |
-| **Interaction Mode** | The current trust level of the session: `plan` (read-only), `build` (default, write with safety gates), `auto` (unrestricted). | `src/ui/interactionMode.ts` |
-| **Risk Rule** | A declarative pattern that classifies tool invocations as `high` or `medium` risk. High-risk always requires confirmation; medium requires confirmation only in subagent context. | `src/permissions/risk.ts` |
-| **Permission Rule** | A user-defined allow/deny pattern in settings that gates tool execution before the risk assessment layer. Uses glob matching. | `src/permissions/matcher.ts` |
-| **Hook** | A shell command that fires at lifecycle events (PreToolUse, PostToolUse, SessionStart). Can approve, block, or modify tool input. Only loaded from user-level settings (security). | `src/hooks/types.ts` |
-| **SubAgent** | A child agent spawned by the `subagent` tool to perform a delegated task. Has a role-based tool filter and its own iteration limit (15). | `src/tools/SubAgent/` |
-| **SubAgent Role** | One of `reader`, `writer`, `executor`, `reviewer`, `unrestricted`. Determines which tools the subagent can access. Inferred from task description. | `src/tools/SubAgent/permissions.ts` |
-| **Effort Level** | Controls reasoning depth sent to the LLM: `low`, `high` (default), `max`. DeepSeek API maps low→high internally, so only high/max have distinct behavior. | `src/commands/types.ts` |
-| **Auto-Compact** | Automatic context summarization triggered when context usage reaches 85% of the model's limit. Preserves recent tool results while summarizing older messages. | `src/services/compact/` |
-| **Micro-Compact** | A lighter compaction that clears old tool result contents (keeping the last 5) without a full summarization LLM call. | `src/services/compact/autoCompact.ts` |
-| **Boundary Marker** | A special message inserted into the conversation to mark the compaction point. Messages before it are summarized; messages after are preserved verbatim. | `src/agent/compactBoundary.ts` |
-| **Memory** | Persistent key-value store (markdown files) for agent knowledge and user preferences. Split into `agent` memory (MEMORY.md) and `user` memory (USER.md). Capped at 2000 chars total. | `src/agent/memory.ts` |
-| **Steering** | Custom system prompt fragments loaded from `.deepseek/steering/` that are prepended to the base system prompt. | `src/agent/steering.ts` |
-| **DeepSeek.md** | A project-level instruction file (similar to CLAUDE.md) that gets appended to the system prompt. | `src/agent/steering.ts` |
-| **Settings** | Three-level configuration (user → project → local) merged with increasing priority. Project/local settings have hooks stripped for security. | `src/settings/` |
-| **MoA (Mixture of Agents)** | A tool that queries multiple LLM models in parallel and synthesizes their responses through an aggregator model. | `src/tools/MoA/` |
-| **Proxy** | A Hono HTTP server that translates OpenAI/Anthropic API formats into DeepSeek browser API calls via a Playwright page pool. Used for the browser-based DeepSeek provider. | `src/agent/providers/proxy/` |
-| **Path Sandbox** | Security layer that restricts file access to the current working directory, blocks sensitive files, prevents symlink traversal, and denies access to config directories. | `src/tools/shared/pathSafety.ts` |
-| **File Checkpoint** | Snapshots of file state before tool modifications, enabling undo/rollback. Max 10 entries in the undo stack. | `src/agent/fileCheckpoint.ts` |
-| **Remote Control** | E2E-encrypted mobile pairing system using Curve25519 key exchange. Allows controlling DeepSeek Code from a phone via QR code. | `src/remote/`, `src/commands/rc/` |
-| **Prompt Refiner** | Optional pipeline that rewrites user messages to be more effective for the LLM, triggered for messages > 30 chars that aren't commands. | `src/agent/promptRefiner.ts` |
-| **Command** | A slash-prefixed user input (e.g., `/help`, `/model`, `/effort`) that is handled directly by the CLI rather than sent to the LLM. | `src/commands/` |
-| **Audit Log** | Append-only log of all tool invocations and their outcomes, stored per session. | `src/agent/auditLog.ts` |
+## Ubiquitous language
 
----
+| Term | Meaning | Confidence |
+| --- | --- | --- |
+| **Agent turn** | One user request plus the model/tool loop that addresses it. A turn is capped at 100 loop iterations. | 🟢 |
+| **Workspace** | The canonical project directory in which a session operates. Files outside it require explicit path approval and sensitive paths remain denied. | 🟢 |
+| **Session** | Locally persisted conversation and runtime state, keyed by a hash of the absolute project path. | 🟢 |
+| **Goal** | A single durable objective with usage counters, continuation limit, and lifecycle status. | 🟢 |
+| **Task** | A bounded unit delegated through the orchestration registry, optionally dependent on other tasks. | 🟢 |
+| **Tool call** | A schema-validated request to inspect, change, execute, delegate, or integrate. It is authorized before execution. | 🟢 |
+| **Interaction mode** | Operator-selected capability envelope: `plan`, `review`, `build`, or `auto`. | 🟢 |
+| **Risk rule** | A built-in or configured classification that can require confirmation independently of mode. | 🟢 |
+| **Permission rule** | A configured allow, deny, or ask decision for a tool/path pattern. | 🟢 |
+| **Plugin / skill** | An installed extension managed from a validated Git source and registered in local storage. | 🟢 |
+| **Project MCP server** | A workspace-declared MCP server that is not loaded until the operator enables the user-scoped opt-in. | 🟢 |
 
-## Domain Rules
+## Domain rules
 
-### R01 — Agent Iteration Limit 🟢
-The agent loop terminates after 100 iterations to prevent infinite loops. If reached, an error message is appended and the loop breaks.
+### Agent and context
 
-### R02 — SubAgent Iteration Limit 🟢
-SubAgents have a stricter iteration limit of 15 (`SUBAGENT_MAX_ITERATIONS`).
+1. Agent initialization must finish before a turn uses settings, steering files, memory, MCP tools, or hooks. Provider setup is therefore not equivalent to the agent being ready. 🟢
+2. A normal turn retains a bounded transcript. Automatic compaction runs near the configured context threshold; repeated compaction failures trip a circuit breaker instead of endlessly retrying. 🟢
+3. Prompt refinement is skipped for slash commands and messages below the configured minimum length (default 30 characters). 🟢
+4. Model output never executes tools directly. Each call is schema-validated, authorized, audited, executed, and returned as tool context to the model. 🟢
+5. Tool output and exported session material are treated as potentially sensitive; audit and export paths redact secrets. 🟢
 
-### R03 — Context Auto-Compact Threshold 🟢
-Auto-compaction triggers when `contextUsage / contextLimit >= 0.85`. The threshold is configurable via settings (`autoCompactThreshold`).
+### Workspace, settings, and persistence
 
-### R04 — Memory Size Cap 🟢
-Combined memory entries (agent + user) must not exceed 2000 characters total. Additions that exceed this are rejected.
+6. A session belongs to one canonical workspace. Its storage location includes a stable hash of the absolute workspace path, preventing same-named projects from sharing history. 🟢
+7. Settings merge from legacy/default, user, project, and local scopes. Executable capability is intentionally user-scoped: project/local settings cannot activate hooks, LSP commands, project MCP, or `auto` as the default mode. 🟢
+8. Local persisted files that contain operational state are written atomically with restrictive permissions where supported. Memory and orchestration snapshots additionally use a lease/ownership strategy to avoid concurrent corruption. 🟢
+9. Imported/legacy state is migrated only after validation; untrusted memory cannot override policy or permission instructions. 🟢
 
-### R05 — Hooks Only From User Settings 🟢
-Hooks defined in project-level or local-level settings are **stripped** before merging. Only user-level settings (`~/.deepseek/settings.json`) can define hooks. This prevents a malicious repository from executing arbitrary shell commands.
+### Goals and continuations
 
-### R06 — Deny-First Permission Resolution 🟢
-Permission rules are evaluated in order: deny rules checked first → if any match, deny immediately. Then allow rules → if any match, allow. If allow rules exist but none match, decision = `ask`. If no rules defined at all, decision = `allow`.
+10. There is at most one current goal in the in-process goal store. Creating a new goal replaces the current in-memory goal; the UI prevents creating a new unfinished goal through its command path. 🟢
+11. A goal records token and elapsed-time usage. A configured per-goal continuation limit, defaulting to three, bounds automatic continuation. 🟢
+12. A goal may be marked `blocked` only after the same blocker has recurred for three consecutive attempts. A different blocker starts a new count; resuming a non-complete goal clears the count and reason. 🟢
+13. `complete` is terminal for resume behavior: a completed goal is returned unchanged by `resumeGoal`. 🟢
 
-### R07 — Risk Confirmation in Build Mode 🟢
-In Build mode, high-risk tool invocations always require user confirmation. Medium-risk invocations require confirmation only when executed by a subagent (not the main agent).
+### Orchestrated tasks
 
-### R08 — Auto Mode Bypasses All Checks 🟢
-When interaction mode is `auto`, all permission checks, risk assessments, and mode restrictions are skipped entirely. The model goes to auto mode only via user action (Shift+Tab) — the model itself cannot activate auto mode (`canModelActivateMode('auto') === false`).
+14. A task has a unique identifier, validated dependency graph, finite depth/fan-out/timeout/retry/budget limits, and a structured result envelope. Invalid graph relationships, including self-dependencies and cycles, are rejected at admission or restore. 🟢
+15. Dependents run only after all dependencies are `done`. A failed dependency is handled by its declared `block`, `fail`, or `cancel` policy. 🟢
+16. Recovered tasks that were running at process loss are not assumed complete; runtime recovery turns them into retryable failure handling. 🟢
+17. Writer isolation prefers owned Git worktrees. When a clean detached worktree cannot be safely created, the system falls back to serialized shared-workspace access rather than concurrent writers. 🟢
+18. A worktree result is integrated only after a safe binary-diff check and conflict/sensitive-path screening. 🟢
 
-### R09 — Path Sandbox Enforcement 🟢
-All file operations must satisfy:
-1. Path resolves inside `process.cwd()`
-2. Path is not inside a blocked directory (`.git`, `.deepseek`, `node_modules`, `dist`, `build`, `.agent`, `.claude`, `.kiro`, `.github`)
-3. Real path (after symlink resolution) still inside cwd (anti-traversal)
-4. File is not a sensitive pattern (`.env*`, `*.pem`, `*.key`, `credentials*`, etc.)
+### Authority and extensions
 
-### R10 — SSRF Protection 🟢
-WebFetch tool blocks:
-- Localhost/loopback addresses (127.0.0.1, ::1, 0.0.0.0)
-- Cloud metadata endpoints (169.254.169.254, metadata.google.internal)
-- Private network ranges (10.x, 172.16-31.x, 192.168.x)
-- Link-local (169.254.x)
-- After DNS resolution: the resolved IP is re-checked against private ranges
+19. Interaction mode is a first authorization gate, not the only one. `auto` removes that mode gate but does not remove path safety, risk assessment, hook behavior, or configured permission decisions. 🟢
+20. The model cannot activate `auto`; only the operator can. 🟢
+21. High-risk operations retain confirmation requirements even when low-risk auto-approval is enabled. A deny rule wins before allow/ask processing. 🟢
+22. Subagents receive the narrowest role inferred from their request when no role is explicit. Their profile/tool allowlist is enforced again at execution time. 🟢
+23. Project MCP definitions are inert until the user-scope MCP flag is enabled and the agent is restarted. Their child process receives a minimal environment. 🟢
+24. Plugin and skill installation accepts only validated repository/source layouts and safe names; an update keeps a backup so failed replacement can be restored. 🟢
 
-### R11 — Glob Wildcard Safety Limit 🟢
-Glob patterns with more than 10 wildcards are automatically rejected (return false) to prevent ReDoS-style pathological matching.
+## Non-domain observations and gaps
 
-### R12 — Settings Merge Priority 🟢
-Settings are merged in order: user (lowest) → project (medium) → local (highest). Arrays are concatenated and deduplicated. Objects are deep-merged one level. Scalars are overridden by higher-priority levels.
-
-### R13 — Parallel Tool Execution 🟢
-Tools in the `PARALLEL_SAFE` set (`subagent`, `shell`, `grep`, `glob`, `read_file`, `read_folder`, `web_fetch`, `introspect`) can execute concurrently. Mixed batches or write tools always execute sequentially.
-
-### R14 — SubAgent Role Inference 🟢
-Role is inferred from the task description using keyword matching:
-- Read-only keywords without write keywords → `reader` (or `reviewer` if audit/review)
-- Write keywords without execution keywords → `writer`
-- Default fallback → `executor`
-
-### R15 — Undo Stack Limit 🟢
-File checkpoints are capped at 10 entries (`UNDO_STACK_MAX`). Oldest entries are evicted when the limit is reached.
-
-### R16 — Prompt Refinement Guards 🟢
-Prompt refinement only triggers when:
-1. Feature is enabled in settings
-2. Message length > 30 characters
-3. Message doesn't start with `/` (command) or `!` (shell)
-
-### R17 — Shell Output Truncation 🟢
-Shell command stdout/stderr is truncated to 50,000 characters (`SHELL_OUTPUT_MAX_CHARS`).
-
-### R18 — Shell Command Timeout 🟢
-Shell commands timeout after 30 seconds (`SHELL_TIMEOUT_MS`) by default.
-
-### R19 — Hook Timeout 🟢
-Each hook command has a timeout of 30 seconds by default (configurable per hook).
-
-### R20 — PostToolUse Hook Result Cap 🟢
-Tool results sent to PostToolUse hooks are capped at 10,000 characters to prevent memory issues.
-
-### R21 — MoA Minimum Responses 🟢
-MoA requires at least 1 successful reference model response (`minResponses: 1`) before proceeding to aggregation. Timeout per model is 60 seconds.
-
-### R22 — Content-Scoped Risk Approval 🟢
-When a user approves a high-risk tool invocation, the approval is scoped to the specific content (command string or file path), not the entire rule. This prevents blanket approval of dangerous operations.
-
-### R23 — Checkpoint Max Storage 🟢
-Maximum 20 session checkpoints are stored on disk (`CHECKPOINT_MAX`). Older checkpoints are evicted.
-
----
-
-## Domain Invariants
-
-| ID | Invariant | Enforcement |
-|----|-----------|-------------|
-| INV-01 | A session has exactly one Agent instance | Constructor pattern in `cli.tsx` |
-| INV-02 | Tool execution always follows the pipeline: mode check → risk → permission rules → hooks → execute | `checkAndExecuteTool()` sequential checks |
-| INV-03 | No file write can escape the cwd sandbox | `assertSafePath()` called before every write/read |
-| INV-04 | Hooks cannot be injected via project files | `stripHooks()` in settings loader |
-| INV-05 | Auto mode can only be activated by the user, never by the model | `canModelActivateMode('auto') === false` |
-| INV-06 | SubAgent cannot spawn another SubAgent | Tool filtered out of subagent tool list |
-| INV-07 | DenyAbortError terminates the entire turn | Thrown → caught at runLoop level → cb.onDone() |
+- The product has no application database or end-user RBAC model. Its authorization model controls a local operator, tools, filesystem locations, and delegated roles. 🟢
+- There is no evidence of telemetry or business-event logs shipped by the repository; audit and orchestration events are local operational records. 🟡
+- Goal storage is process-global in `agent/goal.ts`; persistence across a process boundary is mediated by sessions/UI integration rather than by that module alone. The exact durability boundary should be verified before claiming durable goals survive every termination mode. 🟡
