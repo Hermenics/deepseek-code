@@ -63,6 +63,10 @@ describe('task workspace isolation', () => {
   })
 
   it('serializes concurrent integrations around check and apply', async () => {
+    // Bumped from Bun's 5000ms default: this test runs 2 worktree creates plus
+    // 2 concurrent integrates (each several git subprocesses) and once hit
+    // 5462ms under full-suite CPU load. 15s keeps slow-CI headroom while a
+    // genuinely stuck lease (reclaimed only after 30s) still fails the test.
     const root = await gitRepo()
     await writeFile(join(root, 'other.txt'), 'base\n')
     await execa('git', ['add', '--', 'other.txt'], { cwd: root })
@@ -79,7 +83,7 @@ describe('task workspace isolation', () => {
     expect(two.integrated).toBe(true)
     expect(await readFile(join(root, 'file.txt'), 'utf8')).toBe('first\n')
     expect(await readFile(join(root, 'other.txt'), 'utf8')).toBe('second\n')
-  })
+  }, 15_000)
 
   it('refuses cleanup when ignored work remains after integration', async () => {
     const root = await gitRepo()
