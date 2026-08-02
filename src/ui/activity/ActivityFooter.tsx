@@ -1,0 +1,238 @@
+import { useEffect, useMemo, useState } from 'react'
+import useInput from '../../ink/hooks/use-input.js'
+import Box from '../../ink/components/Box.js'
+import Text from '../../ink/components/Text.js'
+import { getFixedAgent, isFixedAgent } from '../../tools/SubAgent/fixedAgents.js'
+import type { WorkflowRun } from '../../workflows/types.js'
+import type { SubagentState, SubagentStatus } from '../subagent/types.js'
+import { getThemeColors, type ThemeName } from '../theme.js'
+import { useClock } from '../clock.js'
+
+const ACTIVE_WORKFLOWS = new Set(['queued', 'running'])
+const ACTIVE_AGENTS = new Set<SubagentStatus>(['queued', 'running', 'blocked'])
+const RESUMABLE_AGENTS = new Set<SubagentStatus>(['blocked', 'failed', 'error', 'cancelled', 'timed_out'])
+const STATUS_ICONS: Record<string, string> = {
+  queued: '◌', running: '◯', blocked: 'Ⅱ', done: '✓', completed: '✓',
+  failed: '✘', error: '✘', cancelled: '✘', timed_out: '⌛',
+}
+
+interface ActivityBase {
+  kind: 'agent' | 'workflow'
+  id: string
+  label: string
+  description: string
+  status: string
+  fixed: boolean
+  active: boolean
+  startedAt: number
+}
+
+export interface AgentActivityItem extends ActivityBase {
+  kind: 'agent'
+  agent: SubagentState
+}
+
+export interface WorkflowActivityItem extends ActivityBase {
+  kind: 'workflow'
+  run: WorkflowRun
+  agents: SubagentState[]
+}
+
+export type ActivityItem = AgentActivityItem | WorkflowActivityItem
+
+function truncate(value: string, width: number): string {
+  if (width <= 0) return ''
+  return value.length <= width ? value : `${value.slice(0, Math.max(0, width - 1))}…`
+}
+
+function formatDuration(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1_000))
+  if (seconds < 60) return `${seconds}s`
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+}
+
+function formatTokens(tokens: number | null | undefined): string | undefined {
+  if (tokens == null) return undefined
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}m tok`
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k tok`
+  return `${tokens} tok`
+}
+
+function workflowProgress(run: WorkflowRun, agents: SubagentState[]): string {
+  const done = agents.filter(agent => !ACTIVE_AGENTS.has(agent.status)).length
+  return `${done}/${run.usage.agents} agents done`
+}
+
+function agentLabel(agent: SubagentState): { label: string; fixed: boolean } {
+  const name = agent.agentName
+  if (name && isFixedAgent(name)) return { label: getFixedAgent(name).displayName, fixed: true }
+  return { label: name || 'Subagent', fixed: false }
+}
+
+export function buildActivityItems(agents: SubagentState[], workflows: WorkflowRun[]): ActivityItem[] {
+  const agentItems: AgentActivityItem[] = agents.filter(agent => !agent.workflowRunId).map(agent => {
+    const identity = agentLabel(agent)
+    return {
+      kind: 'agent', id: agent.id, ...identity, description: agent.task,
+      status: agent.status, active: ACTIVE_AGENTS.has(agent.status), startedAt: agent.startedAt, agent,
+    }
+  })
+  const workflowItems: WorkflowActivityItem[] = workflows
+    .filter(run => ACTIVE_WORKFLOWS.has(run.status))
+    .map(run => ({
+      kind: 'workflow', id: run.runId, label: run.meta.name,
+      description: run.meta.description ?? run.phase ?? 'Dynamic Workflow', status: run.status,
+      fixed: false, active: true,
+      startedAt: Date.parse(run.startedAt ?? run.createdAt) || Date.now(), run,
+      agents: agents.filter(agent => agent.workflowRunId === run.runId),
+    }))
+  return [...agentItems, ...workflowItems].sort((left, right) => left.startedAt - right.startedAt)
+}
+
+export function compactActivityItems(items: ActivityItem[], maxRows = 5): { rows: ActivityItem[]; overflow: number } {
+  const rows = items.slice(0, Math.max(0, maxRows))
+  return { rows, overflow: Math.max(0, items.length - rows.length) }
+}
+
+export function formatActivityItem(item: ActivityItem, columns: number, now = Date.now()): string {
+  const icon = STATUS_ICONS[item.status] ?? '•'
+  const elapsed = item.kind === 'agent' && item.agent.durationMs != null
+    ? item.agent.durationMs
+    : item.kind === 'workflow' && item.run.completedAt
+      ? Date.parse(item.run.completedAt) - item.startedAt
+      : now - item.startedAt
+  const metrics: string[] = [formatDuration(elapsed)]
+  if (item.kind === 'agent') {
+    if (item.agent.toolCount > 0) metrics.push(`${item.agent.toolCount} tools`)
+    const tokens = formatTokens(item.agent.tokens)
+    if (tokens) metrics.push(tokens)
+  } else {
+    metrics.push(workflowProgress(item.run, item.agents))
+    const tokens = formatTokens(item.run.usage.tokens)
+    if (tokens) metrics.push(tokens)
+  }
+  const prefix = `${icon} ${item.kind === 'workflow' ? 'workflow ' : ''}${item.label}`
+  if (columns < 55) return truncate(`${prefix} · ${metrics[0]}`, columns)
+  const suffix = metrics.join(' · ')
+  const descriptionWidth = Math.max(8, columns - prefix.length - suffix.length - 6)
+  return truncate(`${prefix}  ${truncate(item.description, descriptionWidth)}  ${suffix}`, columns)
+}
+
+function detailLines(item: ActivityItem, now: number): string[] {
+  if (item.kind === 'workflow') {
+    const run = item.run
+    return [
+      `${STATUS_ICONS[run.status] ?? '•'} workflow ${run.meta.name} · ${run.status}${run.phase ? ` · ${run.phase}` : ''}`,
+      run.meta.description ?? 'Dynamic Workflow',
+      `${run.usage.agents} agents · ${formatTokens(run.usage.tokens) ?? '0 tok'} · $${run.usage.costUsd.toFixed(4)}`,
+      ...(run.error ? [`Error: ${run.error}`] : []),
+    ]
+  }
+  const agent = item.agent
+  const duration = agent.durationMs ?? Math.max(0, now - agent.startedAt)
+  return [
+    `${STATUS_ICONS[agent.status] ?? '•'} ${item.label} · ${item.fixed ? 'fixed' : 'temporary'} · ${agent.status}${agent.mode ? ` · ${agent.mode}` : ''}`,
+    agent.task,
+    `${agent.role ?? 'unclassified'} · ${formatDuration(duration)} · ${agent.toolCount} tools${agent.tokens != null ? ` · ${formatTokens(agent.tokens)}` : ''}`,
+    ...(agent.lastToolInfo ? [`Latest: ${agent.lastToolInfo}`] : []),
+    ...(agent.model ? [`Model: ${agent.model}`] : []),
+    ...(agent.workspace ? [`Workspace: ${agent.workspace}`] : []),
+    ...(agent.result ? [`Result: ${agent.result}`] : []),
+    ...(agent.error ? [`Error: ${agent.error}`] : []),
+  ]
+}
+
+export interface ActivityFooterProps {
+  agents: SubagentState[]
+  workflows: WorkflowRun[]
+  open: boolean
+  onClose(): void
+  onOpenWorkflow(runId: string): void
+  onTaskAction(taskId: string, action: 'cancel' | 'resume'): Promise<string>
+  onWorkflowAction(runId: string, action: 'pause' | 'stop'): Promise<string>
+  theme?: ThemeName
+  mainLabel?: string
+}
+
+export function ActivityFooter({
+  agents, workflows, open, onClose, onOpenWorkflow, onTaskAction, onWorkflowAction,
+  theme = 'dark', mainLabel = 'main',
+}: ActivityFooterProps) {
+  const colors = getThemeColors(theme)
+  const tick = useClock()
+  const now = Date.now()
+  const items = useMemo(() => buildActivityItems(agents, workflows), [agents, workflows, tick])
+  const [selected, setSelected] = useState(0)
+  const [detail, setDetail] = useState(false)
+  const [feedback, setFeedback] = useState('')
+  const columns = Math.max(20, (process.stdout.columns ?? 80) - 4)
+  const report = (operation: Promise<string>) => void operation.then(setFeedback).catch(error => setFeedback((error as Error).message))
+
+  useEffect(() => {
+    if (!open) { setSelected(0); setDetail(false); setFeedback(''); return }
+    if (!items.length) onClose()
+    else if (selected >= items.length) setSelected(items.length - 1)
+  }, [items.length, onClose, open, selected])
+
+  useInput((input, key, event) => {
+    event.stopImmediatePropagation()
+    if (key.escape) {
+      if (detail) { setDetail(false); setFeedback('') } else onClose()
+      return
+    }
+    if (detail) return
+    if (key.upArrow) { setSelected(value => (value - 1 + items.length) % items.length); return }
+    if (key.downArrow) { setSelected(value => (value + 1) % items.length); return }
+    const item = items[selected]
+    if (!item) return
+    if (key.return) {
+      if (item.kind === 'workflow') onOpenWorkflow(item.run.runId)
+      else setDetail(true)
+      return
+    }
+    if (input === 'x' && item.active) {
+      const operation = item.kind === 'workflow'
+        ? onWorkflowAction(item.id, 'stop')
+        : onTaskAction(item.id, 'cancel')
+      report(operation)
+      return
+    }
+    if (input === 'p' && item.kind === 'workflow') {
+      report(onWorkflowAction(item.id, 'pause'))
+      return
+    }
+    if (input === 'r' && item.kind === 'agent' && RESUMABLE_AGENTS.has(item.agent.status)) report(onTaskAction(item.id, 'resume'))
+  }, { isActive: open })
+
+  if (!items.length) return null
+  if (open && detail) {
+    const item = items[selected]!
+    return (
+      <Box flexDirection="column" paddingLeft={2}>
+        {detailLines(item, now).map((line, index) => (
+          <Text key={`${item.id}-${index}`} color={index === 0 ? colors.primary : colors.textDim}>{truncate(line, columns)}</Text>
+        ))}
+        {feedback && <Text color={colors.warning}>{truncate(feedback, columns)}</Text>}
+        <Text color={colors.textSubtle}>{item.kind === 'workflow'
+          ? 'Esc back · x stop · p pause'
+          : RESUMABLE_AGENTS.has(item.agent.status) ? `Esc back${item.active ? ' · x stop' : ''} · r resume` : item.active ? 'Esc back · x stop' : 'Esc back'}</Text>
+      </Box>
+    )
+  }
+
+  const maxRows = open ? 8 : 5
+  const start = open ? Math.min(Math.max(0, selected - maxRows + 1), Math.max(0, items.length - maxRows)) : 0
+  const compact = compactActivityItems(items.slice(start), maxRows)
+  return (
+    <Box flexDirection="column" paddingLeft={2}>
+      <Text color={colors.primary}>{`${open ? '❯' : '●'} ${mainLabel}`}</Text>
+      {compact.rows.map((item, index) => (
+        <Text key={`${item.kind}-${item.id}`} color={item.active ? colors.primary : item.status === 'done' ? colors.success : colors.textDim}>
+          {`${open && start + index === selected ? '❯' : index === compact.rows.length - 1 ? '└─' : '├─'} ${formatActivityItem(item, columns - 3, now)}`}
+        </Text>
+      ))}
+      {!open && compact.overflow > 0 && <Text color={colors.textSubtle}>{`  … +${compact.overflow} activities`}</Text>}
+      {open && <Text color={colors.textSubtle}>{feedback || '↑/↓ select · Enter view · x stop · p pause · r resume agent · Esc close'}</Text>}
+    </Box>
+  )
+}
