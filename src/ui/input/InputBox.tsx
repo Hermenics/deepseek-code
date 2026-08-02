@@ -77,6 +77,9 @@ export function InputBox({
   vimEnabled = false,
   workingDirectory,
   fuzzyFileSearch = true,
+  activityAvailable = false,
+  onActivityOpen,
+  isActive = true,
 }: {
   onSubmit: (text: string) => void
   isLoading: boolean
@@ -93,6 +96,9 @@ export function InputBox({
   vimEnabled?: boolean
   workingDirectory: string
   fuzzyFileSearch?: boolean
+  activityAvailable?: boolean
+  onActivityOpen?: () => void
+  isActive?: boolean
 }) {
   const cols = process.stdout.columns ?? 80
   const [cursor, setCursor] = useState(() => Cursor.fromText('', cols))
@@ -306,6 +312,11 @@ export function InputBox({
       return
     }
 
+    if (activityAvailable && key.downArrow && cursor.text.length === 0 && !showDropdown && !showFileDropdown) {
+      onActivityOpen?.()
+      return
+    }
+
     if (isLoading && key.return) {
       const queued = expandPastedTexts(cursor.text).trim()
       if (queued) {
@@ -403,7 +414,7 @@ export function InputBox({
       const entry = result.action === 'historyUp' ? historyRef.current.up(cursor.text) : historyRef.current.down()
       if (entry !== undefined) updateCursor(Cursor.fromText(entry, cols, entry.length))
     }
-  })
+  }, { isActive })
 
   const hasExclamation = cursor.text.trimStart().startsWith('!')
   const placeholder = isLoading
