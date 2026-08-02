@@ -40,4 +40,19 @@ describe('workflow discovery', () => {
 
     expect(await discoverWorkflows(project, { globalDirectory: join(root, 'missing') })).toEqual([])
   })
+
+  test('bounds workflows processed per directory', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-workflows-'))
+    roots.push(root)
+    const project = join(root, 'project')
+    const directory = join(project, '.deepseek', 'workflows')
+    await mkdir(join(project, '.git'), { recursive: true })
+    await mkdir(directory, { recursive: true })
+    await Promise.all(Array.from({ length: 257 }, (_, index) => writeFile(
+      join(directory, `workflow-${String(index).padStart(3, '0')}.js`),
+      `export const meta = {"name":"workflow-${index}"}; return ${index};`,
+    )))
+
+    expect(await discoverWorkflows(project, { globalDirectory: join(root, 'missing') })).toHaveLength(256)
+  })
 })

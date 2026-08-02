@@ -1,8 +1,11 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, setDefaultTimeout, spyOn, test } from 'bun:test'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { WorkflowManager } from '../../src/workflows/manager.js'
+import { WorkflowApprovalStore } from '../../src/workflows/storage.js'
+
+setDefaultTimeout(15_000)
 
 const roots: string[] = []
 afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))))
@@ -143,18 +146,23 @@ describe('WorkflowManager', () => {
     let releaseFirst = () => {}
     const firstBlocked = new Promise<void>(resolve => { releaseFirst = resolve })
     const calls: string[] = []
+    let secondAdmittedAt = 0n
+    let markSecondAdmitted = () => {}
+    const secondAdmitted = new Promise<void>(resolve => { markSecondAdmitted = resolve })
     const manager = await setup(async request => {
       calls.push(request.prompt)
       if (request.prompt === 'one') await firstBlocked
+      else { secondAdmittedAt = process.hrtime.bigint(); markSecondAdmitted() }
       return { value: request.prompt }
     })
     const handle = await manager.start({ script: 'export const meta = {"name":"pause"}; await agent("one"); return agent("two");' })
     while (calls.length === 0) await Bun.sleep(5)
     expect(await manager.pause(handle.runId)).toBe(true)
     releaseFirst()
-    await Bun.sleep(30)
-    expect(calls).toEqual(['one'])
     expect(await manager.resume(handle.runId)).toBe(true)
+    const resumeReturnedAt = process.hrtime.bigint()
+    await secondAdmitted
+    expect(secondAdmittedAt).toBeGreaterThan(resumeReturnedAt)
     expect((await handle.result).status).toBe('completed')
     expect(calls).toEqual(['one', 'two'])
   })
@@ -180,12 +188,46 @@ describe('WorkflowManager', () => {
       providerConfig: { provider: 'deepseek' }, agentRunner: async request => ({ value: request.prompt }),
       workflowLoader: async name => scripts[name],
     })
-    const handle = await manager.start({ script: 'export const meta = {"name":"parent"}; return workflow("child", {});' })
-    expect((await handle.result).result).toBe('child-agent')
+    const approval = spyOn(WorkflowApprovalStore.prototype, 'isApproved').mockResolvedValue(false)
+    try {
+      const unapproved = await manager.start({ script: 'export const meta = {"name":"parent-unapproved"}; return workflow("child", {});' })
+      expect((await unapproved.result).failures).toContainEqual(expect.objectContaining({ message: expect.stringContaining('requires approval') }))
 
-    scripts.child = 'export const meta = {"name":"child"}; return workflow("grandchild", {});'
-    const failed = await manager.start({ script: 'export const meta = {"name":"parent-two"}; return workflow("child", {});' })
-    expect((await failed.result).status).toBe('failed')
+      approval.mockResolvedValue(true)
+      const handle = await manager.start({ script: 'export const meta = {"name":"parent"}; return workflow("child", {});' })
+      expect((await handle.result).result).toBe('child-agent')
+
+      scripts.child = 'export const meta = {"name":"child"}; return workflow("grandchild", {});'
+      const failed = await manager.start({ script: 'export const meta = {"name":"parent-two"}; return workflow("child", {});' })
+      expect((await failed.result).status).toBe('failed')
+    } finally { approval.mockRestore() }
+  })
+
+  test('keeps completion observable when final persistence fails', async () => {
+    const manager = await setup(async request => ({ value: request.prompt }))
+    const errors: string[] = []
+    manager.setCallbacks({ onError: (_id, error) => errors.push(error) })
+    const store = (manager as unknown as { store: { writeRun(run: { status: string }): Promise<void> } }).store
+    const writeRun = store.writeRun.bind(store)
+    store.writeRun = async run => {
+      if (run.status === 'completed') throw new Error('disk full')
+      await writeRun(run)
+    }
+
+    const result = await (await manager.start({ script: 'export const meta = {"name":"persist-failure"}; return agent("ok");' })).result
+    expect(result.status).toBe('completed')
+    expect(errors).toContainEqual(expect.stringContaining('disk full'))
+  })
+
+  test('records the captured call index for parallel agent failures', async () => {
+    const manager = await setup(async request => {
+      if (request.prompt === 'first') await Bun.sleep(10)
+      return { value: null, error: `failed:${request.prompt}` }
+    })
+    const result = await (await manager.start({
+      script: 'export const meta = {"name":"failure-index"}; return parallel([() => agent("first"), () => agent("second")]);',
+    })).result
+    expect(result.failures.map(failure => failure.call).sort((a, b) => a - b)).toEqual([0, 1])
   })
 
   test('stops admitting agents after the token budget is exhausted', async () => {

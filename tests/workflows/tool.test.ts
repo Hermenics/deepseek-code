@@ -27,4 +27,30 @@ describe('Workflow tool', () => {
     expect(output.result).toBe('hello')
     expect(output.usage).toEqual({ agents: 1, tokens: 4, costUsd: 0 })
   })
+
+  test('cancels the workflow when the tool context is aborted', async () => {
+    const controller = new AbortController()
+    let cancelReason: string | undefined
+    let finish: (value: object) => void = () => {}
+    const result = new Promise<object>(resolve => { finish = resolve })
+    const manager = {
+      async start() {
+        return {
+          runId: 'cancelled-run', result,
+          cancel(reason?: string) {
+            cancelReason = reason
+            finish({ runId: 'cancelled-run', status: 'cancelled', result: null, usage: {}, failures: [], worktrees: [] })
+          },
+        }
+      },
+    } as unknown as WorkflowManager
+    const output = Workflow.execute({ script: 'return 1', name: 'cancelled' }, {
+      sessionId: 'tool-session', workspacePath: '/', projectRoot: '/', signal: controller.signal,
+      permissionProfile: 'coordinator-integrator', workflowManager: manager, interactionMode: 'build',
+    })
+
+    controller.abort(new Error('parent stopped'))
+    expect(JSON.parse(await output).status).toBe('cancelled')
+    expect(cancelReason).toBe('parent stopped')
+  })
 })

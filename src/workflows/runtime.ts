@@ -1,9 +1,11 @@
 import type { ParsedWorkflowSource } from './parser.js'
 import { parseWorkflowSource } from './parser.js'
+import { logForDebugging } from '../utils/debug.js'
 import type { WorkflowEvent, WorkflowRpcResult, WorkflowUsage } from './types.js'
 
 const MAX_PIPELINE_ITEMS = 4096
 const DEFAULT_TIMEOUT_MS = 120_000
+const SYNC_EXECUTION_TIMEOUT_MS = 1_000
 
 export interface WorkflowRuntimeOptions {
   script: string
@@ -154,6 +156,12 @@ export function executeWorkflowScript(options: WorkflowRuntimeOptions): Workflow
   const worker = new Worker(blobUrl, { type: 'module' })
   let settled = false
   let rejectResult: (error: Error) => void = () => {}
+  const inFlightCalls = new Set<Promise<void>>()
+  const syncTimeoutMs = Math.min(timeoutMs, SYNC_EXECUTION_TIMEOUT_MS)
+
+  const notePendingCalls = (reason: string) => {
+    if (inFlightCalls.size) logForDebugging(`[workflow] ${reason}; ${inFlightCalls.size} host RPC call(s) still in flight`)
+  }
 
   const cleanup = () => {
     clearTimeout(timer)
@@ -164,6 +172,7 @@ export function executeWorkflowScript(options: WorkflowRuntimeOptions): Workflow
   const cancel = (reason = 'Workflow cancelled') => {
     if (settled) return
     settled = true
+    notePendingCalls(reason)
     cleanup()
     rejectResult(new Error(reason))
   }
@@ -188,17 +197,24 @@ export function executeWorkflowScript(options: WorkflowRuntimeOptions): Workflow
       }
       if (message.type === 'rpc') {
         const id = Number(message.id)
-        try {
-          const value = await options.onCall(message.method as 'agent' | 'workflow', message.args as unknown[])
-          if (!settled) worker.postMessage({ type: 'rpc_result', id, value })
-        } catch (error) {
-          if (!settled) worker.postMessage({ type: 'rpc_result', id, error: (error as Error).message })
-        }
+        const call = (async () => {
+          try {
+            const value = await options.onCall(message.method as 'agent' | 'workflow', message.args as unknown[])
+            if (settled) logForDebugging(`[workflow] discarded RPC result ${id} after settlement`)
+            else worker.postMessage({ type: 'rpc_result', id, value })
+          } catch (error) {
+            if (settled) logForDebugging(`[workflow] discarded RPC error ${id} after settlement: ${(error as Error).message}`)
+            else worker.postMessage({ type: 'rpc_result', id, error: (error as Error).message })
+          }
+        })()
+        inFlightCalls.add(call)
+        void call.finally(() => inFlightCalls.delete(call))
         return
       }
       if (message.type === 'done') {
         if (settled) return
         settled = true
+        notePendingCalls('worker completed')
         cleanup()
         const usage = message.usage as { agents?: number; tokens?: number; costUsd?: number }
         resolve({ meta: parsed.meta, value: message.value, usage: { agents: usage.agents ?? 0, tokens: usage.tokens ?? 0, costUsd: usage.costUsd ?? 0 }, events })
@@ -207,13 +223,16 @@ export function executeWorkflowScript(options: WorkflowRuntimeOptions): Workflow
       if (message.type === 'error') {
         if (settled) return
         settled = true
+        notePendingCalls('worker failed')
         cleanup()
-        reject(new Error(String(message.error ?? 'Workflow failed')))
+        const workerError = String(message.error ?? 'Workflow failed')
+        const detail = workerError.includes('Script execution timed out') ? ` (synchronous workflow limit: ${syncTimeoutMs}ms)` : ''
+        reject(new Error(workerError + detail))
       }
     }
     worker.postMessage({
       type: 'start', body: parsed.body, args: options.args,
-      syncTimeoutMs: Math.min(timeoutMs, 1_000),
+      syncTimeoutMs,
       limits: { maxTokens: options.maxTokens, maxCostUsd: options.maxCostUsd },
     })
   })

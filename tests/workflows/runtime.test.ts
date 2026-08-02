@@ -1,5 +1,7 @@
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, setDefaultTimeout, test } from 'bun:test'
 import { executeWorkflowScript } from '../../src/workflows/runtime.js'
+
+setDefaultTimeout(15_000)
 
 describe('workflow runtime', () => {
   test('runs agent, parallel and pipeline while preserving order', async () => {
@@ -100,9 +102,9 @@ describe('workflow runtime', () => {
   test('terminates an infinite loop', async () => {
     const execution = executeWorkflowScript({
       script: 'export const meta = {"name":"timeout-test"}; while (true) {}',
-      timeoutMs: 80,
+      timeoutMs: 5_000,
       onCall: async () => ({ value: null }),
     })
-    await expect(execution.result).rejects.toThrow('timed out')
+    await expect(execution.result).rejects.toThrow('Script execution timed out')
   })
 })

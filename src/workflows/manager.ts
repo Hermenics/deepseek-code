@@ -8,7 +8,7 @@ import { OrchestratorSession, type OrchestratorCallbacks } from '../orchestratio
 import { discoverWorkflows } from './discovery.js'
 import { executeWorkflowScript, type WorkflowExecution } from './runtime.js'
 import { formatWorkflowSource, isWorkflowName, parseWorkflowSource } from './parser.js'
-import { WorkflowStore, hashWorkflowValue, type WorkflowJournal, type WorkflowJournalEntry } from './storage.js'
+import { WorkflowApprovalStore, WorkflowStore, hashWorkflowValue, type WorkflowJournal, type WorkflowJournalEntry } from './storage.js'
 import type {
   WorkflowAgentOptions, WorkflowEvent, WorkflowFailure, WorkflowResult, WorkflowRpcResult, WorkflowRun, WorkflowRunOptions, WorkflowUsage,
 } from './types.js'
@@ -238,7 +238,13 @@ export class WorkflowManager {
     } finally {
       active.record.completedAt = new Date().toISOString()
       await active.session.shutdown(`Workflow ${active.record.status}`)
-      try { await this.persist(active); this.publish(active) } finally { this.active.delete(active.record.runId) }
+      try {
+        try { await this.persist(active) }
+        catch (error) {
+          try { this.callbacks.onError?.(active.record.runId, `Failed to persist workflow result: ${(error as Error).message}`) } catch { /* reporting must not break cleanup */ }
+        }
+        this.publish(active)
+      } finally { this.active.delete(active.record.runId) }
     }
     return resultOf(active.record)
   }
@@ -285,8 +291,8 @@ export class WorkflowManager {
     try {
       const initialAgents = active.record.usage.agents
       const reply = method === 'agent'
-        ? await this.runAgent(active, args, input)
-        : await this.runChild(active, args, input)
+        ? await this.runAgent(active, args, input, index)
+        : await this.runChild(active, args, input, index)
       const usage = { ...reply.usage, agents: reply.usage?.agents ?? active.record.usage.agents - initialAgents }
       Object.assign(entry, { status: 'completed', result: reply.value, usage, budgetExhausted: active.budgetExhausted || undefined, timestamp: new Date().toISOString() })
       await this.persist(active)
@@ -305,7 +311,7 @@ export class WorkflowManager {
       (input.maxCostUsd !== undefined && active.record.usage.costUsd >= input.maxCostUsd)
   }
 
-  private async runAgent(active: ActiveRun, args: unknown[], input: StartWorkflowInput): Promise<WorkflowAgentResponse> {
+  private async runAgent(active: ActiveRun, args: unknown[], input: StartWorkflowInput, callIndex: number): Promise<WorkflowAgentResponse> {
     if (this.budgetReached(active, input)) { active.budgetExhausted = true; this.publish(active); return { value: null } }
     if (active.record.usage.agents >= MAX_AGENTS) {
       const message = `Workflow exceeds the ${MAX_AGENTS}-agent limit`
@@ -335,17 +341,17 @@ export class WorkflowManager {
       if (reply.worktree && reply.taskId && !active.record.worktrees.some(item => item.taskId === reply.taskId)) {
         active.record.worktrees.push({ taskId: reply.taskId, path: reply.worktree })
       }
-      if (reply.error) active.record.failures.push({ call: active.nextCall - 1, method: 'agent', message: reply.error })
+      if (reply.error) active.record.failures.push({ call: callIndex, method: 'agent', message: reply.error })
       this.publish(active)
       return reply.error ? { ...reply, value: null } : reply
     } catch (error) {
-      active.record.failures.push({ call: active.nextCall - 1, method: 'agent', message: (error as Error).message })
+      active.record.failures.push({ call: callIndex, method: 'agent', message: (error as Error).message })
       this.publish(active)
       return { value: null }
     }
   }
 
-  private async runChild(active: ActiveRun, args: unknown[], input: StartWorkflowInput): Promise<WorkflowRpcResult> {
+  private async runChild(active: ActiveRun, args: unknown[], input: StartWorkflowInput, callIndex: number): Promise<WorkflowRpcResult> {
     const name = args[0]
     if (typeof name !== 'string' || !isWorkflowName(name)) {
       active.structuralError = 'Invalid child workflow name'
@@ -353,6 +359,8 @@ export class WorkflowManager {
     }
     const source = await this.loadWorkflow(name)
     if (!source) throw new Error(`Workflow '${name}' not found`)
+    const approved = await new WorkflowApprovalStore(this.options.projectRoot).isApproved(hashWorkflowValue(source))
+    if (!approved) throw new Error(`Child workflow '${name}' requires approval before execution`)
     const initialAgents = active.record.usage.agents
     const execution = executeWorkflowScript({
       script: source, args: args[1] ?? {}, timeoutMs: input.timeoutMs,
@@ -360,7 +368,7 @@ export class WorkflowManager {
       onEvent: event => this.publish(active, event),
       onCall: async (method, childArgs) => {
         if (method === 'workflow') throw new Error('Child workflows cannot start another workflow')
-        return this.runAgent(active, childArgs, input)
+        return this.runAgent(active, childArgs, input, callIndex)
       },
     })
     const result = await execution.result
@@ -393,9 +401,10 @@ export class WorkflowManager {
     const active = this.active.get(await this.resolveRunId(runId) ?? '')
     if (!active || active.record.status !== 'paused') return false
     active.record.status = 'running'
-    for (const resume of active.pauseWaiters.splice(0)) resume()
+    const waiters = active.pauseWaiters.splice(0)
     await this.persist(active)
     this.publish(active)
+    setTimeout(() => { for (const resume of waiters) resume() }, 0)
     return true
   }
 

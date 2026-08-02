@@ -301,6 +301,7 @@ export class Agent {
   }
 
   async startWorkflow(input: StartWorkflowInput): Promise<WorkflowHandle> {
+    await this.readyPromise
     try { await this.authorizeWorkflow(input.script, input as unknown as object) }
     catch (error) { if (error instanceof DenyAbortError) throw new Error('Workflow execution denied'); throw error }
     return this.workflows.start(input)
@@ -568,6 +569,7 @@ export class Agent {
     const configuredModel = typeof settings.model === 'string' ? settings.model : settings.model?.default
     if (configuredModel && !this.providerConfig.localModel) this.setModel(configuredModel as Model)
     this.orchestrator.configure({ settings, model: this.model, limits: taskLimitsFromSettings(settings) })
+    this.workflows.configure({ settings, model: this.model, providerConfig: this.providerConfig })
     setSessionRetention(settings.sessions?.retention ?? 50)
     await this.orchestrator.memory.configure(settings.memory ?? {}, this.orchestrator.projectRoot)
     const subagentModel = settings.agents?.subagentModel ?? this.model

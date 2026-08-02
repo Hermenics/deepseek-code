@@ -24,6 +24,7 @@ function validateMeta(value: unknown): WorkflowMeta {
 }
 
 function findObjectEnd(source: string, start: number): number {
+  // Metadata is parsed as JSON, so only JSON's double-quoted strings need tracking here.
   let depth = 0
   let quote = ''
   let escaped = false

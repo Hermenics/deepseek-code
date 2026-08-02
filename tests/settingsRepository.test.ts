@@ -120,6 +120,11 @@ describe('SettingsRepository', () => {
     expect(issues.map(issue => issue.path)).toContain('hooks.SessionStart.1.command')
   })
 
+  it('rejects malformed workflow configuration containers', () => {
+    expect(validateSettings({ workflows: 'enabled' as never })).toContainEqual(expect.objectContaining({ path: 'workflows', message: 'Must be an object' }))
+    expect(validateSettings({ workflows: { enabled: 'yes' as never } })).toContainEqual(expect.objectContaining({ path: 'workflows.enabled', message: 'Must be a boolean' }))
+  })
+
   it('never activates Auto mode or executable configuration from project files', async () => {
     const cwd = await project()
     const fakeHome = await project()
