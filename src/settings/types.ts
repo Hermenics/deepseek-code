@@ -137,6 +137,10 @@ export interface GoalSettings {
   maxContinuations?: number
 }
 
+export interface WorkflowsSettings {
+  enabled?: boolean
+}
+
 export interface InterfaceSettings {
   theme?: ThemeName
   language?: string
@@ -170,6 +174,7 @@ export interface DeepSeekSettings {
   interface?: InterfaceSettings
   hooks?: HooksConfig
   goal?: GoalSettings
+  workflows?: WorkflowsSettings
 
   // Legacy settings remain readable for one compatibility cycle.
   theme?: ThemeName | string

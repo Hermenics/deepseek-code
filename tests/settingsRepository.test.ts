@@ -55,9 +55,9 @@ describe('SettingsRepository', () => {
     await expect(repository.setMany('project', [['interface.vim', true], ['agents.concurrency', 99]])).rejects.toThrow('agents.concurrency')
     expect((await repository.reload()).levels.project.data.interface?.vim).toBeUndefined()
 
-    const snapshot = await repository.setMany('project', [['interface.vim', true], ['agents.concurrency', 3]])
+    const snapshot = await repository.setMany('project', [['interface.vim', true], ['agents.concurrency', 16]])
     expect(snapshot.levels.project.data.interface?.vim).toBe(true)
-    expect(snapshot.levels.project.data.agents?.concurrency).toBe(3)
+    expect(snapshot.levels.project.data.agents?.concurrency).toBe(16)
   })
 
   it('rejects secret-shaped keys nested inside a setting value', async () => {

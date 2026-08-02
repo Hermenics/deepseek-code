@@ -11,9 +11,10 @@ import { processVimKey, processVimTextChunk, createVimState, type VimState } fro
 import { InputBuffer } from './hooks/useInputBuffer.js'
 import { useDoublePress } from './hooks/useDoublePress.js'
 import { InputHistory } from './hooks/useInputHistory.js'
-import { getMatches } from './commandMatches.js'
+import { getCommandSuggestions, getMatches } from './commandMatches.js'
 import { computeGhostText } from './ghost/index.js'
-import { COMMAND_DESCRIPTIONS, COMMAND_SUGGESTIONS } from '../../commands.js'
+import { COMMAND_DESCRIPTIONS } from '../../commands.js'
+import { getWorkflowCommandDescriptions } from '../../workflows/commands.js'
 import { InputLine } from './render/InputLine.js'
 import { CommandDropdown } from './render/CommandDropdown.js'
 import { FileDropdown } from './render/FileDropdown.js'
@@ -185,7 +186,14 @@ export function InputBox({
   const matches = getMatches(cursor.text)
   const showDropdown = matches.length > 0
   const showFileDropdown = fileMatches.length > 0 && !showDropdown
-  const ghost = computeGhostText(cursor.text, cursor.offset, COMMAND_SUGGESTIONS, historyRef.current.entries)
+  const ghost = computeGhostText(cursor.text, cursor.offset, getCommandSuggestions(), historyRef.current.entries)
+
+  const submitOrQueueWhileLoading = (value: string) => {
+    const text = value.trim()
+    if (!text) return
+    if (/^\/workflows(?:\s|$)|^\/workflow\s+(?:pause|resume|stop)\b/.test(text)) onSubmit(text)
+    else onQueue?.(text)
+  }
 
   useInput((input: string, key: Key) => {
     // Bracketed paste from terminal (Ctrl+Shift+V or middle-click)
@@ -301,7 +309,7 @@ export function InputBox({
     if (isLoading && key.return) {
       const queued = expandPastedTexts(cursor.text).trim()
       if (queued) {
-        onQueue?.(queued)
+        submitOrQueueWhileLoading(queued)
         updateCursor(Cursor.fromText('', cols))
           setPastedTexts([])
       }
@@ -321,7 +329,7 @@ export function InputBox({
           const expanded = expandPastedTexts(chunk.cursor.text)
           if (isLoading) {
             const queued = expanded.trim()
-            if (queued) onQueue?.(queued)
+            if (queued) submitOrQueueWhileLoading(queued)
           } else {
             onSubmit(expanded)
           }
@@ -351,7 +359,7 @@ export function InputBox({
           const expanded = expandPastedTexts(full)
           if (isLoading) {
             const queued = expanded.trim()
-            if (queued) onQueue?.(queued)
+            if (queued) submitOrQueueWhileLoading(queued)
           } else {
             onSubmit(expanded)
           }
@@ -380,7 +388,7 @@ export function InputBox({
       const expanded = expandPastedTexts(cursor.text)
       if (isLoading) {
         const queued = expanded.trim()
-        if (queued) onQueue?.(queued)
+        if (queued) submitOrQueueWhileLoading(queued)
       } else {
         onSubmit(expanded)
       }
@@ -439,7 +447,7 @@ export function InputBox({
           matches={matches}
           selectedIdx={selectedIdx}
           columns={cols}
-          descriptions={COMMAND_DESCRIPTIONS}
+          descriptions={{ ...getWorkflowCommandDescriptions(), ...COMMAND_DESCRIPTIONS }}
         />
       )}
 

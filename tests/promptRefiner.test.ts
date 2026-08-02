@@ -9,4 +9,17 @@ describe('prompt refiner errors', () => {
       status: 'error', original, error: 'Unknown error',
     })
   })
+
+  it('preserves native Dynamic Workflow requests without consulting the refiner model', async () => {
+    let calls = 0
+    const client = { chat: { completions: { create: async () => { calls++; throw new Error('must not run') } } } } as never
+    for (const original of [
+      'Crie um Dynamic Workflow com dois agentes para revisar este projeto em paralelo.',
+      'Crie um dunakic workflows com agentes para revisar este projeto em paralelo.',
+      'Crie workflows dinâmicos que usem agentes leitores para analisar os testes existentes.',
+    ]) {
+      expect(await previewPromptRefinement(client, 'model', original)).toEqual({ status: 'skip', original })
+    }
+    expect(calls).toBe(0)
+  })
 })
