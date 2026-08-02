@@ -21,9 +21,13 @@ export interface SubAgentCallbacks {
   onError(id: string, error: string): void
 }
 
-interface SpawnedSubAgent {
-  handle: TaskHandle<SubAgentResult>
+interface SpawnedSubAgent<T = SubAgentResult> {
+  handle: TaskHandle<T>
   agentName?: string
+}
+
+interface WorkflowTerminalOptions {
+  schema?: object
 }
 
 interface LegacyRuntime {
@@ -98,11 +102,12 @@ function effectiveToolAllowlist(profile: PermissionProfile, configured?: string[
   return allowed
 }
 
-export async function spawnSubAgentTask(
+async function spawnAgentTask(
   args: Record<string, unknown>,
   context?: ToolExecutionContext,
   origin: 'subagent' | 'ask_agent' = 'subagent',
-): Promise<SpawnedSubAgent> {
+  workflowTerminal?: WorkflowTerminalOptions,
+): Promise<SpawnedSubAgent<unknown>> {
   const session = getSubAgentSession(context)
   const task = args.task as string
   if (typeof task !== 'string' || !task.trim()) throw new Error('Subagent task must be a non-empty string')
@@ -133,7 +138,7 @@ export async function spawnSubAgentTask(
   const contextMode = (args.context as 'fresh' | 'fork' | undefined) ?? selected?.contextMode ?? 'fresh'
   const dependencies = Array.isArray(args.dependencies) ? args.dependencies.filter((value): value is string => typeof value === 'string') : []
 
-  const handle = session.spawn<SubAgentResult>({
+  const handle = session.spawn<unknown>({
     parentTaskId: context?.taskId,
     type: 'agent', mode, contextMode, dependencies,
     timeoutMs: Number(args.timeoutMs ?? selected?.timeoutMs ?? settings.agents?.timeoutMs ?? 120_000),
@@ -141,12 +146,12 @@ export async function spawnSubAgentTask(
     maxDepth: selected?.maxDepth ?? settings.agents?.maxDepth,
     maxFanOut: selected?.maxFanOut ?? settings.agents?.maxFanOut,
     allowDelegation: selected?.allowDelegation ?? false,
-    maxTokens: selected?.maxTokens ?? settings.agents?.maxTokens,
-    maxCostUsd: selected?.maxCostUsd ?? settings.agents?.maxCostUsd,
+    maxTokens: typeof args.maxTokens === 'number' ? args.maxTokens : selected?.maxTokens ?? settings.agents?.maxTokens,
+    maxCostUsd: typeof args.maxCostUsd === 'number' ? args.maxCostUsd : selected?.maxCostUsd ?? settings.agents?.maxCostUsd,
     permissionProfile: profile,
     allowedTools,
     cancellationPolicy: mode === 'background' ? 'detach' : 'cascade',
-    metadata: { origin, task, agentName: selected?.name, role, model: modelName },
+    metadata: { origin, task: typeof args.label === 'string' ? args.label : task, agentName: selected?.name, role, model: modelName },
   }, async runContext => {
     const lease = await session.acquireWorkspace(runContext.taskId, profile, runContext.signal)
     const toolContext = session.toolContext({
@@ -174,16 +179,29 @@ export async function spawnSubAgentTask(
         task,
         forkContext,
         lease.workspace.path,
+        workflowTerminal ? 'submit_workflow_result' : 'submit_result',
       )
       let loop
       try {
-        loop = await runSubAgentLoop<SubAgentResult>(prompt, delegatedTask, runContext.taskId, filteredTools, runtime.providerConfig, modelName, {
+        const workflowSchema = workflowTerminal?.schema
+        const terminalSchema = workflowSchema ?? {
+          type: 'object', additionalProperties: false,
+          properties: { result: { type: 'string' } }, required: ['result'],
+        }
+        loop = await runSubAgentLoop<unknown>(prompt, delegatedTask, runContext.taskId, filteredTools, runtime.providerConfig, modelName, {
           callbacks: {
             permissionPolicy: selected?.permissions?.policy ?? settings.agents?.permissionPolicy,
             permissions: selected?.permissions,
           },
           context: toolContext,
-          terminal: {
+          effort: args.effort as 'low' | 'high' | 'max' | undefined,
+          terminal: workflowTerminal ? {
+            name: 'submit_workflow_result',
+            description: 'Submit the final workflow agent result.',
+            schema: terminalSchema,
+            maxValidationRetries: 5,
+            transform: value => workflowSchema ? value : (value as { result: string }).result,
+          } : {
             name: 'submit_result',
             description: 'Submit the one final structured task result.',
             schema: selected?.outputSchema ?? SUBAGENT_RESULT_SCHEMA,
@@ -202,9 +220,9 @@ export async function spawnSubAgentTask(
       runContext.setPartial(structured)
       let verification: VerificationResult | undefined
       let verifierTokens = 0
-      if (shouldVerify(task, structured, args.verify as boolean | undefined)) {
+      if (!workflowTerminal && shouldVerify(task, structured as SubAgentResult, args.verify as boolean | undefined)) {
         try {
-          const verifierPrompt = buildVerifierPrompt(task, structured)
+          const verifierPrompt = buildVerifierPrompt(task, structured as SubAgentResult)
           const verifierAllowedTools = effectiveToolAllowlist('researcher-readonly', undefined, parent)
           const verifier = await runSubAgentLoop<VerificationResult>(
             verifierPrompt.systemPrompt, verifierPrompt.userPayload, `${runContext.taskId}-v`,
@@ -226,16 +244,19 @@ export async function spawnSubAgentTask(
           const code = verification.status === 'REFUTED' ? 'VERIFICATION_REFUTED' : 'VERIFICATION_INCONCLUSIVE'
           throw new TaskRuntimeError(code, formatVerificationForUser(verification), false)
         }
-        structured.metadata.verification = verification
+        ;(structured as SubAgentResult).metadata.verification = verification
       }
       const totalTokens = loop.totalTokens + verifierTokens
       session.registry.updateMetrics(runContext.taskId, {
         model: modelName, provider: runtime.providerConfig.provider, tokens: totalTokens,
         usageAvailable: totalTokens > 0,
       })
-      session.addPreviousResult(task, structured.summary, structured.confidence)
+      if (!workflowTerminal) {
+        const result = structured as SubAgentResult
+        session.addPreviousResult(task, result.summary, result.confidence)
+      }
       const record = session.registry.getStatus(runContext.taskId)
-      const envelope: TaskResultEnvelopeV1<SubAgentResult> = {
+      const envelope: TaskResultEnvelopeV1<unknown> = {
         schemaVersion: 1, taskId: runContext.taskId, sessionId: session.sessionId, status: 'done',
         value: structured,
         artifacts: lease.workspace.isolation === 'git-worktree'
@@ -257,6 +278,22 @@ export async function spawnSubAgentTask(
     else context.signal.addEventListener('abort', cancel, { once: true })
   }
   return { handle, agentName: selected?.name }
+}
+
+export async function spawnSubAgentTask(
+  args: Record<string, unknown>,
+  context?: ToolExecutionContext,
+  origin: 'subagent' | 'ask_agent' = 'subagent',
+): Promise<SpawnedSubAgent> {
+  return await spawnAgentTask(args, context, origin) as SpawnedSubAgent
+}
+
+export async function spawnWorkflowAgentTask(
+  args: Record<string, unknown>,
+  context: ToolExecutionContext,
+  schema?: object,
+): Promise<SpawnedSubAgent<unknown>> {
+  return spawnAgentTask(args, context, 'subagent', { schema })
 }
 
 export const SubAgent: Tool = {

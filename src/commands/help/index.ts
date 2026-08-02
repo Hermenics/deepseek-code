@@ -42,6 +42,8 @@ export const HELP_TEXT = `Commands:
   /context (or /ctx)     show context usage
   /tasks                 show session tasks
   /task <id> <action>    inspect or control a task
+  /workflows             monitor Dynamic Workflow runs
+  /workflow <action>     run, pause, resume, stop, restart or save a workflow
   /cwd (or /cd) [path]   show or change directory
   /worktree (or /wt) [create|enter|exit|list|status]
   /mobile                show the mobile-app QR code

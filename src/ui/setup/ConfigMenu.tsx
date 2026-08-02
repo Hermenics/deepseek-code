@@ -103,7 +103,7 @@ const CATEGORIES: Category[] = [
       { path: 'agents.default', label: 'Default agent', description: 'Primary agent selected for the next session.', kind: 'text', restart: true },
       { path: 'agents.basePrompt', label: 'Subagent base prompt', description: 'Editable prompt composed before each specialization. The executor protocol remains protected.', kind: 'text' },
       { path: 'agents.subagentModel', label: 'Subagent model', description: 'Default model for delegated work.', kind: 'enum' },
-      { path: 'agents.concurrency', label: 'Concurrency', description: 'Maximum concurrent subagents, from 1 to 10.', kind: 'number' },
+      { path: 'agents.concurrency', label: 'Concurrency', description: 'Maximum concurrent subagents, from 1 to 16.', kind: 'number' },
       { path: 'agents.permissionPolicy', label: 'Permission policy', description: 'Inherit parent rules or isolate allow rules. Parent deny and risk rules always remain.', kind: 'enum', options: ['inherit', 'isolated'] },
       { path: 'agents.additionalDirectories', label: 'Additional directories', description: 'Comma-separated agent library paths.', kind: 'list' },
       { path: 'agents.disabledBuiltins', label: 'Disabled built-ins', description: 'Built-ins disabled by name. Restore removes the scoped override.', kind: 'list' },

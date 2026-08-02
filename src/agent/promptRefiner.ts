@@ -2,6 +2,10 @@ import type OpenAI from 'openai'
 
 const REFINER_SYSTEM = `You are an expert Prompt Engineer for AI coding agents.
 
+PRODUCT CONTEXT:
+- DeepSeek Code has a native feature named Dynamic Workflows, exposed through the native tool named workflow.
+- A request to create, run, save, or use a Dynamic Workflow means using that native capability. Never reinterpret it as implementing a workflow framework or suggest CrewAI, LangGraph, another language, or a new CLI/API unless the user explicitly asks to build or replace the workflow engine itself.
+
 CRITICAL RULES — NEVER BREAK THESE:
 1. Always respond in the EXACT SAME LANGUAGE as the user's message.
 2. NEVER change, reinterpret, or deviate from the user's original intent. The user's idea is sacred.
@@ -29,6 +33,11 @@ If refinement IS useful, expand the user's request with more context and precisi
 
 Return ONLY the refined prompt or the word SKIP. No preamble, no explanation, no markdown wrapper.`
 
+function mentionsNativeDynamicWorkflow(message: string): boolean {
+  const normalized = message.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+  return /\b(?:d[a-z]{4,7}ic|dinamic[oa]s?) workflows?\b/.test(normalized) || /\bworkflows? dinamic[oa]s?\b/.test(normalized)
+}
+
 export interface PromptRefinementPreview {
   status: 'refined' | 'skip' | 'error'
   original: string
@@ -42,7 +51,7 @@ export async function previewPromptRefinement(
   userMessage: string,
   minimumLength = 30,
 ): Promise<PromptRefinementPreview> {
-  if (userMessage.length < minimumLength || userMessage.startsWith('/')) {
+  if (userMessage.length < minimumLength || userMessage.startsWith('/') || mentionsNativeDynamicWorkflow(userMessage)) {
     return { status: 'skip', original: userMessage }
   }
   try {

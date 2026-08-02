@@ -9,6 +9,7 @@ import { DiffDialog, type DiffLine } from './messages/DiffDialog.js'
 import { TodoPanel } from './messages/TodoPanel.js'
 import { ToolUseDisplay } from './messages/ToolUseDisplay.js'
 import { SubagentList, useSubagents } from './subagent/index.js'
+import { WorkflowList } from './workflows/index.js'
 import { InputBox, LoadingSpinner } from './input/InputBox.js'
 import { QueuedMessagesList } from './input/QueuedMessagesList.js'
 import { enqueue, getImmediateBtwQuestion } from './queueLogic.js'
@@ -33,6 +34,7 @@ import Text from '../ink/components/Text.js'
 import { ThemeProvider } from './design-system/index.js'
 import { PlanApprovalPrompt, type PlanApprovalResult } from './plan/PlanApprovalPrompt.js'
 import { newPlanPath, buildPlanModeInjection } from '../agent/planMode.js'
+import { readSavedWorkflow, refreshWorkflowCommands, resolveWorkflowCommand } from '../workflows/commands.js'
 
 export type AgentPhase = 'idle' | 'refining' | 'executing'
 
@@ -176,6 +178,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   useEffect(() => {
     agent.interactionMode = interactionMode
   }, [agent, interactionMode])
+
+  useEffect(() => {
+    void agent.readyPromise.then(() => refreshWorkflowCommands(agent.getWorkingDirectory()))
+  }, [agent])
 
   useEffect(() => () => {
     btwAbortRef.current?.abort()
@@ -724,9 +730,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [isLoading, runAgent, agent, generateSessionTitle, sessionId])
 
   const handleSubmit = useCallback(async (text: string) => {
-    if (!text.trim() || isLoading) return
+    if (!text.trim()) return
 
-    const cmd = parseCommand(text)
+    let cmd = parseCommand(text)
+    if (cmd?.type === 'unknown') cmd = await resolveWorkflowCommand(text, agent.getWorkingDirectory()) ?? cmd
+    const liveWorkflowControl = cmd?.type === 'workflows' || (cmd?.type === 'workflow' && ['pause', 'resume', 'stop'].includes(cmd.action))
+    if (isLoading && !liveWorkflowControl) return
     if (cmd) {
       switch (cmd.type) {
         case 'quit':
@@ -1389,6 +1398,49 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setMessages(m => [...m, { role: 'assistant', content: agent.formatTasks() }])
           return
         }
+        case 'workflows': {
+          const content = await agent.workflows.formatRuns()
+          setMessages(m => [...m, { role: 'assistant', content }])
+          return
+        }
+        case 'workflow': {
+          try {
+            if (cmd.action === 'pause') {
+              const ok = await agent.workflows.pause(cmd.id)
+              setMessages(m => [...m, { role: 'assistant', content: ok ? `Workflow ${cmd.id} paused.` : `Workflow ${cmd.id} is not running.` }])
+            } else if (cmd.action === 'resume') {
+              const ok = await agent.workflows.resume(cmd.id)
+              setMessages(m => [...m, { role: 'assistant', content: ok ? `Workflow ${cmd.id} resumed.` : `Workflow ${cmd.id} is not paused.` }])
+            } else if (cmd.action === 'stop') {
+              const ok = await agent.workflows.cancel(cmd.id)
+              setMessages(m => [...m, { role: 'assistant', content: ok ? `Workflow ${cmd.id} stopping.` : `Workflow ${cmd.id} is not active.` }])
+            } else if (cmd.action === 'save') {
+              const path = await agent.workflows.save(cmd.id, cmd.name)
+              await refreshWorkflowCommands(agent.getWorkingDirectory())
+              setMessages(m => [...m, { role: 'assistant', content: `Workflow saved to ${path}` }])
+            } else if (cmd.action === 'restart') {
+              setIsLoading(true)
+              const handle = await agent.restartWorkflow(cmd.id)
+              const result = await handle.result
+              setMessages(m => [...m, { role: 'assistant', content: `Workflow ${result.runId} ${result.status}.\n\n${JSON.stringify(result.result, null, 2)}` }])
+              setIsLoading(false)
+            } else if (cmd.action === 'run') {
+              setIsLoading(true)
+              const handle = await agent.startWorkflow({
+                script: await readSavedWorkflow(cmd.name, agent.getWorkingDirectory()),
+                name: cmd.name,
+                args: cmd.args ? JSON.parse(cmd.args) : {},
+              })
+              const result = await handle.result
+              setMessages(m => [...m, { role: 'assistant', content: `Workflow ${result.runId} ${result.status}.\n\n${JSON.stringify(result.result, null, 2)}` }])
+              setIsLoading(false)
+            }
+          } catch (error) {
+            setIsLoading(false)
+            setMessages(m => [...m, { role: 'assistant', content: `Workflow error: ${(error as Error).message}` }])
+          }
+          return
+        }
         case 'task': {
           const result = await agent.controlTask(cmd.id, cmd.action, 'message' in cmd ? cmd.message : undefined)
           setMessages(m => [...m, { role: 'assistant', content: result }])
@@ -1414,6 +1466,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           }
           try {
             await agent.setWorkingDirectory(target, true)
+            await refreshWorkflowCommands(target)
             projectRootRef.current = target
           } catch (error) {
             setMessages(m => [...m, { role: 'assistant', content: `✗ Cannot change directory: ${(error as Error).message}` }])
@@ -1430,6 +1483,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             try {
               const info = await createWorktree(projectRoot, sessionId)
               await agent.setWorkingDirectory(info.path)
+              await refreshWorkflowCommands(info.path)
               setMessages(m => [...m, { role: 'assistant', content: `Worktree "${info.name}" created at ${info.path}\nTool workspace changed to the worktree.` }])
             } catch (e) {
               setMessages(m => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
@@ -1445,6 +1499,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             try {
               const info = await enterWorktree(projectRoot, cmd.name, sessionId)
               await agent.setWorkingDirectory(info.path)
+              await refreshWorkflowCommands(info.path)
               setMessages(m => [...m, { role: 'assistant', content: `Entered worktree "${info.name}" at ${info.path}` }])
             } catch (e) {
               setMessages(m => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
@@ -1456,6 +1511,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             try {
               const result = await exitWorktree(projectRoot, cmd.keep)
               await agent.setWorkingDirectory(projectRoot)
+              await refreshWorkflowCommands(projectRoot)
               setMessages(m => [...m, { role: 'assistant', content: result }])
             } catch (e) {
               setMessages(m => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
@@ -1612,6 +1668,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           />
           {toolStatus && interfaceSettings.showToolCalls !== false && <ToolUseDisplay tool={toolStatus} />}
           {subagentsRef.current.agents.length > 0 && <SubagentList agents={subagentsRef.current.agents} theme={theme} />}
+          <WorkflowList manager={agent.workflows} />
           <TodoPanel />
           {isLoading && (interfaceSettings.reducedMotion
             ? <Text dimColor>{agentPhase === 'refining' ? 'Refining…' : 'Working…'}</Text>
@@ -1713,6 +1770,14 @@ function ConfirmPrompt({ message, onConfirm }: { message: string; onConfirm: (ye
 }
 
 function permissionOptions(request: ToolPermissionRequest) {
+  if (request.reason === 'workflow') {
+    return [
+      { key: '1', label: 'Execute this workflow once', result: 'once' as ToolPermissionResult },
+      { key: '2', label: 'View workflow code' },
+      { key: '3', label: 'Always allow this exact script', result: 'always' as ToolPermissionResult },
+      { key: '4', label: 'Deny', result: 'deny' as ToolPermissionResult },
+    ]
+  }
   const externalDirectory = request.reason === 'outside_workspace' ? request.externalDirectory : undefined
   const sessionLabel = externalDirectory
     ? `Allow file actions in ${externalDirectory} this session`
@@ -1732,6 +1797,10 @@ function permissionOptions(request: ToolPermissionRequest) {
 
 function toolPermissionSummary({ toolName, args }: ToolPermissionRequest): string {
   const input = args as Record<string, unknown>
+  if (toolName === 'workflow' && typeof input.script === 'string') {
+    const name = /"name"\s*:\s*"([^"]+)"/.exec(input.script)?.[1]
+    return name ? `Dynamic Workflow → ${name}` : 'Dynamic Workflow'
+  }
   if (typeof input.command === 'string') return `$ ${input.command}`
   if (typeof input.path === 'string') return `${toolName} → ${input.path}`
   if (typeof input.cwd === 'string') return `${toolName} → ${input.cwd}`
@@ -1747,15 +1816,21 @@ function ToolPermissionPrompt({
   onDecide: (result: ToolPermissionResult) => void
 }) {
   const [selected, setSelected] = useState(0)
+  const [showWorkflowCode, setShowWorkflowCode] = useState(false)
   const options = permissionOptions(request)
+
+  const choose = (option: typeof options[number]) => {
+    if (!('result' in option) || !option.result) { setShowWorkflowCode(value => !value); return }
+    onDecide(option.result)
+  }
 
   useInput((input: string, key: Key) => {
     if (key.ctrl && input === 'c') { onDecide('deny'); return }
     const option = options.find(option => option.key === input)
-    if (option) { onDecide(option.result); return }
+    if (option) { choose(option); return }
     if (key.upArrow) { setSelected((i) => (i - 1 + options.length) % options.length); return }
     if (key.downArrow) { setSelected((i) => (i + 1) % options.length); return }
-    if (key.return) { onDecide(options[selected]!.result); return }
+    if (key.return) { choose(options[selected]!); return }
     if (key.escape) { onDecide('deny'); return }
   })
 
@@ -1792,6 +1867,12 @@ function ToolPermissionPrompt({
           </Box>
         ))}
       </Box>
+      {showWorkflowCode && request.reason === 'workflow' && (
+        <Box borderStyle="round" borderColor="#666666" paddingLeft={1} paddingRight={1} marginTop={1} flexDirection="column">
+          <Text color="#888888">workflow.js</Text>
+          <Text>{String((request.args as Record<string, unknown>).script ?? '')}</Text>
+        </Box>
+      )}
       <Box marginLeft={2}>
         <Text color="#888888">{'  ↑↓ navigate  ·  Enter confirm  ·  Esc deny  ·  [3] aborts agent'}</Text>
       </Box>
