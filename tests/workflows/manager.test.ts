@@ -51,6 +51,23 @@ describe('WorkflowManager', () => {
     expect((await manager.get(handle.runId))?.status).toBe('completed')
   }, 15_000)
 
+  test('exposes workflow agent tasks while their run is active', async () => {
+    let manager: WorkflowManager
+    let located: ReturnType<WorkflowManager['findTask']>
+    manager = await setup(async request => {
+      const task = request.session.spawn({ taskId: 'visible-agent', metadata: { task: 'Inspect', role: 'reader' } }, async () => 'done')
+      await task.awaitResult()
+      located = manager.findTask(task.taskId)
+      return { value: 'done' }
+    })
+
+    const handle = await manager.start({ script: 'export const meta = {"name":"visible"}; return agent("Inspect");' })
+    await handle.result
+
+    expect(located).toMatchObject({ workflowRunId: handle.runId, task: { taskId: 'visible-agent', state: 'done' } })
+    expect(manager.findTask('visible-agent')).toBeUndefined()
+  })
+
   test('replays the completed prefix without rerunning agents', async () => {
     let calls = 0
     const manager = await setup(async request => {

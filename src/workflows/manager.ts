@@ -5,6 +5,7 @@ import type { ProviderConfig } from '../types/provider.js'
 import type { DeepSeekSettings } from '../settings/types.js'
 import type { InteractionMode } from '../ui/interactionMode.js'
 import { OrchestratorSession, type OrchestratorCallbacks } from '../orchestration/OrchestratorSession.js'
+import type { TaskRecordV1 } from '../orchestration/types.js'
 import { discoverWorkflows } from './discovery.js'
 import { executeWorkflowScript, type WorkflowExecution } from './runtime.js'
 import { formatWorkflowSource, isWorkflowName, parseWorkflowSource } from './parser.js'
@@ -130,6 +131,14 @@ export class WorkflowManager {
 
   hasActiveRuns(): boolean {
     return [...this.active.values()].some(active => ['queued', 'running', 'paused'].includes(active.record.status))
+  }
+
+  findTask(taskId: string): { workflowRunId: string; task: TaskRecordV1 } | undefined {
+    for (const active of this.active.values()) {
+      try { return { workflowRunId: active.record.runId, task: active.session.registry.getStatus(taskId) } }
+      catch { /* task belongs to another session */ }
+    }
+    return undefined
   }
 
   changeProjectRoot(projectRoot: string): void {

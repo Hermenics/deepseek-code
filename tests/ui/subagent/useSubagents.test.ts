@@ -85,6 +85,13 @@ describe('useSubagents', () => {
 
       expect(hook.agents[0].durationMs).toBeNull()
     })
+
+    it('should retain runtime identity and workspace details', () => {
+      const hook = createHook()
+      hook.onSubagentStart({ id: 'a1', task: 'task', agentName: 'coder', mode: 'background', model: 'deepseek-reasoner', workspace: '/tmp/worktree', workflowRunId: 'workflow-1' })
+
+      expect(hook.agents[0]).toMatchObject({ agentName: 'coder', mode: 'background', model: 'deepseek-reasoner', workspace: '/tmp/worktree', workflowRunId: 'workflow-1' })
+    })
   })
 
   describe('onSubagentProgress', () => {
@@ -274,6 +281,16 @@ describe('useSubagents', () => {
       expect(hook.agents).toHaveLength(1)
       expect(hook.agents[0].id).toBe('a2')
       expect(hook.agents[0].status).toBe('running')
+    })
+
+    it('should preserve resolved workflow agents for the workflow monitor', () => {
+      const hook = createHook()
+      hook.onSubagentStart({ id: 'a1', task: 'workflow task', workflowRunId: 'workflow-1' })
+      hook.onSubagentDone({ id: 'a1', result: 'done' })
+
+      hook.clearResolved()
+
+      expect(hook.agents).toHaveLength(1)
     })
   })
 

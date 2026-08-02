@@ -6,9 +6,31 @@ import type { WorkflowRun } from '../../workflows/types.js'
 
 const ACTIVE = new Set(['queued', 'running', 'paused'])
 
+export function useWorkflowRuns(manager: WorkflowManager): WorkflowRun[] {
+  const [runs, setRuns] = useState<WorkflowRun[]>([])
+
+  useEffect(() => {
+    let mounted = true
+    void manager.list().then(next => {
+      if (!mounted) return
+      setRuns(current => current.length ? [...current, ...next.filter(run => !current.some(latest => latest.runId === run.runId))] : next)
+    })
+    const unsubscribe = manager.subscribe(event => {
+      setRuns(current => {
+        const next = current.filter(run => run.runId !== event.run.runId)
+        return [event.run, ...next]
+      })
+    })
+    return () => { mounted = false; unsubscribe() }
+  }, [manager])
+
+  return runs
+}
+
 export function formatWorkflowRun(run: WorkflowRun, now = Date.now()): string {
   const started = Date.parse(run.startedAt ?? run.createdAt)
-  const duration = Number.isFinite(started) ? Math.max(0, Math.floor((now - started) / 1000)) : 0
+  const ended = run.completedAt ? Date.parse(run.completedAt) : now
+  const duration = Number.isFinite(started) && Number.isFinite(ended) ? Math.max(0, Math.floor((ended - started) / 1000)) : 0
   const phase = run.phase ? ` · ${run.phase}` : ''
   const tokens = run.options.maxTokens ? `${run.usage.tokens}/${run.options.maxTokens} tokens` : `${run.usage.tokens} tokens`
   const cost = run.options.maxCostUsd !== undefined ? ` · $${run.usage.costUsd.toFixed(4)}/$${run.options.maxCostUsd.toFixed(4)}` : ''
@@ -17,18 +39,8 @@ export function formatWorkflowRun(run: WorkflowRun, now = Date.now()): string {
 }
 
 export function WorkflowList({ manager }: { manager: WorkflowManager }) {
-  const [runs, setRuns] = useState<WorkflowRun[]>([])
+  const runs = useWorkflowRuns(manager)
   const [, setClock] = useState(0)
-
-  useEffect(() => {
-    void manager.list().then(setRuns)
-    return manager.subscribe(event => {
-      setRuns(current => {
-        const next = current.filter(run => run.runId !== event.run.runId)
-        return [event.run, ...next]
-      })
-    })
-  }, [manager])
 
   useEffect(() => {
     if (!runs.some(run => ACTIVE.has(run.status))) return

@@ -22,6 +22,10 @@ export interface SubagentState {
   confidence: number | null
   verified: boolean | null     // null = not verified, true = confirmed, false = flawed
   agentName: string | null      // 'Coder', 'Reviewer', 'Tester', or null for generic subagents
+  mode?: 'foreground' | 'background'
+  model?: string | null
+  workspace?: string | null
+  workflowRunId?: string | null
 }
 
 export interface SubagentLineProps {
