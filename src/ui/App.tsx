@@ -8,8 +8,10 @@ import { MessageList, getDiffPayload } from './messages/MessageList.js'
 import { DiffDialog, type DiffLine } from './messages/DiffDialog.js'
 import { TodoPanel } from './messages/TodoPanel.js'
 import { ToolUseDisplay } from './messages/ToolUseDisplay.js'
-import { SubagentList, useSubagents } from './subagent/index.js'
-import { WorkflowList } from './workflows/index.js'
+import { useSubagents } from './subagent/index.js'
+import { useWorkflowRuns } from './workflows/WorkflowList.js'
+import { WorkflowMonitor } from './workflows/WorkflowMonitor.js'
+import { ActivityFooter } from './activity/index.js'
 import { InputBox, LoadingSpinner } from './input/InputBox.js'
 import { QueuedMessagesList } from './input/QueuedMessagesList.js'
 import { enqueue, getImmediateBtwQuestion } from './queueLogic.js'
@@ -132,6 +134,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [queuedMessages, setQueuedMessages] = useState<string[]>([])
   const [btw, setBtw] = useState<BtwState | null>(null)
   const [agent] = useState(() => new Agent(providerConfig ?? undefined, { sessionId, projectRoot: projectRootRef.current }))
+  const workflowRuns = useWorkflowRuns(agent.workflows)
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
   const [showConfigMenu, setShowConfigMenu] = useState(false)
   const [showMobileQR, setShowMobileQR] = useState(false)
@@ -150,6 +153,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [featureFlags, setFeatureFlags] = useState(() => loadFeatures())
   const [compactBadge, setCompactBadge] = useState<{ type: 'micro' | 'full'; triggeredAt: number } | null>(null)
   const [diffDialog, setDiffDialog] = useState<{ path: string; lines: DiffLine[] } | null>(null)
+  const [activityOpen, setActivityOpen] = useState(false)
+  const [workflowMonitor, setWorkflowMonitor] = useState<{ runId?: string } | null>(null)
 
   const showCompactBadge = useCallback((type: 'micro' | 'full') => {
     if (compactBadgeTimerRef.current) clearTimeout(compactBadgeTimerRef.current)
@@ -191,9 +196,37 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   useEffect(() => {
     const subs = subagentsRef.current
+    const findTask = (id: string) => {
+      try { return { task: agent.orchestrator.registry.getStatus(id), workflowRunId: null } }
+      catch { return agent.workflows.findTask(id) }
+    }
+    const syncTask = (id: string) => {
+      const located = findTask(id)
+      if (!located) return false
+      const record = located.task
+      subs.onSubagentState({
+        id, status: record.state, task: String(record.metadata.task ?? record.type),
+        role: record.metadata.role as string | undefined,
+        agentName: record.metadata.agentName as string | undefined,
+        mode: record.mode, model: record.metadata.model as string | undefined,
+        workspace: record.workspace?.path, workflowRunId: located.workflowRunId,
+        error: record.error?.message ?? record.blockReason,
+      })
+      return true
+    }
     agent.setSubAgentCallbacks({
       onStart(id: string, task: string, agentName?: string) {
-        subs.onSubagentStart({ id, task, agentName })
+        const located = findTask(id)
+        if (!located) return
+        const record = located.task
+        subs.onSubagentStart({
+          id, task, agentName,
+          role: record.metadata.role as string | undefined,
+          mode: record.mode,
+          model: record.metadata.model as string | undefined,
+          workspace: record.workspace?.path,
+          workflowRunId: located.workflowRunId,
+        })
         setSubagentTick((t) => t + 1)
       },
       onToolUse(id: string, tool: string, info?: string) {
@@ -201,11 +234,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         setSubagentTick((t) => t + 1)
       },
       onDone(id: string, result: string, tokens?: number, costUsd?: number) {
+        syncTask(id)
         subs.onSubagentDone({ id, result, tokens, costUsd })
         setSubagentTick((t) => t + 1)
       },
       onError(id: string, error: string) {
-        subs.onSubagentError({ id, error })
+        if (!syncTask(id)) subs.onSubagentError({ id, error })
         setSubagentTick((t) => t + 1)
       },
     })
@@ -221,6 +255,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       task: String(record.metadata.task ?? record.type),
       role: record.metadata.role as string | undefined,
       agentName: record.metadata.agentName as string | undefined,
+      mode: record.mode,
+      model: record.metadata.model as string | undefined,
+      workspace: record.workspace?.path,
       error: record.error?.message ?? record.blockReason,
     })
     setSubagentTick(tick => tick + 1)
@@ -430,6 +467,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [planApprovalState, agent])
 
   const runAgent = useCallback(async (prompt: string) => {
+    subagentsRef.current.clearResolved()
+    setSubagentTick((tick) => tick + 1)
     lastTurnTokenCountRef.current = agent.tokenCount
     let tokenBuffer = ''
     let streamTextAccum = ''
@@ -1399,8 +1438,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           return
         }
         case 'workflows': {
-          const content = await agent.workflows.formatRuns()
-          setMessages(m => [...m, { role: 'assistant', content }])
+          setActivityOpen(false)
+          setWorkflowMonitor({})
           return
         }
         case 'workflow': {
@@ -1596,6 +1635,43 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   // Keep ref in sync so the init effect always calls the latest handleSubmit
   handleSubmitRef.current = handleSubmit
 
+  const restartWorkflowFromUi = useCallback(async (runId: string) => {
+    setActivityOpen(false)
+    setWorkflowMonitor(null)
+    try {
+      const handle = await agent.restartWorkflow(runId)
+      const result = await handle.result
+      setMessages(messages => [...messages, { role: 'assistant', content: `Workflow ${result.runId} ${result.status}.\n\n${JSON.stringify(result.result, null, 2)}` }])
+    } catch (error) {
+      setMessages(messages => [...messages, { role: 'assistant', content: `Workflow error: ${(error as Error).message}` }])
+    }
+  }, [agent])
+
+  const saveWorkflowFromUi = useCallback(async (runId: string, name: string) => {
+    const path = await agent.workflows.save(runId, name)
+    await refreshWorkflowCommands(agent.getWorkingDirectory())
+    return path
+  }, [agent])
+
+  if (workflowMonitor) {
+    return (
+      <ThemeProvider value={theme}>
+        <WorkflowMonitor
+          runs={workflowRuns}
+          agents={subagentsRef.current.agents}
+          initialRunId={workflowMonitor.runId}
+          theme={theme}
+          onClose={() => setWorkflowMonitor(null)}
+          onPause={runId => agent.workflows.pause(runId)}
+          onResume={runId => agent.workflows.resume(runId)}
+          onStop={runId => agent.workflows.cancel(runId)}
+          onRestart={restartWorkflowFromUi}
+          onSave={saveWorkflowFromUi}
+        />
+      </ThemeProvider>
+    )
+  }
+
   if (showMobileQR) {
     return <ThemeProvider value={theme}><MobileQRCode onClose={() => setShowMobileQR(false)} theme={theme} /></ThemeProvider>
   }
@@ -1645,6 +1721,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }
 
   const termRows = process.stdout.rows || 24
+  const activityCount = subagentsRef.current.agents.filter(subagent => !subagent.workflowRunId).length +
+    workflowRuns.filter(run => ['queued', 'running'].includes(run.status)).length
 
   return (
     <ThemeProvider value={theme}>
@@ -1667,8 +1745,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             onOpenDiff={(diff) => setDiffDialog(diff)}
           />
           {toolStatus && interfaceSettings.showToolCalls !== false && <ToolUseDisplay tool={toolStatus} />}
-          {subagentsRef.current.agents.length > 0 && <SubagentList agents={subagentsRef.current.agents} theme={theme} />}
-          <WorkflowList manager={agent.workflows} />
           <TodoPanel />
           {isLoading && (interfaceSettings.reducedMotion
             ? <Text dimColor>{agentPhase === 'refining' ? 'Refining…' : 'Working…'}</Text>
@@ -1743,9 +1819,28 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             vimEnabled={vimEnabled}
             workingDirectory={agent.getWorkingDirectory()}
             fuzzyFileSearch={featureFlags.fuzzyFileSearch}
+            activityAvailable={activityCount > 0}
+            onActivityOpen={() => setActivityOpen(true)}
+            isActive={!activityOpen}
           />
         )}
-        <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} theme={theme} items={interfaceSettings.statusBar} narrowPriority={interfaceSettings.narrowPriority} compactBadge={compactBadge} />
+        <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} theme={theme} items={interfaceSettings.statusBar} narrowPriority={interfaceSettings.narrowPriority} compactBadge={compactBadge} activityCount={activityCount} />
+        {!btw && !showModelSelector && !showEffortSelector && !toolPermissionState && !planApprovalState && !confirmState && (
+          <ActivityFooter
+            agents={subagentsRef.current.agents}
+            workflows={workflowRuns}
+            open={activityOpen}
+            onClose={() => setActivityOpen(false)}
+            onOpenWorkflow={runId => { setActivityOpen(false); setWorkflowMonitor({ runId }) }}
+            onTaskAction={(taskId, action) => agent.controlTask(taskId, action)}
+            onWorkflowAction={async (runId, action) => {
+              if (action === 'stop') return await agent.workflows.cancel(runId) ? `Workflow ${runId.slice(0, 8)} stopping.` : 'Workflow is not active.'
+              return await agent.workflows.pause(runId) ? `Workflow ${runId.slice(0, 8)} paused.` : 'Workflow is not running.'
+            }}
+            theme={theme}
+            mainLabel={activeAgent ?? 'main'}
+          />
+        )}
       </Box>
     </Box>
     </ThemeProvider>
