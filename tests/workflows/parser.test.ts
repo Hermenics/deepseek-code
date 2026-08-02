@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { parseWorkflowSource } from '../../src/workflows/parser.js'
+import { formatWorkflowSource, parseWorkflowSource } from '../../src/workflows/parser.js'
+
+const MAX_SOURCE_BYTES = 256 * 1024
 
 describe('workflow source parser', () => {
   test('extracts JSON metadata and keeps the executable body', () => {
@@ -22,5 +24,22 @@ describe('workflow source parser', () => {
   test('rejects malformed metadata and names', () => {
     expect(() => parseWorkflowSource('export const meta = { name: "bad" }; return 1')).toThrow('JSON-compatible')
     expect(() => parseWorkflowSource('export const meta = {"name":"Bad Name"}; return 1')).toThrow('Invalid workflow name')
+  })
+
+  test('enforces the source-size boundary', () => {
+    const prefix = 'return 1;'
+    expect(parseWorkflowSource(prefix + ' '.repeat(MAX_SOURCE_BYTES - prefix.length), 'boundary').meta.name).toBe('boundary')
+    expect(() => parseWorkflowSource(prefix + ' '.repeat(MAX_SOURCE_BYTES - prefix.length + 1), 'oversized')).toThrow(`exceeds ${MAX_SOURCE_BYTES} bytes`)
+  })
+
+  test('reports an unclosed metadata object', () => {
+    expect(() => parseWorkflowSource('export const meta = {"name":"unclosed"')).toThrow('Workflow metadata object is not closed')
+  })
+
+  test('round-trips formatted metadata and executable code', () => {
+    const body = 'const value = await agent("inspect");\nreturn value;'
+    const parsed = parseWorkflowSource(formatWorkflowSource({ name: 'round-trip', description: 'Round trip' }, body))
+    expect(parsed.meta).toEqual({ name: 'round-trip', description: 'Round trip' })
+    expect(parsed.body.trim()).toBe(body)
   })
 })

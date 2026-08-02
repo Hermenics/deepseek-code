@@ -4,6 +4,8 @@ import { lstat, readdir, readFile, realpath } from 'node:fs/promises'
 import { parseWorkflowSource } from './parser.js'
 import type { WorkflowMeta } from './types.js'
 
+const MAX_WORKFLOWS_PER_DIRECTORY = 256
+
 export interface DiscoveredWorkflow {
   meta: WorkflowMeta
   path: string
@@ -43,19 +45,18 @@ async function readDirectory(directory: string, source: DiscoveredWorkflow['sour
     if ((await lstat(directory)).isSymbolicLink()) return []
     root = await realpath(directory)
   } catch { return [] }
-  const entries = await readdir(directory, { withFileTypes: true }).catch(() => [])
-  const workflows: DiscoveredWorkflow[] = []
-  for (const entry of entries) {
-    if (!entry.name.endsWith('.js') || (!entry.isFile() && !entry.isSymbolicLink())) continue
+  const entries = (await readdir(directory, { withFileTypes: true }).catch(() => []))
+    .filter(entry => entry.name.endsWith('.js') && (entry.isFile() || entry.isSymbolicLink()))
+    .slice(0, MAX_WORKFLOWS_PER_DIRECTORY)
+  return (await Promise.all(entries.map(async entry => {
     const path = join(directory, entry.name)
     try {
       const resolvedPath = await realpath(path)
-      if (!contained(root, resolvedPath)) continue
+      if (!contained(root, resolvedPath)) return undefined
       const parsed = parseWorkflowSource(await readFile(resolvedPath, 'utf8'))
-      workflows.push({ meta: parsed.meta, path, source })
-    } catch { /* invalid workflows are omitted from discovery */ }
-  }
-  return workflows
+      return { meta: parsed.meta, path, source }
+    } catch { return undefined /* invalid workflows are omitted from discovery */ }
+  }))).filter((workflow): workflow is DiscoveredWorkflow => Boolean(workflow))
 }
 
 export async function discoverWorkflows(cwd: string, options: WorkflowDiscoveryOptions = {}): Promise<DiscoveredWorkflow[]> {
