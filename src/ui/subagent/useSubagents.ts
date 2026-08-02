@@ -1,12 +1,12 @@
 import type { SubagentState } from './types.js'
 import type { SubAgentResult } from '../../tools/SubAgent/contracts.js'
 
-export interface SubagentStartInput { id: string; task: string; role?: string | null; agentName?: string | null }
+export interface SubagentStartInput { id: string; task: string; role?: string | null; agentName?: string | null; mode?: 'foreground' | 'background'; model?: string | null; workspace?: string | null; workflowRunId?: string | null }
 export interface SubagentProgressInput { id: string; info: string }
 export interface SubagentToolUseInput { id: string; tool: string; info?: string }
 export interface SubagentDoneInput { id: string; result: string; tokens?: number; costUsd?: number; structured?: SubAgentResult; confidence?: number | null; verified?: boolean | null }
 export interface SubagentErrorInput { id: string; error: string }
-export interface SubagentStateInput { id: string; status: SubagentState['status']; task?: string; role?: string | null; agentName?: string | null; error?: string }
+export interface SubagentStateInput { id: string; status: SubagentState['status']; task?: string; role?: string | null; agentName?: string | null; mode?: 'foreground' | 'background'; model?: string | null; workspace?: string | null; workflowRunId?: string | null; error?: string }
 
 export interface UseSubagentsReturn {
   agents: SubagentState[]
@@ -23,13 +23,17 @@ export function useSubagents(): UseSubagentsReturn {
   const hook: UseSubagentsReturn = {
     agents: [],
 
-    onSubagentStart({ id, task, role, agentName }) {
+    onSubagentStart({ id, task, role, agentName, mode, model, workspace, workflowRunId }) {
       const existing = hook.agents.find(agent => agent.id === id)
       if (existing) {
         existing.task = task
         existing.status = 'running'
         existing.role = (role as SubagentState['role']) ?? existing.role
         existing.agentName = agentName ?? existing.agentName
+        existing.mode = mode ?? existing.mode
+        existing.model = model ?? existing.model
+        existing.workspace = workspace ?? existing.workspace
+        existing.workflowRunId = workflowRunId ?? existing.workflowRunId
         return
       }
       const agent: SubagentState = {
@@ -49,6 +53,10 @@ export function useSubagents(): UseSubagentsReturn {
         confidence: null,
         verified: null,
         agentName: agentName ?? null,
+        mode,
+        model: model ?? null,
+        workspace: workspace ?? null,
+        workflowRunId: workflowRunId ?? null,
       }
       hook.agents.push(agent)
     },
@@ -91,19 +99,23 @@ export function useSubagents(): UseSubagentsReturn {
       }
     },
 
-    onSubagentState({ id, status, task, role, agentName, error }) {
+    onSubagentState({ id, status, task, role, agentName, mode, model, workspace, workflowRunId, error }) {
       let agent = hook.agents.find(candidate => candidate.id === id)
       if (!agent) {
-        hook.onSubagentStart({ id, task: task ?? id, role, agentName })
+        hook.onSubagentStart({ id, task: task ?? id, role, agentName, mode, model, workspace, workflowRunId })
         agent = hook.agents.find(candidate => candidate.id === id)!
       }
       agent.status = status
+      if (mode) agent.mode = mode
+      if (model != null) agent.model = model
+      if (workspace != null) agent.workspace = workspace
+      if (workflowRunId != null) agent.workflowRunId = workflowRunId
       if (error) agent.error = error
       if (['done', 'failed', 'error', 'cancelled', 'timed_out'].includes(status)) agent.durationMs = Date.now() - agent.startedAt
     },
 
     clearResolved() {
-      hook.agents = hook.agents.filter(a => ['queued', 'running', 'blocked'].includes(a.status))
+      hook.agents = hook.agents.filter(a => a.workflowRunId || ['queued', 'running', 'blocked'].includes(a.status))
     },
   }
 

@@ -34,7 +34,7 @@ function ProgressBar({ percent, width = 20, theme = 'dark' }: { percent: number;
   )
 }
 
-export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provider: _provider, contextPct = 0, interactionMode = 'build', theme = 'dark', items, narrowPriority, compactBadge }: {
+export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provider: _provider, contextPct = 0, interactionMode = 'build', theme = 'dark', items, narrowPriority, compactBadge, activityCount = 0 }: {
   tokenCount: number
   model: Model
   activeAgent: string | null
@@ -45,6 +45,7 @@ export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provid
   items?: StatusBarItem[]
   narrowPriority?: StatusBarItem[]
   compactBadge?: { type: 'micro' | 'full'; triggeredAt: number } | null
+  activityCount?: number
 }) {
   const colors = getThemeColors(theme)
   const [branch, setBranch] = useState('')
@@ -71,7 +72,7 @@ export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provid
     ? (narrowPriority ?? ['mode', 'context', 'model', 'branch', 'tokens']).filter(item => configured.includes(item))
     : configured
   const visible = new Set(prioritized.slice(0, isVeryNarrow ? 2 : isNarrow ? 3 : configured.length))
-  if (![...visible].some(item => item === 'mode' || item === 'model' || item === 'tokens' && tokenCount > 0 || item === 'branch' && branch || item === 'context' && contextPct > 0)) return null
+  if (![...visible].some(item => item === 'mode' || item === 'model' || item === 'tokens' && tokenCount > 0 || item === 'branch' && branch || item === 'context' && contextPct > 0) && activityCount === 0) return null
 
   const showBadge = compactBadge != null && (Date.now() - compactBadge.triggeredAt) < 4000
 
@@ -103,6 +104,9 @@ export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provid
           <Text color={colors.warning}>
             {'⚡ ' + (compactBadge!.type === 'micro' ? 'micro' : 'compact')}
           </Text>
+        )}
+        {activityCount > 0 && (
+          <Text color={colors.textDim}>{isVeryNarrow ? `↓${activityCount}` : `↓ ${activityCount} ${activityCount === 1 ? 'activity' : 'activities'}`}</Text>
         )}
       </Box>
     </Box>
