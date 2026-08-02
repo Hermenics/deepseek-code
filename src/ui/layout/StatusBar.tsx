@@ -72,7 +72,7 @@ export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provid
     ? (narrowPriority ?? ['mode', 'context', 'model', 'branch', 'tokens']).filter(item => configured.includes(item))
     : configured
   const visible = new Set(prioritized.slice(0, isVeryNarrow ? 2 : isNarrow ? 3 : configured.length))
-  if (![...visible].some(item => item === 'mode' || item === 'model' || item === 'tokens' && tokenCount > 0 || item === 'branch' && branch || item === 'context' && contextPct > 0)) return null
+  if (![...visible].some(item => item === 'mode' || item === 'model' || item === 'tokens' && tokenCount > 0 || item === 'branch' && branch || item === 'context' && contextPct > 0) && activityCount === 0) return null
 
   const showBadge = compactBadge != null && (Date.now() - compactBadge.triggeredAt) < 4000
 
