@@ -52,8 +52,10 @@ describe('agent configuration', () => {
     await expect(loadAgentRegistry(root)).rejects.toThrow('outputSchema is invalid')
   })
 
-  it('throws for missing or disabled agents', async () => {
-    await expect(loadAgentConfig('non-existent-xyz', root)).rejects.toThrow('not found or is disabled')
+  it('throws distinct errors for missing and disabled agents', async () => {
+    await expect(loadAgentConfig('non-existent-xyz', root)).rejects.toThrow("Agent 'non-existent-xyz' was not found.")
+    await writeFile(join(directory, 'disabled.json'), JSON.stringify({ name: 'disabled', systemPrompt: 'x', enabled: false }))
+    await expect(loadAgentConfig('disabled', root)).rejects.toThrow("Agent 'disabled' is disabled.")
   })
 
   it('rejects agent file patterns that can leave the project', async () => {
