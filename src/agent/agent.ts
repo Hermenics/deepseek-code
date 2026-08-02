@@ -45,6 +45,8 @@ import { validateToolArguments as validateToolSchema } from '../orchestration/sc
 import type { TaskLimits } from '../orchestration/types.js'
 import { resolveExternalApprovalDirectory, resolvePathForContext, resolveSafePath } from '../tools/shared/pathSafety.js'
 import { isSafeMemoryEntry, normalizeMemoryEntry } from './memory.js'
+import { WorkflowManager, type StartWorkflowInput, type WorkflowHandle } from '../workflows/manager.js'
+import { WorkflowApprovalStore, hashWorkflowValue } from '../workflows/storage.js'
 
 /** Workaround: OpenAI SDK has not typed reasoning_content yet (exclusive field of deepseek-reasoner) */
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & { reasoning_content?: string }
@@ -148,7 +150,7 @@ interface PendingAgentNote {
 }
 
 export type ToolPermissionResult = 'once' | 'session' | 'directory' | 'always' | 'deny'
-export type ToolPermissionReason = 'outside_workspace' | 'risk' | 'permission' | 'agent_config'
+export type ToolPermissionReason = 'outside_workspace' | 'risk' | 'permission' | 'agent_config' | 'workflow'
 
 export interface ToolPermissionRequest {
   toolName: string
@@ -232,6 +234,7 @@ export class Agent {
   private toolCallTotal: number = 0
   private readonly hookSessionId = randomUUID()
   public readonly orchestrator: OrchestratorSession
+  public readonly workflows: WorkflowManager
   private orchestrationCallbacks: OrchestratorCallbacks = {}
   private workspacePath: string
 
@@ -270,15 +273,42 @@ export class Agent {
       ? { ...this.orchestrationCallbacks, ...callbacks }
       : { ...this.orchestrationCallbacks, onStart: undefined, onToolUse: undefined, onDone: undefined, onError: undefined }
     this.orchestrator.setCallbacks(this.orchestrationCallbacks)
+    this.workflows.setCallbacks(this.orchestrationCallbacks)
   }
 
   setAgentNoteCallback(callback: ((agentName: string, text: string) => void) | null): void {
     this.orchestrationCallbacks = { ...this.orchestrationCallbacks, onNote: callback ?? undefined }
     this.orchestrator.setCallbacks(this.orchestrationCallbacks)
+    this.workflows.setCallbacks(this.orchestrationCallbacks)
   }
 
   setToolPermissionHandler(handler: ToolPermissionHandler | null) {
     this.toolPermissionHandler = handler
+  }
+
+  private async authorizeWorkflow(script: string, args: object): Promise<void> {
+    if (this.settings.workflows?.enabled === false || process.env.DEEPSEEK_DISABLE_WORKFLOWS === '1') throw new Error('Dynamic Workflows are disabled')
+    const scriptHash = hashWorkflowValue(script)
+    const approvals = new WorkflowApprovalStore(this.workspacePath)
+    if (this.interactionMode === 'auto' || await approvals.isApproved(scriptHash)) return
+    if (!this.toolPermissionHandler) throw new Error('Workflow execution requires explicit confirmation, but no confirmation handler is available.')
+    const decision = await this.toolPermissionHandler({
+      toolName: 'workflow', args, reason: 'workflow',
+      riskDescription: 'This runs a generated coordination program and may start multiple agents.',
+    })
+    if (decision === 'deny') throw new DenyAbortError()
+    if (decision === 'always') await approvals.approve(scriptHash)
+  }
+
+  async startWorkflow(input: StartWorkflowInput): Promise<WorkflowHandle> {
+    await this.readyPromise
+    try { await this.authorizeWorkflow(input.script, input as unknown as object) }
+    catch (error) { if (error instanceof DenyAbortError) throw new Error('Workflow execution denied'); throw error }
+    return this.workflows.start(input)
+  }
+
+  async restartWorkflow(runId: string): Promise<WorkflowHandle> {
+    return this.startWorkflow(await this.workflows.loadRunInput(runId))
   }
 
   setDiffReviewHandler(handler: ((summary: string) => Promise<boolean>) | null) {
@@ -312,6 +342,13 @@ export class Agent {
       model: this.model,
       snapshotFile: options.snapshotFile !== undefined ? options.snapshotFile : options.sessionId ? taskSnapshotFile(orchestrationSessionId) : null,
     })
+    this.workflows = new WorkflowManager({
+      sessionId: orchestrationSessionId,
+      projectRoot: this.workspacePath,
+      providerConfig: resolvedProvider,
+      model: this.model,
+      interactionMode: () => this.interactionMode,
+    })
     this.setAgentNoteCallback((agentName, text) => this.addAgentNote(agentName, text))
     this.contextLimit = getContextLimit(this.provider, this.model)
     setCheckpointSession(this.hookSessionId)
@@ -344,6 +381,7 @@ export class Agent {
       }
       this.interactionMode = settings.interaction?.defaultMode ?? DEFAULT_MODE
       this.orchestrator.configure({ settings, model: this.model, limits: taskLimitsFromSettings(settings) })
+      this.workflows.configure({ settings, model: this.model, providerConfig: this.providerConfig })
       if (restorePersisted) await this.orchestrator.restorePersisted()
       setSessionRetention(settings.sessions?.retention ?? 50)
       await this.orchestrator.memory.configure(settings.memory ?? {}, this.orchestrator.projectRoot)
@@ -441,7 +479,9 @@ export class Agent {
     await this.readyPromise
     const target = resolve(path)
     const activeAgent = this.activeAgent
+    if (this.workflows.hasActiveRuns()) throw new Error('Cannot change directory while a workflow is active')
     await this.orchestrator.changeProjectRoot(target)
+    this.workflows.changeProjectRoot(target)
     this.workspacePath = target
     this.activeAgent = null
     this.allowedTools = null
@@ -455,6 +495,7 @@ export class Agent {
 
   async shutdown(): Promise<void> {
     this.abortController?.abort(new Error('Agent shutdown'))
+    await this.workflows.shutdown('Agent shutdown')
     await this.orchestrator.shutdown('Agent shutdown')
   }
 
@@ -528,6 +569,7 @@ export class Agent {
     const configuredModel = typeof settings.model === 'string' ? settings.model : settings.model?.default
     if (configuredModel && !this.providerConfig.localModel) this.setModel(configuredModel as Model)
     this.orchestrator.configure({ settings, model: this.model, limits: taskLimitsFromSettings(settings) })
+    this.workflows.configure({ settings, model: this.model, providerConfig: this.providerConfig })
     setSessionRetention(settings.sessions?.retention ?? 50)
     await this.orchestrator.memory.configure(settings.memory ?? {}, this.orchestrator.projectRoot)
     const subagentModel = settings.agents?.subagentModel ?? this.model
@@ -740,6 +782,7 @@ export class Agent {
     this.model = m
     this.contextLimit = getContextLimit(this.provider, m)
     this.orchestrator.configure({ model: m })
+    this.workflows.configure({ model: m })
   }
 
   async generateDescriptions(models: string[]): Promise<Record<string, string>> {
@@ -1530,6 +1573,7 @@ export class Agent {
       return { tc, result: blockMsg }
     }
 
+    let workflowApproved = false
     // Hooks may rewrite arguments, so authorization must inspect the exact
     // object that will be executed.
     let effectiveArgs = parsedArgs
@@ -1550,6 +1594,18 @@ export class Agent {
       if (hookResult.modifiedInput) effectiveArgs = hookResult.modifiedInput
     }
 
+    if (tc.function.name === 'workflow') {
+      const script = effectiveArgs.script
+      if (typeof script !== 'string') {
+        const blockMsg = 'Workflow script must be a string.'
+        cb.onToolCall(tc.function.name, effectiveArgs)
+        cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
+        return { tc, result: blockMsg }
+      }
+      await this.authorizeWorkflow(script, effectiveArgs)
+      workflowApproved = true
+    }
+
     if (tc.function.name === 'write_file' || tc.function.name === 'patch_file') {
       this.turnWriteCount++
     }
@@ -1560,7 +1616,7 @@ export class Agent {
       config: this.settings.risk ?? {},
     })
 
-    let approvedThisCall = false
+    let approvedThisCall = workflowApproved
     let approvedExternalDirectory = false
     let executionExternalPaths = [...this.sessionApprovedDirectories]
     const pathTool = PATH_TOOL_ARGUMENTS[tc.function.name]
@@ -1803,6 +1859,7 @@ export class Agent {
     try {
       return await tool.execute(args, this.orchestrator.toolContext({
         workspacePath: this.workspacePath, signal: this.abortController?.signal, dangerousOperationApproved, approvedExternalPaths,
+        workflowManager: this.workflows, interactionMode: this.interactionMode,
       }))
     } catch (e: unknown) {
       return `Error: ${(e as Error).message}`

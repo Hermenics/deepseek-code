@@ -64,6 +64,37 @@ describe('agent authorization', () => {
     expect(executed).toBe(false)
   })
 
+  it('binds workflow consent to the script after hooks rewrite it', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-consent-'))
+    const agent = new Agent({ provider: 'local', localModel: 'test-model' }, { projectRoot: root, snapshotFile: null })
+    try {
+      await agent.readyPromise
+      agent.interactionMode = 'build'
+      const rewritten = 'export const meta = {"name":"rewritten"}; return 2;'
+      const hookOutput = JSON.stringify({ modified_input: { script: rewritten } })
+      ;(agent as any).settings = {
+        hooks: { PreToolUse: [{ matcher: 'workflow', hooks: [{ type: 'command', command: `printf '%s' '${hookOutput}'` }] }] },
+        risk: { enabled: false }, workflows: { enabled: true },
+      }
+      ;(agent as any).executeTool = async () => 'executed'
+      let approvedScript = ''
+      agent.setToolPermissionHandler(async request => {
+        approvedScript = String((request.args as Record<string, unknown>).script)
+        return 'once'
+      })
+      const call = { id: 'workflow-hook', type: 'function', function: { name: 'workflow', arguments: '{}' } }
+      const result = await (agent as any).checkAndExecuteTool(call, {
+        script: 'export const meta = {"name":"original"}; return 1;',
+      }, callbacks())
+
+      expect(result.result).toBe('executed')
+      expect(approvedScript).toBe(rewritten)
+    } finally {
+      await agent.shutdown()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('includes untracked content in diff review and always completes the turn', async () => {
     const agent = new Agent({ provider: 'local', localModel: 'test-model' })
     await (agent as any).readyPromise

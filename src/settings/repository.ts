@@ -35,6 +35,7 @@ export const DEFAULT_SETTINGS: DeepSeekSettings = {
   lsp: { servers: [], timeoutMs: 10_000 },
   mcp: { enabled: false },
   goal: { maxContinuations: 3 },
+  workflows: { enabled: true },
   interface: {
     theme: 'dark',
     vim: false,
@@ -52,7 +53,7 @@ export const DEFAULT_SETTINGS: DeepSeekSettings = {
 const KNOWN_TOP_LEVEL = new Set([
   'provider', 'model', 'interaction', 'compaction', 'promptRefiner',
   'permissions', 'risk', 'agents', 'memory', 'sessions', 'git', 'lsp', 'mcp', 'interface',
-  'hooks', 'goal', 'theme', 'language', 'autoCompact', 'autoCompactThreshold',
+  'hooks', 'goal', 'workflows', 'theme', 'language', 'autoCompact', 'autoCompactThreshold',
 ])
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -258,9 +259,12 @@ export function validateSettings(settings: DeepSeekSettings, level?: SettingsLev
   const threshold = settings.compaction?.threshold
   if (threshold !== undefined && (typeof threshold !== 'number' || threshold < 0.7 || threshold > 0.95)) add('compaction.threshold', 'Must be between 0.70 and 0.95')
   const concurrency = settings.agents?.concurrency
-  if (concurrency !== undefined && (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 10)) add('agents.concurrency', 'Must be an integer from 1 to 10')
+  if (concurrency !== undefined && (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16)) add('agents.concurrency', 'Must be an integer from 1 to 16')
   const retention = settings.sessions?.retention
   if (retention !== undefined && (!Number.isInteger(retention) || retention < 1)) add('sessions.retention', 'Must be a positive integer')
+  const workflows = settings.workflows as unknown
+  if (workflows !== undefined && !isObject(workflows)) add('workflows', 'Must be an object')
+  else if (isObject(workflows) && workflows.enabled !== undefined && typeof workflows.enabled !== 'boolean') add('workflows.enabled', 'Must be a boolean')
   const minimum = settings.promptRefiner?.minimumLength
   if (minimum !== undefined && (!Number.isInteger(minimum) || minimum < 1)) add('promptRefiner.minimumLength', 'Must be a positive integer')
   const timeout = settings.provider?.timeoutMs
