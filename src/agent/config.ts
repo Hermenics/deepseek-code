@@ -239,10 +239,23 @@ export async function loadAgentRegistry(cwd = process.cwd()): Promise<LoadedAgen
   return results.sort((a, b) => a.config.name.localeCompare(b.config.name))
 }
 
+export class AgentNotFoundError extends Error {
+  constructor(name: string) {
+    super(`Agent '${name}' was not found.`)
+    this.name = 'AgentNotFoundError'
+  }
+}
+
 export async function loadAgentConfig(name: string, cwd = process.cwd()): Promise<LoadedAgent> {
-  const agent = (await loadAgentRegistry(cwd)).find(candidate => candidate.config.name === name && candidate.config.enabled !== false)
-  if (!agent) throw new Error(`Agent '${name}' was not found or is disabled.`)
+  const agent = (await loadAgentRegistry(cwd)).find(candidate => candidate.config.name === name)
+  if (!agent) throw new AgentNotFoundError(name)
+  if (agent.config.enabled === false) throw new Error(`Agent '${name}' is disabled.`)
   return agent
+}
+
+/** True when the error is the "agent not found" rejection from loadAgentConfig. */
+export function isAgentNotFoundError(error: unknown): boolean {
+  return error instanceof AgentNotFoundError
 }
 
 export async function listAgents(cwd = process.cwd()): Promise<Array<{ name: string; source: LoadedAgent['source']; origin: AgentSource; usage: AgentUsage; enabled: boolean }>> {
