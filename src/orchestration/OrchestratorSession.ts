@@ -63,6 +63,7 @@ export class OrchestratorSession {
   private previousResults: PreviousResult[] = []
   private readonly snapshotStore?: TaskSnapshotStore
   private restored = false
+  private genericAgentCounter = 0
 
   constructor(options: OrchestratorSessionOptions = {}) {
     this.sessionId = options.sessionId ?? randomUUID()
@@ -93,6 +94,7 @@ export class OrchestratorSession {
     session.registry.restoreTasks(snapshot.tasks, options.runnerResolver)
     session.registry.mailbox.restore(snapshot.messages)
     session.workspaces.restore(snapshot.tasks)
+    session.syncGenericCounterFromTasks()
     session.restored = true
     session.queueSnapshot()
     return session
@@ -110,6 +112,7 @@ export class OrchestratorSession {
     this.registry.restoreTasks(snapshot.tasks, runnerResolver)
     this.registry.mailbox.restore(snapshot.messages)
     this.workspaces.restore(snapshot.tasks)
+    this.syncGenericCounterFromTasks()
     this.restored = true
     this.queueSnapshot()
     return true
@@ -141,6 +144,24 @@ export class OrchestratorSession {
 
   setCallbacks(callbacks: OrchestratorCallbacks | null): void {
     this.callbacks = callbacks ?? {}
+  }
+
+  /** Allocate the next sequential generic subagent name (Agent1, Agent2, ...) for this session. */
+  nextGenericAgentName(): string {
+    this.genericAgentCounter += 1
+    return `Agent${this.genericAgentCounter}`
+  }
+
+  /**
+   * Re-derive the generic counter from restored task metadata so a rehydrated
+   * session continues the AgentN sequence instead of restarting at Agent1.
+   */
+  private syncGenericCounterFromTasks(): void {
+    for (const record of this.registry.listTasks()) {
+      const name = typeof record.metadata.agentName === 'string' ? record.metadata.agentName : undefined
+      const match = name?.match(/^Agent(\d+)$/)
+      if (match) this.genericAgentCounter = Math.max(this.genericAgentCounter, Number(match[1]))
+    }
   }
 
   subscribe(listener: TaskEventListener): () => void {

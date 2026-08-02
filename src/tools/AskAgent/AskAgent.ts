@@ -1,6 +1,6 @@
 import type { ProviderConfig } from '../../types/provider.js'
 import type { Tool, } from '../types.js'
-import { listAgents } from '../../agent/config.js'
+import { listAgents, loadAgentConfig } from '../../agent/config.js'
 import type { ToolExecutionContext } from '../../orchestration/types.js'
 import {
   getSubAgentSession,
@@ -52,6 +52,11 @@ export const AskAgent: Tool = {
       })
     }
     if (!agent) return 'Error: specify an agent from the active registry or use broadcast=true.'
+    try {
+      await loadAgentConfig(agent, getSubAgentSession(context).projectRoot)
+    } catch (error) {
+      return `Error: ${(error as Error).message}`
+    }
     try {
       const task = await dispatch(agent, question, context)
       return JSON.stringify({ ...task, message: `Dispatched to @${agent}. Response will arrive in your next turn.` })
