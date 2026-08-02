@@ -108,6 +108,7 @@ async function spawnAgentTask(
   context?: ToolExecutionContext,
   origin: 'subagent' | 'ask_agent' = 'subagent',
   workflowTerminal?: WorkflowTerminalOptions,
+  resolvedAgent?: LoadedAgent,
 ): Promise<SpawnedSubAgent<unknown>> {
   const session = getSubAgentSession(context)
   const task = args.task as string
@@ -128,11 +129,16 @@ async function spawnAgentTask(
   const agentArg = args.agent as string | undefined
   let loaded: LoadedAgent | undefined
   if (agentArg) {
-    try {
-      loaded = await loadAgentConfig(agentArg, session.projectRoot)
-    } catch (error) {
-      if (!isAgentNotFoundError(error)) throw error
-      // Unknown agent name → spawn as a generic subagent below.
+    if (resolvedAgent?.config.name === agentArg) {
+      // Caller (e.g. AskAgent) already resolved this agent — skip the second registry load.
+      loaded = resolvedAgent
+    } else {
+      try {
+        loaded = await loadAgentConfig(agentArg, session.projectRoot)
+      } catch (error) {
+        if (!isAgentNotFoundError(error)) throw error
+        // Unknown agent name → spawn as a generic subagent below.
+      }
     }
   }
   if (loaded && !['subagent', 'both'].includes(loaded.config.usage ?? 'primary')) throw new Error(`Agent '${agentArg}' is not enabled for subagent use`)
@@ -299,8 +305,9 @@ export async function spawnSubAgentTask(
   args: Record<string, unknown>,
   context?: ToolExecutionContext,
   origin: 'subagent' | 'ask_agent' = 'subagent',
+  resolvedAgent?: LoadedAgent,
 ): Promise<SpawnedSubAgent> {
-  return await spawnAgentTask(args, context, origin) as SpawnedSubAgent
+  return await spawnAgentTask(args, context, origin, undefined, resolvedAgent) as SpawnedSubAgent
 }
 
 export async function spawnWorkflowAgentTask(

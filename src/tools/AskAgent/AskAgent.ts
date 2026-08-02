@@ -1,6 +1,6 @@
 import type { ProviderConfig } from '../../types/provider.js'
 import type { Tool, } from '../types.js'
-import { listAgents, loadAgentConfig } from '../../agent/config.js'
+import { listAgents, loadAgentConfig, type LoadedAgent } from '../../agent/config.js'
 import type { ToolExecutionContext } from '../../orchestration/types.js'
 import {
   getSubAgentSession,
@@ -17,8 +17,8 @@ export function setAskAgentModel(model: string): void { setSubAgentModel(model) 
 /** @deprecated Use Agent.setAgentNoteCallback. */
 export function setAgentNoteCallback(callback: (agentName: string, text: string) => void): void { setLegacyAgentNoteCallback(callback) }
 
-async function dispatch(agent: string, question: string, context?: ToolExecutionContext) {
-  const { handle } = await spawnSubAgentTask({ task: question, agent, mode: 'background', context: 'fresh' }, context, 'ask_agent')
+async function dispatch(agent: string, question: string, context?: ToolExecutionContext, resolvedAgent?: LoadedAgent) {
+  const { handle } = await spawnSubAgentTask({ task: question, agent, mode: 'background', context: 'fresh' }, context, 'ask_agent', resolvedAgent)
   return { schemaVersion: 1 as const, sessionId: handle.sessionId, taskId: handle.taskId, state: handle.status().state, agent }
 }
 
@@ -52,13 +52,14 @@ export const AskAgent: Tool = {
       })
     }
     if (!agent) return 'Error: specify an agent from the active registry or use broadcast=true.'
+    let resolved: LoadedAgent | undefined
     try {
-      await loadAgentConfig(agent, getSubAgentSession(context).projectRoot)
+      resolved = await loadAgentConfig(agent, getSubAgentSession(context).projectRoot)
     } catch (error) {
       return `Error: ${(error as Error).message}`
     }
     try {
-      const task = await dispatch(agent, question, context)
+      const task = await dispatch(agent, question, context, resolved)
       return JSON.stringify({ ...task, message: `Dispatched to @${agent}. Response will arrive in your next turn.` })
     } catch (error) {
       return `Error: ${(error as Error).message}`
