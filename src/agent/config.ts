@@ -239,13 +239,24 @@ export async function loadAgentRegistry(cwd = process.cwd()): Promise<LoadedAgen
   return results.sort((a, b) => a.config.name.localeCompare(b.config.name))
 }
 
+/**
+ * Thrown when loadAgentConfig cannot find an agent with the requested name.
+ * Distinct from the disabled-agent error so callers can choose between a
+ * generic fallback (unknown name) and a loud failure (deliberately disabled).
+ */
 export class AgentNotFoundError extends Error {
+  /** Raised with the agent name that could not be resolved. */
   constructor(name: string) {
     super(`Agent '${name}' was not found.`)
     this.name = 'AgentNotFoundError'
   }
 }
 
+/**
+ * Load the agent with the given name from the merged registry, rejecting with
+ * AgentNotFoundError when it does not exist and a plain Error when it is
+ * explicitly disabled.
+ */
 export async function loadAgentConfig(name: string, cwd = process.cwd()): Promise<LoadedAgent> {
   const agent = (await loadAgentRegistry(cwd)).find(candidate => candidate.config.name === name)
   if (!agent) throw new AgentNotFoundError(name)

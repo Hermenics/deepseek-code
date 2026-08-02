@@ -69,6 +69,7 @@ function agentLabel(agent: SubagentState): { label: string; fixed: boolean } {
   return { label: name || 'Subagent', fixed: false }
 }
 
+/** Merge standalone agents and active workflows into one activity list, sorted by start time. */
 export function buildActivityItems(agents: SubagentState[], workflows: WorkflowRun[]): ActivityItem[] {
   const agentItems: AgentActivityItem[] = agents.filter(agent => !agent.workflowRunId).map(agent => {
     const identity = agentLabel(agent)
@@ -89,11 +90,16 @@ export function buildActivityItems(agents: SubagentState[], workflows: WorkflowR
   return [...agentItems, ...workflowItems].sort((left, right) => left.startedAt - right.startedAt)
 }
 
+/** Cap the activity list at maxRows, reporting how many entries were cut off. */
 export function compactActivityItems(items: ActivityItem[], maxRows = 5): { rows: ActivityItem[]; overflow: number } {
   const rows = items.slice(0, Math.max(0, maxRows))
   return { rows, overflow: Math.max(0, items.length - rows.length) }
 }
 
+/**
+ * Format one activity row: status icon (overridable, e.g. the selection ball),
+ * label, description and metrics, truncated to the requested width.
+ */
 export function formatActivityItem(item: ActivityItem, columns: number, now = Date.now(), iconOverride?: string): string {
   const icon = STATUS_ICONS[item.status] ?? '•'
   const elapsed = item.kind === 'agent' && item.agent.durationMs != null
@@ -154,6 +160,11 @@ export interface ActivityFooterProps {
   mainLabel?: string
 }
 
+/**
+ * Bottom-of-screen activity panel with three render modes: closed (main header
+ * plus flat rows and an overflow line), open (cursor-slot list where main is
+ * selectable at index -1), and detail (full breakdown of the selected item).
+ */
 export function ActivityFooter({
   agents, workflows, open, onClose, onOpenWorkflow, onTaskAction, onWorkflowAction,
   theme = 'dark', mainLabel = 'main',
