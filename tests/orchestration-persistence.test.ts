@@ -41,6 +41,23 @@ describe('orchestrator snapshots', () => {
     pending.cancel()
   })
 
+  it('continues the generic AgentN sequence across snapshot restore', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-mas-counter-'))
+    roots.push(root)
+    const snapshotFile = join(root, 'session.json')
+    const original = new OrchestratorSession({ sessionId: 'counter', projectRoot: root, snapshotFile, logFile: null })
+    await original.spawn({ taskId: 'a1', metadata: { agentName: 'Agent1' } }, async () => 'done').awaitResult()
+    await original.spawn({ taskId: 'a2', metadata: { agentName: 'Agent2' } }, async () => 'done').awaitResult()
+    await original.flush()
+
+    const restored = await OrchestratorSession.restore({ projectRoot: root, snapshotFile, logFile: null })
+    expect(restored.nextGenericAgentName()).toBe('Agent3')
+
+    const fresh = new OrchestratorSession({ sessionId: 'counter', projectRoot: root, snapshotFile, logFile: null })
+    expect(await fresh.restorePersisted()).toBe(true)
+    expect(fresh.nextGenericAgentName()).toBe('Agent3')
+  })
+
   it('persists mailbox state with secret redaction and validates the project root', async () => {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-mas-snapshot-'))
     roots.push(root)
