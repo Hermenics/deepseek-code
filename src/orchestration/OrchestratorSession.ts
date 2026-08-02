@@ -86,6 +86,7 @@ export class OrchestratorSession {
     })
   }
 
+  /** Rebuild a session from a snapshot file, marking interrupted tasks failed and re-deriving the generic agent counter. */
   static async restore(options: OrchestratorSessionOptions & { snapshotFile: string; projectRoot: string; runnerResolver?: TaskRunnerResolver }): Promise<OrchestratorSession> {
     const snapshot = await TaskSnapshotStore.read(options.snapshotFile)
     if (options.sessionId && options.sessionId !== snapshot.sessionId) throw new Error('Snapshot sessionId does not match requested session')
@@ -100,6 +101,7 @@ export class OrchestratorSession {
     return session
   }
 
+  /** Rehydrate this session from its configured snapshot file; returns false when no snapshot exists yet. */
   async restorePersisted(runnerResolver?: TaskRunnerResolver): Promise<boolean> {
     if (this.restored || !this.snapshotStore) return false
     let snapshot
