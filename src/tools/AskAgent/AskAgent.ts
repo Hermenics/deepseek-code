@@ -17,6 +17,7 @@ export function setAskAgentModel(model: string): void { setSubAgentModel(model) 
 /** @deprecated Use Agent.setAgentNoteCallback. */
 export function setAgentNoteCallback(callback: (agentName: string, text: string) => void): void { setLegacyAgentNoteCallback(callback) }
 
+/** Dispatch a background ask to a single agent, optionally reusing a caller-resolved agent config. */
 async function dispatch(agent: string, question: string, context?: ToolExecutionContext, resolvedAgent?: LoadedAgent) {
   const { handle } = await spawnSubAgentTask({ task: question, agent, mode: 'background', context: 'fresh' }, context, 'ask_agent', resolvedAgent)
   return { schemaVersion: 1 as const, sessionId: handle.sessionId, taskId: handle.taskId, state: handle.status().state, agent }
@@ -32,6 +33,7 @@ export const AskAgent: Tool = {
     },
     required: ['question'],
   },
+  /** Validate the target agent and dispatch the ask, returning an error string for unresolvable names. */
   async execute(args, context) {
     const question = args.question as string
     const agent = args.agent as string | undefined

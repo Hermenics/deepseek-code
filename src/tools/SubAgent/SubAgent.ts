@@ -103,6 +103,11 @@ function effectiveToolAllowlist(profile: PermissionProfile, configured?: string[
   return allowed
 }
 
+/**
+ * Spawn an agent task, resolving the configured agent (or falling back to a
+ * generic AgentN name for unknown names). A caller-resolved agent matching
+ * the requested name skips the second registry load.
+ */
 async function spawnAgentTask(
   args: Record<string, unknown>,
   context?: ToolExecutionContext,
@@ -301,6 +306,7 @@ async function spawnAgentTask(
   }
 }
 
+/** Spawn a bounded subagent task; pass resolvedAgent to reuse a caller-loaded agent config. */
 export async function spawnSubAgentTask(
   args: Record<string, unknown>,
   context?: ToolExecutionContext,
