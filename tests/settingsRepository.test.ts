@@ -55,9 +55,9 @@ describe('SettingsRepository', () => {
     await expect(repository.setMany('project', [['interface.vim', true], ['agents.concurrency', 99]])).rejects.toThrow('agents.concurrency')
     expect((await repository.reload()).levels.project.data.interface?.vim).toBeUndefined()
 
-    const snapshot = await repository.setMany('project', [['interface.vim', true], ['agents.concurrency', 3]])
+    const snapshot = await repository.setMany('project', [['interface.vim', true], ['agents.concurrency', 16]])
     expect(snapshot.levels.project.data.interface?.vim).toBe(true)
-    expect(snapshot.levels.project.data.agents?.concurrency).toBe(3)
+    expect(snapshot.levels.project.data.agents?.concurrency).toBe(16)
   })
 
   it('rejects secret-shaped keys nested inside a setting value', async () => {
@@ -118,6 +118,11 @@ describe('SettingsRepository', () => {
     expect(issues.map(issue => issue.path)).toContain('hooks.PreToolUse.0')
     expect(issues.map(issue => issue.path)).toContain('hooks.PreToolUse.1.hooks')
     expect(issues.map(issue => issue.path)).toContain('hooks.SessionStart.1.command')
+  })
+
+  it('rejects malformed workflow configuration containers', () => {
+    expect(validateSettings({ workflows: 'enabled' as never })).toContainEqual(expect.objectContaining({ path: 'workflows', message: 'Must be an object' }))
+    expect(validateSettings({ workflows: { enabled: 'yes' as never } })).toContainEqual(expect.objectContaining({ path: 'workflows.enabled', message: 'Must be a boolean' }))
   })
 
   it('never activates Auto mode or executable configuration from project files', async () => {
