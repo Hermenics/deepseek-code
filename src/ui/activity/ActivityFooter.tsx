@@ -180,14 +180,23 @@ export function ActivityFooter({
       if (detail) { setDetail(false); setFeedback('') } else onClose()
       return
     }
-    if (detail) return
-    if (key.upArrow) { setSelected(value => (value - 1 + items.length) % items.length); return }
-    if (key.downArrow) { setSelected(value => (value + 1) % items.length); return }
+    if (detail) {
+      if (key.upArrow || key.downArrow || key.return) return
+    } else {
+      if (key.upArrow) {
+        if (selected === 0) { onClose(); return }
+        setSelected(value => value - 1)
+        return
+      }
+      if (key.downArrow) { setSelected(value => (value + 1) % items.length); return }
+    }
     const item = items[selected]
     if (!item) return
     if (key.return) {
-      if (item.kind === 'workflow') onOpenWorkflow(item.run.runId)
-      else setDetail(true)
+      if (!detail) {
+        if (item.kind === 'workflow') onOpenWorkflow(item.run.runId)
+        else setDetail(true)
+      }
       return
     }
     if (input === 'x' && item.active) {
@@ -206,7 +215,8 @@ export function ActivityFooter({
 
   if (!items.length) return null
   if (open && detail) {
-    const item = items[selected]!
+    const safeIndex = Math.min(selected, items.length - 1)
+    const item = items[safeIndex]!
     return (
       <Box flexDirection="column" paddingLeft={2}>
         {detailLines(item, now).map((line, index) => (
