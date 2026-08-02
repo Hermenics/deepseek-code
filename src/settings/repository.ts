@@ -262,7 +262,9 @@ export function validateSettings(settings: DeepSeekSettings, level?: SettingsLev
   if (concurrency !== undefined && (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16)) add('agents.concurrency', 'Must be an integer from 1 to 16')
   const retention = settings.sessions?.retention
   if (retention !== undefined && (!Number.isInteger(retention) || retention < 1)) add('sessions.retention', 'Must be a positive integer')
-  if (settings.workflows?.enabled !== undefined && typeof settings.workflows.enabled !== 'boolean') add('workflows.enabled', 'Must be a boolean')
+  const workflows = settings.workflows as unknown
+  if (workflows !== undefined && !isObject(workflows)) add('workflows', 'Must be an object')
+  else if (isObject(workflows) && workflows.enabled !== undefined && typeof workflows.enabled !== 'boolean') add('workflows.enabled', 'Must be a boolean')
   const minimum = settings.promptRefiner?.minimumLength
   if (minimum !== undefined && (!Number.isInteger(minimum) || minimum < 1)) add('promptRefiner.minimumLength', 'Must be a positive integer')
   const timeout = settings.provider?.timeoutMs

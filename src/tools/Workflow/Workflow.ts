@@ -25,6 +25,10 @@ export const Workflow: Tool = {
       maxTokens: args.maxTokens as number | undefined,
       maxCostUsd: args.maxCostUsd as number | undefined,
     })
-    return JSON.stringify(await handle.result)
+    const onAbort = () => handle.cancel(context.signal?.reason instanceof Error ? context.signal.reason.message : undefined)
+    context.signal?.addEventListener('abort', onAbort, { once: true })
+    if (context.signal?.aborted) onAbort()
+    try { return JSON.stringify(await handle.result) }
+    finally { context.signal?.removeEventListener('abort', onAbort) }
   },
 }
