@@ -38,6 +38,8 @@ import mobile from './mobile/index.js'
 import logout from './logout/index.js'
 import features from './features/index.js'
 import goal from './goal/index.js'
+import workflow from './workflow/index.js'
+import workflows from './workflows/index.js'
 
 const commands: Command[] = [
   help,
@@ -77,6 +79,8 @@ const commands: Command[] = [
   mobile,
   logout,
   goal,
+  workflow,
+  workflows,
   features,
 ]
 

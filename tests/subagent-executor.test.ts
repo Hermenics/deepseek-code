@@ -18,8 +18,8 @@ function fakeClient(messages: Array<Record<string, unknown>>) {
   return { chat: { completions: { create: async () => response(messages.shift() ?? { content: null }) } } } as any
 }
 
-function terminalArgs(value: unknown, id = 'terminal') {
-  return { content: null, tool_calls: [{ id, type: 'function', function: { name: 'submit_result', arguments: JSON.stringify(value) } }] }
+function terminalArgs(value: unknown, id = 'terminal', name = 'submit_result') {
+  return { content: null, tool_calls: [{ id, type: 'function', function: { name, arguments: JSON.stringify(value) } }] }
 }
 
 const terminal = {
@@ -43,6 +43,29 @@ describe('subagent terminal protocol', () => {
     })
     expect(result.terminalResult).toEqual(valid)
     expect(result.rawOutput).toContain('incomplete')
+  })
+
+  it('supports a workflow-defined terminal schema with five correction attempts', async () => {
+    const workflowTerminal = {
+      name: 'submit_workflow_result', description: 'submit workflow result', maxValidationRetries: 5,
+      schema: { type: 'object', additionalProperties: false, properties: { answer: { type: 'number' } }, required: ['answer'] },
+    }
+    const messages = Array.from({ length: 5 }, (_, index) => terminalArgs({}, `bad-${index}`, workflowTerminal.name))
+    messages.push(terminalArgs({ answer: 42 }, 'good', workflowTerminal.name))
+    const result = await runSubAgentLoop<{ answer: number }>('system', 'task', 'id', [], provider, 'fake', {
+      client: fakeClient(messages), terminal: workflowTerminal,
+    })
+    expect(result.terminalResult).toEqual({ answer: 42 })
+  })
+
+  it('passes workflow reasoning effort to supported providers', async () => {
+    let request: Record<string, unknown> = {}
+    const client = { chat: { completions: { create: async (input: Record<string, unknown>) => {
+      request = input
+      return response(terminalArgs(valid))
+    } } } } as any
+    await runSubAgentLoop('system', 'task', 'id', [], { provider: 'deepseek' }, 'special-model', { client, terminal, effort: 'high' })
+    expect(request).toMatchObject({ model: 'special-model', reasoning_effort: 'high', thinking: { type: 'enabled' } })
   })
 
   it('fails when output is absent, mixed, multiple or repeatedly invalid', async () => {

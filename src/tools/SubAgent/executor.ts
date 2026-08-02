@@ -21,7 +21,7 @@ export interface ExecutorCallbacks {
 }
 
 export interface TerminalTool<T> {
-  name: 'submit_result' | 'submit_verification'
+  name: string
   description: string
   schema: object
   maxValidationRetries?: number
@@ -33,6 +33,7 @@ export interface SubAgentLoopOptions<T> {
   context?: ToolExecutionContext
   terminal?: TerminalTool<T>
   client?: ReturnType<typeof createLLMClient>
+  effort?: 'low' | 'high' | 'max'
 }
 
 export interface SubAgentLoopResult<T = never> {
@@ -82,7 +83,14 @@ export async function runSubAgentLoop<T = never>(
 
   for (let iteration = 0; iteration < SUBAGENT_MAX_ITERATIONS; iteration++) {
     if (options.context?.signal?.aborted) throw options.context.signal.reason
-    const response = await client.chat.completions.create({ model: modelName, messages, tools: tools.length > 0 ? tools : undefined }, { signal: options.context?.signal })
+    const effortParams = (provider.provider === 'deepseek' || provider.provider === 'bedrock') && options.effort
+      ? options.effort === 'low'
+        ? { thinking: { type: 'disabled' } }
+        : { reasoning_effort: options.effort, thinking: { type: 'enabled' } }
+      : {}
+    const response = await client.chat.completions.create({
+      model: modelName, messages, tools: tools.length > 0 ? tools : undefined, ...effortParams,
+    } as any, { signal: options.context?.signal })
     totalTokens += response.usage?.total_tokens ?? 0
     if (options.context?.maxTokens !== undefined && totalTokens > options.context.maxTokens) {
       throw new TaskRuntimeError('TOKEN_BUDGET_EXCEEDED', `Subagent used ${totalTokens} tokens; limit is ${options.context.maxTokens}`)

@@ -221,6 +221,8 @@ export interface ToolExecutionContext {
   /** External filesystem roots explicitly approved for this agent session. */
   approvedExternalPaths?: string[]
   session?: import('./OrchestratorSession.js').OrchestratorSession
+  workflowManager?: import('../workflows/manager.js').WorkflowManager
+  interactionMode?: import('../ui/interactionMode.js').InteractionMode
   emit?(type: TaskEventType, payload: Record<string, unknown>): void
 }
 
