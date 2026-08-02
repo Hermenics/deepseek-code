@@ -42,6 +42,13 @@ describe('activity footer model', () => {
     ])
   })
 
+  test('labels temporary agents with their sequential AgentN name', () => {
+    const items = buildActivityItems([agent({ id: 'temp', agentName: 'Agent3' })], [])
+
+    expect(items[0]).toMatchObject({ id: 'temp', label: 'Agent3', fixed: false })
+    expect(formatActivityItem(items[0]!, 100)).toContain('Agent3')
+  })
+
   test('includes only queued and running workflows in the compact footer', () => {
     const items = buildActivityItems([], [
       workflow({ runId: 'running', status: 'running' }),
@@ -72,6 +79,7 @@ describe('activity footer model', () => {
     expect(rich).toContain('Reviewer')
     expect(rich).toContain('Inspect the repository')
     expect(rich).toContain('10s')
+    expect(formatActivityItem(item, 100, 11_000, '●')).toMatch(/^● /)
     expect(rich.length).toBeLessThanOrEqual(100)
     expect(narrow.length).toBeLessThanOrEqual(38)
   })

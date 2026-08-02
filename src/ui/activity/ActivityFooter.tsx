@@ -94,7 +94,7 @@ export function compactActivityItems(items: ActivityItem[], maxRows = 5): { rows
   return { rows, overflow: Math.max(0, items.length - rows.length) }
 }
 
-export function formatActivityItem(item: ActivityItem, columns: number, now = Date.now()): string {
+export function formatActivityItem(item: ActivityItem, columns: number, now = Date.now(), iconOverride?: string): string {
   const icon = STATUS_ICONS[item.status] ?? '•'
   const elapsed = item.kind === 'agent' && item.agent.durationMs != null
     ? item.agent.durationMs
@@ -111,7 +111,7 @@ export function formatActivityItem(item: ActivityItem, columns: number, now = Da
     const tokens = formatTokens(item.run.usage.tokens)
     if (tokens) metrics.push(tokens)
   }
-  const prefix = `${icon} ${item.kind === 'workflow' ? 'workflow ' : ''}${item.label}`
+  const prefix = `${iconOverride ?? icon} ${item.kind === 'workflow' ? 'workflow ' : ''}${item.label}`
   if (columns < 55) return truncate(`${prefix} · ${metrics[0]}`, columns)
   const suffix = metrics.join(' · ')
   const descriptionWidth = Math.max(8, columns - prefix.length - suffix.length - 6)
@@ -162,14 +162,14 @@ export function ActivityFooter({
   const tick = useClock()
   const now = Date.now()
   const items = useMemo(() => buildActivityItems(agents, workflows), [agents, workflows, tick])
-  const [selected, setSelected] = useState(0)
+  const [selected, setSelected] = useState(-1)
   const [detail, setDetail] = useState(false)
   const [feedback, setFeedback] = useState('')
   const columns = Math.max(20, (process.stdout.columns ?? 80) - 4)
   const report = (operation: Promise<string>) => void operation.then(setFeedback).catch(error => setFeedback((error as Error).message))
 
   useEffect(() => {
-    if (!open) { setSelected(0); setDetail(false); setFeedback(''); return }
+    if (!open) { setSelected(-1); setDetail(false); setFeedback(''); return }
     if (!items.length) onClose()
     else if (selected >= items.length) setSelected(items.length - 1)
   }, [items.length, onClose, open, selected])
@@ -184,11 +184,15 @@ export function ActivityFooter({
       if (key.upArrow || key.downArrow || key.return) return
     } else {
       if (key.upArrow) {
-        if (selected === 0) { onClose(); return }
+        if (selected === -1) { onClose(); return }
         setSelected(value => value - 1)
         return
       }
-      if (key.downArrow) { setSelected(value => (value + 1) % items.length); return }
+      if (key.downArrow) {
+        if (items.length === 0) return
+        setSelected(value => (value === items.length - 1 ? -1 : value + 1))
+        return
+      }
     }
     const item = items[selected]
     if (!item) return
@@ -235,12 +239,15 @@ export function ActivityFooter({
   const compact = compactActivityItems(items.slice(start), maxRows)
   return (
     <Box flexDirection="column" paddingLeft={2}>
-      <Text color={colors.primary}>{`${open ? '❯' : '●'} ${mainLabel}`}</Text>
-      {compact.rows.map((item, index) => (
-        <Text key={`${item.kind}-${item.id}`} color={item.active ? colors.primary : item.status === 'done' ? colors.success : colors.textDim}>
-          {`${open && start + index === selected ? '❯' : index === compact.rows.length - 1 ? '└─' : '├─'} ${formatActivityItem(item, columns - 3, now)}`}
-        </Text>
-      ))}
+      <Text color={open && selected !== -1 ? colors.textDim : colors.primary}>{`${open ? (selected === -1 ? '❯ ●' : '  ◌') : '●'} ${mainLabel}`}</Text>
+      {compact.rows.map((item, index) => {
+        const isSelected = open && start + index === selected
+        return (
+          <Text key={`${item.kind}-${item.id}`} color={item.active ? colors.primary : item.status === 'done' ? colors.success : colors.textDim}>
+            {`${open ? (isSelected ? '❯ ' : '  ') : ''}${formatActivityItem(item, open ? columns - 4 : columns - 2, now, isSelected ? '●' : undefined)}`}
+          </Text>
+        )
+      })}
       {!open && compact.overflow > 0 && <Text color={colors.textSubtle}>{`  … +${compact.overflow} activities`}</Text>}
       {open && <Text color={colors.textSubtle}>{feedback || '↑/↓ select · Enter view · x stop · p pause · r resume agent · Esc close'}</Text>}
     </Box>

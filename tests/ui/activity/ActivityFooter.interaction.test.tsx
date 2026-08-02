@@ -56,12 +56,54 @@ test('controls and opens the selected workflow', async () => {
 
   try {
     await Bun.sleep(100)
+    // Move the ball from main (-1) to the workflow item
+    stdin.write('\x1b[B')
+    await Bun.sleep(100)
     stdin.write('p')
     await Bun.sleep(100)
     stdin.write('\r')
     await Bun.sleep(100)
     expect(actions).toEqual(['pause'])
     expect(opened).toEqual(['workflow-1'])
+  } finally {
+    stdout.isTTY = false
+    instance.unmount()
+    instance.cleanup()
+  }
+})
+
+test('closed state renders the main header and flat agent rows', async () => {
+  const stdin = new FakeTerminal()
+  const stdout = new FakeTerminal()
+  const agent = fakeAgent({ status: 'running' })
+
+  const instance = renderSync(
+    <ActivityFooter
+      agents={[agent]}
+      workflows={[]}
+      open={false}
+      onClose={() => {}}
+      onOpenWorkflow={() => {}}
+      onTaskAction={async () => ''}
+      onWorkflowAction={async () => ''}
+    />,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stderr: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  )
+
+  try {
+    await Bun.sleep(100)
+    // Ink emits cursor-forward codes (\x1b[1C) instead of spaces; normalize to visible text
+    const output = (stdout.read()?.toString() ?? '')
+      .replace(/\x1b\[\d*C/g, ' ')
+      .replace(/\x1b\[[?0-9;]*[a-zA-Z]/g, '')
+    expect(output).toContain('● main')
+    expect(output).toContain('◯ Coder')
   } finally {
     stdout.isTTY = false
     instance.unmount()
@@ -96,7 +138,9 @@ test('agent detail mode: x cancels running agent and r resumes resumable agent',
 
   try {
     await Bun.sleep(100)
-    // Enter detail mode for the agent
+    // Move the ball from main (-1) to the agent, then enter detail mode
+    stdin.write('\x1b[B')
+    await Bun.sleep(100)
     stdin.write('\r')
     await Bun.sleep(100)
     // x should cancel even in detail mode
@@ -137,7 +181,9 @@ test('agent detail mode: r triggers resume for a failed agent', async () => {
 
   try {
     await Bun.sleep(100)
-    // Enter detail mode
+    // Move the ball from main (-1) to the agent, then enter detail mode
+    stdin.write('\x1b[B')
+    await Bun.sleep(100)
     stdin.write('\r')
     await Bun.sleep(100)
     // r should resume in detail mode

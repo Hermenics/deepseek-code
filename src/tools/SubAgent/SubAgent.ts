@@ -1,13 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import type { ProviderConfig } from '../../types/provider.js'
 import type { Tool, } from '../types.js'
-import type { AgentConfig } from '../../agent/config.js'
+import type { AgentConfig, LoadedAgent } from '../../agent/config.js'
 import type { PermissionProfile, TaskHandle, TaskLimits, TaskResultEnvelopeV1, ToolExecutionContext } from '../../orchestration/types.js'
 import { OrchestratorSession } from '../../orchestration/OrchestratorSession.js'
 import { TaskRuntimeError } from '../../orchestration/lifecycle.js'
 import { SUBAGENT_RESULT_SCHEMA, VERIFICATION_RESULT_SCHEMA } from '../../orchestration/schema.js'
 import { defaultModel } from '../../agent/llmClient.js'
-import { composeSubAgentPrompt, loadAgentConfig } from '../../agent/config.js'
+import { composeSubAgentPrompt, isAgentNotFoundError, loadAgentConfig } from '../../agent/config.js'
 import { loadMergedSettings } from '../../settings/loader.js'
 import { runSubAgentLoop } from './executor.js'
 import { formatResultForParent, StructuredOutputError, validateSubAgentResult, type SubAgentResult } from './contracts.js'
@@ -24,6 +24,7 @@ export interface SubAgentCallbacks {
 interface SpawnedSubAgent<T = SubAgentResult> {
   handle: TaskHandle<T>
   agentName?: string
+  note?: string
 }
 
 interface WorkflowTerminalOptions {
@@ -125,9 +126,19 @@ async function spawnAgentTask(
   session.configure({ settings, limits: configuredLimits })
 
   const agentArg = args.agent as string | undefined
-  const loaded = agentArg ? await loadAgentConfig(agentArg, session.projectRoot) : undefined
+  let loaded: LoadedAgent | undefined
+  if (agentArg) {
+    try {
+      loaded = await loadAgentConfig(agentArg, session.projectRoot)
+    } catch (error) {
+      if (!isAgentNotFoundError(error)) throw error
+      // Unknown agent name → spawn as a generic subagent below.
+    }
+  }
   if (loaded && !['subagent', 'both'].includes(loaded.config.usage ?? 'primary')) throw new Error(`Agent '${agentArg}' is not enabled for subagent use`)
   const selected = loaded?.config
+  const genericName = selected ? undefined : session.nextGenericAgentName()
+  const agentName = selected?.name ?? genericName
   const role = selected?.role ?? (args.role as SubAgentRole | undefined) ?? inferRole(task)
   const profile = roleProfile(role, selected)
   const parent = context?.taskId ? session.registry.getStatus(context.taskId) : undefined
@@ -151,7 +162,7 @@ async function spawnAgentTask(
     permissionProfile: profile,
     allowedTools,
     cancellationPolicy: mode === 'background' ? 'detach' : 'cascade',
-    metadata: { origin, task: typeof args.label === 'string' ? args.label : task, agentName: selected?.name, role, model: modelName },
+    metadata: { origin, task: typeof args.label === 'string' ? args.label : task, agentName, role, model: modelName },
   }, async runContext => {
     const lease = await session.acquireWorkspace(runContext.taskId, profile, runContext.signal)
     const toolContext = session.toolContext({
@@ -277,7 +288,11 @@ async function spawnAgentTask(
     if (context.signal.aborted) cancel()
     else context.signal.addEventListener('abort', cancel, { once: true })
   }
-  return { handle, agentName: selected?.name }
+  return {
+    handle,
+    agentName,
+    note: agentArg && !selected ? `spawned as generic: agent '${agentArg}' not found` : undefined,
+  }
 }
 
 export async function spawnSubAgentTask(
@@ -314,7 +329,7 @@ export const SubAgent: Tool = {
     const spawned = await spawnSubAgentTask(args, context)
     const mode = (args.mode as string | undefined) ?? 'foreground'
     if (mode === 'background') {
-      return JSON.stringify({ schemaVersion: 1, sessionId: spawned.handle.sessionId, taskId: spawned.handle.taskId, state: spawned.handle.status().state, agent: spawned.agentName })
+      return JSON.stringify({ schemaVersion: 1, sessionId: spawned.handle.sessionId, taskId: spawned.handle.taskId, state: spawned.handle.status().state, agent: spawned.agentName, note: spawned.note })
     }
     const result = await spawned.handle.awaitResult()
     if (result.status !== 'done' || !result.value) throw new Error(`[${result.error?.code ?? result.status}] ${result.error?.message ?? 'Subagent failed'}`)
