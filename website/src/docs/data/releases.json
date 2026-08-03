@@ -1,0 +1,450 @@
+[
+  {
+    "version": "0.6.2",
+    "changes": [
+      "Docs: Add comprehensive JSDoc comments to public APIs",
+      "Added: Pass resolved agent config to subagent spawning to avoid duplicate registry lookups",
+      "Added: Enhance agent loading and generic subagent naming"
+    ]
+  },
+  {
+    "version": "0.6.1",
+    "changes": [
+      "Added: Improve activity footer keyboard navigation and detail mode handling",
+      "Added: Integrate activity footer and workflow monitoring with enhanced subagent tracking",
+      "Docs: Create comprehensive project report with architecture and assessment"
+    ]
+  },
+  {
+    "version": "0.6.0",
+    "changes": [
+      "Added: Enhance runtime stability, safety, and configuration",
+      "Added: Workflow management system with CLI commands and authorization"
+    ]
+  },
+  {
+    "version": "0.5.0",
+    "changes": [
+      "Refactored: Strengthen hook executor safety and expand test coverage",
+      "Refactored: Address CodeRabbit PR #12 findings across kernel modules",
+      "Added: Orchestration kernel with store, events, threads, and workspace management",
+      "Docs: Reorganize skill documentation and expand SDD architecture"
+    ]
+  },
+  {
+    "version": "0.4.15",
+    "changes": [
+      "Chore: Add pull request template with validation checklist",
+      "CI: Enhance workflow security and restrict checkout permissions",
+      "Tests: Refactor Bedrock MCP tool test and export helper",
+      "Chore: Improve artifact validation and add rollback on build failure",
+      "Chore: Add artifact rebuild step before publishing",
+      "Chore: Reorganize CI/CD pipeline and modernize testing infrastructure"
+    ]
+  },
+  {
+    "version": "0.4.14",
+    "changes": [
+      "Tests: Add terminal and plugin regression coverage"
+    ]
+  },
+  {
+    "version": "0.4.13",
+    "changes": [
+      "Added: Make project MCP servers opt-in and require Bun 1.1+",
+      "Chore: Enhance craco configuration with health check and dev server improvements"
+    ]
+  },
+  {
+    "version": "0.4.12",
+    "changes": [
+      "Added: Model descriptions and vim-style navigation"
+    ]
+  },
+  {
+    "version": "0.4.11",
+    "changes": [
+      "Added: Configurable max continuations setting",
+      "Style: Replace lucide Package icon with custom SVG and add provider documentation links",
+      "Chore: Add QR code support and upgrade dependencies"
+    ]
+  },
+  {
+    "version": "0.4.10",
+    "changes": [
+      "Added: Persistent goal management system with continuations"
+    ]
+  },
+  {
+    "version": "0.4.9",
+    "changes": [
+      "Added: Restructure session storage with project isolation and migration support",
+      "Added: Enhance quickstart section with decorative SVG and responsive labels"
+    ]
+  },
+  {
+    "version": "0.4.8",
+    "changes": [
+      "Refactored: Separate tool error handling from execution logic"
+    ]
+  },
+  {
+    "version": "0.4.7",
+    "changes": [
+      "Added: Legacy .claude directory migration and duplicate detection",
+      "Chore: Update skills directory path from .claude to .deepseek"
+    ]
+  },
+  {
+    "version": "0.4.6",
+    "changes": [
+      "Added: Enhance terminal mock with animated scene playback and streaming effects"
+    ]
+  },
+  {
+    "version": "0.4.5",
+    "changes": [
+      "Added: Safety validation and structured auto-memory extraction",
+      "Added: Enhance landing page with npm downloads display and install script",
+      "Added: Landing page with React and Tailwind CSS"
+    ]
+  },
+  {
+    "version": "0.4.4",
+    "changes": [
+      "Added: Diagnostic tools, project guidance, LSP integration, and session export"
+    ]
+  },
+  {
+    "version": "0.4.3",
+    "changes": [
+      "Added: Granular directory-level approval system for external paths"
+    ]
+  },
+  {
+    "version": "0.4.2",
+    "changes": [
+      "Added: Experimental features system and enhanced micro-compaction"
+    ]
+  },
+  {
+    "version": "0.4.1",
+    "changes": [
+      "Added: Work divider to separate tool execution from replies"
+    ]
+  },
+  {
+    "version": "0.4.0",
+    "changes": [
+      "Added: Side-question system and replace msg command"
+    ]
+  },
+  {
+    "version": "0.3.12",
+    "changes": [
+      "Refactored: Improve vim mode, compaction, and UI robustness",
+      "Added: Design system, enhanced vim mode, word-level diffs, and tiered compaction"
+    ]
+  },
+  {
+    "version": "0.3.11",
+    "changes": [
+      "Added: Enhance QR code UI with theme support and improved navigation"
+    ]
+  },
+  {
+    "version": "0.3.10",
+    "changes": [
+      "Docs: Add comprehensive project report and refactor worktree, border rendering, and UI"
+    ]
+  },
+  {
+    "version": "0.3.9",
+    "changes": [
+      "Added: Error handling to QR code generation",
+      "Added: QR code generation for mobile authentication"
+    ]
+  },
+  {
+    "version": "0.3.8",
+    "changes": [
+      "Fixed: Improve text rendering and wrapping behavior in ConfigMenu narrow layout"
+    ]
+  },
+  {
+    "version": "0.3.7",
+    "changes": [
+      "Fixed: Restore focus state when navigating back in narrow layout"
+    ]
+  },
+  {
+    "version": "0.3.6",
+    "changes": [
+      "Added: Multi-agent session orchestration system"
+    ]
+  },
+  {
+    "version": "0.3.5",
+    "changes": [
+      "Added: Cwd command and improve worktree session tracking"
+    ]
+  },
+  {
+    "version": "0.3.4",
+    "changes": [
+      "Added: Logout command and handler"
+    ]
+  },
+  {
+    "version": "0.3.3",
+    "changes": [
+      "Fixed: Handle alternate screen buffer history on frame invalidation"
+    ]
+  },
+  {
+    "version": "0.3.2",
+    "changes": [
+      "Style: Adjust effort selector track width calculation",
+      "Tests: Improve testability with version getter export"
+    ]
+  },
+  {
+    "version": "0.3.1",
+    "changes": [
+      "Added: Improve settings layout responsiveness and input handling"
+    ]
+  },
+  {
+    "version": "0.3.0",
+    "changes": [
+      "Added: Comprehensive settings management and library UIs"
+    ]
+  },
+  {
+    "version": "0.2.17",
+    "changes": [
+      "Added: Replace silent auto-update with interactive update prompt"
+    ]
+  },
+  {
+    "version": "0.2.16",
+    "changes": [
+      "Added: Replace write_file with dedicated write_plan tool in plan mode"
+    ]
+  },
+  {
+    "version": "0.2.15",
+    "changes": [
+      "Added: Enchant preference persistence and initialization"
+    ]
+  },
+  {
+    "version": "0.2.14",
+    "changes": [
+      "Added: Plan mode interaction with approval workflow",
+      "Fixed: Correct comment grammar and clarity"
+    ]
+  },
+  {
+    "version": "0.2.13",
+    "changes": [
+      "Added: Consolidate settings into unified config command"
+    ]
+  },
+  {
+    "version": "0.2.12",
+    "changes": [
+      "Added: Context breakdown tracking and worktree support",
+      "Chore: Update CEO model to Claude Opus 4.6"
+    ]
+  },
+  {
+    "version": "0.2.11",
+    "changes": [
+      "Chore: Update reviewer model to gpt-5.6-luna"
+    ]
+  },
+  {
+    "version": "0.2.10",
+    "changes": [
+      "Fixed: Correct footer height calculation and clarify component breakdown"
+    ]
+  },
+  {
+    "version": "0.2.9",
+    "changes": [
+      "Added: Remove enchant alias and add abort on escape key",
+      "Tests: Update /model and /models command parsing expectations",
+      "Chore: Upgrade AWS SDK, React, and testing dependencies"
+    ]
+  },
+  {
+    "version": "0.2.8",
+    "changes": [
+      "Added: Consolidate model selection and add interactive effort selector"
+    ]
+  },
+  {
+    "version": "0.2.7",
+    "changes": [
+      "Added: Fix concurrency and memory isolation in subagent loops",
+      "Docs: Update CEO agent git operation requirements with explicit permission rule",
+      "Added: 3 fixed specialist agents (coder, reviewer, tester) with async communication",
+      "Tests: Update timeout and iteration limit validation ranges",
+      "Chore: Increase timeout and iteration limits"
+    ]
+  },
+  {
+    "version": "0.2.6",
+    "changes": [
+      "Added: Customizable agent color to input chrome",
+      "Added: Edit_file tool for surgical line-level edits"
+    ]
+  },
+  {
+    "version": "0.2.4",
+    "changes": [
+      "Fixed: Harden plugin system reliability and correctness",
+      "Added: Plugin management system with install, list, remove, and update commands"
+    ]
+  },
+  {
+    "version": "0.2.3",
+    "changes": [
+      "Fixed: Improve multiline input history navigation and text wrapping"
+    ]
+  },
+  {
+    "version": "0.2.2",
+    "changes": [
+      "Chore: Add local settings file to gitignore"
+    ]
+  },
+  {
+    "version": "0.2.1",
+    "changes": [
+      "Added: Installer command and registry for skill management",
+      "Added: JSON output mode and permissions UI",
+      "Chore: Remove THINKING.md file"
+    ]
+  },
+  {
+    "version": "0.2.0",
+    "changes": [
+      "Added: Push input to bottom by calculating dynamic content height"
+    ]
+  },
+  {
+    "version": "0.1.16",
+    "changes": [
+      "Chore: Remove dead code — unused subsystems, deps and imports"
+    ]
+  },
+  {
+    "version": "0.1.15",
+    "changes": [
+      "Fixed: Replace pastedBlock state with indexed pastedTexts array",
+      "Added: Support for bracketed paste with text placeholders",
+      "Fixed: Improve role prefix stripping and tool call parsing",
+      "Chore: Remove oauth system prompt file",
+      "Refactored: Remove proxy and oauth modules, simplify provider architecture"
+    ]
+  },
+  {
+    "version": "0.1.14",
+    "changes": [
+      "Chore: Simplify release script to minimal implementation"
+    ]
+  },
+  {
+    "version": "0.1.13",
+    "changes": [
+      "Fixed: Reduce default context limit to 128K for unknown models",
+      "Added: Update DeepSeek models to V4 with 1M context windows"
+    ]
+  },
+  {
+    "version": "0.1.12",
+    "changes": [
+      "Added: Enchant-prompt command to toggle prompt refinement",
+      "Docs: Translate ADRs and architecture docs to English, reorganize proxy module",
+      "Chore: Remove .reversa configuration directory"
+    ]
+  },
+  {
+    "version": "0.1.11",
+    "changes": [
+      "Chore: Clean up Claude agent directories and update demo",
+      "Chore: Translate .claude agents to English, remove skills and task files",
+      "Chore: Remove CLAUDE.md from public repo",
+      "Docs: Add CONTRIBUTING.md for open-source contributors",
+      "Docs: Rewrite README for open-source release"
+    ]
+  },
+  {
+    "version": "0.1.10",
+    "changes": [
+      "Chore: Remove build skip logic and always rebuild on version bump",
+      "Chore: Update attribution and add npm auth verification"
+    ]
+  },
+  {
+    "version": "0.1.9",
+    "changes": [
+      "Added: Enhance risk assessment with content-scoped approvals",
+      "Added: Risk assessment system with configurable rules"
+    ]
+  },
+  {
+    "version": "0.1.8",
+    "changes": [
+      "Fixed: Guard memory sync against non-thenable return values",
+      "Added: Auto-learning memory sync after each turn",
+      "Chore: Add build step after version bump"
+    ]
+  },
+  {
+    "version": "0.1.7",
+    "changes": [
+      "Fixed: Handle failed package manager update gracefully"
+    ]
+  },
+  {
+    "version": "0.1.6",
+    "changes": [
+      "Fixed: Address CodeRabbit review findings",
+      "Fixed: Require both AWS credentials before using fromEnv()",
+      "Added: Fix credential resolution and update inference profile IDs",
+      "Refactored: Remove medium level — DeepSeek API maps it to high",
+      "Chore: Add agent protocols, skills library, and claude workspace config",
+      "Chore: Refactor untracked file detection and add phase-aware warnings"
+    ]
+  },
+  {
+    "version": "0.1.5",
+    "changes": [
+      "Tests: Disable prompt refiner after agent initialization",
+      "Added: Prompt refinement to optimize user messages",
+      "Fixed: Isolate sessionParent tests from mock.module contamination",
+      "Tests: Import session parent functions directly",
+      "Chore: Expand release script with options, safety checks, and improved error handling"
+    ]
+  },
+  {
+    "version": "0.1.4",
+    "changes": [
+      "Added: Effort command hint and improve type naming",
+      "Added: Browser observer, history formatting, and input handling",
+      "Chore: Update public directory path to external subdirectory"
+    ]
+  },
+  {
+    "version": "0.1.0",
+    "changes": [
+      "Added: Integrate Model Context Protocol (MCP) support and enhance UI components with theme selection and improved message rendering.",
+      "Added: Diff-based file updates and enhance system documentation with introspectable project docs",
+      "Added: Prepend current timestamp to user messages in agent loop",
+      "Added: Agentic tool-use framework with UI and core system capabilities"
+    ]
+  }
+]
