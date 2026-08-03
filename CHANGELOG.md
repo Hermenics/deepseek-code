@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.3
+
+- Fixed: Make update notifier cooldown deadline-based — failures now retry after 10 minutes instead of silencing update checks for an hour
+- Docs: Add comprehensive documentation site with release tracking and multi-page navigation
+- CI: Add CodeQL workflow with minimal permissions and simplified configuration
+- Docs: Revise SECURITY.md for clarity
+
 ## 0.6.2
 
 - Docs: Add comprehensive JSDoc comments to public APIs
