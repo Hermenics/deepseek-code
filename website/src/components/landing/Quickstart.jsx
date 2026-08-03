@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Check, Copy, Terminal as TerminalIcon } from "lucide-react";
 
 const STEPS = [
-  { n: "01", label: "install", cmd: "bun add -g @hermenics/deepseek-code", hint: "requires bun ≥ 1.1" },
+  { n: "01", label: "install", cmd: "npm install -g @hermenics/deepseek-code", hint: "requires node ≥ 18" },
   { n: "02", label: "configure", cmd: "deepseek", hint: "choose provider · api key · default model" },
   { n: "03", label: "start", cmd: "deepseek \"explain this project\"", hint: "or pipe: echo \"explain this\" | deepseek --pipe" },
 ];
@@ -59,7 +59,7 @@ export default function Quickstart() {
           </svg>
 
           <div className="mt-16 grid md:grid-cols-2 gap-4 md:gap-6">
-            {[{ k: "or curl", mobileK: "or install it with curl", v: "curl -fsSL https://deepseek-code.vercel.app/install.sh | bash" }, { k: "dev / source", v: "git clone && bun install && bun run dev" }].map((o) => (
+            {[{ k: "or curl", mobileK: "or install it with curl", v: "curl -fsSL https://deepseek-code.vercel.app/install.sh | bash" }, { k: "or bun", mobileK: "or install it with bun", v: "bun add -g @hermenics/deepseek-code" }].map((o) => (
               <div key={o.k} className="border border-white/10 p-5 md:p-6 bg-void hover:border-white/25 transition-colors">
                 <div className="text-[10px] uppercase tracking-widest font-mono text-white/40 mb-2"><span className="md:hidden">{o.mobileK || o.k}</span><span className="hidden md:inline">{o.k}</span></div>
                 <div className="font-mono text-sm text-white/80 break-words">{o.v}</div>
