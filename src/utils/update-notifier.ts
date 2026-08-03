@@ -5,7 +5,8 @@ import pkg from '../../package.json' with { type: 'json' }
 
 export const _getVersion = () => pkg.version
 
-const COOLDOWN_MS = 60 * 60 * 1000
+export const COOLDOWN_MS = 60 * 60 * 1000
+export const RETRY_AFTER_FAILURE_MS = 10 * 60 * 1000
 const FETCH_TIMEOUT_MS = 5000
 const DEEPSEEK_DIR = join(homedir(), '.deepseek')
 const COOLDOWN_PATH = join(DEEPSEEK_DIR, 'update-cooldown')
@@ -31,8 +32,8 @@ function isNewer(latest: string, current: string): boolean {
 export async function checkForUpdate(): Promise<{ current: string; latest: string } | null> {
   try {
     const content = readFileSync(COOLDOWN_PATH, 'utf-8').trim()
-    const lastCheck = parseInt(content, 10)
-    if (!isNaN(lastCheck) && Date.now() - lastCheck < COOLDOWN_MS) return null
+    const canCheckAt = Number(content)
+    if (Number.isSafeInteger(canCheckAt) && Date.now() < canCheckAt) return null
   } catch {
     // no cooldown file — proceed
   }
@@ -49,27 +50,29 @@ export async function checkForUpdate(): Promise<{ current: string; latest: strin
     }
 
     if (!res.ok) {
-      saveCooldown()
+      saveCooldown(RETRY_AFTER_FAILURE_MS)
       return null
     }
 
     const data = (await res.json()) as { version: string }
-    saveCooldown()
+    saveCooldown(COOLDOWN_MS)
 
     const current = _getVersion()
     if (!isNewer(data.version, current)) return null
 
     return { current, latest: data.version }
   } catch {
-    saveCooldown()
+    saveCooldown(RETRY_AFTER_FAILURE_MS)
     return null
   }
 }
 
-function saveCooldown(): void {
+// O arquivo guarda a DEADLINE (now + delay), não o timestamp do último check:
+// falhas ganham janela curta de retry em vez de silenciar o aviso por 1h.
+function saveCooldown(delayMs: number): void {
   try {
     mkdirSync(DEEPSEEK_DIR, { recursive: true })
-    writeFileSync(COOLDOWN_PATH, String(Date.now()))
+    writeFileSync(COOLDOWN_PATH, String(Date.now() + delayMs))
   } catch {
     // ignore
   }
