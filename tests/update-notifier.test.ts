@@ -39,13 +39,15 @@ afterEach(() => {
 
 import { checkForUpdate, dismissVersion, isDismissed } from '../src/utils/update-notifier.js'
 
+const { COOLDOWN_MS, RETRY_AFTER_FAILURE_MS } = await import('../src/utils/update-notifier.js')
+
 // ─── checkForUpdate ──────────────────────────────────────────────
 
 describe('checkForUpdate', () => {
-  it('should return null when cooldown is active (last check < 1 hour ago)', async () => {
+  it('should return null when cooldown is active (deadline in the future)', async () => {
     const now = Date.now()
     spyRead.mockImplementation(((path: any) => {
-      if (String(path).includes('cooldown')) return String(now - 30 * 60 * 1000)
+      if (String(path).includes('cooldown')) return String(now + 30 * 60 * 1000)
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' })
     }) as any)
 
@@ -88,22 +90,30 @@ describe('checkForUpdate', () => {
     expect(result).toBeNull()
   }, 10000)
 
-  it('should return null when fetch fails (network error)', async () => {
+  it('should return null when fetch fails (network error) and save a short retry deadline', async () => {
     mockFetchImpl = () => Promise.reject(new Error('Network error'))
 
+    const before = Date.now()
     const result = await checkForUpdate()
+    const after = Date.now()
 
     expect(result).toBeNull()
+    const [, writtenValue] = spyWrite.mock.calls[0] as unknown as [string, string]
+    const deadline = Number(writtenValue)
+    expect(deadline).toBeGreaterThanOrEqual(before + RETRY_AFTER_FAILURE_MS)
+    expect(deadline).toBeLessThanOrEqual(after + RETRY_AFTER_FAILURE_MS)
   })
 
-  it('should save cooldown timestamp after successful check', async () => {
+  it('should save a long deadline after successful check', async () => {
+    const before = Date.now()
     await checkForUpdate()
+    const after = Date.now()
 
     expect(spyWrite).toHaveBeenCalled()
     const [, writtenValue] = spyWrite.mock.calls[0] as unknown as [string, string]
-    const timestamp = Number(writtenValue)
-    expect(timestamp).toBeGreaterThan(0)
-    expect(timestamp).toBeLessThanOrEqual(Date.now())
+    const deadline = Number(writtenValue)
+    expect(deadline).toBeGreaterThanOrEqual(before + COOLDOWN_MS)
+    expect(deadline).toBeLessThanOrEqual(after + COOLDOWN_MS)
   })
 })
 
