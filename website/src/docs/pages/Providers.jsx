@@ -7,10 +7,21 @@ const PROVIDERS = [
   { name: "Local (Ollama / LM Studio)", auth: "No auth — point to your local endpoint", env: ["LOCAL_BASE_URL", "LOCAL_MODEL"] },
 ];
 
+// Default model + transport behavior per provider (src/agent/llmClient.ts)
+const DEFAULT_MODELS = [
+  { name: "DeepSeek API", model: "deepseek-v4-flash", streaming: "Yes", tools: "Native" },
+  { name: "Amazon Bedrock", model: "us.deepseek.r1-v1:0", streaming: "V3.x: yes · R1: no", tools: "V3.x: native · R1: emulated" },
+  { name: "Google Vertex AI", model: "deepseek-ai/deepseek-r1", streaming: "No", tools: "Via OpenAI-compatible endpoint" },
+  { name: "Local (Ollama / LM Studio)", model: "llama3", streaming: "Yes", tools: "Native (OpenAI-compatible)" },
+];
+
 const TOC = [
   { id: "overview", label: "Overview" },
   { id: "table", label: "Providers & auth" },
   { id: "models", label: "Models" },
+  { id: "behavior", label: "Behavior by provider" },
+  { id: "bedrock", label: "Bedrock specifics" },
+  { id: "vertex", label: "Vertex specifics" },
   { id: "switching", label: "Switching providers" },
   { id: "next", label: "Next steps" },
 ];
@@ -92,9 +103,96 @@ export default function Providers() {
               </tbody>
             </table>
           </div>
+          <p className="lead" style={{ marginTop: 24 }}>
+            Each provider also defaults to a provider-specific model when{" "}
+            <code className="inline">model.default</code> is not set:
+          </p>
+          <div className="doc-table-wrap">
+            <table className="doc-table">
+              <thead>
+                <tr>
+                  <th style={{ width: "22%" }}>Provider</th>
+                  <th style={{ width: "30%" }}>Default model</th>
+                  <th style={{ width: "20%" }}>Streaming</th>
+                  <th>Tool calling</th>
+                </tr>
+              </thead>
+              <tbody>
+                {DEFAULT_MODELS.map((m) => (
+                  <tr key={m.name}>
+                    <td><b style={{ color: "var(--text-strong)" }}>{m.name}</b></td>
+                    <td><code className="inline">{m.model}</code></td>
+                    <td>{m.streaming}</td>
+                    <td>{m.tools}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
           <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
             Each provider also exposes provider-specific models (e.g. Bedrock Claude, Vertex
             Gemini, or any local Ollama tag).
+          </p>
+        </section>
+
+        <section id="behavior">
+          <h2><span className="anchor">#</span>Behavior by provider</h2>
+          <p><b>Streaming.</b> Enabled for the DeepSeek API and local endpoints. It is disabled
+            for Vertex, and for Bedrock it depends on the model: V3.x models stream through the
+            bedrock-mantle Chat Completions endpoint, while R1 uses the native InvokeModel API
+            without streaming.</p>
+          <p><b>Tool calling.</b> Native on DeepSeek, local, and Bedrock V3.x. Bedrock R1 and
+            other non-tool-calling models use an <b>emulated XML prompt protocol</b> — the model
+            answers with a strict JSON tool-use contract instead of structured tool calls. Vertex
+            goes through the OpenAI-compatible endpoint with native tool calling.</p>
+          <p><b>Thinking control.</b> The <code className="inline">reasoning_effort</code> and{" "}
+            <code className="inline">thinking</code> parameters are only sent to DeepSeek and
+            Bedrock providers. Other providers receive the effort hint in the system prompt only.{" "}
+            <code className="inline">reasoning_content</code> is preserved and passed back for
+            DeepSeek models, so streamed thinking keeps working across turns.</p>
+          <p><b>Base URLs.</b></p>
+          <CodeBlock lang="text">{`DeepSeek: config baseURL  →  DEEPSEEK_BASE_URL  →  https://api.deepseek.com
+Local:    default http://localhost:11434/v1 (http:// is added if the scheme is missing)
+Bedrock:  V3.x → https://bedrock-mantle.{region}.api.aws/v1
+          R1   → https://bedrock-runtime.{region}.amazonaws.com/v1
+Vertex:   https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/endpoints/openapi`}</CodeBlock>
+        </section>
+
+        <section id="bedrock">
+          <h2><span className="anchor">#</span>Bedrock specifics</h2>
+          <p>
+            Bedrock has two transport paths, chosen automatically by model ID:
+          </p>
+          <ul className="capabilities">
+            <li><b>bedrock-mantle Chat Completions</b> for V3.x models (IDs containing <code className="inline">v3</code>, not <code className="inline">r1</code>) — OpenAI-compatible with native tool calling, signed with SigV4</li>
+            <li><b>Native InvokeModel</b> for R1 — <code className="inline">tools</code> and <code className="inline">tool_choice</code> are stripped, and <code className="inline">max_completion_tokens</code> is translated to <code className="inline">max_tokens</code></li>
+          </ul>
+          <p>
+            Credentials come from the environment (<code className="inline">AWS_ACCESS_KEY_ID</code>{" "}
+            + <code className="inline">AWS_SECRET_ACCESS_KEY</code>, including temporary STS
+            credentials) or from <code className="inline">~/.aws/credentials</code> using the{" "}
+            <code className="inline">AWS_PROFILE</code> profile (default <code className="inline">default</code>).
+            The region defaults to <code className="inline">us-east-1</code>. The{" "}
+            <code className="inline">/model</code> picker lists only model IDs containing{" "}
+            <code className="inline">deepseek</code>.
+          </p>
+        </section>
+
+        <section id="vertex">
+          <h2><span className="anchor">#</span>Vertex specifics</h2>
+          <p>
+            Vertex uses <code className="inline">GoogleAuth</code> with a{" "}
+            <code className="inline">keyFile</code> pointing at the{" "}
+            <code className="inline">GCP_CREDENTIALS</code> service-account JSON — the client
+            refuses to start without it. The OAuth token is cached for one hour and refreshed
+            five minutes before expiry; the cache is invalidated automatically if the credentials
+            path changes.
+          </p>
+          <p>
+            Both <code className="inline">GCP_PROJECT</code> and{" "}
+            <code className="inline">GCP_LOCATION</code> are required (location defaults to{" "}
+            <code className="inline">us-central1</code>), and the default model is{" "}
+            <code className="inline">deepseek-ai/deepseek-r1</code>.
           </p>
         </section>
 

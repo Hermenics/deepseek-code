@@ -109,6 +109,14 @@ memory action=list target=agent`}</CodeBlock>
             <b>2000 characters total</b> and deduplicated — adding an entry that already exists is a
             no-op.
           </p>
+          <p>
+            On disk, entries are <code className="inline">\n§\n</code>-delimited in a single{" "}
+            <code className="inline">MEMORY.md</code> / <code className="inline">USER.md</code> file written
+            with <code className="inline">0600</code> permissions. The first time a user-scoped store is
+            configured, files are <b>automatically migrated</b> from the legacy{" "}
+            <code className="inline">~/.deepseek-code/memory/</code> location, and all writes are
+            serialized through a file lease so concurrent sessions can't interleave.
+          </p>
         </section>
 
         <section id="auto-learned">
@@ -121,6 +129,16 @@ memory action=list target=agent`}</CodeBlock>
             (routed to <code className="inline">MEMORY.md</code>), then validated before saving:
             6–100 characters, normalized whitespace, deduplicated, and run through the safety
             filter.
+          </p>
+          <p>
+            Concretely, the sync runs after a turn contains <b>at least two assistant messages</b>.
+            A background LLM call reviews the last ~10 messages and returns exactly one JSON object —{" "}
+            <code className="inline">{"{"}"kind":"user_preference"|"project_fact"|"none","fact":"..."{"}"}</code>.
+            <code className="inline">kind: none</code> saves nothing; a{" "}
+            <code className="inline">user_preference</code> is routed to <code className="inline">USER.md</code>{" "}
+            and a <code className="inline">project_fact</code> to <code className="inline">MEMORY.md</code>.
+            Facts outside <b>6–100 characters</b>, greeting-style text (e.g. "hello", "oi"), and
+            anything the safety filter rejects are discarded before saving.
           </p>
           <p>
             The extraction prompt explicitly refuses to save greetings, assistant text,
@@ -137,9 +155,13 @@ memory action=list target=agent`}</CodeBlock>
           <p>
             The <code className="inline">update_knowledge</code> tool records project knowledge into{" "}
             <code className="inline">DEEPSEEK.md</code>, either appending a new{" "}
-            <code className="inline">## Section</code> or replacing an existing one. Section names are
-            validated against a strict character allowlist, and existing sections are matched with
-            regex-safe escaping so a malformed heading can't corrupt the file.
+            <code className="inline">## Section</code> or replacing an existing one. A brand-new file is
+            created with the <code className="inline"># DEEPSEEK.md — Project Knowledge</code> header,
+            and a replacement overwrites from the heading up to the next <code className="inline">##</code>{" "}
+            (or end of file). Section names are validated against a strict character allowlist
+            (letters, numbers, spaces, hyphens, slashes, parentheses, periods, commas, colons), and
+            existing sections are matched with regex-safe escaping so a malformed heading can't
+            corrupt the file.
           </p>
           <CodeBlock lang="text">{`# DEEPSEEK.md — Project Knowledge
 

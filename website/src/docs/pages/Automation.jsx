@@ -51,8 +51,15 @@ deepseek --pipe "add a --dry-run flag to build.ts"`}</CodeBlock>
           <ul className="capabilities">
             <li>A prompt can come from argv, stdin, or both — when both are present, stdin becomes context wrapped in a fenced code block.</li>
             <li>Provider config comes from your saved setup or <code className="inline">DEEPSEEK_API_KEY</code>.</li>
-            <li>Because there is no one to approve commands interactively, destructive shell operations that require confirmation are automatically denied.</li>
+            <li>Because there is no one to approve commands interactively, pipe mode installs a shell-confirmation handler that always answers false — destructive shell operations that require confirmation are automatically denied.</li>
           </ul>
+          <Note>
+            Pipe mode awaits the agent's asynchronous initialization — MCP servers, steering rules,
+            and AGENTS.md / DEEPSEEK.md loading — via <code className="inline">agent.readyPromise</code> before the
+            first turn, and calls <code className="inline">agent.shutdown()</code> in a{" "}
+            <code className="inline">finally</code> block so workers and streams are released even when the turn
+            fails.
+          </Note>
           <Note>
             Pipe mode only activates when <code className="inline">--pipe</code> is present. Without it,{" "}
             <code className="inline">deepseek "message"</code> starts a normal interactive session and ignores
@@ -87,11 +94,15 @@ echo "find the bug" | deepseek --pipe --json | jq -r '.tools[]'`}</CodeBlock>
               </tbody>
             </table>
           </div>
+          <CodeBlock lang="json">{`// success — one object on stdout when the turn finishes
+{"ok":true,"output":"…","tools":["shell","read_file"]}
+// setup failure — no key, no saved config, or no prompt
+{"ok":false,"error":"DEEPSEEK_API_KEY not set and no saved config found"}`}</CodeBlock>
           <p>
             On failure — no API key and no saved config, or no prompt supplied — JSON mode prints{" "}
             <code className="inline">{"{\"ok\":false,\"error\":\"…\"}"}</code> to stdout, plain mode prints to
             stderr, and both exit <code className="inline">1</code>, so <code className="inline">&&</code> chains in
-            scripts fail fast.
+            scripts fail fast. Success exits <code className="inline">0</code> in both modes.
           </p>
         </section>
 
