@@ -28,11 +28,39 @@ const SLASH = [
   ["/permissions", "Explain mode, allow/deny rules, risk checks, and session approvals"],
   ["/config, /settings", "Open the fullscreen settings center"],
   ["/help", "Show all commands"],
+  ["/btw", "Ask a quick side question without interrupting the agent"],
+  ["/checkpoint", "Manage checkpoints"],
+  ["/compact", "Summarize history to save context"],
+  ["/clear", "Clear chat history"],
+  ["/context", "Show context window usage breakdown (estimated)"],
+  ["/cost", "Show estimated session cost"],
+  ["/cwd", "Show or change working directory"],
+  ["/effort", "Set reasoning effort level"],
+  ["/features", "Toggle experimental feature flags"],
+  ["/files", "List modified files this session"],
+  ["/goal", "Set, view, or manage a persistent goal"],
+  ["/logout", "Clear all stored credentials and API keys"],
+  ["/mobile", "Show QR code to download the DeepSeek mobile app"],
+  ["/plugin", "Manage plugins (install, list, remove, update)"],
+  ["/retry", "Re-run last message"],
+  ["/skill", "Manage skills (install, list, remove, update)"],
+  ["/stats", "Show session statistics"],
+  ["/system", "Show active system prompt"],
+  ["/task", "Inspect or control a task"],
+  ["/tasks", "Inspect the session task DAG"],
+  ["/undo", "Restore last file modified by the agent (all | list)"],
+  ["/workflow", "Run or control a Dynamic Workflow"],
+  ["/workflows", "Monitor Dynamic Workflow runs"],
+  ["/worktree", "Create or manage an isolated project copy"],
+  ["/agents", "List available agents"],
+  ["/quit", "Exit application"],
 ];
 
 const TOOLS = [
   "ReadFile", "WriteFile", "PatchFile", "Shell", "Glob", "Grep", "Git",
   "ReadFolder", "WebFetch", "SubAgent", "Memory", "Todo", "Introspect", "MoA",
+  "EditFile", "Lsp", "AskAgent", "Workflow", "UpdateKnowledge", "SubmitPlan",
+  "WritePlan", "GetGoal", "CreateGoal", "UpdateGoal",
 ];
 
 const TOC = [
@@ -67,7 +95,7 @@ export default function Overview() {
           <div className="badges">
             <span className="badge"><b>model</b><span className="sep">—</span>DeepSeek</span>
             <span className="badge"><b>license</b><span className="sep">—</span>Apache 2.0</span>
-            <span className="badge"><b>v0.6.2</b></span>
+            <span className="badge"><b>v0.6.3</b></span>
           </div>
 
           <div className="terminal-demo">
@@ -89,12 +117,13 @@ export default function Overview() {
           </p>
           <ul className="capabilities">
             <li>Reads/writes files, runs shell commands, searches code, manages git</li>
-            <li>Full TUI with alternate-screen interface, streamed thinking, rich markdown, vim mode</li>
+            <li>Full TUI interface — alternate-screen buffer, streamed thinking, rich markdown, vim mode, configurable status bar, and live sub-agent / workflow monitors</li>
             <li>Multi-provider: DeepSeek API, Amazon Bedrock, Google Vertex AI, or local models (Ollama, LM Studio)</li>
             <li>Unified agents — primary agent and sub-agents with editable base prompts</li>
             <li>MCP support — connect any Model Context Protocol server</li>
             <li>Project guidance via <code className="inline">AGENTS.md</code> / <code className="inline">DEEPSEEK.md</code></li>
             <li>Optional LSP navigation (definitions, references, hover, symbols)</li>
+            <li>Persistent goals with auto-continuation (<code className="inline">/goal</code>)</li>
             <li>Extensible — slash commands, custom tools, memory, sessions, themes</li>
           </ul>
         </section>

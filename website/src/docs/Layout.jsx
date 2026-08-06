@@ -60,6 +60,15 @@ const NAV = [
       { label: "Plugins & skills", href: "/docs/plugins-skills" },
       { label: "Automation", href: "/docs/automation" },
       { label: "MCP", href: "/docs/mcp" },
+      { label: "Goals", href: "/docs/goals" },
+    ],
+  },
+  {
+    title: "Interface",
+    items: [
+      { label: "Interface (TUI)", href: "/docs/interface" },
+      { label: "Keyboard shortcuts", href: "/docs/keybindings" },
+      { label: "Themes", href: "/docs/themes" },
     ],
   },
   {
@@ -70,6 +79,8 @@ const NAV = [
       { label: "Interaction modes", href: "/docs/interaction-modes" },
       { label: "Permissions", href: "/docs/permissions" },
       { label: "Hooks", href: "/docs/hooks" },
+      { label: "LSP navigation", href: "/docs/lsp" },
+      { label: "Feature flags", href: "/docs/features" },
     ],
   },
   {
@@ -77,6 +88,8 @@ const NAV = [
     items: [
       { label: "CLI reference", href: "/docs/cli-reference" },
       { label: "Costs & usage", href: "/docs/costs" },
+      { label: "Security", href: "/docs/security" },
+      { label: "Troubleshooting", href: "/docs/troubleshooting" },
       { label: "Changelog", href: "/docs/changelog" },
     ],
   },

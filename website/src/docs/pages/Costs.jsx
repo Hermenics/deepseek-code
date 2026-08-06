@@ -69,10 +69,14 @@ export default function Costs() {
 /effort max     # deepest reasoning
 /effort         # show the current level`}</CodeBlock>
           <Note>
-            The API-level thinking params are only sent to the DeepSeek and Bedrock providers. On
-            other providers the effort hint still lands in the system prompt, but no{" "}
-            <code className="inline">reasoning_effort</code> / <code className="inline">thinking</code> params are
-            passed to the API.
+            <code className="inline">high</code> and <code className="inline">max</code> both send{" "}
+            <code className="inline">thinking: {"{ type: 'enabled' }"}</code> — with{" "}
+            <code className="inline">reasoning_effort</code> <code className="inline">high</code> or{" "}
+            <code className="inline">max</code> — while <code className="inline">low</code> sends{" "}
+            <code className="inline">{"{ type: 'disabled' }"}</code>. These API-level params only reach the
+            DeepSeek and Bedrock providers; elsewhere the effort hint still lands in the system
+            prompt, but no <code className="inline">reasoning_effort</code> / <code className="inline">thinking</code>{" "}
+            params are passed to the API.
           </Note>
         </section>
 
@@ -85,7 +89,15 @@ export default function Costs() {
           </p>
           <p>
             <code className="inline">/cost</code> prints the estimated cost for the session — model, prompt
-            tokens (with the cached count), completion tokens, and a USD estimate.
+            tokens (with the cached count), completion tokens, and a USD estimate. The estimate
+            discounts cached tokens from the prompt count: only the uncached remainder bills at the
+            input rate, and cached tokens bill at their own, much lower rate.
+          </p>
+          <p>
+            Reasoning text is part of the session too: when a DeepSeek model returns{" "}
+            <code className="inline">reasoning_content</code>, it is kept in the conversation history and passed
+            back to the API on every later request — the API rejects a turn that omits it (HTTP 400).
+            Models without reasoning never produce the field, so nothing is added for them.
           </p>
           <CodeBlock lang="bash">{`/stats   # duration, tokens, cache hit %, activity, context %
 /cost    # model, tokens, estimated USD`}</CodeBlock>
@@ -111,8 +123,12 @@ export default function Costs() {
           </div>
           <p>
             For a live view of where the window is going, run <code className="inline">/context</code> (alias{" "}
-            <code className="inline">/ctx</code>) — it breaks usage into system prompt, memory, tools, messages,
-            and tool results.
+            <code className="inline">/ctx</code>) — it breaks usage into <b>System Prompt</b>, <b>Memory</b>,{" "}
+            <b>Tools</b>, <b>Messages</b>, <b>Tool Results</b>, and <b>Free</b>. Per-category counts are
+            proportional estimates based on character length; only the total is exact, since it comes
+            from the provider's usage report. As the window fills it suggests actions: a warning to run{" "}
+            <code className="inline">/compact</code> at ≥85% usage, a nudge when tool results exceed 40% of used
+            context, and another when message history passes 60%.
           </p>
         </section>
 

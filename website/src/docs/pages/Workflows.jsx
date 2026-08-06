@@ -3,8 +3,22 @@ import { CodeBlock, Note, Toc } from "../Layout";
 const TOC = [
   { id: "overview", label: "What a workflow is" },
   { id: "isolation", label: "Isolation & safety" },
+  { id: "limits", label: "Limits & budgets" },
+  { id: "replay", label: "Journal & replay" },
+  { id: "storage", label: "Saving runs & storage" },
   { id: "usage", label: "Running workflows" },
   { id: "authoring", label: "Authoring a coordination program" },
+];
+
+const LIMITS = [
+  ["MAX_AGENTS", "17 per run", "The 18th agent() call fails the run with a structural error"],
+  ["MAX_CONCURRENCY", "16", "Cap on agents executing at the same time within one run"],
+  ["timeoutMs", "120s default, max 3,600,000 (1h)", "Set on the run or per agent"],
+  ["parallel / pipeline", "4,096 items", "More items throw inside the sandbox"],
+  ["Script size", "256KB", "MAX_SOURCE_BYTES — larger scripts are rejected at parse"],
+  ["Name regex", "^[a-z0-9][a-z0-9-]{0,63}$", "1-64 lowercase letters, numbers, or hyphens, starting alphanumeric"],
+  ["Sync execution", "1s (SYNC_EXECUTION_TIMEOUT_MS)", "Per synchronous segment of the script in the VM sandbox"],
+  ["Budgets", "maxTokens / maxCostUsd", "Optional per agent; exceeding marks the run budget_exhausted"],
 ];
 
 const HELPERS = [
@@ -92,10 +106,83 @@ export default function Workflows() {
             with "always" skips the prompt on future runs of the same script.
           </p>
           <p>
-            Runs are bounded by <code className="inline">timeoutMs</code> (default 120s),{" "}
+            Runs are bounded by <code className="inline">timeoutMs</code> (default 120s, max 1h),{" "}
             <code className="inline">maxTokens</code>, and <code className="inline">maxCostUsd</code>, and may spawn at
             most 17 agents. Exceeding a budget marks the run <code className="inline">budget_exhausted</code>; plan
-            and review modes refuse writer agents entirely.
+            and review modes refuse writer agents entirely — <code className="inline">isolation: "worktree"</code>{" "}
+            throws in those modes. Workflows can be switched off with{" "}
+            <code className="inline">settings.workflows.enabled: false</code> or the{" "}
+            <code className="inline">DEEPSEEK_DISABLE_WORKFLOWS=1</code> environment variable, and child workflows
+            need their own approval before they run.
+          </p>
+        </section>
+
+        <section id="limits">
+          <h2><span className="anchor">#</span>Limits &amp; budgets</h2>
+          <p>Exact bounds enforced per run:</p>
+          <div className="doc-table-wrap">
+            <table className="doc-table">
+              <thead>
+                <tr><th style={{ width: "28%" }}>Limit</th><th style={{ width: "26%" }}>Value</th><th>Notes</th></tr>
+              </thead>
+              <tbody>
+                {LIMITS.map(([l, v, n]) => (
+                  <tr key={l}>
+                    <td><code className="inline">{l}</code></td>
+                    <td><code className="inline">{v}</code></td>
+                    <td>{n}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Exceeding the agent limit is a structural error — the run fails rather than silently
+            truncating. The sync-execution limit is per synchronous segment inside the VM sandbox, not
+            a cap on total run time; overall runtime is governed by <code className="inline">timeoutMs</code>.
+          </p>
+        </section>
+
+        <section id="replay">
+          <h2><span className="anchor">#</span>Journal &amp; replay</h2>
+          <p>
+            Every <code className="inline">agent()</code> and <code className="inline">workflow()</code> call is journaled
+            with a SHA-256 fingerprint of its method and arguments. When a run starts, the manager
+            looks for a previous run with identical <b>script + args + options</b> hashes
+            (<code className="inline">findReplay</code>): completed calls whose fingerprints match are replayed —
+            their results are returned and their usage is counted, but no agents are re-spent.
+          </p>
+          <p>
+            The first call whose entry is missing, failed, or has a different fingerprint breaks the
+            replay and execution continues fresh from that point; a corrupted journal disables replay
+            for the run entirely. Replayed entries marked <code className="inline">budget_exhausted</code> also
+            propagate that state into the new run, so a budget-limited outcome is never silently
+            re-derived.
+          </p>
+        </section>
+
+        <section id="storage">
+          <h2><span className="anchor">#</span>Saving runs &amp; storage</h2>
+          <p>
+            <code className="inline">/workflow save &lt;run-id&gt; &lt;name&gt;</code> persists a finished run as a saved
+            workflow at <code className="inline">.deepseek/workflows/&lt;name&gt;.js</code> in the project — written
+            with mode <code className="inline">0600</code> and the <code className="inline">wx</code> flag, so it never
+            overwrites an existing file and refuses to write through a symlink (symlinked directories
+            along the path are rejected too).
+          </p>
+          <p>
+            Every run is stored under{" "}
+            <code className="inline">~/.deepseek/projects/&lt;projectHash&gt;/&lt;sessionHash&gt;/workflows/&lt;runId&gt;/</code>{" "}
+            as <code className="inline">workflow.js</code>, <code className="inline">args.json</code>,{" "}
+            <code className="inline">run.json</code>, and <code className="inline">journal.json</code> — written atomically
+            (temp file + rename) with <code className="inline">0700</code> directories and{" "}
+            <code className="inline">0600</code> files. <code className="inline">/workflows</code> lists the 100 most
+            recent runs.
+          </p>
+          <p>
+            Discovery is capped at 256 workflows per directory, and symlinks that escape a workflow
+            directory are rejected. When a project workflow and a user workflow share a name, the
+            project's wins.
           </p>
         </section>
 
@@ -109,6 +196,7 @@ export default function Workflows() {
 /workflow restart 3f2a9c81`}</CodeBlock>
           <ul className="capabilities">
             <li><code className="inline">/workflow run &lt;name&gt; [args-json]</code> — run a saved workflow with arguments</li>
+            <li><code className="inline">/workflow save &lt;run-id&gt; &lt;name&gt;</code> — persist a run as a saved workflow</li>
             <li><code className="inline">/workflow pause|resume|stop &lt;run-id&gt;</code> — control an active run</li>
             <li><code className="inline">/workflow restart &lt;run-id&gt;</code> — re-run a previous run from its persisted script, args, and options</li>
             <li><code className="inline">/workflows</code> — monitor runs, phases, and usage</li>

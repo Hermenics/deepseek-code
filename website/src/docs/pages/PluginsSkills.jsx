@@ -65,6 +65,17 @@ export default function PluginsSkills() {
           <CodeBlock lang="text">{`{ "version": 1, "skills": {
   "my-skill": { "name": "my-skill", "repo": "owner/repo",
     "commitHash": "a1b2c3d", "installedAt": "…", "updatedAt": "…" } } }`}</CodeBlock>
+          <p>
+            Validation is strict: <code className="inline">SKILL.md</code> must open with YAML frontmatter
+            declaring a kebab-case <code className="inline">name</code> — lowercase letters, numbers, and single
+            hyphens only; uppercase, underscores, spaces, and leading/trailing or doubled hyphens are
+            rejected — plus a non-empty <code className="inline">description</code>.{" "}
+            <code className="inline">metadata</code> is optional and may carry <code className="inline">author</code>,{" "}
+            <code className="inline">version</code>, and <code className="inline">license</code>. Frontmatter is read by
+            a small built-in YAML parser with no dependencies, which skips unsafe keys like{" "}
+            <code className="inline">__proto__</code> and <code className="inline">prototype</code>. Installs land in{" "}
+            <code className="inline">&lt;cwd&gt;/.deepseek/skills/&lt;name&gt;</code> — project scope.
+          </p>
           <Note>
             <code className="inline">.deepseek/skills</code> is the runtime skill directory — what lands
             there is what runs.
@@ -80,20 +91,29 @@ export default function PluginsSkills() {
           <p>
             Repos are cloned into <code className="inline">~/.deepseek-code/plugins</code> (override with{" "}
             <code className="inline">DEEPSEEK_PLUGINS_DIR</code>). A valid plugin carries a{" "}
-            <code className="inline">plugin.json</code> — or <code className="inline">.claude-plugin/plugin.json</code> —
-            declaring optional <code className="inline">commands</code>, <code className="inline">agents</code>,{" "}
-            <code className="inline">skills</code>, and <code className="inline">hooks</code>:
+            <code className="inline">plugin.json</code> at the repo root — or{" "}
+            <code className="inline">.claude-plugin/plugin.json</code> (plus <code className="inline">plugins/&lt;subdir&gt;/plugin.json</code>{" "}
+            for monorepo layouts). The manifest may declare <code className="inline">commands</code>,{" "}
+            <code className="inline">agents</code>, and <code className="inline">skills</code> as a single path or an
+            array of directories, plus <code className="inline">hooks</code> pointing at a{" "}
+            <code className="inline">hooks.json</code> file:
           </p>
           <CodeBlock lang="json">{`{ "name": "my-plugin", "version": "0.1.0",
   "commands": "commands", "hooks": "hooks/hooks.json" }`}</CodeBlock>
           <p>
-            Path fields may use <code className="inline">${'{PLUGIN_ROOT}'}</code>, resolved to the plugin's
-            install directory. <code className="inline">/plugin list</code> reports what each plugin contributes
-            (for example, <code className="inline">3 cmd, 1 agent, hooks</code>). Installs validate that the name
-            is kebab-case and cannot escape the plugins directory, and give git a 60-second clone
-            timeout. Update is safer than a blind reinstall: it clones the new version, backs up the
-            existing install, swaps it into place, and restores the backup if anything fails.
+            <code className="inline">/plugin list</code> reports what each plugin contributes (for example,{" "}
+            <code className="inline">3 cmd, 1 agent, hooks</code>). Install is a shallow{" "}
+            <code className="inline">git clone --depth 1</code> with a 60-second timeout that kills the process on
+            expiry; the plugin name must be kebab-case and the resolved target must stay inside the
+            plugins directory, and <code className="inline">.git</code> is stripped from the clone. Update is safer
+            than a blind reinstall: it clones the new version, backs up the existing install, swaps it
+            into place, and restores the backup if anything fails.
           </p>
+          <Note>
+            Path fields may use <code className="inline">${'{PLUGIN_ROOT}'}</code>, intended to resolve to the
+            plugin's install directory — but the resolver has no call-sites yet, so the variable is
+            not expanded anywhere today.
+          </Note>
         </section>
 
         <section id="wiring">
@@ -101,10 +121,11 @@ export default function PluginsSkills() {
           <p>
             One honest caveat: the two systems are not wired up equally. Skills in{" "}
             <code className="inline">.deepseek/skills</code> are live at runtime and work immediately. Plugin
-            components are discovered and reported by <code className="inline">/plugin list</code>, but they
-            are <b>not yet registered</b> into the live command, agent, or hook registries — only the
-            plugin's metadata is loaded. Manage and update plugins today; expect component wiring in a
-            future release.
+            components are metadata-only: they are discovered and reported by{" "}
+            <code className="inline">/plugin list</code>, but <b>not registered</b> into the live command, agent,
+            or skill registries — only the plugin's metadata is loaded, and only{" "}
+            <code className="inline">/plugin list</code> consumes it. Manage and update plugins today; expect
+            component wiring in a future release.
           </p>
           <Note>
             Plugin hooks are detected (<code className="inline">hooks</code> shows in{" "}
