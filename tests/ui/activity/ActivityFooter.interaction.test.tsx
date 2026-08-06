@@ -72,6 +72,85 @@ test('controls and opens the selected workflow', async () => {
   }
 })
 
+test('Enter on an agent row calls onOpenSubagent', async () => {
+  const stdin = new FakeTerminal()
+  const stdout = new FakeTerminal()
+  const opened: string[] = []
+
+  const instance = renderSync(
+    <ActivityFooter
+      agents={[fakeAgent({ status: 'running' })]}
+      workflows={[]}
+      open
+      onClose={() => {}}
+      onOpenWorkflow={() => {}}
+      onOpenSubagent={id => opened.push(id)}
+      onTaskAction={async () => ''}
+      onWorkflowAction={async () => ''}
+    />,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stderr: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  )
+
+  try {
+    await Bun.sleep(100)
+    // Move the ball from main (-1) to the agent row, then press Enter
+    stdin.write('\x1b[B')
+    await Bun.sleep(100)
+    stdin.write('\r')
+    await Bun.sleep(100)
+    expect(opened).toEqual(['agent-1'])
+  } finally {
+    stdout.isTTY = false
+    instance.unmount()
+    instance.cleanup()
+  }
+})
+
+test('Enter on the main row calls onSelectMain (exit subagent focus)', async () => {
+  const stdin = new FakeTerminal()
+  const stdout = new FakeTerminal()
+  let selectedMain = 0
+
+  const instance = renderSync(
+    <ActivityFooter
+      agents={[fakeAgent({ status: 'running' })]}
+      workflows={[]}
+      open
+      onClose={() => {}}
+      onOpenWorkflow={() => {}}
+      onOpenSubagent={() => {}}
+      onSelectMain={() => { selectedMain++ }}
+      onTaskAction={async () => ''}
+      onWorkflowAction={async () => ''}
+    />,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stderr: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  )
+
+  try {
+    await Bun.sleep(100)
+    // Main (index -1) is selected by default; Enter should call onSelectMain.
+    stdin.write('\r')
+    await Bun.sleep(100)
+    expect(selectedMain).toBe(1)
+  } finally {
+    stdout.isTTY = false
+    instance.unmount()
+    instance.cleanup()
+  }
+})
+
 test('closed state renders the main header and flat agent rows', async () => {
   const stdin = new FakeTerminal()
   const stdout = new FakeTerminal()

@@ -155,6 +155,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [diffDialog, setDiffDialog] = useState<{ path: string; lines: DiffLine[] } | null>(null)
   const [activityOpen, setActivityOpen] = useState(false)
   const [workflowMonitor, setWorkflowMonitor] = useState<{ runId?: string } | null>(null)
+  const [focusedSubagent, setFocusedSubagent] = useState<{ id: string; agentName: string | null } | null>(null)
 
   const showCompactBadge = useCallback((type: 'micro' | 'full') => {
     if (compactBadgeTimerRef.current) clearTimeout(compactBadgeTimerRef.current)
@@ -179,6 +180,14 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       return
     }
   })
+
+  // Esc while focused on a subagent returns to the main conversation. InputBox's
+  // own Esc handler does not stopImmediatePropagation, so this fires after it.
+  useInput((_input, key, event) => {
+    if (!key.escape) return
+    event.stopImmediatePropagation()
+    setFocusedSubagent(null)
+  }, { isActive: Boolean(focusedSubagent) })
 
   useEffect(() => {
     agent.interactionMode = interactionMode
@@ -236,6 +245,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       onTokens(id: string, tokens: number) {
         if (!findTask(id)) return
         subs.onSubagentState({ id, tokens })
+        setSubagentTick((t) => t + 1)
+      },
+      onMessage(id: string, role: 'user' | 'assistant', content: string) {
+        subs.onSubagentMessage({ id, role, content })
         setSubagentTick((t) => t + 1)
       },
       onDone(id: string, result: string, tokens?: number, costUsd?: number) {
@@ -775,6 +788,21 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   const handleSubmit = useCallback(async (text: string) => {
     if (!text.trim()) return
+
+    // While focused on a subagent, plain text goes to that subagent via its
+    // mailbox ('question' messages are drained by the executor each iteration);
+    // slash commands and `!` shell lines still hit the main agent.
+    // ponytail: a message sent to a finished/blocked agent sits in the mailbox
+    // unread (executor not running) — acceptable v1, surfaces on resume.
+    if (focusedSubagent) {
+      const msg = text.trim()
+      if (!msg.startsWith('/') && !msg.startsWith('!')) {
+        const a = subagentsRef.current.agents.find(x => x.id === focusedSubagent.id)
+        if (a) { a.messages = [...(a.messages ?? []), { role: 'user', content: msg }]; setSubagentTick(t => t + 1) }
+        void agent.controlTask(focusedSubagent.id, 'message', msg)
+        return
+      }
+    }
 
     let cmd = parseCommand(text)
     if (cmd?.type === 'unknown') cmd = await resolveWorkflowCommand(text, agent.getWorkingDirectory()) ?? cmd
@@ -1635,7 +1663,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     }
 
     await runWithPrompt(text, text, interactionMode)
-  }, [agent, isLoading, runWithPrompt, runAgent, runBtw, interactionMode])
+  }, [agent, isLoading, runWithPrompt, runAgent, runBtw, interactionMode, focusedSubagent])
 
   // Keep ref in sync so the init effect always calls the latest handleSubmit
   handleSubmitRef.current = handleSubmit
@@ -1728,6 +1756,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const termRows = process.stdout.rows || 24
   const activityCount = subagentsRef.current.agents.filter(subagent => !subagent.workflowRunId).length +
     workflowRuns.filter(run => ['queued', 'running'].includes(run.status)).length
+  const focusedAgent = focusedSubagent ? subagentsRef.current.agents.find(a => a.id === focusedSubagent.id) ?? null : null
 
   return (
     <ThemeProvider value={theme}>
@@ -1735,23 +1764,25 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       <Box flexGrow={1}>
         <Box flexDirection="column">
           <MessageList
-            messages={interfaceSettings.showThoughts === false ? messages.filter(message => message.role !== 'thinking') : messages}
-            streamText={streamText}
-            thinkingText={interfaceSettings.showThoughts === false ? '' : thinkingText}
+            messages={focusedSubagent
+              ? (focusedAgent?.messages ?? [])
+              : interfaceSettings.showThoughts === false ? messages.filter(message => message.role !== 'thinking') : messages}
+            streamText={focusedSubagent ? '' : streamText}
+            thinkingText={focusedSubagent ? '' : (interfaceSettings.showThoughts === false ? '' : thinkingText)}
             streamRole={streamRole}
             theme={theme}
-            activeAgent={activeAgent}
+            activeAgent={focusedSubagent ? (focusedSubagent.agentName ?? 'subagent') : activeAgent}
             headerProvider={headerProvider}
-            headerAgent={headerAgent}
+            headerAgent={focusedSubagent ? '@' + (focusedSubagent.agentName ?? 'subagent') : headerAgent}
             showToolCalls={interfaceSettings.showToolCalls}
             showDiffs={interfaceSettings.showDiffs}
             showWordDiff={featureFlags.wordDiff}
             density={interfaceSettings.density}
             onOpenDiff={(diff) => setDiffDialog(diff)}
           />
-          {toolStatus && interfaceSettings.showToolCalls !== false && <ToolUseDisplay tool={toolStatus} />}
-          <TodoPanel />
-          {isLoading && (interfaceSettings.reducedMotion
+          {!focusedSubagent && toolStatus && interfaceSettings.showToolCalls !== false && <ToolUseDisplay tool={toolStatus} />}
+          {!focusedSubagent && <TodoPanel />}
+          {!focusedSubagent && isLoading && (interfaceSettings.reducedMotion
             ? <Text dimColor>{agentPhase === 'refining' ? 'Refining…' : 'Working…'}</Text>
             : <LoadingSpinner toolCallCount={toolCallCount} phase={agentPhase} />)}
           {btw && <BtwSideQuestion btw={btw} theme={theme} onDismiss={() => { btwAbortRef.current?.abort(); setBtw(null) }} />}
@@ -1813,10 +1844,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             isLoading={isLoading}
             toolCallCount={toolCallCount}
             onAbort={handleAbort}
-            onQueue={handleQueue}
+            onQueue={focusedSubagent ? (t) => void handleSubmit(t) : handleQueue}
             phase={agentPhase}
             contextPct={contextPct}
-            agentLabel={activeAgent ?? 'deepseek'}
+            agentLabel={focusedSubagent ? '@' + (focusedSubagent.agentName ?? 'subagent') : (activeAgent ?? 'deepseek')}
             agentColor={activeAgentColor}
             interactionMode={interactionMode}
             onModeChange={handleModeChange}
@@ -1827,6 +1858,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             activityAvailable={activityCount > 0}
             onActivityOpen={() => setActivityOpen(true)}
             isActive={!activityOpen}
+            placeholderOverride={focusedSubagent ? `Message @${focusedSubagent.agentName ?? 'subagent'}…` : undefined}
           />
         )}
         <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} theme={theme} items={interfaceSettings.statusBar} narrowPriority={interfaceSettings.narrowPriority} compactBadge={compactBadge} activityCount={activityCount} />
@@ -1837,6 +1869,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             open={activityOpen}
             onClose={() => setActivityOpen(false)}
             onOpenWorkflow={runId => { setActivityOpen(false); setWorkflowMonitor({ runId }) }}
+            onOpenSubagent={(id) => {
+              const a = subagentsRef.current.agents.find(x => x.id === id)
+              setActivityOpen(false)
+              setFocusedSubagent({ id, agentName: a?.agentName ?? null })
+            }}
+            onSelectMain={() => setFocusedSubagent(null)}
             onTaskAction={(taskId, action) => agent.controlTask(taskId, action)}
             onWorkflowAction={async (runId, action) => {
               if (action === 'stop') return await agent.workflows.cancel(runId) ? `Workflow ${runId.slice(0, 8)} stopping.` : 'Workflow is not active.'
