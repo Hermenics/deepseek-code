@@ -182,6 +182,9 @@ export interface ActivityFooterProps {
   open: boolean
   onClose(): void
   onOpenWorkflow(runId: string): void
+  onOpenSubagent?(agentId: string): void
+  /** Enter on the "main" row (selection index -1) — used to exit subagent focus. */
+  onSelectMain?(): void
   onTaskAction(taskId: string, action: 'cancel' | 'resume'): Promise<string>
   onWorkflowAction(runId: string, action: 'pause' | 'stop'): Promise<string>
   theme?: ThemeName
@@ -194,7 +197,7 @@ export interface ActivityFooterProps {
  * selectable at index -1), and detail (full breakdown of the selected item).
  */
 export function ActivityFooter({
-  agents, workflows, open, onClose, onOpenWorkflow, onTaskAction, onWorkflowAction,
+  agents, workflows, open, onClose, onOpenWorkflow, onOpenSubagent, onSelectMain, onTaskAction, onWorkflowAction,
   theme = 'dark', mainLabel = 'main',
 }: ActivityFooterProps) {
   const colors = getThemeColors(theme)
@@ -237,14 +240,23 @@ export function ActivityFooter({
       }
     }
     const item = items[selected]
-    if (!item) return
+    if (!item) {
+      // Selection is on "main" (index -1): Enter returns to the main agent.
+      if (key.return) onSelectMain?.()
+      return
+    }
     if (key.return) {
       if (!detail) {
         if (item.kind === 'workflow') onOpenWorkflow(item.run.runId)
+        // Enter on an agent opens the subagent chat (Claude Code behavior).
+        // The detail view stays reachable via 'v' below, and via the
+        // setDetail fallback for consumers that don't wire onOpenSubagent.
+        else if (onOpenSubagent) onOpenSubagent(item.agent.id)
         else setDetail(true)
       }
       return
     }
+    if (input === 'v' && item.kind === 'agent' && onOpenSubagent) { setDetail(true); return }
     if (input === 'x' && item.active) {
       const operation = item.kind === 'workflow'
         ? onWorkflowAction(item.id, 'stop')

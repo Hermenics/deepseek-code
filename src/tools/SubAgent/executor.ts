@@ -83,6 +83,22 @@ export async function runSubAgentLoop<T = never>(
 
   for (let iteration = 0; iteration < SUBAGENT_MAX_ITERATIONS; iteration++) {
     if (options.context?.signal?.aborted) throw options.context.signal.reason
+    // Drain coordinator 'question' messages (posted via agent.controlTask(id, 'message', text))
+    // into the conversation so a running subagent reacts to the user mid-run.
+    if (options.context?.taskId && options.context.session) {
+      const inbox = options.context.session.registry.mailbox.list(options.context.taskId, 'pending')
+      for (const message of inbox) {
+        if (message.type !== 'question') continue
+        const text = String(message.payload.text ?? '')
+        if (text.trim()) {
+          // The focused-subagent UI already shows the user's message via an
+          // optimistic append in App.tsx, so re-emitting it here would duplicate
+          // the transcript row. It still reaches the model via messages.push.
+          messages.push({ role: 'user', content: text })
+        }
+        options.context.session.registry.acknowledgeMessage(message.messageId)
+      }
+    }
     const effortParams = (provider.provider === 'deepseek' || provider.provider === 'bedrock') && options.effort
       ? options.effort === 'low'
         ? { thinking: { type: 'disabled' } }
@@ -92,13 +108,21 @@ export async function runSubAgentLoop<T = never>(
       model: modelName, messages, tools: tools.length > 0 ? tools : undefined, ...effortParams,
     } as any, { signal: options.context?.signal })
     totalTokens += response.usage?.total_tokens ?? 0
-    if (totalTokens > 0) options.context?.emit?.('token_progress', { tokens: totalTokens })
+    // The verifier loop runs with the parent's toolContext (real taskId), so its
+    // emissions would leak verifier progress into the subagent's transcript and
+    // reset the footer's ↓ tokens. Detect it by the synthetic agentId suffix.
+    const isVerifier = agentId.endsWith('-v')
+    if (!isVerifier && totalTokens > 0) options.context?.emit?.('token_progress', { tokens: totalTokens })
     if (options.context?.maxTokens !== undefined && totalTokens > options.context.maxTokens) {
       throw new TaskRuntimeError('TOKEN_BUDGET_EXCEEDED', `Subagent used ${totalTokens} tokens; limit is ${options.context.maxTokens}`)
     }
     const message = response.choices[0]?.message
     if (!message) throw new StructuredOutputError('INVALID_RESULT', 'Model returned no message', raw.join('\n'))
     if (message.content) raw.push(message.content)
+    // Emit transcript deltas only — the full `messages` array holds the system
+    // prompt and large tool results and must not be re-sent every iteration.
+    // Skip for the verifier loop (would leak verifier reasoning into the transcript).
+    if (!isVerifier && message.content) options.context?.emit?.('subagent_message', { role: 'assistant', content: message.content })
 
     if (!message.tool_calls?.length) {
       if (!options.terminal) return { resultText: message.content ?? '', rawOutput: raw.join('\n'), totalTokens }

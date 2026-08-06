@@ -4,6 +4,7 @@ import { SUBAGENT_RESULT_SCHEMA } from '../src/orchestration/schema.js'
 import { runSubAgentLoop } from '../src/tools/SubAgent/executor.js'
 import { StructuredOutputError, validateSubAgentResult, type SubAgentResult } from '../src/tools/SubAgent/contracts.js'
 import { OrchestratorSession } from '../src/orchestration/index.js'
+import type { TaskEventType } from '../src/orchestration/types.js'
 
 const provider = { provider: 'local' as const, localModel: 'fake' }
 const valid: SubAgentResult = {
@@ -246,5 +247,59 @@ describe('subagent terminal protocol', () => {
       client: fakeClient([terminalArgs(valid)]), terminal,
       context: { sessionId: 's', workspacePath: process.cwd(), projectRoot: process.cwd(), permissionProfile: 'researcher-readonly', maxTokens: 2 },
     })).rejects.toMatchObject({ code: 'TOKEN_BUDGET_EXCEEDED' })
+  })
+
+  it('emits cumulative token_progress after every LLM completion', async () => {
+    const emitted: Array<{ type: TaskEventType; payload: Record<string, unknown> }> = []
+    const context = {
+      sessionId: 's', taskId: 't', workspacePath: process.cwd(), projectRoot: process.cwd(),
+      permissionProfile: 'researcher-readonly' as const,
+      emit: (type: TaskEventType, payload: Record<string, unknown>) => emitted.push({ type, payload }),
+    }
+    const unknownToolCall = { content: null, tool_calls: [{ id: 'x', type: 'function', function: { name: 'nope', arguments: '{}' } }] }
+    const result = await runSubAgentLoop('system', 'task', 'id', [], provider, 'fake', {
+      client: fakeClient([unknownToolCall, terminalArgs(valid)]), terminal, context,
+    })
+    expect(result.totalTokens).toBe(6)
+    expect(emitted.filter(event => event.type === 'token_progress'))
+      .toEqual([
+        { type: 'token_progress', payload: { tokens: 3 } },
+        { type: 'token_progress', payload: { tokens: 6 } },
+      ])
+  })
+
+  it('drains mailbox questions into the conversation and emits subagent_message', async () => {
+    const session = new OrchestratorSession({ projectRoot: process.cwd(), logFile: null, snapshotFile: null })
+    let releaseFirst: () => void = () => {}
+    const gate = new Promise<void>(resolve => { releaseFirst = resolve })
+    let calls = 0
+    const captured: Array<{ messages: unknown[] }> = []
+    const client = { chat: { completions: { create: async (input: Record<string, unknown>) => {
+      calls++
+      captured.push(input as { messages: unknown[] })
+      if (calls === 1) await gate
+      return calls === 1 ? response({ content: null, tool_calls: [{ id: 'x', type: 'function', function: { name: 'nope', arguments: '{}' } }] }) : response(terminalArgs(valid))
+    } } } } as any
+    const task = session.spawn({ taskId: 'drain-task', maxRetries: 0 }, async runContext => runSubAgentLoop(
+      'system', 'task', runContext.taskId, [], provider, 'fake', {
+        client, terminal,
+        context: session.toolContext({ taskId: runContext.taskId, signal: runContext.signal }),
+      },
+    ))
+    // Wait for the first completion to be in flight, then post a question.
+    for (let index = 0; index < 100 && calls < 1; index++) await Bun.sleep(1)
+    session.registry.sendMessage(task.taskId, 'question', { text: 'hello' })
+    releaseFirst()
+    expect((await task.awaitResult()).status).toBe('done')
+
+    // The second completion's prompt includes the drained user message.
+    expect(captured[1]!.messages).toContainEqual({ role: 'user', content: 'hello' })
+    // The mailbox entry is acknowledged.
+    expect(session.registry.mailbox.list(task.taskId, 'processed').some(message => message.type === 'question')).toBe(true)
+    // The drained user message is NOT re-emitted as a subagent_message: the
+    // focused-subagent UI already shows it via an optimistic append in App.tsx,
+    // so re-emitting here would duplicate the transcript row.
+    expect(session.events.list(task.taskId).some(event =>
+      event.type === 'subagent_message' && event.payload.role === 'user' && event.payload.content === 'hello')).toBe(false)
   })
 })
