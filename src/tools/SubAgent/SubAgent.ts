@@ -17,6 +17,7 @@ import { describeRole, getToolNamesForProfile, getToolsForRole, inferRole, type 
 export interface SubAgentCallbacks {
   onStart(id: string, task: string, agentName?: string): void
   onToolUse(id: string, tool: string, info?: string): void
+  onTokens?(id: string, tokens: number): void
   onDone(id: string, result: string, tokens?: number, costUsd?: number, structured?: SubAgentResult): void
   onError(id: string, error: string): void
 }

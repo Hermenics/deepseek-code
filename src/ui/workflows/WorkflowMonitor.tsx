@@ -23,7 +23,8 @@ function formatDuration(ms: number): string {
 }
 
 function formatTokens(tokens: number): string {
-  return tokens >= 1_000 ? `${(tokens / 1_000).toFixed(1)}k tok` : `${tokens} tok`
+  const base = tokens >= 1_000 ? `${(tokens / 1_000).toFixed(1)}k tokens` : `${tokens} tokens`
+  return `↓ ${base}`
 }
 
 export function workflowDurationMs(run: WorkflowRun, now = Date.now()): number {
@@ -201,7 +202,7 @@ export function WorkflowMonitor({
           {visible.start + visible.runs.length < runs.length && <Text color={colors.textSubtle}>{`  ↓ ${runs.length - visible.start - visible.runs.length} later runs`}</Text>}
         </>}
       {feedback && <Text color={colors.warning}>{truncate(feedback, width)}</Text>}
-      <Text color={colors.textSubtle}>{'↑/↓ select · Enter view · x stop · p pause/resume · r restart · s save · Esc close'}</Text>
+      <Text color={colors.textSubtle}>{'↑/↓ to select · Enter to view · x stop · p pause/resume · r restart · s save · Esc close'}</Text>
     </Box>
   )
 }
