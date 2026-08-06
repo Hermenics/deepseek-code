@@ -23,6 +23,14 @@ import Workflows from "./pages/Workflows";
 import PluginsSkills from "./pages/PluginsSkills";
 import Costs from "./pages/Costs";
 import Automation from "./pages/Automation";
+import Security from "./pages/Security";
+import Troubleshooting from "./pages/Troubleshooting";
+import Goals from "./pages/Goals";
+import Lsp from "./pages/Lsp";
+import Features from "./pages/Features";
+import Interface from "./pages/Interface";
+import Keybindings from "./pages/Keybindings";
+import Themes from "./pages/Themes";
 
 export default function DocsApp() {
   return (
@@ -49,6 +57,14 @@ export default function DocsApp() {
         <Route path="hooks" element={<Hooks />} />
         <Route path="cli-reference" element={<CliReference />} />
         <Route path="costs" element={<Costs />} />
+        <Route path="goals" element={<Goals />} />
+        <Route path="lsp" element={<Lsp />} />
+        <Route path="features" element={<Features />} />
+        <Route path="security" element={<Security />} />
+        <Route path="troubleshooting" element={<Troubleshooting />} />
+        <Route path="interface" element={<Interface />} />
+        <Route path="keybindings" element={<Keybindings />} />
+        <Route path="themes" element={<Themes />} />
         <Route path="changelog" element={<Changelog />} />
         <Route path="*" element={<Overview />} />
       </Routes>

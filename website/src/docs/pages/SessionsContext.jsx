@@ -2,12 +2,25 @@ import { CodeBlock, Note, Toc } from "../Layout";
 
 const TOC = [
   { id: "sessions", label: "Session lifecycle" },
+  { id: "snapshots", label: "Task snapshots & resume" },
   { id: "export", label: "Exporting sessions" },
   { id: "context", label: "Understanding context usage" },
   { id: "compaction", label: "Compaction (manual & auto)" },
   { id: "microcompact", label: "Micro-compact (zero-LLM)" },
   { id: "checkpoints", label: "Checkpoints & undo" },
+  { id: "audit", label: "Audit log" },
+  { id: "history", label: "Input & conversation history" },
   { id: "clear", label: "Starting fresh (/clear)" },
+];
+
+const AUDIT_EVENTS = [
+  ["session_start", "Model, provider, and working directory"],
+  ["tool_call", "Tool name and (redacted) arguments"],
+  ["tool_result", "Result truncated to 200 chars, plus duration"],
+  ["compact / compact_error", "Compaction runs and their failures"],
+  ["checkpoint", "Checkpoint id and optional label"],
+  ["session_end", "Total tokens consumed"],
+  ["mcp_server_load", "MCP server name and transport"],
 ];
 
 const UNDO = [
@@ -57,6 +70,30 @@ export default function SessionsContext() {
           </p>
         </section>
 
+        <section id="snapshots">
+          <h2><span className="anchor">#</span>Task snapshots &amp; resume</h2>
+          <p>
+            Beyond the transcript, the session's <b>task graph</b> (delegated sub-agent tasks and
+            their orchestration state) is snapshotted to{" "}
+            <code className="inline">~/.deepseek/task-snapshots/&lt;sha256&gt;.json</code> — a sha256 of
+            the session id. Writes are <b>atomic</b> (temp file + rename), use{" "}
+            <code className="inline">0600</code> permissions, and pass through{" "}
+            <code className="inline">redactSecrets</code> so credentials are stored as{" "}
+            <code className="inline">[REDACTED]</code>. On load, a snapshot is <b>tamper-rejected</b>:
+            the identity, graph (states, dependencies, cycles), and workspace envelope are validated
+            before anything is restored.
+          </p>
+          <p>
+            Resuming a session reconciles the graph: tasks that were <b>running</b> when the process
+            died become <code className="inline">failed</code> with the{" "}
+            <code className="inline">INTERRUPTED</code> error (retryable), and <b>queued</b> tasks with
+            no reattached runner become <code className="inline">blocked</code> with{" "}
+            <i>"Runner unavailable after restart"</i> until a runner is attached. The{" "}
+            <code className="inline">AgentN</code> naming counter is re-derived from the restored
+            tasks, so new spawns continue the sequence.
+          </p>
+        </section>
+
         <section id="export">
           <h2><span className="anchor">#</span>Exporting sessions</h2>
           <p>
@@ -89,6 +126,13 @@ export default function SessionsContext() {
             estimated live-window breakdown across system prompt, tool definitions, memory, and
             conversation (messages plus tool results). Category sizes are proportional estimates —
             only the total is exact, straight from the provider.
+          </p>
+          <p>
+            DeepSeek V4 models have built-in thinking mode and may return{" "}
+            <code className="inline">reasoning_content</code> on any message. This field is{" "}
+            <b>always preserved</b> in the saved history and re-sent to the API — the API requires it
+            to be passed back, and the request fails otherwise. Preservation holds across compaction
+            boundaries and aborts.
           </p>
         </section>
 
@@ -138,6 +182,14 @@ export default function SessionsContext() {
             <code className="inline">/undo-list</code> roll back individual writes, and an in-memory undo
             stack covers the last 10 writes in the session.
           </p>
+          <p>
+            Under the hood: the in-memory stack is capped at <code className="inline">UNDO_STACK_MAX</code>{" "}
+            (10), while durable per-file backups are written <b>before</b> each write/patch to{" "}
+            <code className="inline">~/.deepseek-code/checkpoints/&lt;sessionId&gt;/files/</code>. Files
+            matching <code className="inline">settings.git.generatedPatterns</code> are excluded from
+            both, and undo paths are re-validated against the workspace on restore — a path that no
+            longer resolves inside the project is refused.
+          </p>
           <div className="doc-table-wrap">
             <table className="doc-table">
               <thead>
@@ -153,6 +205,50 @@ export default function SessionsContext() {
               </tbody>
             </table>
           </div>
+        </section>
+
+        <section id="audit">
+          <h2><span className="anchor">#</span>Audit log</h2>
+          <p>
+            Every session writes a JSONL audit trail to{" "}
+            <code className="inline">~/.deepseek/logs/session-&lt;ts&gt;-&lt;hex&gt;.jsonl</code>:
+          </p>
+          <div className="doc-table-wrap">
+            <table className="doc-table">
+              <thead>
+                <tr><th style={{ width: "30%" }}>Event</th><th>Records</th></tr>
+              </thead>
+              <tbody>
+                {AUDIT_EVENTS.map(([e, d]) => (
+                  <tr key={e}>
+                    <td><code className="inline">{e}</code></td>
+                    <td>{d}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Secrets are redacted before writing, the file is kept at{" "}
+            <code className="inline">0600</code>, and logging <b>never throws</b> — a failed append is
+            silently skipped so the agent keeps running.
+          </p>
+        </section>
+
+        <section id="history">
+          <h2><span className="anchor">#</span>Input &amp; conversation history</h2>
+          <p>
+            Your typed input is recorded in{" "}
+            <code className="inline">~/.deepseek/input_history.json</code> — capped at{" "}
+            <b>200 entries</b>, with consecutive duplicates dropped, and{" "}
+            <code className="inline">/commands</code> and <code className="inline">!shell</code> lines ignored.
+          </p>
+          <p>
+            A separate <code className="inline">~/.deepseek/history.json</code> keeps the{" "}
+            <b>last 500 messages</b> (system prompt plus the most recent messages) per session, which
+            is what powers the resume picker when you launch{" "}
+            <code className="inline">deepseek</code> with no arguments.
+          </p>
         </section>
 
         <section id="clear">

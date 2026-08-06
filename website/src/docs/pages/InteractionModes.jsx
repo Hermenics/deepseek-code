@@ -89,6 +89,13 @@ export default function InteractionModes() {
             <code className="inline">auto</code>. Auto is user-only: reach it with{" "}
             <code className="inline">Shift+Tab</code> or set it as the default (User scope only).
           </p>
+          <p>
+            Beyond the allowlists, writes that target <code className="inline">.deepseek/**</code> are
+            risk-flagged: <code className="inline">write_file</code> and <code className="inline">patch_file</code> hitting
+            any path under <code className="inline">.deepseek/</code> (matched on both the <code className="inline">path</code>{" "}
+            and <code className="inline">file_path</code> argument names) are high-risk and require
+            confirmation — the agent cannot silently rewrite its own configuration.
+          </p>
           <Note>
             Review is strictly read-only, but even reads are trimmed — <code className="inline">git</code> is
             limited to <code className="inline">status</code>, <code className="inline">diff</code>, and{" "}
@@ -101,10 +108,10 @@ export default function InteractionModes() {
           <h2><span className="anchor">#</span>Plan mode</h2>
           <p>
             <code className="inline">/plan &lt;task&gt;</code> switches the session to Plan mode. The agent
-            generates a plan path under <code className="inline">.plans/</code> named{" "}
-            <code className="inline">&lt;slug&gt;-&lt;id&gt;.md</code>, sets it as the designated plan file, and
-            injects a Plan-mode prompt with required sections: Context, Recommended Approach,
-            Critical Files, Existing Utilities to Reuse, and Verification.
+            generates a plan file at <code className="inline">&lt;workspace&gt;/.plans/&lt;slug&gt;-&lt;id&gt;.md</code> — a
+            slugified, 40-character-max version of the task plus an 8-hex random id — sets it as the
+            designated plan file, and injects a Plan-mode prompt with required sections: Context,
+            Recommended Approach, Critical Files, Existing Utilities to Reuse, and Verification.
           </p>
           <CodeBlock lang="bash">/plan <span className="k">add retry with backoff to the fetch wrapper</span></CodeBlock>
           <p>

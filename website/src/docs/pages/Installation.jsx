@@ -75,6 +75,9 @@ $ bun install`}</CodeBlock>
                 <tr><td><code className="inline">bun run build</code></td><td>Production build</td></tr>
                 <tr><td><code className="inline">bun run typecheck</code></td><td>Type check (<code className="inline">tsc --noEmit</code>)</td></tr>
                 <tr><td><code className="inline">bun test</code></td><td>Run the test suite</td></tr>
+                <tr><td><code className="inline">bun run test:coverage</code></td><td>Run tests with an LCOV coverage report</td></tr>
+                <tr><td><code className="inline">bun run test:plugins</code></td><td>Run the plugin test suite only</td></tr>
+                <tr><td><code className="inline">bun run pack:check</code></td><td>Verify the npm package before publishing</td></tr>
               </tbody>
             </table>
           </div>
@@ -83,15 +86,34 @@ $ bun install`}</CodeBlock>
         <section id="structure">
           <h2><span className="anchor">#</span>Project structure</h2>
           <CodeBlock lang="text">{`src/
-├── agent/           # Core agent loop, providers (DeepSeek, Bedrock, Vertex)
+├── agent/           # Core agent loop, LLM clients and providers
+├── bootstrap/       # Startup state
 ├── commands/        # Slash command definitions
-├── ui/              # React TUI components and app state
-├── ink/             # Local Ink-compatible terminal renderer
-├── tools/           # Agent tools (file ops, shell, git, search, etc.)
-├── services/        # Cross-cutting services such as compaction
+├── constants/       # Shared constants
+├── entrypoints/     # CLI entry points (cli.tsx, pipe.ts)
 ├── hooks/           # Pre/post tool execution hooks
-└── index.tsx        # Entry point
-tests/               # Test suite`}</CodeBlock>
+├── index.tsx        # Entry point
+├── ink/             # Local Ink-compatible terminal renderer
+├── kernel/          # Dormant reference subsystem — not wired into the runtime
+├── native-ts/       # Native TypeScript implementations (yoga-layout)
+├── orchestration/   # Multi-agent task registry, mailboxes, workspaces
+├── permissions/     # Allow/deny rules and risk checks
+├── plugins/         # Plugin registry and installer
+├── services/        # Cross-cutting services such as compaction
+├── settings/        # Settings schema, merge and repository
+├── skills/          # Skill registry and installer
+├── stubs/           # Vendor stubs (e.g. react-devtools-core)
+├── tools/           # Agent tools (file ops, shell, git, search, etc.)
+├── types/           # Shared types
+├── ui/              # React TUI components and app state
+├── utils/           # Utilities
+└── workflows/       # Workflow engine and monitors
+tests/               # Test suite
+website/             # Docs website (React + CRA)`}</CodeBlock>
+          <Note>
+            <code className="inline">src/kernel/</code> is a dormant reference subsystem kept for
+            architectural study — nothing imports it at runtime.
+          </Note>
         </section>
 
         <section id="next">

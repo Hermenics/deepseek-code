@@ -3,10 +3,44 @@ import { CodeBlock, Note, Toc } from "../Layout";
 const TOC = [
   { id: "overview", label: "Why delegate" },
   { id: "subagent-tool", label: "The subagent tool" },
+  { id: "verification", label: "Verification triggers" },
   { id: "builtins", label: "Built-in agents" },
+  { id: "roles", label: "Roles & least privilege" },
+  { id: "limits", label: "Limits" },
   { id: "askagent", label: "Background questions (ask_agent)" },
   { id: "moa", label: "Mixture of Agents (moa)" },
   { id: "config", label: "Connecting to agent config" },
+];
+
+const TRIGGERS = [
+  ["Files changed &amp; confidence &lt; 0.7", "A sub-agent that touched files but isn't sure gets an independent check"],
+  ["More than 2 issues &amp; confidence &lt; 0.8", "Many findings with moderate confidence also trigger one"],
+  ["verify: true", "Explicit opt-in forces verification; verify: false disables it"],
+];
+
+const INFERRED_ROLES = [
+  ["review / audit / check for", "reviewer — read + search only (no writes, no shell)"],
+  ["run / execute / install / build / test", "executor — files plus shell"],
+  ["write / create / refactor (no shell words)", "writer — files only, no shell"],
+  ["Anything ambiguous", "reader — read-only by default (least privilege)"],
+];
+
+const LIMITS = [
+  ["SUBAGENT_MAX_ITERATIONS", "50", "Max loop iterations per sub-agent"],
+  ["timeoutMs", "120000 (2 min)", "Default per-task timeout"],
+  ["concurrency", "5", "Parallel tasks per session"],
+  ["maxTasks", "17", "Total tasks per session"],
+  ["maxDepth", "2", "Max delegation depth"],
+  ["maxFanOut", "5", "Max children per parent"],
+  ["maxRetries", "1", "Retry attempts for failed tasks"],
+];
+
+const MOA_ERRORS = [
+  ["INVALID_CONFIG", "Bad reference-model setup (e.g. no models configured)"],
+  ["INSUFFICIENT_CANDIDATES", "Fewer unique candidates than the minimum required"],
+  ["AGGREGATOR_FAILED", "The synthesis model failed"],
+  ["BUDGET_EXCEEDED", "Token or cost budget exhausted mid-run"],
+  ["CANCELLED", "Cancelled via abort signal"],
 ];
 
 const COMPONENTS = [
@@ -139,6 +173,37 @@ export default function SubAgents() {
           </Note>
         </section>
 
+        <section id="verification">
+          <h2><span className="anchor">#</span>Verification triggers</h2>
+          <p>
+            An independent verifier runs automatically when the heuristics below fire — or whenever{" "}
+            <code className="inline">verify: true</code> is set explicitly:
+          </p>
+          <div className="doc-table-wrap">
+            <table className="doc-table">
+              <thead>
+                <tr><th style={{ width: "38%" }}>Trigger</th><th>Why</th></tr>
+              </thead>
+              <tbody>
+                {TRIGGERS.map(([t, w]) => (
+                  <tr key={t}>
+                    <td><code className="inline">{t}</code></td>
+                    <td>{w}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p>
+            The verifier is a separate agent loop that is <b>blind to the candidate's working
+            transcript</b> — it only sees the task and the candidate's summary and file list, which
+            it must treat as untrusted data. Only a <code className="inline">CONFIRMED</code> verdict with{" "}
+            <b>direct evidence</b> passes; <code className="inline">PLAUSIBLE</code> and{" "}
+            <code className="inline">REFUTED</code> fail the task (<code className="inline">VERIFICATION_INCONCLUSIVE</code>{" "}
+            and <code className="inline">VERIFICATION_REFUTED</code> respectively).
+          </p>
+        </section>
+
         <section id="builtins">
           <h2><span className="anchor">#</span>Built-in agents</h2>
           <p>
@@ -176,12 +241,67 @@ export default function SubAgents() {
           </Note>
         </section>
 
+        <section id="roles">
+          <h2><span className="anchor">#</span>Roles &amp; least privilege</h2>
+          <p>
+            When no role is given, it is <b>inferred from the task wording</b> — and ambiguity
+            defaults to the narrowest role:
+          </p>
+          <div className="doc-table-wrap">
+            <table className="doc-table">
+              <thead>
+                <tr><th style={{ width: "40%" }}>Task contains</th><th>Inferred role</th></tr>
+              </thead>
+              <tbody>
+                {INFERRED_ROLES.map(([k, r]) => (
+                  <tr key={k}>
+                    <td><code className="inline">{k}</code></td>
+                    <td>{r}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p>
+            The final tool set is the <b>intersection</b> of three allowlists: the role's tools, the
+            permission profile's tools, and the parent's own allowlist. A worker can therefore never
+            exceed its parent's privileges — even an <code className="inline">unrestricted</code> role is
+            capped by the profile and the parent.
+          </p>
+        </section>
+
+        <section id="limits">
+          <h2><span className="anchor">#</span>Limits</h2>
+          <p>
+            Every session enforces hard task limits (configurable via{" "}
+            <code className="inline">settings.agents</code>):
+          </p>
+          <div className="doc-table-wrap">
+            <table className="doc-table">
+              <thead>
+                <tr><th style={{ width: "32%" }}>Limit</th><th style={{ width: "24%" }}>Default</th><th>Meaning</th></tr>
+              </thead>
+              <tbody>
+                {LIMITS.map(([l, v, m]) => (
+                  <tr key={l}>
+                    <td><code className="inline">{l}</code></td>
+                    <td><code className="inline">{v}</code></td>
+                    <td>{m}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
         <section id="askagent">
           <h2><span className="anchor">#</span>Background questions (ask_agent)</h2>
           <p>
             <code className="inline">ask_agent</code> dispatches a question in the <b>background</b> to a named
-            configured agent — or to every enabled sub-agent with <code className="inline">broadcast: true</code>{" "}
-            — and returns a task handle immediately. It always uses fresh context:
+            configured agent — or, with <code className="inline">broadcast: true</code>, to{" "}
+            <b>every enabled agent whose usage is <code className="inline">subagent</code> or{" "}
+            <code className="inline">both</code></b> — and returns a task handle immediately. It always
+            uses fresh context:
           </p>
           <CodeBlock lang="json">{`{ "name": "ask_agent", "arguments": { "question": "What changed in session.ts this week?", "agent": "reviewer" } }`}</CodeBlock>
           <p>
@@ -219,6 +339,25 @@ export default function SubAgents() {
             <code className="inline">moa</code> on critical decisions where a few independent perspectives beat a
             single pass.
           </p>
+          <p>
+            Failures surface as typed error codes — and the call <b>fails closed</b>, never falling
+            back to a raw candidate:
+          </p>
+          <div className="doc-table-wrap">
+            <table className="doc-table">
+              <thead>
+                <tr><th style={{ width: "32%" }}>Code</th><th>Meaning</th></tr>
+              </thead>
+              <tbody>
+                {MOA_ERRORS.map(([c, m]) => (
+                  <tr key={c}>
+                    <td><code className="inline">{c}</code></td>
+                    <td>{m}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
 
         <section id="config">
