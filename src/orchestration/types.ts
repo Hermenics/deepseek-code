@@ -187,7 +187,7 @@ export interface TaskSessionSnapshotV1 {
 
 export type TaskEventType =
   | 'task_created' | 'state_changed' | 'attempt_started' | 'attempt_finished'
-  | 'message' | 'tool_started' | 'tool_finished' | 'authorization' | 'token_progress'
+  | 'message' | 'tool_started' | 'tool_finished' | 'authorization' | 'token_progress' | 'subagent_message'
   | 'retry' | 'blocked' | 'timeout' | 'cancelled' | 'completed'
   | 'workspace_created' | 'workspace_updated' | 'workspace_fallback' | 'integration'
   | 'metadata_updated' | 'metrics_updated' | 'session_rebased' | 'error'

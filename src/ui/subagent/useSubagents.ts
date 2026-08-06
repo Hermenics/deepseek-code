@@ -7,6 +7,7 @@ export interface SubagentToolUseInput { id: string; tool: string; info?: string 
 export interface SubagentDoneInput { id: string; result: string; tokens?: number; costUsd?: number; structured?: SubAgentResult; confidence?: number | null; verified?: boolean | null }
 export interface SubagentErrorInput { id: string; error: string }
 export interface SubagentStateInput { id: string; status?: SubagentState['status']; task?: string; role?: string | null; agentName?: string | null; mode?: 'foreground' | 'background'; model?: string | null; workspace?: string | null; workflowRunId?: string | null; error?: string; tokens?: number }
+export interface SubagentMessageInput { id: string; role: 'user' | 'assistant'; content: string }
 
 export interface UseSubagentsReturn {
   agents: SubagentState[]
@@ -16,6 +17,7 @@ export interface UseSubagentsReturn {
   onSubagentDone: (input: SubagentDoneInput) => void
   onSubagentError: (input: SubagentErrorInput) => void
   onSubagentState: (input: SubagentStateInput) => void
+  onSubagentMessage: (input: SubagentMessageInput) => void
   clearResolved: () => void
 }
 
@@ -54,6 +56,7 @@ export function useSubagents(): UseSubagentsReturn {
         verified: null,
         agentName: agentName ?? null,
         mode,
+        messages: [{ role: 'user', content: task }],
         model: model ?? null,
         workspace: workspace ?? null,
         workflowRunId: workflowRunId ?? null,
@@ -113,6 +116,13 @@ export function useSubagents(): UseSubagentsReturn {
       if (tokens != null) agent.tokens = tokens
       if (error) agent.error = error
       if (status !== undefined && ['done', 'failed', 'error', 'cancelled', 'timed_out'].includes(status)) agent.durationMs = Date.now() - agent.startedAt
+    },
+
+    onSubagentMessage({ id, role, content }) {
+      const agent = hook.agents.find(candidate => candidate.id === id)
+      if (!agent) return
+      if (!agent.messages) agent.messages = []
+      agent.messages.push({ role, content })
     },
 
     clearResolved() {
