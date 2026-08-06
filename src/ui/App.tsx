@@ -233,6 +233,11 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         subs.onSubagentToolUse({ id, tool, info })
         setSubagentTick((t) => t + 1)
       },
+      onTokens(id: string, tokens: number) {
+        if (!findTask(id)) return
+        subs.onSubagentState({ id, tokens })
+        setSubagentTick((t) => t + 1)
+      },
       onDone(id: string, result: string, tokens?: number, costUsd?: number) {
         syncTask(id)
         subs.onSubagentDone({ id, result, tokens, costUsd })

@@ -237,6 +237,35 @@ describe('useSubagents', () => {
     })
   })
 
+  describe('onSubagentState', () => {
+    it('should update tokens progressively without clobbering status', () => {
+      const hook = createHook()
+      hook.onSubagentStart({ id: 'a1', task: 'task' })
+      hook.onSubagentState({ id: 'a1', tokens: 12_000 })
+
+      expect(hook.agents[0].tokens).toBe(12_000)
+      expect(hook.agents[0].status).toBe('running')
+    })
+
+    it('should accumulate growing token counts on repeated progress events', () => {
+      const hook = createHook()
+      hook.onSubagentStart({ id: 'a1', task: 'task' })
+      hook.onSubagentState({ id: 'a1', tokens: 12_000 })
+      hook.onSubagentState({ id: 'a1', tokens: 24_500 })
+
+      expect(hook.agents[0].tokens).toBe(24_500)
+    })
+
+    it('should update status and tokens together when both are provided', () => {
+      const hook = createHook()
+      hook.onSubagentStart({ id: 'a1', task: 'task' })
+      hook.onSubagentState({ id: 'a1', status: 'done', tokens: 30_000 })
+
+      expect(hook.agents[0].status).toBe('done')
+      expect(hook.agents[0].tokens).toBe(30_000)
+    })
+  })
+
   describe('clearResolved', () => {
     it('should remove agents with status done', () => {
       const hook = createHook()

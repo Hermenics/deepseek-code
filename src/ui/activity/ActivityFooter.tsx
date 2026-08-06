@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import useInput from '../../ink/hooks/use-input.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
@@ -58,6 +58,14 @@ function formatTokens(tokens: number | null | undefined): string | undefined {
   return `${tokens} tok`
 }
 
+/** Footer token metric matching Claude Code's `↓ 63.0k tokens` phrasing. */
+function formatFooterTokens(tokens: number | null | undefined): string | undefined {
+  if (tokens == null) return undefined
+  if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}m tokens`
+  if (tokens >= 1_000) return `${(tokens / 1_000).toFixed(1)}k tokens`
+  return `${tokens} tokens`
+}
+
 function workflowProgress(run: WorkflowRun, agents: SubagentState[]): string {
   const done = agents.filter(agent => !ACTIVE_AGENTS.has(agent.status)).length
   return `${done}/${run.usage.agents} agents done`
@@ -96,28 +104,48 @@ export function compactActivityItems(items: ActivityItem[], maxRows = 5): { rows
   return { rows, overflow: Math.max(0, items.length - rows.length) }
 }
 
+/** Contextual hint line for the open list, matching Claude Code's phrasing. */
+export function buildActionHint(item: ActivityItem | undefined): string {
+  const base = '↑/↓ to select · Enter to view'
+  if (!item) return base
+  const actions: string[] = []
+  if (item.kind === 'workflow') {
+    actions.push('x stop')
+    if (item.run.status === 'running') actions.push('p pause')
+  } else if (item.active) {
+    actions.push('x stop')
+  }
+  if (item.kind === 'agent' && RESUMABLE_AGENTS.has(item.agent.status)) actions.push('r resume')
+  return actions.length ? `${base} · ${actions.join(' · ')}` : base
+}
+
 /**
- * Format one activity row: status icon (overridable, e.g. the selection ball),
- * label, description and metrics, truncated to the requested width.
+ * Format one activity row: the `◯`/`●` selection icon (overridable), label,
+ * description and metrics, truncated to the requested width. Active agents
+ * show `duration · ↓ tokens`; finished agents show `idle`.
  */
 export function formatActivityItem(item: ActivityItem, columns: number, now = Date.now(), iconOverride?: string): string {
-  const icon = STATUS_ICONS[item.status] ?? '•'
+  const icon = iconOverride ?? '◯'
   const elapsed = item.kind === 'agent' && item.agent.durationMs != null
     ? item.agent.durationMs
     : item.kind === 'workflow' && item.run.completedAt
       ? Date.parse(item.run.completedAt) - item.startedAt
       : now - item.startedAt
-  const metrics: string[] = [formatDuration(elapsed)]
+  const metrics: string[] = []
   if (item.kind === 'agent') {
-    if (item.agent.toolCount > 0) metrics.push(`${item.agent.toolCount} tools`)
-    const tokens = formatTokens(item.agent.tokens)
-    if (tokens) metrics.push(tokens)
+    if (item.active) {
+      metrics.push(formatDuration(elapsed))
+      const tokens = formatFooterTokens(item.agent.tokens)
+      if (tokens) metrics.push(`↓ ${tokens}`)
+    } else {
+      metrics.push('idle')
+    }
   } else {
-    metrics.push(workflowProgress(item.run, item.agents))
+    metrics.push(formatDuration(elapsed), workflowProgress(item.run, item.agents))
     const tokens = formatTokens(item.run.usage.tokens)
     if (tokens) metrics.push(tokens)
   }
-  const prefix = `${iconOverride ?? icon} ${item.kind === 'workflow' ? 'workflow ' : ''}${item.label}`
+  const prefix = `${icon} ${item.kind === 'workflow' ? 'workflow ' : ''}${item.label}`
   if (columns < 55) return truncate(`${prefix} · ${metrics[0]}`, columns)
   const suffix = metrics.join(' · ')
   const descriptionWidth = Math.max(8, columns - prefix.length - suffix.length - 6)
@@ -170,9 +198,12 @@ export function ActivityFooter({
   theme = 'dark', mainLabel = 'main',
 }: ActivityFooterProps) {
   const colors = getThemeColors(theme)
-  const tick = useClock()
+  useClock()
   const now = Date.now()
-  const items = useMemo(() => buildActivityItems(agents, workflows), [agents, workflows, tick])
+  // No useMemo here: `agents` is mutated in place upstream (useSubagents pushes
+  // into the same array), so a reference-keyed memo never invalidates. The
+  // clock tick re-renders ~every 80ms anyway, so just recompute directly.
+  const items = buildActivityItems(agents, workflows)
   const [selected, setSelected] = useState(-1)
   const [detail, setDetail] = useState(false)
   const [feedback, setFeedback] = useState('')
@@ -221,7 +252,7 @@ export function ActivityFooter({
       report(operation)
       return
     }
-    if (input === 'p' && item.kind === 'workflow') {
+    if (input === 'p' && item.kind === 'workflow' && item.run.status === 'running') {
       report(onWorkflowAction(item.id, 'pause'))
       return
     }
@@ -239,7 +270,7 @@ export function ActivityFooter({
         ))}
         {feedback && <Text color={colors.warning}>{truncate(feedback, columns)}</Text>}
         <Text color={colors.textSubtle}>{item.kind === 'workflow'
-          ? 'Esc back · x stop · p pause'
+          ? item.run.status === 'running' ? 'Esc back · x stop · p pause' : 'Esc back · x stop'
           : RESUMABLE_AGENTS.has(item.agent.status) ? `Esc back${item.active ? ' · x stop' : ''} · r resume` : item.active ? 'Esc back · x stop' : 'Esc back'}</Text>
       </Box>
     )
@@ -250,17 +281,17 @@ export function ActivityFooter({
   const compact = compactActivityItems(items.slice(start), maxRows)
   return (
     <Box flexDirection="column" paddingLeft={2}>
-      <Text color={open && selected !== -1 ? colors.textDim : colors.primary}>{`${open ? (selected === -1 ? '❯ ●' : '  ◌') : '●'} ${mainLabel}`}</Text>
+      <Text color={open && selected !== -1 ? colors.textDim : colors.primary}>{`${open ? (selected === -1 ? '❯ ●' : '  ◯') : '●'} ${mainLabel}`}</Text>
       {compact.rows.map((item, index) => {
         const isSelected = open && start + index === selected
         return (
-          <Text key={`${item.kind}-${item.id}`} color={item.active ? colors.primary : item.status === 'done' ? colors.success : colors.textDim}>
+          <Text key={`${item.kind}-${item.id}`} color={item.active ? colors.primary : colors.textDim}>
             {`${open ? (isSelected ? '❯ ' : '  ') : ''}${formatActivityItem(item, open ? columns - 4 : columns - 2, now, isSelected ? '●' : undefined)}`}
           </Text>
         )
       })}
-      {!open && compact.overflow > 0 && <Text color={colors.textSubtle}>{`  … +${compact.overflow} activities`}</Text>}
-      {open && <Text color={colors.textSubtle}>{feedback || '↑/↓ select · Enter view · x stop · p pause · r resume agent · Esc close'}</Text>}
+      {compact.overflow > 0 && <Text color={colors.textSubtle}>{`  … +${compact.overflow} activities`}</Text>}
+      {open && <Text color={colors.textSubtle}>{feedback || buildActionHint(items[selected])}</Text>}
     </Box>
   )
 }

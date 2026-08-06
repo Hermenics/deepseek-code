@@ -92,6 +92,7 @@ export async function runSubAgentLoop<T = never>(
       model: modelName, messages, tools: tools.length > 0 ? tools : undefined, ...effortParams,
     } as any, { signal: options.context?.signal })
     totalTokens += response.usage?.total_tokens ?? 0
+    if (totalTokens > 0) options.context?.emit?.('token_progress', { tokens: totalTokens })
     if (options.context?.maxTokens !== undefined && totalTokens > options.context.maxTokens) {
       throw new TaskRuntimeError('TOKEN_BUDGET_EXCEEDED', `Subagent used ${totalTokens} tokens; limit is ${options.context.maxTokens}`)
     }
