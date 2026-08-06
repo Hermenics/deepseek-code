@@ -137,7 +137,7 @@ describe('claude code footer visual contract', () => {
   })
 
   test('buildActionHint uses claude code phrasing with contextual actions', () => {
-    expect(buildActionHint(undefined)).toBe('↑/↓ to select · Enter to view')
+    expect(buildActionHint(undefined)).toBe('↑/↓ to select')
     expect(buildActionHint(buildActivityItems([agent({ status: 'running' })], [])[0]))
       .toBe('↑/↓ to select · Enter to view · x stop')
     expect(buildActionHint(buildActivityItems([agent({ status: 'failed' })], [])[0]))
