@@ -6,7 +6,7 @@ export interface SubagentProgressInput { id: string; info: string }
 export interface SubagentToolUseInput { id: string; tool: string; info?: string }
 export interface SubagentDoneInput { id: string; result: string; tokens?: number; costUsd?: number; structured?: SubAgentResult; confidence?: number | null; verified?: boolean | null }
 export interface SubagentErrorInput { id: string; error: string }
-export interface SubagentStateInput { id: string; status: SubagentState['status']; task?: string; role?: string | null; agentName?: string | null; mode?: 'foreground' | 'background'; model?: string | null; workspace?: string | null; workflowRunId?: string | null; error?: string }
+export interface SubagentStateInput { id: string; status?: SubagentState['status']; task?: string; role?: string | null; agentName?: string | null; mode?: 'foreground' | 'background'; model?: string | null; workspace?: string | null; workflowRunId?: string | null; error?: string; tokens?: number }
 
 export interface UseSubagentsReturn {
   agents: SubagentState[]
@@ -99,19 +99,20 @@ export function useSubagents(): UseSubagentsReturn {
       }
     },
 
-    onSubagentState({ id, status, task, role, agentName, mode, model, workspace, workflowRunId, error }) {
+    onSubagentState({ id, status, task, role, agentName, mode, model, workspace, workflowRunId, error, tokens }) {
       let agent = hook.agents.find(candidate => candidate.id === id)
       if (!agent) {
         hook.onSubagentStart({ id, task: task ?? id, role, agentName, mode, model, workspace, workflowRunId })
         agent = hook.agents.find(candidate => candidate.id === id)!
       }
-      agent.status = status
+      if (status !== undefined) agent.status = status
       if (mode) agent.mode = mode
       if (model != null) agent.model = model
       if (workspace != null) agent.workspace = workspace
       if (workflowRunId != null) agent.workflowRunId = workflowRunId
+      if (tokens != null) agent.tokens = tokens
       if (error) agent.error = error
-      if (['done', 'failed', 'error', 'cancelled', 'timed_out'].includes(status)) agent.durationMs = Date.now() - agent.startedAt
+      if (status !== undefined && ['done', 'failed', 'error', 'cancelled', 'timed_out'].includes(status)) agent.durationMs = Date.now() - agent.startedAt
     },
 
     clearResolved() {

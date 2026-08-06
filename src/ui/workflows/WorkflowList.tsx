@@ -32,7 +32,7 @@ export function formatWorkflowRun(run: WorkflowRun, now = Date.now()): string {
   const ended = run.completedAt ? Date.parse(run.completedAt) : now
   const duration = Number.isFinite(started) && Number.isFinite(ended) ? Math.max(0, Math.floor((ended - started) / 1000)) : 0
   const phase = run.phase ? ` · ${run.phase}` : ''
-  const tokens = run.options.maxTokens ? `${run.usage.tokens}/${run.options.maxTokens} tokens` : `${run.usage.tokens} tokens`
+  const tokens = `↓ ${run.options.maxTokens ? `${run.usage.tokens}/${run.options.maxTokens}` : run.usage.tokens} tokens`
   const cost = run.options.maxCostUsd !== undefined ? ` · $${run.usage.costUsd.toFixed(4)}/$${run.options.maxCostUsd.toFixed(4)}` : ''
   const worktrees = run.worktrees.length ? ` · ${run.worktrees.length} worktree${run.worktrees.length === 1 ? '' : 's'}` : ''
   return `  ${run.runId.slice(0, 8)}  ${run.meta.name} · ${run.status}${phase} · ${duration}s · ${run.usage.agents} agents · ${tokens}${cost}${worktrees}`

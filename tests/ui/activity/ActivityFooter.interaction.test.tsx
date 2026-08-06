@@ -111,6 +111,96 @@ test('closed state renders the main header and flat agent rows', async () => {
   }
 })
 
+test('renders agents pushed into the same array reference (in-place mutation)', async () => {
+  const stdin = new FakeTerminal()
+  const stdout = new FakeTerminal()
+  const agents: SubagentState[] = []
+
+  const instance = renderSync(
+    <ActivityFooter
+      agents={agents}
+      workflows={[]}
+      open={false}
+      onClose={() => {}}
+      onOpenWorkflow={() => {}}
+      onTaskAction={async () => ''}
+      onWorkflowAction={async () => ''}
+    />,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stderr: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  )
+
+  try {
+    await Bun.sleep(100)
+    // Simulate useSubagents.onSubagentStart: push into the SAME array reference.
+    agents.push(fakeAgent({ status: 'running' }))
+    // Wait for a useClock tick so the footer re-renders with the mutated array.
+    await Bun.sleep(150)
+    const output = (stdout.read()?.toString() ?? '')
+      .replace(/\x1b\[\d*C/g, ' ')
+      .replace(/\x1b\[[?0-9;]*[a-zA-Z]/g, '')
+    expect(output).toContain('◯ Coder')
+  } finally {
+    stdout.isTTY = false
+    instance.unmount()
+    instance.cleanup()
+  }
+})
+
+test('open list shows ❯ ● main then ◯ main with ❯ ● on the selected agent', async () => {
+  const stdin = new FakeTerminal()
+  const stdout = new FakeTerminal()
+  const agent = fakeAgent({ status: 'running' })
+  const normalize = (raw: string) => raw
+    .replace(/\x1b\[\d*C/g, ' ')
+    .replace(/\x1b\[[?0-9;]*[a-zA-Z]/g, '')
+
+  const instance = renderSync(
+    <ActivityFooter
+      agents={[agent]}
+      workflows={[]}
+      open
+      onClose={() => {}}
+      onOpenWorkflow={() => {}}
+      onTaskAction={async () => ''}
+      onWorkflowAction={async () => ''}
+    />,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stderr: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  )
+
+  try {
+    await Bun.sleep(100)
+    // Initially main is selected and the agent row uses the ◯ icon
+    const initial = normalize(stdout.read()?.toString() ?? '')
+    expect(initial).toContain('❯ ● main')
+    expect(initial).toContain('◯ Coder')
+
+    // Move the ball down: main becomes ◯ and the agent becomes ❯ ●.
+    // Ink redraws only the changed cells, so assert the icon tokens in the delta.
+    stdin.write('\x1b[B')
+    await Bun.sleep(100)
+    const selected = normalize(stdout.read()?.toString() ?? '')
+    expect(selected).toContain('◯')     // main switched to the non-selected ◯ icon
+    expect(selected).toContain('❯ ●')   // agent row is now the selection
+    expect(selected).toContain('x stop') // contextual hint for an active agent
+  } finally {
+    stdout.isTTY = false
+    instance.unmount()
+    instance.cleanup()
+  }
+})
+
 test('agent detail mode: x cancels running agent and r resumes resumable agent', async () => {
   const stdin = new FakeTerminal()
   const stdout = new FakeTerminal()

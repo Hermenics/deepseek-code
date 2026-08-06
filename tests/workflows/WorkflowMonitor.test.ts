@@ -57,7 +57,8 @@ describe('workflow monitor model', () => {
     }
 
     expect(formatWorkflowListRow(run(), 120, Date.now(), [agentRun])).toContain('1/2 agents done')
-    expect(formatWorkflowAgentRow(agentRun, 120)).toBe('✓ Reviewer · Review it · 3s · 1.2k tok · deepseek-reasoner')
+    expect(formatWorkflowListRow(run(), 120)).toContain('↓ 4.0k tokens')
+    expect(formatWorkflowAgentRow(agentRun, 120)).toBe('✓ Reviewer · Review it · 3s · ↓ 1.2k tokens · deepseek-reasoner')
   })
 
   test('keeps the selected run visible and exposes state-specific controls', () => {
