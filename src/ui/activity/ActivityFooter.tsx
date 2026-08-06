@@ -106,8 +106,8 @@ export function compactActivityItems(items: ActivityItem[], maxRows = 5): { rows
 
 /** Contextual hint line for the open list, matching Claude Code's phrasing. */
 export function buildActionHint(item: ActivityItem | undefined): string {
+  if (!item) return '↑/↓ to select'
   const base = '↑/↓ to select · Enter to view'
-  if (!item) return base
   const actions: string[] = []
   if (item.kind === 'workflow') {
     actions.push('x stop')
