@@ -118,6 +118,8 @@ export function useSubagents(): UseSubagentsReturn {
       if (status !== undefined && ['done', 'failed', 'error', 'cancelled', 'timed_out'].includes(status)) agent.durationMs = Date.now() - agent.startedAt
     },
 
+    /** Appends a transcript delta, merging consecutive deltas of the same role
+     * into the current message entry (a new entry starts only on id/role change). */
     onSubagentMessage({ id, role, content }) {
       const agent = hook.agents.find(candidate => candidate.id === id)
       if (!agent) return
