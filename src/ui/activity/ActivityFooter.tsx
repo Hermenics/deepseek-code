@@ -256,7 +256,7 @@ export function ActivityFooter({
       }
       return
     }
-    if (input === 'v' && item.kind === 'agent' && onOpenSubagent) { setDetail(true); return }
+    if (input === 'v' && item.kind === 'agent') { setDetail(true); return }
     if (input === 'x' && item.active) {
       const operation = item.kind === 'workflow'
         ? onWorkflowAction(item.id, 'stop')
