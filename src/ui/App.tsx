@@ -187,6 +187,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     if (!key.escape) return
     event.stopImmediatePropagation()
     setFocusedSubagent(null)
+    setActivityOpen(false)
   }, { isActive: Boolean(focusedSubagent) })
 
   useEffect(() => {
@@ -247,7 +248,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         subs.onSubagentState({ id, tokens })
         setSubagentTick((t) => t + 1)
       },
-      onMessage(id: string, role: 'user' | 'assistant', content: string) {
+      onMessage(id: string, role: 'user' | 'assistant' | 'thinking', content: string) {
         subs.onSubagentMessage({ id, role, content })
         setSubagentTick((t) => t + 1)
       },
@@ -1780,6 +1781,11 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             density={interfaceSettings.density}
             onOpenDiff={(diff) => setDiffDialog(diff)}
           />
+          {focusedSubagent && focusedAgent && (focusedAgent.status === 'running' || focusedAgent.status === 'queued' || focusedAgent.status === 'blocked') && (
+            <Text color="#888888">
+              {`  ◌ ${focusedAgent.lastToolInfo ? `⚙ ${focusedAgent.lastToolInfo} · ` : ''}${focusedAgent.toolCount} tools${focusedAgent.tokens != null ? ` · ↓ ${focusedAgent.tokens >= 1000 ? `${(focusedAgent.tokens / 1000).toFixed(1)}k` : focusedAgent.tokens} tok` : ''}`}
+            </Text>
+          )}
           {!focusedSubagent && toolStatus && interfaceSettings.showToolCalls !== false && <ToolUseDisplay tool={toolStatus} />}
           {!focusedSubagent && <TodoPanel />}
           {!focusedSubagent && isLoading && (interfaceSettings.reducedMotion
@@ -1874,7 +1880,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               setActivityOpen(false)
               setFocusedSubagent({ id, agentName: a?.agentName ?? null })
             }}
-            onSelectMain={() => setFocusedSubagent(null)}
+            onSelectMain={() => { setFocusedSubagent(null); setActivityOpen(false) }}
             onTaskAction={(taskId, action) => agent.controlTask(taskId, action)}
             onWorkflowAction={async (runId, action) => {
               if (action === 'stop') return await agent.workflows.cancel(runId) ? `Workflow ${runId.slice(0, 8)} stopping.` : 'Workflow is not active.'
