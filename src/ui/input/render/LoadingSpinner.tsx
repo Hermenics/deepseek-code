@@ -1,4 +1,3 @@
-import { useEffect, useState } from 'react'
 import { useClock } from '../../clock.js'
 import Box from '../../../ink/components/Box.js'
 import Text from '../../../ink/components/Text.js'
@@ -50,15 +49,13 @@ interface LoadingSpinnerProps {
 
 export function LoadingSpinner({ toolCallCount, phase }: LoadingSpinnerProps) {
   const tick = useClock()
-  const [msgIdx, setMsgIdx] = useState(() => Math.floor(Math.random() * LOADING_MSGS.length))
-  const [refineIdx] = useState(() => Math.floor(Math.random() * REFINING_MSGS.length))
-
-  useEffect(() => {
-    setMsgIdx(Math.floor(Math.random() * LOADING_MSGS.length))
-  }, [toolCallCount])
-
+  // Deterministic message index that rotates on each tool call — no Math.random
+  // (CodeQL js/insecure-randomness). The message is purely cosmetic, so a PRNG
+  // would be unnecessary here even if it were secure.
   const isRefining = phase === 'refining'
-  const msg = isRefining ? REFINING_MSGS[refineIdx % REFINING_MSGS.length] : LOADING_MSGS[msgIdx]
+  const msg = isRefining
+    ? REFINING_MSGS[toolCallCount % REFINING_MSGS.length]
+    : LOADING_MSGS[toolCallCount % LOADING_MSGS.length]
 
   return (
     <Box flexDirection="row" gap={1} paddingLeft={1}>
