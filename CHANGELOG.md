@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.5
+
+- Added: Claude Code-style subagent chat — Enter on a subagent row in the activity footer opens its live transcript (@name header, "Message @name" input); messages typed while focused are routed to that subagent via the mailbox
+- Added: Progressive token reporting and live reasoning — the footer shows "↓ tokens" growing during a run and the focused view streams the subagent's thinking
+- Added: Activity footer renders while focused on a subagent (Enter on main exits focus; v-key keeps the detail view reachable)
+- Added: Deterministic loading-spinner messages (rotate on each tool call instead of Math.random)
+- Fixed: Reset all subagent callbacks (onMessage/onTokens) on cleanup so detached listeners don't receive later events
+- Fixed: Drain coordinator questions on every subagent-loop return path so a message arriving during a final completion is not dropped
+- Fixed: Merge consecutive transcript deltas of the same role into one entry; clear subagent focus before slash/! routes to the main agent
+- Fixed: Address CodeQL findings — HTML sanitization accepts malformed closing tags and decodes ampersand last; worktree names and emulated tool-call ids use crypto.randomUUID; WebFetch strips script/style with attribute-carrying end tags
+- Docs: Improve subagent code documentation with JSDoc comments
+
+## 0.6.4
+
+- Added: Progressive token tracking in the activity footer ("↓ tokens" grows during a subagent run)
+- Added: Improved activity display for subagents and workflows
+- Docs: Expand the documentation site with new pages and navigation structure
+
 ## 0.6.3
 
 - Fixed: Make update notifier cooldown deadline-based — failures now retry after 10 minutes instead of silencing update checks for an hour
