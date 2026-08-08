@@ -62,6 +62,7 @@ function processStreamedText(text: string): { thinking: string; content: string 
 export interface Message {
   role: 'user' | 'assistant' | 'tool' | 'terminal' | 'thinking'
   content: string
+  thinkingMs?: number
 }
 
 export interface ToolStatus {
@@ -156,6 +157,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [activityOpen, setActivityOpen] = useState(false)
   const [workflowMonitor, setWorkflowMonitor] = useState<{ runId?: string } | null>(null)
   const [focusedSubagent, setFocusedSubagent] = useState<{ id: string; agentName: string | null } | null>(null)
+  const [fullMode, setFullMode] = useState(false)
+  const thinkingStartedAtRef = useRef<number | null>(null)
 
   const showCompactBadge = useCallback((type: 'micro' | 'full') => {
     if (compactBadgeTimerRef.current) clearTimeout(compactBadgeTimerRef.current)
@@ -179,6 +182,14 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       setDiffDialog({ path: diff.path, lines: diff.lines })
       return
     }
+  })
+
+  // Ctrl+O toggles full mode: expanded thinking and untruncated tool output.
+  // Pure display toggle — never aborts the agent.
+  useInput((input: string, key: Key, event) => {
+    if (!key.ctrl || input !== 'o') return
+    event.stopImmediatePropagation()
+    setFullMode((v) => !v)
   })
 
   // Esc while focused on a subagent returns to the main conversation. InputBox's
@@ -492,6 +503,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     let tokenBuffer = ''
     let streamTextAccum = ''
     let thinkingAccum = ''
+    thinkingStartedAtRef.current = null
 
     const mergeThinking = (next: string) => {
       const trimmed = next.trim()
@@ -512,7 +524,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     const flushThinkingMessage = () => {
       const finalThinking = thinkingAccum.trim()
       if (!finalThinking) return
-      setMessages((m) => [...m, { role: 'thinking', content: finalThinking }])
+      if (thinkingStartedAtRef.current == null) thinkingStartedAtRef.current = Date.now()
+      const thinkingMs = Date.now() - thinkingStartedAtRef.current
+      thinkingStartedAtRef.current = null
+      setMessages((m) => [...m, { role: 'thinking', content: finalThinking, thinkingMs }])
       thinkingAccum = ''
     }
 
@@ -524,6 +539,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         // Live-process: separate thinking from visible content
         const { thinking, content } = processStreamedText(streamTextAccum)
         if (thinking) {
+          if (thinkingStartedAtRef.current == null) thinkingStartedAtRef.current = Date.now()
           mergeThinking(thinking)
           setThinkingText(thinkingAccum)
         }
@@ -536,6 +552,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         onPhaseChange(phase) { setAgentPhase(phase) },
         onToken(token) { tokenBuffer += token },
         onThinking(text) {
+          if (thinkingStartedAtRef.current == null) thinkingStartedAtRef.current = Date.now()
           thinkingAccum += text
           setThinkingText(thinkingAccum)
         },
@@ -1784,6 +1801,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             showWordDiff={featureFlags.wordDiff}
             density={interfaceSettings.density}
             onOpenDiff={(diff) => setDiffDialog(diff)}
+            fullMode={fullMode}
+            thinkingStartedAt={thinkingStartedAtRef.current}
           />
           {focusedSubagent && focusedAgent && (focusedAgent.status === 'running' || focusedAgent.status === 'queued' || focusedAgent.status === 'blocked') && (
             <Text color="#888888">
