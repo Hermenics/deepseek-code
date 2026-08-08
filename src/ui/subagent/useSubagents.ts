@@ -122,7 +122,14 @@ export function useSubagents(): UseSubagentsReturn {
       const agent = hook.agents.find(candidate => candidate.id === id)
       if (!agent) return
       if (!agent.messages) agent.messages = []
-      agent.messages.push({ role, content })
+      // Streaming deltas for the same subagent + role are appended to the
+      // current message entry; only a role/id change starts a new entry.
+      const last = agent.messages[agent.messages.length - 1]
+      if (last && last.role === role) {
+        last.content += content
+      } else {
+        agent.messages.push({ role, content })
+      }
     },
 
     clearResolved() {

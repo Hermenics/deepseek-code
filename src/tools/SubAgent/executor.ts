@@ -81,24 +81,32 @@ export async function runSubAgentLoop<T = never>(
   let validationFailures = 0
   const maxValidationRetries = options.terminal?.maxValidationRetries ?? 1
 
+  // Drain coordinator 'question' messages (posted via agent.controlTask(id, 'message', text))
+  // into the conversation so a running subagent reacts to the user mid-run.
+  // Returns true when any question was processed (so a caller may continue the
+  // loop instead of returning and dropping the user's message).
+  const drainQuestions = () => {
+    if (!options.context?.taskId || !options.context.session) return false
+    const inbox = options.context.session.registry.mailbox.list(options.context.taskId, 'pending')
+    let drained = false
+    for (const message of inbox) {
+      if (message.type !== 'question') continue
+      const text = String(message.payload.text ?? '')
+      if (text.trim()) {
+        // The focused-subagent UI already shows the user's message via an
+        // optimistic append in App.tsx, so re-emitting it here would duplicate
+        // the transcript row. It still reaches the model via messages.push.
+        messages.push({ role: 'user', content: text })
+        drained = true
+      }
+      options.context.session.registry.acknowledgeMessage(message.messageId)
+    }
+    return drained
+  }
+
   for (let iteration = 0; iteration < SUBAGENT_MAX_ITERATIONS; iteration++) {
     if (options.context?.signal?.aborted) throw options.context.signal.reason
-    // Drain coordinator 'question' messages (posted via agent.controlTask(id, 'message', text))
-    // into the conversation so a running subagent reacts to the user mid-run.
-    if (options.context?.taskId && options.context.session) {
-      const inbox = options.context.session.registry.mailbox.list(options.context.taskId, 'pending')
-      for (const message of inbox) {
-        if (message.type !== 'question') continue
-        const text = String(message.payload.text ?? '')
-        if (text.trim()) {
-          // The focused-subagent UI already shows the user's message via an
-          // optimistic append in App.tsx, so re-emitting it here would duplicate
-          // the transcript row. It still reaches the model via messages.push.
-          messages.push({ role: 'user', content: text })
-        }
-        options.context.session.registry.acknowledgeMessage(message.messageId)
-      }
-    }
+    drainQuestions()
     const effortParams = (provider.provider === 'deepseek' || provider.provider === 'bedrock') && options.effort
       ? options.effort === 'low'
         ? { thinking: { type: 'disabled' } }
@@ -131,7 +139,10 @@ export async function runSubAgentLoop<T = never>(
     }
 
     if (!message.tool_calls?.length) {
-      if (!options.terminal) return { resultText: message.content ?? '', rawOutput: raw.join('\n'), totalTokens }
+      if (!options.terminal) {
+        if (drainQuestions()) continue
+        return { resultText: message.content ?? '', rawOutput: raw.join('\n'), totalTokens }
+      }
       validationFailures++
       if (validationFailures > maxValidationRetries) throw new StructuredOutputError('INVALID_RESULT', `Missing terminal call '${options.terminal.name}'`, raw.join('\n'))
       messages.push({ role: 'assistant', content: message.content ?? null })
@@ -162,6 +173,7 @@ export async function runSubAgentLoop<T = never>(
       raw.push(call.function.arguments)
       if (errors.length === 0) {
         const result = options.terminal.transform ? options.terminal.transform(value) : value as T
+        if (drainQuestions()) continue
         return { resultText: message.content ?? '', terminalResult: result, rawOutput: raw.join('\n'), totalTokens }
       }
       validationFailures++
