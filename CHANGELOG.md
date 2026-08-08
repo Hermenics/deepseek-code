@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.6
+
+- Added: Full mode toggle (Ctrl+O) — expanded thinking (◌), untruncated tool output and shell commands, and a "Full mode · ctrl+o to toggle" footer while active; toggling never interrupts the agent
+- Added: Live thinking timer — the thinking block shows "Thinking for N seconds..." counting in real time while the model reasons, then collapses to "Thought for N seconds (ctrl+o to expand)" with the total duration once finished
+- Fixed: Live thinking falls back to a generic indicator when no start timestamp is available instead of computing from epoch zero
+- Tests: Add rendering coverage for full mode, the live timer, collapsed/expanded thinking blocks, and the verbose footer
+
 ## 0.6.5
 
 - Added: Claude Code-style subagent chat — Enter on a subagent row in the activity footer opens its live transcript (@name header, "Message @name" input); messages typed while focused are routed to that subagent via the mailbox
