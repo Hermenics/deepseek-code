@@ -90,19 +90,23 @@ async function resolvePublicTarget(url: string): Promise<ResolvedTarget | null> 
 
 function stripHtml(html: string): string {
   return html
-    // Remove scripts e styles completos (conteúdo + tag)
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+    // Remove scripts e styles completos (conteúdo + tag).
+    // The closing-tag regex accepts attributes (`</script foo="bar">`) because
+    // browsers tolerate that parser error and would execute the script body.
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script[^>]*>/gi, ' ')
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style[^>]*>/gi, ' ')
     // Remove todas as outras tags
     .replace(/<[^>]+>/g, ' ')
-    // Decodifica entidades HTML comuns
-    .replace(/&amp;/g, '&')
+    // Decodifica entidades HTML comuns. The ampersand is decoded LAST so an
+    // entity like &amp;lt; (which means a literal "&lt;", not "<") does not get
+    // double-unescaped into "<" (CodeQL js/double-escaping).
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
     .replace(/&nbsp;/g, ' ')
     .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
+    .replace(/&amp;/g, '&')
     // Colapsa espaços em branco excessivos
     .replace(/\s+/g, ' ')
     .trim()
