@@ -81,10 +81,13 @@ export async function runSubAgentLoop<T = never>(
   let validationFailures = 0
   const maxValidationRetries = options.terminal?.maxValidationRetries ?? 1
 
-  // Drain coordinator 'question' messages (posted via agent.controlTask(id, 'message', text))
-  // into the conversation so a running subagent reacts to the user mid-run.
-  // Returns true when any question was processed (so a caller may continue the
-  // loop instead of returning and dropping the user's message).
+  /**
+   * Drains pending coordinator 'question' messages (posted via
+   * agent.controlTask(id, 'message', text)) into the conversation so a running
+   * subagent reacts to the user mid-run. Returns true when any question was
+   * processed, so a caller can continue the loop instead of returning and
+   * dropping the user's message.
+   */
   const drainQuestions = () => {
     if (!options.context?.taskId || !options.context.session) return false
     const inbox = options.context.session.registry.mailbox.list(options.context.taskId, 'pending')
