@@ -291,14 +291,18 @@ export function ActivityFooter({
   const maxRows = open ? 8 : 5
   const start = open ? Math.min(Math.max(0, selected - maxRows + 1), Math.max(0, items.length - maxRows)) : 0
   const compact = compactActivityItems(items.slice(start), maxRows)
+  // The selection cursor column is reserved on every row (closed or open) so the
+  // content never shifts when opening/navigating; only the selected row fills it.
+  const mainCursor = open && selected === -1 ? '❯ ' : '  '
+  const mainIcon = open && selected !== -1 ? '◯' : '●'
   return (
     <Box flexDirection="column" paddingLeft={2}>
-      <Text color={open && selected !== -1 ? colors.textDim : colors.primary}>{`${open ? (selected === -1 ? '❯ ●' : '  ◯') : '●'} ${mainLabel}`}</Text>
+      <Text color={selected === -1 ? colors.primary : colors.textDim}>{`${mainCursor}${mainIcon} ${mainLabel}`}</Text>
       {compact.rows.map((item, index) => {
         const isSelected = open && start + index === selected
         return (
-          <Text key={`${item.kind}-${item.id}`} color={item.active ? colors.primary : colors.textDim}>
-            {`${open ? (isSelected ? '❯ ' : '  ') : ''}${formatActivityItem(item, open ? columns - 4 : columns - 2, now, isSelected ? '●' : undefined)}`}
+          <Text key={`${item.kind}-${item.id}`} color={item.active ? colors.text : colors.textDim}>
+            {`${isSelected ? '❯ ' : '  '}${formatActivityItem(item, open ? columns - 4 : columns - 2, now, isSelected ? '●' : undefined)}`}
           </Text>
         )
       })}

@@ -7,7 +7,7 @@ export interface SubagentToolUseInput { id: string; tool: string; info?: string 
 export interface SubagentDoneInput { id: string; result: string; tokens?: number; costUsd?: number; structured?: SubAgentResult; confidence?: number | null; verified?: boolean | null }
 export interface SubagentErrorInput { id: string; error: string }
 export interface SubagentStateInput { id: string; status?: SubagentState['status']; task?: string; role?: string | null; agentName?: string | null; mode?: 'foreground' | 'background'; model?: string | null; workspace?: string | null; workflowRunId?: string | null; error?: string; tokens?: number }
-export interface SubagentMessageInput { id: string; role: 'user' | 'assistant'; content: string }
+export interface SubagentMessageInput { id: string; role: 'user' | 'assistant' | 'thinking'; content: string }
 
 export interface UseSubagentsReturn {
   agents: SubagentState[]
