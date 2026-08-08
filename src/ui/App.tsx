@@ -803,6 +803,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         void agent.controlTask(focusedSubagent.id, 'message', msg)
         return
       }
+      // Slash command or `!` shell line routes to the MAIN agent — leave
+      // subagent focus so the main-agent progress UI is not masked.
+      setFocusedSubagent(null)
+      setActivityOpen(false)
     }
 
     let cmd = parseCommand(text)

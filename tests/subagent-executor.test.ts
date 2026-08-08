@@ -302,4 +302,36 @@ describe('subagent terminal protocol', () => {
     expect(session.events.list(task.taskId).some(event =>
       event.type === 'subagent_message' && event.payload.role === 'user' && event.payload.content === 'hello')).toBe(false)
   })
+
+  it('drains a question arriving during a final completion instead of returning', async () => {
+    const session = new OrchestratorSession({ projectRoot: process.cwd(), logFile: null, snapshotFile: null })
+    let releaseFirst: () => void = () => {}
+    const gate = new Promise<void>(resolve => { releaseFirst = resolve })
+    let calls = 0
+    const captured: Array<{ messages: unknown[] }> = []
+    const client = { chat: { completions: { create: async (input: Record<string, unknown>) => {
+      calls++
+      captured.push(input as { messages: unknown[] })
+      if (calls === 1) await gate
+      // The first completion already holds a valid terminal result, but a
+      // question arriving mid-completion must force the loop to continue (and
+      // re-complete) instead of returning and dropping the user's message.
+      return response(terminalArgs(valid))
+    } } } } as any
+    const task = session.spawn({ taskId: 'drain-final-task', maxRetries: 0 }, async runContext => runSubAgentLoop(
+      'system', 'task', runContext.taskId, [], provider, 'fake', {
+        client, terminal,
+        context: session.toolContext({ taskId: runContext.taskId, signal: runContext.signal }),
+      },
+    ))
+    for (let index = 0; index < 100 && calls < 1; index++) await Bun.sleep(1)
+    session.registry.sendMessage(task.taskId, 'question', { text: 'late' })
+    releaseFirst()
+    expect((await task.awaitResult()).status).toBe('done')
+
+    // The loop ran a second completion (it did NOT return after the first one).
+    expect(calls).toBeGreaterThanOrEqual(2)
+    // The late question reached the second completion's prompt.
+    expect(captured[1]!.messages).toContainEqual({ role: 'user', content: 'late' })
+  })
 })
