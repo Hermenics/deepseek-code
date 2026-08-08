@@ -1069,6 +1069,9 @@ export class Agent {
     }
 
     const now = new Date().toLocaleString()
+    // Always remember the user's ORIGINAL message (what they typed), never the
+    // PromptRefiner-refined variant. /retry and the input history depend on this
+    // staying the raw input so the history shows what the user actually wrote.
     this.lastUserMessage = userMessage
 
     // Prompt refinement (if enabled)

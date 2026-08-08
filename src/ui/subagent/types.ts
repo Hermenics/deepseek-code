@@ -6,7 +6,7 @@ import type { TaskState } from '../../orchestration/types.js'
 export type SubagentStatus = TaskState | 'error'
 
 export interface SubagentMessage {
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'thinking'
   content: string
 }
 

@@ -123,6 +123,12 @@ export async function runSubAgentLoop<T = never>(
     // prompt and large tool results and must not be re-sent every iteration.
     // Skip for the verifier loop (would leak verifier reasoning into the transcript).
     if (!isVerifier && message.content) options.context?.emit?.('subagent_message', { role: 'assistant', content: message.content })
+    // Surface the subagent's live reasoning (thinking) so the focused view shows
+    // it is actually working. The reasoning_content field is preserved for the API.
+    const thinkingContent = (message as unknown as Record<string, unknown>).reasoning_content
+    if (!isVerifier && typeof thinkingContent === 'string' && thinkingContent.trim()) {
+      options.context?.emit?.('subagent_message', { role: 'thinking', content: thinkingContent })
+    }
 
     if (!message.tool_calls?.length) {
       if (!options.terminal) return { resultText: message.content ?? '', rawOutput: raw.join('\n'), totalTokens }
