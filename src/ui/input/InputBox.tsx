@@ -80,6 +80,7 @@ export function InputBox({
   activityAvailable = false,
   onActivityOpen,
   isActive = true,
+  placeholderOverride,
 }: {
   onSubmit: (text: string) => void
   isLoading: boolean
@@ -90,6 +91,7 @@ export function InputBox({
   contextPct?: number
   agentLabel?: string
   agentColor?: string
+  placeholderOverride?: string
   interactionMode?: InteractionMode
   onModeChange?: () => void
   sessionId?: string
@@ -417,11 +419,11 @@ export function InputBox({
   }, { isActive })
 
   const hasExclamation = cursor.text.trimStart().startsWith('!')
-  const placeholder = isLoading
+  const placeholder = placeholderOverride ?? (isLoading
     ? 'Queue a message...'
     : contextPct >= 90
       ? 'Context almost full. Try /compact'
-      : 'What do you want me to do? ↵'
+      : 'What do you want me to do? ↵')
 
   return (
     <Box flexDirection="column">

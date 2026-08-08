@@ -271,7 +271,10 @@ export class Agent {
   setSubAgentCallbacks(callbacks: SubAgentCallbacks | null): void {
     this.orchestrationCallbacks = callbacks
       ? { ...this.orchestrationCallbacks, ...callbacks }
-      : { ...this.orchestrationCallbacks, onStart: undefined, onToolUse: undefined, onDone: undefined, onError: undefined }
+      // Reset EVERY listener on cleanup — forgetting onMessage/onTokens would
+      // leave a detached listener receiving later subagent_message/token_progress
+      // events from an unmounted component.
+      : { ...this.orchestrationCallbacks, onStart: undefined, onToolUse: undefined, onTokens: undefined, onMessage: undefined, onDone: undefined, onError: undefined }
     this.orchestrator.setCallbacks(this.orchestrationCallbacks)
     this.workflows.setCallbacks(this.orchestrationCallbacks)
   }
@@ -1069,6 +1072,9 @@ export class Agent {
     }
 
     const now = new Date().toLocaleString()
+    // Always remember the user's ORIGINAL message (what they typed), never the
+    // PromptRefiner-refined variant. /retry and the input history depend on this
+    // staying the raw input so the history shows what the user actually wrote.
     this.lastUserMessage = userMessage
 
     // Prompt refinement (if enabled)

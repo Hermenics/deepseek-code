@@ -5,6 +5,11 @@ import type { TaskState } from '../../orchestration/types.js'
 // persisted views keep rendering while the runtime uses the explicit `failed` state.
 export type SubagentStatus = TaskState | 'error'
 
+export interface SubagentMessage {
+  role: 'user' | 'assistant' | 'thinking'
+  content: string
+}
+
 export interface SubagentState {
   id: string
   task: string
@@ -23,6 +28,8 @@ export interface SubagentState {
   verified: boolean | null     // null = not verified, true = confirmed, false = flawed
   agentName: string | null      // 'Coder', 'Reviewer', 'Tester', or null for generic subagents
   mode?: 'foreground' | 'background'
+  /** Live transcript of the subagent conversation (seeded with the task, then streamed deltas). */
+  messages?: SubagentMessage[]
   model?: string | null
   workspace?: string | null
   workflowRunId?: string | null
