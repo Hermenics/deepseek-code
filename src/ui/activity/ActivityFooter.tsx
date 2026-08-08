@@ -182,6 +182,9 @@ export interface ActivityFooterProps {
   open: boolean
   onClose(): void
   onOpenWorkflow(runId: string): void
+  onOpenSubagent?(agentId: string): void
+  /** Enter on the "main" row (selection index -1) — used to exit subagent focus. */
+  onSelectMain?(): void
   onTaskAction(taskId: string, action: 'cancel' | 'resume'): Promise<string>
   onWorkflowAction(runId: string, action: 'pause' | 'stop'): Promise<string>
   theme?: ThemeName
@@ -194,7 +197,7 @@ export interface ActivityFooterProps {
  * selectable at index -1), and detail (full breakdown of the selected item).
  */
 export function ActivityFooter({
-  agents, workflows, open, onClose, onOpenWorkflow, onTaskAction, onWorkflowAction,
+  agents, workflows, open, onClose, onOpenWorkflow, onOpenSubagent, onSelectMain, onTaskAction, onWorkflowAction,
   theme = 'dark', mainLabel = 'main',
 }: ActivityFooterProps) {
   const colors = getThemeColors(theme)
@@ -237,14 +240,23 @@ export function ActivityFooter({
       }
     }
     const item = items[selected]
-    if (!item) return
+    if (!item) {
+      // Selection is on "main" (index -1): Enter returns to the main agent.
+      if (key.return) onSelectMain?.()
+      return
+    }
     if (key.return) {
       if (!detail) {
         if (item.kind === 'workflow') onOpenWorkflow(item.run.runId)
+        // Enter on an agent opens the subagent chat (Claude Code behavior).
+        // The detail view stays reachable via 'v' below, and via the
+        // setDetail fallback for consumers that don't wire onOpenSubagent.
+        else if (onOpenSubagent) onOpenSubagent(item.agent.id)
         else setDetail(true)
       }
       return
     }
+    if (input === 'v' && item.kind === 'agent') { setDetail(true); return }
     if (input === 'x' && item.active) {
       const operation = item.kind === 'workflow'
         ? onWorkflowAction(item.id, 'stop')
@@ -279,14 +291,18 @@ export function ActivityFooter({
   const maxRows = open ? 8 : 5
   const start = open ? Math.min(Math.max(0, selected - maxRows + 1), Math.max(0, items.length - maxRows)) : 0
   const compact = compactActivityItems(items.slice(start), maxRows)
+  // The selection cursor column is reserved on every row (closed or open) so the
+  // content never shifts when opening/navigating; only the selected row fills it.
+  const mainCursor = open && selected === -1 ? '❯ ' : '  '
+  const mainIcon = open && selected !== -1 ? '◯' : '●'
   return (
     <Box flexDirection="column" paddingLeft={2}>
-      <Text color={open && selected !== -1 ? colors.textDim : colors.primary}>{`${open ? (selected === -1 ? '❯ ●' : '  ◯') : '●'} ${mainLabel}`}</Text>
+      <Text color={selected === -1 ? colors.primary : colors.textDim}>{`${mainCursor}${mainIcon} ${mainLabel}`}</Text>
       {compact.rows.map((item, index) => {
         const isSelected = open && start + index === selected
         return (
-          <Text key={`${item.kind}-${item.id}`} color={item.active ? colors.primary : colors.textDim}>
-            {`${open ? (isSelected ? '❯ ' : '  ') : ''}${formatActivityItem(item, open ? columns - 4 : columns - 2, now, isSelected ? '●' : undefined)}`}
+          <Text key={`${item.kind}-${item.id}`} color={item.active ? colors.text : colors.textDim}>
+            {`${isSelected ? '❯ ' : '  '}${formatActivityItem(item, open ? columns - 4 : columns - 2, now, isSelected ? '●' : undefined)}`}
           </Text>
         )
       })}
