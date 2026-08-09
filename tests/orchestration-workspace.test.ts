@@ -172,6 +172,18 @@ describe('task workspace isolation', () => {
     await expect(resolveSafePath('safe.txt', context)).rejects.toThrow('sensitive')
   })
 
+  it('allows only valid flat project workflow files under .deepseek', async () => {
+    const root = await tempRoot('deepseek-workflow-path-')
+    const context = { sessionId: 's', workspacePath: root, projectRoot: root, permissionProfile: 'coordinator-integrator' as const }
+    const path = '.deepseek/workflows/review.js'
+
+    await WriteFile.execute({ path, content: 'export const meta = {"name":"review"}; return 1;' }, context)
+    expect(await readFile(join(root, path), 'utf8')).toContain('"name":"review"')
+    await expect(WriteFile.execute({ path: '.deepseek/workflows/bad.js', content: 'export const meta = { name: "bad" }; return 1;' }, context)).rejects.toThrow('JSON-compatible')
+    await expect(resolveSafePath('.deepseek/settings.json', context)).rejects.toThrow('off-limits')
+    await expect(resolveSafePath('.deepseek/workflows/nested/review.js', context)).rejects.toThrow('off-limits')
+  })
+
   it('limits approved external paths to their selected directory', async () => {
     const workspace = await tempRoot('deepseek-mas-workspace-')
     const external = await tempRoot('deepseek-mas-external-')
@@ -192,6 +204,10 @@ describe('task workspace isolation', () => {
 
     await writeFile(join(external, '.env'), 'secret')
     await expect(resolveSafePath(join(external, '.env'), context)).rejects.toThrow('sensitive')
+    const externalWorkflow = join(external, '.deepseek', 'workflows', 'review.js')
+    await mkdir(join(external, '.deepseek', 'workflows'), { recursive: true })
+    await expect(resolveSafePath(externalWorkflow, context)).rejects.toThrow('off-limits')
+    await expect(WriteFile.execute({ path: externalWorkflow, content: 'not a workflow' }, context)).rejects.toThrow('off-limits')
     await symlink(sibling, join(external, 'escape'))
     await expect(resolveSafePath(join(external, 'escape', 'file.txt'), context)).rejects.toThrow('symlink')
   })

@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  formatCompactWorkflowRow,
   formatWorkflowAgentRow,
+  formatWorkflowPanelAgentRow,
+  formatWorkflowPhaseRow,
   formatWorkflowListRow,
+  groupWorkflowRuns,
   summarizeWorkflowRuns,
   windowWorkflowRuns,
   workflowControlHint,
@@ -41,11 +45,34 @@ describe('workflow monitor model', () => {
     expect(workflowDurationMs(finished, Date.parse('2026-01-01T01:00:00.000Z'))).toBe(12_000)
   })
 
-  test('uses distinct icons for running, paused, done and stopped rows', () => {
-    expect(formatWorkflowListRow(run({ status: 'running' }), 120).trimStart()).toStartWith('⟳')
-    expect(formatWorkflowListRow(run({ status: 'paused' }), 120).trimStart()).toStartWith('⏸')
-    expect(formatWorkflowListRow(run({ status: 'completed' }), 120).trimStart()).toStartWith('✔')
-    expect(formatWorkflowListRow(run({ status: 'cancelled' }), 120).trimStart()).toStartWith('✘')
+  test('uses the same cursor markers and dense row style as the activity footer', () => {
+    expect(formatWorkflowListRow(run(), 120)).toStartWith('◯ workflow audit')
+    expect(formatWorkflowListRow(run(), 120, Date.now(), [], true)).toStartWith('● workflow audit')
+  })
+
+  test('groups every status into Working, Needs input, or Completed', () => {
+    const groups = groupWorkflowRuns([
+      run({ runId: 'queued', status: 'queued' }),
+      run({ runId: 'running', status: 'running' }),
+      run({ runId: 'paused', status: 'paused' }),
+      run({ runId: 'completed', status: 'completed' }),
+      run({ runId: 'failed', status: 'failed' }),
+      run({ runId: 'cancelled', status: 'cancelled' }),
+      run({ runId: 'timed-out', status: 'timed_out' }),
+      run({ runId: 'budget', status: 'budget_exhausted' }),
+    ])
+
+    expect(groups.map(group => [group.name, group.runs.map(run => run.status)])).toEqual([
+      ['Working', ['queued', 'running']],
+      ['Needs input', ['paused']],
+      ['Completed', ['completed', 'failed', 'cancelled', 'timed_out', 'budget_exhausted']],
+    ])
+  })
+
+  test('keeps duration right-aligned and terminal status explicit in compact mode', () => {
+    const now = Date.parse('2026-01-01T00:00:05.000Z')
+    expect(formatWorkflowListRow(run({ phase: 'reviewing' }), 90, now)).toContain('reviewing')
+    expect(formatCompactWorkflowRow(run({ status: 'budget_exhausted' }), 80, now)).toContain('budget_exhausted')
   })
 
   test('renders workflow agents from the orchestration state', () => {
@@ -57,8 +84,10 @@ describe('workflow monitor model', () => {
     }
 
     expect(formatWorkflowListRow(run(), 120, Date.now(), [agentRun])).toContain('1/2 agents done')
-    expect(formatWorkflowListRow(run(), 120)).toContain('↓ 4.0k tokens')
+    expect(formatWorkflowListRow(run(), 120)).toContain('4.0k tok')
     expect(formatWorkflowAgentRow(agentRun, 120)).toBe('✓ Reviewer · Review it · 3s · ↓ 1.2k tokens · deepseek-reasoner')
+    expect(formatWorkflowPanelAgentRow({ ...agentRun, task: 'review:security', status: 'running' }, 120)).toBe('● review:security  deepseek-reasoner · 1.2k tok · 3s')
+    expect(formatWorkflowPhaseRow('Review', 0, true, 0, 2, 30)).toBe('> 1 Review 0/2')
   })
 
   test('keeps the selected run visible and exposes state-specific controls', () => {

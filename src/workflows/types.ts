@@ -53,6 +53,8 @@ export interface WorkflowRun {
   meta: WorkflowMeta
   status: WorkflowStatus
   phase?: string
+  /** Ordered phases already emitted by the workflow runtime. */
+  phaseHistory?: string[]
   scriptHash: string
   argsHash: string
   optionsHash: string
@@ -71,6 +73,7 @@ export interface WorkflowResult {
   runId: string
   status: WorkflowStatus
   result: unknown
+  error?: string
   usage: WorkflowUsage
   failures: WorkflowFailure[]
   worktrees: WorkflowWorktree[]

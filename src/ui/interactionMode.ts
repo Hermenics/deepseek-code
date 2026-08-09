@@ -28,13 +28,20 @@ export function isReviewMode(mode: InteractionMode): boolean {
 const READ_ONLY_TOOLS = new Set([
   'read_file', 'read_folder', 'glob', 'grep', 'lsp',
   'web_fetch', 'introspect', 'todo', 'memory',
-  'git', 'workflow',
+  'git', 'workflow', 'get_goal',
 ])
 
-// Permissões por modo
+const BUILD_TOOLS = new Set([
+  ...READ_ONLY_TOOLS,
+  'shell', 'write_file', 'edit_file', 'patch_file', 'update_knowledge',
+  'subagent', 'ask_agent', 'moa', 'update_goal',
+])
+
+// Permissões por modo. Auto names every native tool so /permissions remains
+// accurate; canUseTool still permits dynamically discovered MCP tools there.
 const TOOL_PERMISSIONS: Record<InteractionMode, Set<string>> = {
-  build: new Set([...READ_ONLY_TOOLS, 'shell', 'write_file', 'patch_file', 'update_knowledge', 'subagent', 'ask_agent']),
-  auto: new Set([...READ_ONLY_TOOLS, 'shell', 'write_file', 'patch_file', 'update_knowledge', 'subagent', 'ask_agent']),
+  build: BUILD_TOOLS,
+  auto: new Set([...BUILD_TOOLS, 'write_plan', 'submit_plan', 'create_goal']),
   plan: new Set([...READ_ONLY_TOOLS, 'write_plan', 'submit_plan']),
   review: new Set(READ_ONLY_TOOLS),
 }
@@ -95,7 +102,7 @@ export function isDestructiveShell(command: string): boolean {
 }
 
 export function isConfigWrite(toolName: string, args: Record<string, unknown>): boolean {
-  if (toolName !== 'write_file' && toolName !== 'patch_file') return false
+  if (!['write_file', 'edit_file', 'patch_file'].includes(toolName)) return false
   const filePath = (args.path ?? args.file_path ?? '') as string
   return filePath.includes('.deepseek')
 }

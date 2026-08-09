@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'bun:test'
+import { readFile } from 'node:fs/promises'
+import { allTools } from '../src/tools/index.js'
+import { Introspect } from '../src/tools/Introspect/Introspect.js'
 import {
   nextMode,
   isBuildMode,
@@ -8,10 +11,26 @@ import {
   canModelActivateMode,
   isDestructiveShell,
   isConfigWrite,
+  getToolsForMode,
   DEFAULT_MODE,
   MODES,
   type InteractionMode,
 } from '../src/ui/interactionMode.js'
+
+type RestrictedMode = Exclude<InteractionMode, 'auto'>
+
+const DOCUMENTED_MODE_TOOLS: Record<RestrictedMode, string[]> = {
+  review: ['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'memory', 'git', 'workflow', 'get_goal'],
+  plan: ['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'memory', 'git', 'workflow', 'get_goal', 'write_plan', 'submit_plan'],
+  build: ['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'memory', 'git', 'workflow', 'get_goal', 'shell', 'write_file', 'edit_file', 'patch_file', 'update_knowledge', 'subagent', 'ask_agent', 'moa', 'update_goal'],
+}
+
+function documentedTools(content: string, mode: RestrictedMode): string[] {
+  const label = `${mode[0]!.toUpperCase()}${mode.slice(1)}`
+  const row = content.match(new RegExp(`^\\| ${label} \\| (.+) \\|$`, 'm'))?.[1]
+  if (!row) throw new Error(`Missing ${label} tool-permissions row`)
+  return [...row.matchAll(/`([^`]+)`/g)].map((match) => match[1]!)
+}
 
 describe('interactionMode', () => {
   describe('MODES', () => {
@@ -117,6 +136,14 @@ describe('interactionMode', () => {
 
       it('should allow patch_file', () => {
         expect(canUseTool('build', 'patch_file')).toBe(true)
+      })
+
+      it('should allow edit_file, moa, and goal status updates', () => {
+        expect(canUseTool('build', 'edit_file')).toBe(true)
+        expect(canUseTool('build', 'moa')).toBe(true)
+        expect(canUseTool('build', 'get_goal')).toBe(true)
+        expect(canUseTool('build', 'update_goal')).toBe(true)
+        expect(canUseTool('build', 'create_goal')).toBe(false)
       })
 
       it('should allow update_knowledge', () => {
@@ -234,6 +261,13 @@ describe('interactionMode', () => {
       it('should allow write_plan', () => {
         expect(canUseTool('plan', 'write_plan')).toBe(true)
       })
+
+      it('should allow get_goal but block edit_file and goal mutations', () => {
+        expect(canUseTool('plan', 'get_goal')).toBe(true)
+        expect(canUseTool('plan', 'edit_file')).toBe(false)
+        expect(canUseTool('plan', 'create_goal')).toBe(false)
+        expect(canUseTool('plan', 'update_goal')).toBe(false)
+      })
     })
 
     describe('review mode', () => {
@@ -245,6 +279,8 @@ describe('interactionMode', () => {
         expect(canUseTool('review', 'write_file')).toBe(false)
         expect(canUseTool('review', 'patch_file')).toBe(false)
         expect(canUseTool('review', 'subagent')).toBe(false)
+        expect(canUseTool('review', 'get_goal')).toBe(true)
+        expect(canUseTool('review', 'edit_file')).toBe(false)
       })
     })
 
@@ -260,6 +296,32 @@ describe('interactionMode', () => {
       it('should be allowed in auto mode (auto allows everything)', () => {
         expect(canUseTool('auto', 'write_plan')).toBe(true)
       })
+    })
+
+    it('keeps the runtime, system prompt, and introspection docs in sync', async () => {
+      const [systemPrompt, docs] = await Promise.all([
+        readFile(new URL('../src/agent/system-prompt.md', import.meta.url), 'utf8'),
+        Introspect.execute({}),
+      ])
+
+      for (const [mode, expected] of Object.entries(DOCUMENTED_MODE_TOOLS) as Array<[RestrictedMode, string[]]>) {
+        const sorted = [...expected].sort()
+        expect(getToolsForMode(mode).sort()).toEqual(sorted)
+        expect(documentedTools(systemPrompt, mode).sort()).toEqual(sorted)
+        expect(documentedTools(docs, mode).sort()).toEqual(sorted)
+      }
+
+      const nativeTools = allTools.map((tool) => tool.name).sort()
+      expect(nativeTools).toHaveLength(24)
+      expect(getToolsForMode('auto').sort()).toEqual(nativeTools)
+      expect(nativeTools.every((tool) => canUseTool('auto', tool))).toBe(true)
+      for (const tool of nativeTools) {
+        expect(systemPrompt).toContain(`\`${tool}\``)
+        expect(docs).toContain(`\`${tool}\``)
+      }
+      expect(nativeTools.filter((tool) => !Object.values(DOCUMENTED_MODE_TOOLS).flat().includes(tool))).toEqual(['create_goal'])
+      expect(systemPrompt).toContain('| Auto | All 24 registered native tools and dynamically discovered MCP tools |')
+      expect(docs).toContain('| Auto | All 24 native tools and dynamically discovered MCP tools |')
     })
   })
 
@@ -338,6 +400,10 @@ describe('interactionMode', () => {
 
     it('should return true for patch_file to .deepseek path', () => {
       expect(isConfigWrite('patch_file', { path: '/home/user/.deepseek/agents/foo.json' })).toBe(true)
+    })
+
+    it('should return true for edit_file to .deepseek path', () => {
+      expect(isConfigWrite('edit_file', { path: '/home/user/.deepseek/agents/foo.json' })).toBe(true)
     })
 
     it('should return false for write_file to normal path', () => {

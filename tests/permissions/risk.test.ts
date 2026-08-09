@@ -66,6 +66,13 @@ describe('assessRisk', () => {
       expect(r!.requiresConfirmation).toBe(true)
     })
 
+    it('edit_file with .deepseek/config.json → HIGH', () => {
+      const r = assessRisk('edit_file', { path: '.deepseek/config.json' }, ctx())
+      expect(r).not.toBeNull()
+      expect(r!.matchedRule).toBe('edit:deepseek-config')
+      expect(r!.requiresConfirmation).toBe(true)
+    })
+
     it('write_file with _existingLineCount: 150 → HIGH (large_overwrite)', () => {
       const r = assessRisk('write_file', { path: 'src/foo.ts', _existingLineCount: 150 }, ctx())
       expect(r).not.toBeNull()

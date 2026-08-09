@@ -81,6 +81,29 @@ describe('WorkflowManager', () => {
     expect((await second.result).result).toEqual(['a', 'b'])
     expect(calls).toBe(2)
     expect((await manager.get(second.runId))?.phase).toBe('two')
+    expect((await manager.get(second.runId))?.phaseHistory).toEqual(['one', 'two'])
+  })
+
+  test('persists a new phase without interrupting runtime delivery on a transient write failure', async () => {
+    const manager = await setup(async request => ({ value: request.prompt }))
+    const errors: string[] = []
+    manager.setCallbacks({ onError: (_runId, message) => errors.push(message) })
+    const store = (manager as unknown as { store: { writeRun(run: { phaseHistory?: string[] }): Promise<void> } }).store
+    const writeRun = store.writeRun.bind(store)
+    let failPhaseWrite = true
+    store.writeRun = async run => {
+      if (failPhaseWrite && run.phaseHistory?.includes('one')) {
+        failPhaseWrite = false
+        throw new Error('temporary phase write failure')
+      }
+      await writeRun(run)
+    }
+
+    const result = await (await manager.start({ script: 'export const meta = {"name":"phase-persist"}; phase("one"); return agent("ok");' })).result
+
+    expect(result.status).toBe('completed')
+    expect(errors).toContainEqual(expect.stringContaining('temporary phase write failure'))
+    expect((await manager.get(result.runId))?.phaseHistory).toEqual(['one'])
   })
 
   test('matches replay options and preserves them on restart', async () => {

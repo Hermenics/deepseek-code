@@ -1572,7 +1572,7 @@ export class Agent {
     // This restriction depends only on the tool name, so blocked tools never
     // trigger executable hooks.
     if (!canUseTool(this.interactionMode, tc.function.name)) {
-      const blockMsg = `Tool '${tc.function.name}' is not available in ${this.interactionMode} mode. Switch to Build mode to use this tool.`
+      const blockMsg = `Tool '${tc.function.name}' is not available in ${this.interactionMode} mode. Use /permissions to inspect available tools or switch to an appropriate mode.`
       auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...parsedArgs, __blocked_by_mode: this.interactionMode } })
       cb.onToolCall(tc.function.name, parsedArgs)
       cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
@@ -1612,7 +1612,7 @@ export class Agent {
       workflowApproved = true
     }
 
-    if (tc.function.name === 'write_file' || tc.function.name === 'patch_file') {
+    if (['write_file', 'edit_file', 'patch_file'].includes(tc.function.name)) {
       this.turnWriteCount++
     }
 

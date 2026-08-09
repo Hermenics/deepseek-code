@@ -86,7 +86,7 @@ interface ActiveRun {
 }
 
 function resultOf(run: WorkflowRun): WorkflowResult {
-  return { runId: run.runId, status: run.status, result: run.result ?? null, usage: run.usage, failures: run.failures, worktrees: run.worktrees }
+  return { runId: run.runId, status: run.status, result: run.result ?? null, ...(run.error ? { error: run.error } : {}), usage: run.usage, failures: run.failures, worktrees: run.worktrees }
 }
 
 function validateAgentOptions(value: unknown): WorkflowAgentOptions {
@@ -166,8 +166,18 @@ export class WorkflowManager {
     for (const listener of this.listeners) listener(payload)
   }
 
+  private setPhase(active: ActiveRun, phase: string): void {
+    const changed = active.record.phase !== phase
+    active.record.phase = phase
+    const added = !active.record.phaseHistory?.includes(phase)
+    if (added) active.record.phaseHistory = [...(active.record.phaseHistory ?? []), phase]
+    if (changed || added) void this.persist(active).catch(error => {
+      try { this.callbacks.onError?.(active.record.runId, `Failed to persist workflow phase: ${(error as Error).message}`) } catch { /* phase reporting must not interrupt runtime events */ }
+    })
+  }
+
   private persist(active: ActiveRun): Promise<void> {
-    active.persistChain = active.persistChain.then(async () => {
+    active.persistChain = active.persistChain.catch(() => undefined).then(async () => {
       await Promise.all([active.store.writeRun(active.record), active.store.writeJournal(active.record.runId, active.journal)])
     })
     return active.persistChain
@@ -228,7 +238,7 @@ export class WorkflowManager {
         script: active.script, name: input.name, args: active.args, timeoutMs: input.timeoutMs,
         maxTokens: input.maxTokens, maxCostUsd: input.maxCostUsd, signal: active.controller.signal,
         onEvent: event => {
-          if (event.type === 'phase') active.record.phase = event.value
+          if (event.type === 'phase') this.setPhase(active, event.value)
           this.publish(active, event)
         },
         onCall: (method, args) => this.handleCall(active, method, args, input),
@@ -334,7 +344,7 @@ export class WorkflowManager {
       throw error
     }
     if (options.phase) {
-      active.record.phase = options.phase
+      this.setPhase(active, options.phase)
       this.publish(active, { type: 'phase', value: options.phase, timestamp: new Date().toISOString() })
     }
     if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('agent prompt must be a non-empty string')
@@ -374,7 +384,10 @@ export class WorkflowManager {
     const execution = executeWorkflowScript({
       script: source, args: args[1] ?? {}, timeoutMs: input.timeoutMs,
       maxTokens: input.maxTokens, maxCostUsd: input.maxCostUsd, signal: active.controller.signal,
-      onEvent: event => this.publish(active, event),
+      onEvent: event => {
+        if (event.type === 'phase') this.setPhase(active, event.value)
+        this.publish(active, event)
+      },
       onCall: async (method, childArgs) => {
         if (method === 'workflow') throw new Error('Child workflows cannot start another workflow')
         return this.runAgent(active, childArgs, input, callIndex)
