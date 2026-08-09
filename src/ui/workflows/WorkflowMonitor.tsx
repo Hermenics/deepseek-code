@@ -40,6 +40,7 @@ function boxRow(left: string, leftWidth: number, right: string, rightWidth: numb
 
 /** Hard-wraps a paragraph so long agent output stays inside the panel. */
 function wrapText(value: string, width: number): string[] {
+  if (width <= 0) return []
   const lines: string[] = []
   for (const raw of value.split('\n')) {
     if (!raw.length) { lines.push(''); continue }

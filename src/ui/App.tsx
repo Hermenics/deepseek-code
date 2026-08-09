@@ -282,10 +282,21 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   useEffect(() => agent.orchestrator.subscribe(event => {
     if (event.type !== 'state_changed' || !event.taskId) return
-    const record = agent.orchestrator.registry.getStatus(event.taskId)
+    // Workflow agents live in their own session registry, so fall back to the workflow-aware
+    // lookup: a workflow agent first seen through a state change must still carry the run and
+    // phase the monitor groups by.
+    const taskId = event.taskId
+    const located = (() => {
+      try { return { task: agent.orchestrator.registry.getStatus(taskId), workflowRunId: null, workflowPhase: null } }
+      catch { return agent.workflows.findTask(taskId) }
+    })()
+    if (!located) return
+    const record = located.task
     subagentsRef.current.onSubagentState({
       id: record.taskId,
       status: record.state,
+      workflowRunId: located.workflowRunId,
+      workflowPhase: located.workflowPhase,
       task: String(record.metadata.task ?? record.type),
       prompt: typeof record.metadata.prompt === 'string' ? record.metadata.prompt : undefined,
       role: record.metadata.role as string | undefined,

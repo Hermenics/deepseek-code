@@ -16,7 +16,7 @@ const ACTIVE_RUNS: ReadonlySet<WorkflowStatus> = new Set<WorkflowStatus>(['queue
 const ACTIVE_AGENTS: ReadonlySet<string> = new Set(['queued', 'running', 'blocked'])
 
 /** Status buckets in the order Claude Code prints them in the list subtitle. */
-const SUMMARY_ORDER: ReadonlyArray<{ label: string; statuses: readonly WorkflowStatus[] }> = [
+const SUMMARY_ORDER: ReadonlyArray<{ label: 'running' | 'paused' | 'completed' | 'stopped' | 'failed'; statuses: readonly WorkflowStatus[] }> = [
   { label: 'running', statuses: ['queued', 'running'] },
   { label: 'paused', statuses: ['paused'] },
   { label: 'completed', statuses: ['completed'] },
@@ -73,15 +73,13 @@ export function workflowDurationMs(run: WorkflowRun, now = Date.now()): number {
   return Number.isFinite(started) && Number.isFinite(ended) ? Math.max(0, ended - started) : 0
 }
 
+/** Same buckets as the subtitle, so the two can never disagree on what counts as failed. */
 export function summarizeWorkflowRuns(runs: WorkflowRun[]) {
-  return runs.reduce((summary, run) => {
-    if (run.status === 'running' || run.status === 'queued') summary.running++
-    else if (run.status === 'paused') summary.paused++
-    else if (run.status === 'completed') summary.completed++
-    else if (run.status === 'cancelled') summary.stopped++
-    else summary.failed++
-    return summary
-  }, { running: 0, paused: 0, completed: 0, stopped: 0, failed: 0 })
+  const counts = { running: 0, paused: 0, completed: 0, stopped: 0, failed: 0 }
+  for (const bucket of SUMMARY_ORDER) {
+    counts[bucket.label] = runs.filter(run => bucket.statuses.includes(run.status)).length
+  }
+  return counts
 }
 
 /** `3 running · 2 completed` — only non-empty buckets appear. */
