@@ -395,4 +395,36 @@ describe('useSubagents', () => {
       expect(a3.toolCount).toBe(0)
     })
   })
+  describe('label and prompt separation', () => {
+    it('seeds the transcript with the real instruction while task stays the short label', () => {
+      const hook = useSubagents()
+
+      hook.onSubagentStart({ id: 'a1', task: 'alpha:red', prompt: 'Return exactly one word. Use NO tools.' })
+
+      const agent = hook.agents.find(a => a.id === 'a1')!
+      // Lists render `task`, so it must remain the short label the workflow supplied.
+      expect(agent.task).toBe('alpha:red')
+      expect(agent.prompt).toBe('Return exactly one word. Use NO tools.')
+      expect(agent.messages?.[0]).toEqual({ role: 'user', content: 'Return exactly one word. Use NO tools.' })
+    })
+
+    it('falls back to the task when no prompt was captured', () => {
+      const hook = useSubagents()
+
+      hook.onSubagentStart({ id: 'a1', task: 'Review the diff' })
+
+      const agent = hook.agents.find(a => a.id === 'a1')!
+      expect(agent.prompt).toBeNull()
+      expect(agent.messages?.[0]).toEqual({ role: 'user', content: 'Review the diff' })
+    })
+
+    it('backfills the prompt when it arrives on a later state update', () => {
+      const hook = useSubagents()
+
+      hook.onSubagentStart({ id: 'a1', task: 'alpha:red' })
+      hook.onSubagentState({ id: 'a1', status: 'done', prompt: 'Return exactly one word.' })
+
+      expect(hook.agents.find(a => a.id === 'a1')!.prompt).toBe('Return exactly one word.')
+    })
+  })
 })

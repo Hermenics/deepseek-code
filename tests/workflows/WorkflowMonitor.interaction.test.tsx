@@ -60,30 +60,27 @@ function cleanup({ stdout, instance }: ReturnType<typeof renderMonitor>) {
   instance.cleanup()
 }
 
-test('selects initialRunId without opening details', async () => {
-  const paused: string[] = []
-  const resumed: string[] = []
+test('initialRunId opens that run detail directly, like the activity footer', async () => {
   const monitor = renderMonitor([
     run({ runId: 'running-run' }),
-    run({ runId: 'paused-run', status: 'paused' }),
-  ], {
-    initialRunId: 'paused-run',
-    onPause: async id => { paused.push(id); return true },
-    onResume: async id => { resumed.push(id); return true },
-  })
+    run({ runId: 'paused-run', status: 'paused', phase: 'Review', phaseHistory: ['Review'] }),
+  ], { initialRunId: 'paused-run' })
+  let rendered = ''
+  monitor.stdout.on('data', chunk => { rendered += chunk.toString() })
 
   try {
     await Bun.sleep(100)
-    await press(monitor.stdin, '\x1b[A')
-    await press(monitor.stdin, 'p')
-    expect(paused).toEqual(['running-run'])
-    expect(resumed).toEqual([])
+    const plain = rendered.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\s/g, '')
+    // Opening a named run skips the picker entirely: no list chrome, straight to the phases panel.
+    expect(plain).toContain('Phases')
+    expect(plain).not.toContain('Dynamicworkflows')
+    expect(plain).toContain('escback')
   } finally {
     cleanup(monitor)
   }
 })
 
-test('Ctrl+S toggles compact mode without invoking save', async () => {
+test('lists runs with the Claude-style header, icons and hint', async () => {
   let saves = 0
   const monitor = renderMonitor([run({ status: 'completed' })], { onSave: async () => { saves++; return '' } })
   let rendered = ''
@@ -91,10 +88,11 @@ test('Ctrl+S toggles compact mode without invoking save', async () => {
 
   try {
     await Bun.sleep(100)
-    rendered = ''
-    await press(monitor.stdin, '\x13')
-    const plain = rendered.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
-    expect(plain.replace(/\s/g, '')).toContain('Ctrl+Sgrouped')
+    const plain = rendered.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\s/g, '')
+    expect(plain).toContain('Dynamicworkflows')
+    expect(plain).toContain('1completed')
+    expect(plain).toContain('✔audit')
+    expect(plain).toContain('↑/↓toselect·Entertoview·stosave·Esctoclose')
     expect(saves).toBe(0)
   } finally {
     cleanup(monitor)
@@ -119,11 +117,15 @@ test('renders the Claude-style phases and agents detail panel', async () => {
     await press(monitor.stdin, '\r')
     const plain = rendered.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\s/g, '')
     expect(plain).toContain('Phases')
-    expect(plain).toContain('>1Revi')
+    // Active phase keeps its ordinal as the icon and a counter; the untouched one gets neither.
+    expect(plain).toContain('❯1Revi')
+    expect(plain).toContain('0/2')
     expect(plain).toContain('2Verify')
     expect(plain).toContain('Review·2agents')
-    expect(plain).toContain('●review:security')
-    expect(plain).toContain('xstopworkflow·ppause·escback·ssave')
+    // Agents of the selected phase carry their model and token spend.
+    expect(plain).toContain('●review:secur')
+    expect(plain).toContain('deepseek-v4-flash·1.2k')
+    expect(plain).toContain('↑↓select·escback·ssave')
   } finally {
     cleanup(monitor)
   }
@@ -165,6 +167,33 @@ test('supports pause, resume, stop, restart, and save shortcuts', async () => {
     expect(stopped).toEqual(['active'])
     expect(restarted).toEqual(['done'])
     expect(saved).toEqual([['done', 'saved-workflow']])
+  } finally {
+    cleanup(monitor)
+  }
+})
+
+test('agent drill-down shows the real prompt while labels stay short', async () => {
+  const monitor = renderMonitor([run({
+    phase: 'Alpha', phaseHistory: ['Alpha'], usage: { agents: 1, tokens: 1200, costUsd: 0 },
+  })], {
+    agents: [
+      { id: 'red', task: 'alpha:red', prompt: 'Return exactly one single word about the colour red', status: 'done' as const, colorIndex: 0, toolCount: 0, lastToolInfo: null, startedAt: Date.now(), durationMs: 1_000, result: 'red', error: null, tokens: 1200, costUsd: 0, role: null, confidence: null, verified: null, agentName: null, model: 'deepseek-v4-flash', workflowRunId: 'workflow-run', workflowPhase: 'Alpha' },
+    ],
+  })
+  let rendered = ''
+  monitor.stdout.on('data', chunk => { rendered += chunk.toString() })
+
+  try {
+    await Bun.sleep(100)
+    await press(monitor.stdin, '\r')
+    rendered = ''
+    await press(monitor.stdin, '\r')
+    const plain = rendered.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\s/g, '')
+    // The label keeps naming the agent in the left column and the panel title...
+    expect(plain).toContain('a:red')
+    expect(plain).toContain('Prompt')
+    // ...while the Prompt section carries the instruction that was actually sent.
+    expect(plain).toContain('Returnexactlyonesingleword')
   } finally {
     cleanup(monitor)
   }

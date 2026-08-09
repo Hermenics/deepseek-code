@@ -218,7 +218,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   useEffect(() => {
     const subs = subagentsRef.current
     const findTask = (id: string) => {
-      try { return { task: agent.orchestrator.registry.getStatus(id), workflowRunId: null } }
+      try { return { task: agent.orchestrator.registry.getStatus(id), workflowRunId: null, workflowPhase: null } }
       catch { return agent.workflows.findTask(id) }
     }
     const syncTask = (id: string) => {
@@ -231,6 +231,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         agentName: record.metadata.agentName as string | undefined,
         mode: record.mode, model: record.metadata.model as string | undefined,
         workspace: record.workspace?.path, workflowRunId: located.workflowRunId,
+        workflowPhase: located.workflowPhase,
+        prompt: typeof record.metadata.prompt === 'string' ? record.metadata.prompt : undefined,
         error: record.error?.message ?? record.blockReason,
       })
       return true
@@ -247,6 +249,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           model: record.metadata.model as string | undefined,
           workspace: record.workspace?.path,
           workflowRunId: located.workflowRunId,
+          workflowPhase: located.workflowPhase,
+          prompt: typeof record.metadata.prompt === 'string' ? record.metadata.prompt : undefined,
         })
         setSubagentTick((t) => t + 1)
       },
@@ -283,6 +287,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       id: record.taskId,
       status: record.state,
       task: String(record.metadata.task ?? record.type),
+      prompt: typeof record.metadata.prompt === 'string' ? record.metadata.prompt : undefined,
       role: record.metadata.role as string | undefined,
       agentName: record.metadata.agentName as string | undefined,
       mode: record.mode,
