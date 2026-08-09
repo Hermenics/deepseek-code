@@ -63,13 +63,23 @@ function workflowProgress(run: WorkflowRun, agents: SubagentState[]): string {
   return `${done}/${run.usage.agents} agents done`
 }
 
+/**
+ * Resolves the display label for a subagent.
+ *
+ * @param agent - The subagent whose label should be resolved
+ * @returns The display label and whether it identifies a fixed agent
+ */
 function agentLabel(agent: SubagentState): { label: string; fixed: boolean } {
   const name = agent.agentName
   if (name && isFixedAgent(name)) return { label: getFixedAgent(name).displayName, fixed: true }
   return { label: name || 'Subagent', fixed: false }
 }
 
-/** Merge standalone agents and active workflows into one activity list, sorted by start time. */
+/**
+ * Combines standalone agents and active workflows into a unified activity list sorted by start time.
+ *
+ * @returns The sorted activity items.
+ */
 export function buildActivityItems(agents: SubagentState[], workflows: WorkflowRun[]): ActivityItem[] {
   const agentItems: AgentActivityItem[] = agents.filter(agent => !agent.workflowRunId).map(agent => {
     const identity = agentLabel(agent)
@@ -97,8 +107,12 @@ export function compactActivityItems(items: ActivityItem[], maxRows = 5): { rows
 }
 
 /**
- * Format one activity row: status icon (overridable, e.g. the selection ball),
- * label, description and metrics, truncated to the requested width.
+ * Formats an activity item as a width-constrained display row.
+ *
+ * @param columns - Maximum width of the formatted row
+ * @param now - Timestamp used to calculate elapsed time for active items
+ * @param iconOverride - Optional icon to display instead of the item's status icon
+ * @returns The formatted activity row
  */
 export function formatActivityItem(item: ActivityItem, columns: number, now = Date.now(), iconOverride?: string): string {
   const icon = STATUS_ICONS[item.status] ?? '•'

@@ -167,6 +167,13 @@ function mergeAgent(base: StoredAgentConfig | undefined, override: StoredAgentCo
   }
 }
 
+/**
+ * Loads and resolves all agent configurations available from the configured layers.
+ *
+ * @param cwd - Working directory used to locate project and local agent configurations
+ * @returns Agents sorted by configuration name, including their source, origin, and override metadata
+ * @throws Error If an agent has missing or cyclic inheritance, or extends an unavailable built-in agent
+ */
 export async function loadAgentRegistry(cwd = process.cwd()): Promise<LoadedAgent[]> {
   const settings = await loadMergedSettings(cwd)
   const layers = directories(settings.agents?.additionalDirectories, cwd)
@@ -253,9 +260,13 @@ export class AgentNotFoundError extends Error {
 }
 
 /**
- * Load the agent with the given name from the merged registry, rejecting with
- * AgentNotFoundError when it does not exist and a plain Error when it is
- * explicitly disabled.
+ * Loads an enabled agent by name from the merged registry.
+ *
+ * @param name - The agent name to load
+ * @param cwd - The working directory used to locate the registry
+ * @returns The loaded agent configuration
+ * @throws AgentNotFoundError If no agent with the specified name exists
+ * @throws Error If the specified agent is disabled
  */
 export async function loadAgentConfig(name: string, cwd = process.cwd()): Promise<LoadedAgent> {
   const agent = (await loadAgentRegistry(cwd)).find(candidate => candidate.config.name === name)
@@ -264,11 +275,22 @@ export async function loadAgentConfig(name: string, cwd = process.cwd()): Promis
   return agent
 }
 
-/** True when the error is the "agent not found" rejection from loadAgentConfig. */
+/**
+ * Identifies errors indicating that an agent could not be found.
+ *
+ * @param error - The value to inspect
+ * @returns `true` if the value is an agent-not-found error, `false` otherwise.
+ */
 export function isAgentNotFoundError(error: unknown): boolean {
   return error instanceof AgentNotFoundError
 }
 
+/**
+ * Lists the registered agents and their metadata.
+ *
+ * @param cwd - The working directory used to load project and local agent configurations
+ * @returns Metadata for each registered agent, including its name, source, origin, usage, and enabled state
+ */
 export async function listAgents(cwd = process.cwd()): Promise<Array<{ name: string; source: LoadedAgent['source']; origin: AgentSource; usage: AgentUsage; enabled: boolean }>> {
   return (await loadAgentRegistry(cwd)).map(agent => ({
     name: agent.config.name,
