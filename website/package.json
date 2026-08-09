@@ -48,8 +48,8 @@
     "zod": "3.24.4"
   },
   "scripts": {
-    "start": "craco start",
-    "build": "craco build",
+    "start": "node scripts/generate-releases.js && craco start",
+    "build": "node scripts/generate-releases.js && craco build",
     "test": "craco test",
     "test:ci": "CI=true craco test --watchAll=false",
     "lint": "ESLINT_USE_FLAT_CONFIG=false eslint src --ext .js,.jsx --max-warnings=0"
