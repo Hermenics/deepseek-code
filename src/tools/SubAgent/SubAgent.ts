@@ -87,6 +87,14 @@ function roleProfile(role: SubAgentRole, selected?: AgentConfig): PermissionProf
   return 'writer-worktree'
 }
 
+/**
+ * Computes the tools permitted by an agent profile and optional parent-task restrictions.
+ *
+ * @param profile - Permission profile for the agent.
+ * @param configured - Tools configured for the agent, or `'*'` for unrestricted access.
+ * @param parent - Optional parent-task permission profile and tool restrictions.
+ * @returns The effective allowed tool names, or `'*'` when access is unrestricted.
+ */
 function effectiveToolAllowlist(profile: PermissionProfile, configured?: string[] | '*', parent?: { permissionProfile: PermissionProfile; allowedTools?: string[] | '*' }): string[] | '*' {
   const profileTools = getToolNamesForProfile(profile)
   let allowed = profileTools === '*' ? configured ?? '*' : configured === '*' || configured === undefined
@@ -104,9 +112,14 @@ function effectiveToolAllowlist(profile: PermissionProfile, configured?: string[
 }
 
 /**
- * Spawn an agent task, resolving the configured agent (or falling back to a
- * generic AgentN name for unknown names). A caller-resolved agent matching
- * the requested name skips the second registry load.
+ * Spawns a delegated agent task using the requested configuration or a generic agent when the requested name is unknown.
+ *
+ * @param args - Task options, including the task description and optional agent, model, role, execution, context, dependency, and resource settings.
+ * @param context - Optional execution context used to associate the task with its parent and propagate cancellation.
+ * @param origin - The caller type, which determines execution behavior for agent requests.
+ * @param workflowTerminal - Optional workflow result configuration.
+ * @param resolvedAgent - An agent configuration already resolved by the caller.
+ * @returns The spawned task handle, resolved agent name, and an optional fallback note.
  */
 async function spawnAgentTask(
   args: Record<string, unknown>,
@@ -306,7 +319,14 @@ async function spawnAgentTask(
   }
 }
 
-/** Spawn a bounded subagent task; pass resolvedAgent to reuse a caller-loaded agent config. */
+/**
+ * Starts a bounded subagent task.
+ *
+ * @param args - Task configuration and input arguments
+ * @param origin - The source of the delegation request
+ * @param resolvedAgent - An optional preloaded agent configuration to reuse
+ * @returns The spawned subagent task details
+ */
 export async function spawnSubAgentTask(
   args: Record<string, unknown>,
   context?: ToolExecutionContext,
@@ -316,6 +336,12 @@ export async function spawnSubAgentTask(
   return await spawnAgentTask(args, context, origin, undefined, resolvedAgent) as SpawnedSubAgent
 }
 
+/**
+ * Starts a delegated agent task configured to produce workflow-structured output.
+ *
+ * @param schema - Optional schema for validating the workflow result.
+ * @returns The spawned subagent task handle and resolved agent information.
+ */
 export async function spawnWorkflowAgentTask(
   args: Record<string, unknown>,
   context: ToolExecutionContext,
