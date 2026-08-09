@@ -33,7 +33,9 @@ export const DEFAULT_RISK_RULES: RiskRule[] = [
   { id: 'git:pull', level: 'high', tool: 'git', pattern: 'pull' },
   { id: 'write:deepseek-config', level: 'high', tool: 'write_file', pattern: '*.deepseek/*' },
   { id: 'patch:deepseek-config', level: 'high', tool: 'patch_file', pattern: '*.deepseek/*' },
+  { id: 'edit:deepseek-config', level: 'high', tool: 'edit_file', pattern: '*.deepseek/*' },
   { id: 'write:steering', level: 'high', tool: 'write_file', pattern: '*.deepseek/steering/*' },
+  { id: 'edit:steering', level: 'high', tool: 'edit_file', pattern: '*.deepseek/steering/*' },
   { id: 'write:large-overwrite', level: 'high', tool: 'write_file', condition: 'large_overwrite' },
 
   // MEDIUM — require confirmation only in subagent context
@@ -44,6 +46,7 @@ export const DEFAULT_RISK_RULES: RiskRule[] = [
   { id: 'write:config-dockerfile', level: 'medium', tool: 'write_file', pattern: '*Dockerfile*' },
   { id: 'write:burst', level: 'medium', tool: 'write_file', condition: 'multi_edit_burst' },
   { id: 'patch:burst', level: 'medium', tool: 'patch_file', condition: 'multi_edit_burst' },
+  { id: 'edit:burst', level: 'medium', tool: 'edit_file', condition: 'multi_edit_burst' },
   { id: 'shell:npm-install-dev', level: 'medium', tool: 'shell', pattern: 'npm install --save-dev*' },
   { id: 'shell:bun-add-dev', level: 'medium', tool: 'shell', pattern: 'bun add -d*' },
 ]
@@ -57,6 +60,7 @@ function getToolContent(toolName: string, args: Record<string, unknown>): string
       // Normalize: trim and collapse multiple spaces
       return args.command.trim().replace(/\s+/g, ' ')
     case 'write_file':
+    case 'edit_file':
     case 'patch_file':
       return typeof args.path === 'string' ? args.path : undefined
     case 'git':

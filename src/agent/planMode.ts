@@ -48,11 +48,13 @@ What helpers, types, patterns, or utilities already exist that you will use?
 How will the implementer know the work is done correctly?
 
 ## Allowed tools
-- read_file, read_folder, glob, grep, git, web_fetch, introspect — for exploration
+- read_file, read_folder, glob, grep, lsp, web_fetch, introspect, get_goal — for exploration
+- git (status, diff, log only), todo (list only), memory (list only) — for read-only state inspection
+- workflow — only when it launches read-only agents
 - write_plan — to write your plan content
 - submit_plan — call this when your plan is complete
 
-You MUST NOT use: shell, write_file, patch_file, edit_file.
+You MUST NOT use: shell, write_file, patch_file, edit_file, update_knowledge, subagent, ask_agent, moa, create_goal, update_goal, or MCP tools.
 
 ## When you are done
 Call \`submit_plan\` with path="${planPath}". Do not call any other tool after that.`

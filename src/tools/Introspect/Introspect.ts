@@ -7,7 +7,7 @@ const DOCS = `
 DeepSeek Code is an open-source, terminal-based AI coding assistant built with Bun and React (Ink) for the TUI. It runs an agentic loop with streaming responses and tool calls, understanding your codebase and helping you code faster through natural language.
 
 - **Package:** @hermenics/deepseek-code
-- **Version:** 0.2.0
+- **Version:** 0.6.6
 - **License:** Apache-2.0
 - **Repository:** https://github.com/Hermenics/deepseek-code
 
@@ -31,11 +31,12 @@ Each provider also exposes provider-specific models (Bedrock, Vertex, local).
 
 ## Interaction Modes
 Switch modes with Shift+Tab:
-- Build — read, write, shell and knowledge tools (default)
-- Plan — read-only tools for analysis and planning
-- Auto — full access without interactive confirmations
+- Review — read-only repository inspection
+- Plan — read-only exploration plus the designated plan file
+- Build — normal implementation work (default)
+- Auto — all native and dynamically discovered tools without interactive confirmations
 
-Cycle: Plan -> Build -> Auto -> Plan
+Cycle: Plan -> Review -> Build -> Auto -> Plan
 
 ## Slash Commands
 - /agent <name> — Load a custom agent
@@ -67,30 +68,29 @@ Cycle: Plan -> Build -> Auto -> Plan
 - /quit or /q — Exit
 
 ## Available Tools
-The agent has access to these tools:
-- read_file — Read file contents (supports line ranges)
-- write_file — Write or create a file (shows diff in UI)
-- edit_file — Surgical line-level edits by line number (most token-efficient for targeted changes)
-- patch_file — Edit a file by replacing a specific string (good when you know the unique match but not the line number)
-- read_folder — List directory contents (recursive option)
-- grep — Search regex pattern in files
-- glob — Find files by glob pattern
-- lsp — Read-only symbol navigation through user-configured language servers
-- shell — Execute shell commands
-- git — Execute git operations (status, diff, log, add, commit, branch, stash, pull, push)
-- web_fetch — Fetch content from a URL
-- introspect — Get this documentation about DeepSeek Code
-- subagent — Spawn a subagent to handle a subtask independently
-- memory — Manage persistent memory across sessions
-- update_knowledge — Record project-specific knowledge in DEEPSEEK.md
-- todo — Manage a TODO list visible to the user in the UI
-- MoA — Run mixture-of-agents reference/aggregation flows
+DeepSeek Code has 24 native tools:
+
+- \`read_file\`, \`read_folder\`, \`glob\`, \`grep\` — targeted filesystem discovery and reading
+- \`lsp\` — read-only definitions, references, hover, and symbol navigation
+- \`web_fetch\` — fetch a public URL as text
+- \`introspect\` — show this product documentation
+- \`write_file\`, \`edit_file\`, \`patch_file\` — full-file, line-level, and exact-text edits
+- \`shell\` — run processes such as tests, builds, and diagnostics
+- \`git\` — structured repository operations
+- \`todo\`, \`memory\`, \`update_knowledge\` — session tasks, durable memory, and \`DEEPSEEK.md\` knowledge
+- \`subagent\`, \`ask_agent\`, \`workflow\`, \`moa\` — focused delegation, asynchronous consultation, orchestration, and multi-model synthesis
+- \`write_plan\`, \`submit_plan\` — write and submit the designated Plan-mode file
+- \`get_goal\`, \`create_goal\`, \`update_goal\` — inspect, create, and change session goals
 
 ### Tool Permissions by Mode
-- **Build:** read-only tools plus shell, write_file, edit_file, patch_file and update_knowledge
-- **Plan:** read-only tools only
-- **Auto:** all tools without interactive confirmations
-- MCP tools follow the same rules as shell outside Auto
+| Mode | Permitted native tools |
+| --- | --- |
+| Review | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\` |
+| Plan | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`write_plan\`, \`submit_plan\` |
+| Build | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`shell\`, \`write_file\`, \`edit_file\`, \`patch_file\`, \`update_knowledge\`, \`subagent\`, \`ask_agent\`, \`moa\`, \`update_goal\` |
+| Auto | All 24 native tools and dynamically discovered MCP tools |
+
+In Review and Plan, \`git\` is limited to status/diff/log, and \`todo\` and \`memory\` are limited to list. Plan may write only through \`write_plan\`; after \`submit_plan\`, it waits for the user's decision. MCP tools follow the shell rule: Build and Auto only.
 
 ## Subagents
 DeepSeek Code supports subagents — independent mini-agents spawned to handle specific subtasks.
@@ -98,7 +98,7 @@ DeepSeek Code supports subagents — independent mini-agents spawned to handle s
 Subagents have:
 - Their own isolated context (no access to parent conversation)
 - Access to all tools except subagent itself (no recursion)
-- A limit of 15 iterations per task
+- A task-specific iteration and permission budget
 - The same model and provider as the parent agent
 
 Use cases: analyzing code, refactoring files, running tests, web research.
