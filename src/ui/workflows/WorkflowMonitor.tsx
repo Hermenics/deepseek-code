@@ -117,10 +117,10 @@ export function windowWorkflowRuns(runs: WorkflowRun[], selected: number, maxRow
 }
 
 export function workflowControlHint(status: WorkflowStatus): string {
-  if (status === 'running') return '↑/↓ select · x stop workflow · p pause · esc back · s save'
-  if (status === 'paused') return '↑/↓ select · x stop workflow · p resume · esc back · s save'
-  if (status === 'queued') return '↑/↓ select · x stop workflow · esc back · s save'
-  return '↑/↓ select · r restart workflow · esc back · s save'
+  if (status === 'running') return 'x stop workflow · p pause · esc back · s save'
+  if (status === 'paused') return 'x stop workflow · p resume · esc back · s save'
+  if (status === 'queued') return 'x stop workflow · esc back · s save'
+  return 'r restart workflow · esc back · s save'
 }
 
 function summaryText(runs: WorkflowRun[]): string {

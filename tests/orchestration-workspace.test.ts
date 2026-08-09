@@ -184,6 +184,17 @@ describe('task workspace isolation', () => {
     await expect(resolveSafePath('.deepseek/workflows/nested/review.js', context)).rejects.toThrow('off-limits')
   })
 
+  it('classifies workflow files by canonical target, not the lexical path', async () => {
+    const root = await tempRoot('deepseek-workflow-symlink-')
+    await mkdir(join(root, '.git', 'hooks'), { recursive: true })
+    await writeFile(join(root, '.git', 'hooks', 'evil.js'), 'export const meta = {}')
+    await mkdir(join(root, '.deepseek', 'workflows'), { recursive: true })
+    await symlink(join(root, '.git', 'hooks', 'evil.js'), join(root, '.deepseek', 'workflows', 'evil.js'))
+    const context = { sessionId: 's', workspacePath: root, projectRoot: root, permissionProfile: 'coordinator-integrator' as const }
+    await expect(resolveSafePath(join(root, '.deepseek', 'workflows', 'evil.js'), context)).rejects.toThrow('off-limits')
+    await expect(resolveSafePath(join(root, '.deepseek', 'workflows', 'legit.js'), context)).resolves.toBe(join(root, '.deepseek', 'workflows', 'legit.js'))
+  })
+
   it('limits approved external paths to their selected directory', async () => {
     const workspace = await tempRoot('deepseek-mas-workspace-')
     const external = await tempRoot('deepseek-mas-external-')

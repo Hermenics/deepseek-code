@@ -8,6 +8,11 @@ import { Agent } from '../src/agent/agent.js'
 const roots: string[] = []
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 
+// Observador do prompt real: o system message inicial da conversa
+function systemMessage(agent: Agent): string {
+  return String(agent.getMessages()[0]?.content ?? '')
+}
+
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 500
   while (!predicate()) {
@@ -156,14 +161,14 @@ describe('orchestrator snapshots', () => {
     }))
     const agent = new Agent({ provider: 'local', localModel: 'fake' }, { projectRoot: firstRoot, snapshotFile: null })
     await agent.readyPromise
-    expect(agent.getSystemPrompt()).toContain('FIRST_ROOT_ONLY')
+    expect(systemMessage(agent)).toContain('FIRST_ROOT_ONLY')
     await agent.applyAgentConfig({ name: 'root-agent', systemPrompt: 'FIRST_AGENT_PROMPT', files: ['context.md'] })
-    expect(agent.getSystemPrompt()).toContain('FIRST_CONTEXT')
+    expect(systemMessage(agent)).toContain('FIRST_CONTEXT')
     await agent.setWorkingDirectory(secondRoot)
-    expect(agent.getSystemPrompt()).toContain('SECOND_AGENT_PROMPT')
-    expect(agent.getSystemPrompt()).toContain('SECOND_CONTEXT')
-    expect(agent.getSystemPrompt()).not.toContain('FIRST_ROOT_ONLY')
-    expect(agent.getSystemPrompt()).not.toContain('FIRST_CONTEXT')
+    expect(systemMessage(agent)).toContain('SECOND_AGENT_PROMPT')
+    expect(systemMessage(agent)).toContain('SECOND_CONTEXT')
+    expect(systemMessage(agent)).not.toContain('FIRST_ROOT_ONLY')
+    expect(systemMessage(agent)).not.toContain('FIRST_CONTEXT')
     await agent.shutdown()
   })
 })
