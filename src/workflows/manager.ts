@@ -24,6 +24,8 @@ export interface WorkflowAgentRequest {
   session: OrchestratorSession
   interactionMode: InteractionMode
   signal: AbortSignal
+  /** Called with the spawned task id so the run can pin the agent to the phase active at spawn time. */
+  onSpawn?: (taskId: string) => void
 }
 
 export interface WorkflowAgentResponse extends WorkflowRpcResult {
@@ -83,6 +85,8 @@ interface ActiveRun {
   persistChain: Promise<void>
   structuralError?: string
   budgetExhausted: boolean
+  /** Phase each spawned agent belonged to, captured at spawn time because `record.phase` moves on. */
+  agentPhases: Map<string, string>
 }
 
 function resultOf(run: WorkflowRun): WorkflowResult {
@@ -133,9 +137,12 @@ export class WorkflowManager {
     return [...this.active.values()].some(active => ['queued', 'running', 'paused'].includes(active.record.status))
   }
 
-  findTask(taskId: string): { workflowRunId: string; task: TaskRecordV1 } | undefined {
+  findTask(taskId: string): { workflowRunId: string; task: TaskRecordV1; workflowPhase: string | null } | undefined {
     for (const active of this.active.values()) {
-      try { return { workflowRunId: active.record.runId, task: active.session.registry.getStatus(taskId) } }
+      try {
+        const task = active.session.registry.getStatus(taskId)
+        return { workflowRunId: active.record.runId, task, workflowPhase: active.agentPhases.get(taskId) ?? null }
+      }
       catch { /* task belongs to another session */ }
     }
     return undefined
@@ -214,6 +221,7 @@ export class WorkflowManager {
       journal: { schemaVersion: 1, scriptHash, argsHash, optionsHash, entries: [] },
       replay: await this.store.findReplay(scriptHash, argsHash, optionsHash), replayValid: true, nextCall: 0,
       session, controller: new AbortController(), pauseWaiters: [], persistChain: Promise.resolve(), budgetExhausted: false,
+      agentPhases: new Map(),
     }
     this.active.set(runId, active)
     try {
@@ -354,7 +362,11 @@ export class WorkflowManager {
     this.publish(active)
     const runner = this.options.agentRunner ?? defaultAgentRunner
     try {
-      const reply = await runner({ prompt, options, session: active.session, interactionMode, signal: active.controller.signal })
+      const phaseAtSpawn = active.record.phase
+      const reply = await runner({
+        prompt, options, session: active.session, interactionMode, signal: active.controller.signal,
+        onSpawn: taskId => { if (phaseAtSpawn) active.agentPhases.set(taskId, phaseAtSpawn) },
+      })
       active.record.usage.tokens += reply.usage?.tokens ?? 0
       active.record.usage.costUsd += reply.usage?.costUsd ?? 0
       if (reply.worktree && reply.taskId && !active.record.worktrees.some(item => item.taskId === reply.taskId)) {
@@ -515,6 +527,7 @@ async function defaultAgentRunner(request: WorkflowAgentRequest): Promise<Workfl
     ...(request.options.maxTokens !== undefined ? { maxTokens: request.options.maxTokens } : {}),
     ...(request.options.maxCostUsd !== undefined ? { maxCostUsd: request.options.maxCostUsd } : {}),
   }, request.session.toolContext({ signal: request.signal, permissionProfile: 'coordinator-integrator' }), request.options.schema)
+  request.onSpawn?.(spawned.handle.taskId)
   const result = await spawned.handle.awaitResult()
   const record = spawned.handle.status()
   return {

@@ -2,129 +2,65 @@ import { useEffect, useState } from 'react'
 import useInput from '../../ink/hooks/use-input.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
-import type { WorkflowRun, WorkflowStatus } from '../../workflows/types.js'
+import type { WorkflowRun } from '../../workflows/types.js'
 import { getThemeColors, type ThemeName } from '../theme.js'
 import { useClock } from '../clock.js'
 import type { SubagentState } from '../subagent/types.js'
-import { getFixedAgent, isFixedAgent } from '../../tools/SubAgent/fixedAgents.js'
-import { formatActivityItem, type WorkflowActivityItem } from '../activity/ActivityFooter.js'
+import {
+  agentIcon, agentsInPhase, formatCompactDuration, formatDuration, formatTokens,
+  formatWorkflowHeaderStats, formatWorkflowPanelAgentRow, formatWorkflowPhaseRow, formatWorkflowRunRow,
+  isAgentActive, isRunActive, phaseColumnWidth, phaseStateOf, runIcon, truncate, windowRows, workflowDurationMs,
+  workflowListHint, workflowPhases, workflowSummaryLine,
+} from './format.js'
 
-export const WORKFLOW_GROUPS: ReadonlyArray<{ name: string; statuses: readonly WorkflowStatus[] }> = [
-  { name: 'Working', statuses: ['queued', 'running'] },
-  { name: 'Needs input', statuses: ['paused'] },
-  { name: 'Completed', statuses: ['completed', 'failed', 'cancelled', 'timed_out', 'budget_exhausted'] },
-]
+export * from './format.js'
 
-export type WorkflowGroup = { name: string; runs: WorkflowRun[] }
-
-function truncate(value: string, width: number): string {
-  return value.length <= width ? value : `${value.slice(0, Math.max(0, width - 1))}…`
-}
-
-function formatDuration(ms: number): string {
-  const seconds = Math.max(0, Math.floor(ms / 1_000))
-  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`
-}
-
-function formatTokens(tokens: number): string {
-  const base = tokens >= 1_000 ? `${(tokens / 1_000).toFixed(1)}k tokens` : `${tokens} tokens`
-  return `↓ ${base}`
-}
-
-export function workflowDurationMs(run: WorkflowRun, now = Date.now()): number {
-  const started = Date.parse(run.startedAt ?? run.createdAt)
-  const ended = run.completedAt ? Date.parse(run.completedAt) : now
-  return Number.isFinite(started) && Number.isFinite(ended) ? Math.max(0, ended - started) : 0
-}
-
-export function summarizeWorkflowRuns(runs: WorkflowRun[]) {
-  return runs.reduce((summary, run) => {
-    if (run.status === 'running' || run.status === 'queued') summary.running++
-    else if (run.status === 'paused') summary.paused++
-    else if (run.status === 'completed') summary.completed++
-    else if (run.status === 'cancelled') summary.stopped++
-    else summary.failed++
-    return summary
-  }, { running: 0, paused: 0, completed: 0, stopped: 0, failed: 0 })
-}
-
-export function groupWorkflowRuns(runs: WorkflowRun[]): WorkflowGroup[] {
-  return WORKFLOW_GROUPS.map(group => ({
-    name: group.name,
-    runs: runs.filter(run => group.statuses.includes(run.status)),
-  }))
-}
-
-function asActivityItem(run: WorkflowRun, agents: SubagentState[], compact = false): WorkflowActivityItem {
-  const preview = run.phase ?? run.meta.description ?? 'Dynamic Workflow'
-  return {
-    kind: 'workflow', id: run.runId, label: run.meta.name,
-    description: compact ? `${run.status}${preview ? ` · ${preview}` : ''}` : preview,
-    status: run.status, fixed: false, active: ['queued', 'running'].includes(run.status),
-    startedAt: Date.parse(run.startedAt ?? run.createdAt) || Date.now(), run, agents,
+/** Draws `╭ Phases ──────┬ Alpha · 2 agents ─────╮` with both column titles inside the border. */
+function boxTop(leftTitle: string, leftWidth: number, rightTitle: string, rightWidth: number): string {
+  const cell = (title: string, width: number) => {
+    const label = truncate(title, Math.max(1, width - 2))
+    return ` ${label} ${'─'.repeat(Math.max(0, width - label.length - 2))}`
   }
+  return `╭${cell(leftTitle, leftWidth)}┬${cell(rightTitle, rightWidth)}╮`
 }
 
-/** Reuse the Claude-style activity row instead of maintaining a second list design. */
-export function formatWorkflowListRow(run: WorkflowRun, width: number, now = Date.now(), agents: SubagentState[] = [], selected = false): string {
-  return formatActivityItem(asActivityItem(run, agents), width, now, selected ? '●' : '◯')
+/** Bottom border, optionally carrying a right-aligned note such as `1–44 of 46 ↓`. */
+function boxBottom(leftWidth: number, rightWidth: number, note?: string): string {
+  const right = note
+    ? `${'─'.repeat(Math.max(0, rightWidth - note.length - 3))}  ${note} `
+    : '─'.repeat(rightWidth)
+  return `╰${'─'.repeat(leftWidth)}┴${right}╯`
 }
 
-/** Flat mode adds the status to the same row format because it has no group heading. */
-export function formatCompactWorkflowRow(run: WorkflowRun, width: number, now = Date.now(), agents: SubagentState[] = [], selected = false): string {
-  return formatActivityItem(asActivityItem(run, agents, true), width, now, selected ? '●' : '◯')
+function boxRow(left: string, leftWidth: number, right: string, rightWidth: number): string {
+  return `│ ${left.padEnd(Math.max(0, leftWidth - 2))} │${right.padEnd(rightWidth)}│`
 }
 
-export function formatWorkflowAgentRow(agent: SubagentState, width: number, now = Date.now()): string {
-  const icons: Record<string, string> = { queued: '◌', running: '◯', blocked: 'Ⅱ', done: '✓', failed: '✘', error: '✘', cancelled: '✘', timed_out: '⌛' }
-  const duration = agent.durationMs ?? Math.max(0, now - agent.startedAt)
-  const label = agent.agentName && isFixedAgent(agent.agentName) ? getFixedAgent(agent.agentName).displayName : agent.agentName ?? 'Subagent'
-  return truncate(`${icons[agent.status] ?? '•'} ${label} · ${agent.task} · ${formatDuration(duration)}${agent.tokens != null ? ` · ${formatTokens(agent.tokens)}` : ''}${agent.model ? ` · ${agent.model}` : ''}`, width)
+/** Hard-wraps a paragraph so long agent output stays inside the panel. */
+function wrapText(value: string, width: number): string[] {
+  const lines: string[] = []
+  for (const raw of value.split('\n')) {
+    if (!raw.length) { lines.push(''); continue }
+    for (let index = 0; index < raw.length; index += width) lines.push(raw.slice(index, index + width))
+  }
+  return lines
 }
 
-const PANEL_AGENT_ICONS: Record<string, string> = { queued: '◌', running: '●', blocked: 'Ⅱ', done: '✓', failed: '✘', error: '✘', cancelled: '✘', timed_out: '⌛' }
-
-function formatPanelTokens(tokens: number): string {
-  return tokens >= 1_000 ? `${(tokens / 1_000).toFixed(1)}k tok` : `${tokens} tok`
-}
-
-/** Dense agent line used in the workflow's split phases/agents monitor. */
-export function formatWorkflowPanelAgentRow(agent: SubagentState, width: number, now = Date.now()): string {
-  const duration = agent.durationMs ?? Math.max(0, now - agent.startedAt)
-  const details = agent.status === 'queued'
-    ? [agent.model, 'queued'].filter(Boolean).join(' · ')
-    : [agent.model, agent.tokens == null ? undefined : formatPanelTokens(agent.tokens), formatDuration(duration)].filter(Boolean).join(' · ')
-  return truncate(`${PANEL_AGENT_ICONS[agent.status] ?? '•'} ${agent.task}  ${details || agent.status}`, width)
-}
-
-function workflowPhases(run: WorkflowRun): string[] {
-  const phases = [...(run.phaseHistory ?? []), ...(run.phase ? [run.phase] : [])]
-  return [...new Set(phases)]
-}
-
-function completedAgentCount(agents: SubagentState[]): number {
-  return agents.filter(agent => !['queued', 'running', 'blocked'].includes(agent.status)).length
-}
-
-export function formatWorkflowPhaseRow(phase: string, index: number, current: boolean, completedAgents: number, totalAgents: number, width: number): string {
-  return truncate(`${current ? '>' : ' '} ${index + 1} ${phase}${current ? ` ${completedAgents}/${totalAgents}` : ''}`, width)
-}
-
-export function windowWorkflowRuns(runs: WorkflowRun[], selected: number, maxRows: number): { runs: WorkflowRun[]; start: number } {
-  const size = Math.max(1, maxRows)
-  const start = Math.min(Math.max(0, selected - size + 1), Math.max(0, runs.length - size))
-  return { runs: runs.slice(start, start + size), start }
-}
-
-export function workflowControlHint(status: WorkflowStatus): string {
-  if (status === 'running') return 'x stop workflow · p pause · esc back · s save'
-  if (status === 'paused') return 'x stop workflow · p resume · esc back · s save'
-  if (status === 'queued') return 'x stop workflow · esc back · s save'
-  return 'r restart workflow · esc back · s save'
-}
-
-function summaryText(runs: WorkflowRun[]): string {
-  return groupWorkflowRuns(runs).map(group => `${group.runs.length} ${group.name.toLowerCase()}`).join(' · ')
+/** Transcript body for the agent drill-down, mirroring Claude Code's `Prompt` section. */
+function agentTranscript(agent: SubagentState, width: number, now: number): string[] {
+  const duration = formatDuration(agent.durationMs ?? Math.max(0, now - agent.startedAt))
+  const status = agent.status === 'done' ? 'Completed' : agent.status.charAt(0).toUpperCase() + agent.status.slice(1)
+  const metrics = [agent.tokens == null ? undefined : `${formatTokens(agent.tokens)} tok`, duration].filter(Boolean).join(' · ')
+  return [
+    `${agentIcon(agent.status)} ${status}${agent.model ? ` · ${agent.model}` : ''}`,
+    metrics,
+    '',
+    'Prompt',
+    // `task` is the short label here; fall back to it for runs spawned before prompts were kept.
+    ...wrapText(agent.prompt ?? agent.task, Math.max(8, width - 2)).map(line => `  ${line}`),
+    ...(agent.result ? ['', ...wrapText(agent.result, width)] : []),
+    ...(agent.error ? ['', `✘ ${truncate(agent.error, width - 2)}`] : []),
+  ]
 }
 
 export interface WorkflowMonitorProps {
@@ -145,44 +81,43 @@ export function WorkflowMonitor({
 }: WorkflowMonitorProps) {
   const colors = getThemeColors(theme)
   useClock()
-  const [selectedRunId, setSelectedRunId] = useState<string | undefined>(() => runs.find(run => run.runId === initialRunId)?.runId ?? runs[0]?.runId)
-  const [detail, setDetail] = useState(false)
-  const [compact, setCompact] = useState(false)
+  // Opening from the activity footer names a run, so it lands straight on that run's detail.
+  const [view, setView] = useState<'list' | 'run' | 'agent'>(initialRunId ? 'run' : 'list')
+  const [selectedRunId, setSelectedRunId] = useState<string | undefined>(() => initialRunId ?? runs[0]?.runId)
+  const [phaseIndex, setPhaseIndex] = useState(0)
+  const [agentIndex, setAgentIndex] = useState(0)
+  const [scroll, setScroll] = useState(0)
   const [saveName, setSaveName] = useState<string | null>(null)
   const [feedback, setFeedback] = useState('')
+
   const width = Math.max(30, (process.stdout.columns ?? 80) - 6)
   const height = process.stdout.rows ?? 24
   const now = Date.now()
-  const groups = groupWorkflowRuns(runs)
-  const displayedGroups = groups.filter(group => group.runs.length > 0)
-  const orderedRuns = compact ? runs : groups.flatMap(group => group.runs)
-  const selected = Math.max(0, orderedRuns.findIndex(run => run.runId === selectedRunId))
-  const selectedRun = orderedRuns[selected]
-  const selectedAgents = selectedRun ? agents.filter(agent => agent.workflowRunId === selectedRun.runId) : []
-  const visible = windowWorkflowRuns(orderedRuns, selected, compact ? height - 5 : height - displayedGroups.length - 5)
-  const visibleRunIds = new Set(visible.runs.map(run => run.runId))
+  const selected = Math.max(0, runs.findIndex(run => run.runId === selectedRunId))
+  const run = runs[selected]
+  const runAgents = run ? agents.filter(agent => agent.workflowRunId === run.runId) : []
+  const phases = run ? workflowPhases(run) : []
+  const phase = phases[Math.min(phaseIndex, Math.max(0, phases.length - 1))]
+  const phaseAgents = run && phase ? agentsInPhase(runAgents, phase, phases, run.phase) : runAgents
+  const agent = phaseAgents[Math.min(agentIndex, Math.max(0, phaseAgents.length - 1))]
 
   useEffect(() => {
-    if (!runs.length) setSelectedRunId(undefined)
-    else if (!runs.some(run => run.runId === selectedRunId)) setSelectedRunId(runs[0]!.runId)
+    if (!runs.length) { setSelectedRunId(undefined); return }
+    if (!runs.some(item => item.runId === selectedRunId)) setSelectedRunId(runs[0]!.runId)
   }, [runs, selectedRunId])
 
   useEffect(() => {
-    if (initialRunId && runs.some(run => run.runId === initialRunId)) setSelectedRunId(initialRunId)
+    if (initialRunId && runs.some(item => item.runId === initialRunId)) { setSelectedRunId(initialRunId); setView('run') }
   }, [initialRunId, runs])
 
   useInput((input, key, event) => {
     event.stopImmediatePropagation()
-    if (saveName === null && key.ctrl && input === 's') {
-      setCompact(value => !value)
-      return
-    }
     if (saveName !== null) {
       if (key.escape) { setSaveName(null); return }
       if (key.backspace || key.delete) { setSaveName(value => value!.slice(0, -1)); return }
       if (key.return) {
-        if (!selectedRun || !saveName.trim()) return
-        void onSave(selectedRun.runId, saveName.trim())
+        if (!run || !saveName.trim()) return
+        void onSave(run.runId, saveName.trim())
           .then(path => { setFeedback(`Saved to ${path}`); setSaveName(null) })
           .catch(error => setFeedback((error as Error).message))
         return
@@ -191,31 +126,47 @@ export function WorkflowMonitor({
       return
     }
     if (key.escape) {
-      if (detail) { setDetail(false); setFeedback('') } else onClose()
+      if (view === 'agent') { setView('run'); setScroll(0) }
+      else if (view === 'run') { setView('list'); setFeedback('') }
+      else onClose()
       return
     }
-    if (!runs.length) return
-    if (!detail && key.upArrow) { setSelectedRunId(orderedRuns[(selected - 1 + orderedRuns.length) % orderedRuns.length]!.runId); return }
-    if (!detail && key.downArrow) { setSelectedRunId(orderedRuns[(selected + 1) % orderedRuns.length]!.runId); return }
-    if (!detail && key.return) { setDetail(true); return }
-    if (!selectedRun) return
-    if (input === 'x' && ['queued', 'running', 'paused'].includes(selectedRun.status)) {
-      void onStop(selectedRun.runId).then(ok => setFeedback(ok ? 'Workflow stopping.' : 'Workflow is not active.')).catch(error => setFeedback((error as Error).message))
-    } else if (input === 'p' && selectedRun.status === 'running') {
-      void onPause(selectedRun.runId).then(ok => setFeedback(ok ? 'Workflow paused.' : 'Workflow is not running.')).catch(error => setFeedback((error as Error).message))
-    } else if (input === 'p' && selectedRun.status === 'paused') {
-      void onResume(selectedRun.runId).then(ok => setFeedback(ok ? 'Workflow resumed.' : 'Workflow is not paused.')).catch(error => setFeedback((error as Error).message))
-    } else if (input === 'r' && !['queued', 'running', 'paused'].includes(selectedRun.status)) {
-      void onRestart(selectedRun.runId).catch(error => setFeedback((error as Error).message))
-    } else if (input === 's') {
-      setSaveName(selectedRun.meta.name)
+    if (!runs.length || !run) return
+    if (input === 's') { setSaveName(run.meta.name); return }
+
+    if (view === 'list') {
+      if (key.upArrow) { setSelectedRunId(runs[(selected - 1 + runs.length) % runs.length]!.runId); return }
+      if (key.downArrow) { setSelectedRunId(runs[(selected + 1) % runs.length]!.runId); return }
+      if (key.return) { setView('run'); setPhaseIndex(0); return }
+      if (input === 'x' && isRunActive(run.status)) {
+        void onStop(run.runId).then(ok => setFeedback(ok ? 'Workflow stopping.' : 'Workflow is not active.')).catch(error => setFeedback((error as Error).message))
+      } else if (input === 'p' && run.status === 'running') {
+        void onPause(run.runId).then(ok => setFeedback(ok ? 'Workflow paused.' : 'Workflow is not running.')).catch(error => setFeedback((error as Error).message))
+      } else if (input === 'p' && run.status === 'paused') {
+        void onResume(run.runId).then(ok => setFeedback(ok ? 'Workflow resumed.' : 'Workflow is not paused.')).catch(error => setFeedback((error as Error).message))
+      } else if (input === 'r' && !isRunActive(run.status)) {
+        void onRestart(run.runId).catch(error => setFeedback((error as Error).message))
+      }
+      return
     }
+
+    if (view === 'run') {
+      if (key.upArrow && phases.length) { setPhaseIndex((phaseIndex - 1 + phases.length) % phases.length); return }
+      if (key.downArrow && phases.length) { setPhaseIndex((phaseIndex + 1) % phases.length); return }
+      if (key.return && phaseAgents.length) { setView('agent'); setAgentIndex(0); setScroll(0) }
+      return
+    }
+
+    if (key.upArrow && phaseAgents.length) { setAgentIndex((agentIndex - 1 + phaseAgents.length) % phaseAgents.length); setScroll(0); return }
+    if (key.downArrow && phaseAgents.length) { setAgentIndex((agentIndex + 1) % phaseAgents.length); setScroll(0); return }
+    if (input === 'j') setScroll(value => value + 1)
+    else if (input === 'k') setScroll(value => Math.max(0, value - 1))
   })
 
   if (saveName !== null) {
     return (
       <Box flexDirection="column" paddingX={2}>
-        <Text color={colors.primary}>{`Save workflow ${selectedRun?.runId.slice(0, 8) ?? ''}`}</Text>
+        <Text color={colors.primary}>{`Save workflow ${run?.runId.slice(0, 8) ?? ''}`}</Text>
         <Text>{`Name: ${saveName}█`}</Text>
         {feedback && <Text color={colors.error}>{truncate(feedback, width)}</Text>}
         <Text color={colors.textSubtle}>{'Enter save · Esc cancel'}</Text>
@@ -223,91 +174,96 @@ export function WorkflowMonitor({
     )
   }
 
-  if (detail && selectedRun) {
-    const run = selectedRun
-    const phases = workflowPhases(run)
-    const completedAgents = completedAgentCount(selectedAgents)
-    const phaseWidth = Math.min(26, Math.max(20, Math.floor(width * 0.22)))
-    const panelHeight = Math.max(7, height - 5)
-    const detailWidth = Math.max(12, width - phaseWidth - 5)
-    const divider = Array.from({ length: Math.max(1, panelHeight - 2) }, () => '│').join('\n')
-    const notes = [
-      ...run.failures.map(failure => `✘ call ${failure.call} ${failure.method}: ${failure.message}`),
-      ...run.worktrees.map(worktree => `⌘ ${worktree.taskId}: ${worktree.path}`),
-      ...(run.error ? [run.error] : []),
-      ...(feedback ? [feedback] : []),
-      `↓ ${formatPanelTokens(run.usage.tokens)} · $${run.usage.costUsd.toFixed(4)}`,
-      ...(run.options.maxTokens ? [`Token budget: ${run.usage.tokens}/${run.options.maxTokens}`] : []),
-      ...(run.options.maxCostUsd !== undefined ? [`Cost budget: $${run.usage.costUsd.toFixed(4)}/$${run.options.maxCostUsd.toFixed(4)}`] : []),
-    ]
-    const agentLimit = Math.max(1, panelHeight - 3 - Math.min(notes.length, 2))
-    const visibleAgents = selectedAgents.slice(0, agentLimit)
-    const visibleNotes = notes.slice(0, Math.max(0, panelHeight - 3 - visibleAgents.length))
+  if (view !== 'list' && run) {
+    const panelHeight = Math.max(6, height - 9)
+    const isAgentView = view === 'agent'
+    const leftRows = isAgentView
+      ? phaseAgents.map((item, index) => `${index === agentIndex ? '❯' : ' '} ${agentIcon(item.status)} ${item.task}`)
+      : (() => {
+        const cells = phases.map((item, index) => {
+          const items = agentsInPhase(runAgents, item, phases, run.phase)
+          const done = items.filter(entry => !isAgentActive(entry.status)).length
+          const total = items.length || (run.phase === item ? Math.max(1, run.usage.agents) : 0)
+          const state = phaseStateOf(item, run, items)
+          return { phase: item, index, state, done, total, counter: state === 'pending' ? '' : `${done}/${total}` }
+        })
+        const phaseWidth = phaseColumnWidth(cells)
+        return cells.map(cell =>
+          `${cell.index === phaseIndex ? '❯' : ' '} ${formatWorkflowPhaseRow(cell.phase, cell.index, cell.state, cell.done, cell.total, phaseWidth)}`)
+      })()
+    const leftWidth = Math.min(34, Math.max(12, Math.max(0, ...leftRows.map(row => row.length)) + 2))
+    const rightWidth = Math.max(12, width - leftWidth - 3)
+    const labelWidth = Math.min(20, Math.max(0, ...phaseAgents.map(item => item.task.length)))
+    const body = isAgentView && agent
+      ? agentTranscript(agent, rightWidth - 2, now).map(line => ` ${line}`)
+      : phaseAgents.map(item => `  ${formatWorkflowPanelAgentRow(item, rightWidth - 3, now, labelWidth)}`)
+    const visibleBody = body.slice(scroll, scroll + panelHeight)
+    const note = isAgentView && body.length > panelHeight
+      ? `${scroll + 1}–${Math.min(body.length, scroll + panelHeight)} of ${body.length} ↓`
+      : undefined
+    const rightTitle = isAgentView ? agent?.task ?? 'Agent' : `${phase ?? 'Waiting'} · ${phaseAgents.length} agent${phaseAgents.length === 1 ? '' : 's'}`
+    const leftTitle = isAgentView ? `${phase ?? 'Phase'} · ${phaseAgents.length} agents` : 'Phases'
+
     return (
-      <Box flexDirection="column" paddingX={2}>
-        <Text color={colors.primary} bold>{run.meta.name}</Text>
-        <Box width={width} justifyContent="space-between">
-          <Text color={colors.textDim}>{truncate(run.meta.description ?? 'Dynamic Workflow', Math.max(12, width - 24))}</Text>
-          <Text color={colors.textDim}>{`${completedAgents}/${run.usage.agents} agents · ${formatDuration(workflowDurationMs(run, now))}`}</Text>
-        </Box>
-        <Box width={width} height={panelHeight} marginTop={1} borderStyle="round" borderColor={colors.textDim} flexDirection="row">
-          <Box width={phaseWidth} flexShrink={0} flexDirection="column" paddingX={1}>
-            <Text bold>{'Phases'}</Text>
-            {phases.length === 0
-              ? <Text color={colors.textSubtle}>{'◌ Waiting'}</Text>
-              : phases.map((phase, index) => <Text key={`${index}-${phase}`} color={phase === run.phase ? colors.primary : colors.textDim}>
-                {formatWorkflowPhaseRow(phase, index, phase === run.phase, completedAgents, run.usage.agents, Math.max(6, phaseWidth - 2))}
-              </Text>)}
-          </Box>
-          <Text color={colors.textDim}>{divider}</Text>
-          <Box flexGrow={1} flexDirection="column" paddingX={1}>
-            <Text color={colors.primary} bold>{`${run.phase ?? run.status} · ${run.usage.agents} agents`}</Text>
-            {visibleAgents.length === 0 && <Text color={colors.textSubtle}>{'No agents started.'}</Text>}
-            {visibleAgents.map(agentRun => <Text key={agentRun.id} color={['failed', 'error', 'cancelled', 'timed_out'].includes(agentRun.status) ? colors.error : ['queued', 'running', 'blocked'].includes(agentRun.status) ? colors.primary : colors.textDim}>
-              {formatWorkflowPanelAgentRow(agentRun, detailWidth, now)}
-            </Text>)}
-            {selectedAgents.length > visibleAgents.length && <Text color={colors.textSubtle}>{`… +${selectedAgents.length - visibleAgents.length} agents`}</Text>}
-            {visibleNotes.map((note, index) => <Text key={`${index}-${note}`} color={note.startsWith('✘') || note === run.error ? colors.error : note === feedback ? colors.warning : colors.textDim}>{truncate(note, detailWidth)}</Text>)}
-          </Box>
-        </Box>
-        <Text color={colors.textSubtle}>{workflowControlHint(run.status)}</Text>
+      <Box flexDirection="column">
+        <Text color={colors.textDim}>{`  ${'─'.repeat(width)}`}</Text>
+        <Text color={colors.primary} bold>{`   ${truncate(run.meta.name, width)}`}</Text>
+        <Text color={colors.textDim}>
+          {`   ${truncate(run.meta.description ?? 'Dynamic Workflow', Math.max(12, width - 30)).padEnd(Math.max(12, width - 28))}${formatWorkflowHeaderStats(run, runAgents, now)}`}
+        </Text>
+        <Text>{' '}</Text>
+        <Text color={colors.textDim}>{`   ${boxTop(leftTitle, leftWidth, rightTitle, rightWidth)}`}</Text>
+        {Array.from({ length: panelHeight }, (_, index) => {
+          const left = leftRows[index] ?? ''
+          const right = visibleBody[index] ?? ''
+          const active = isAgentView ? index === agentIndex : index === phaseIndex
+          return (
+            <Text key={index} color={index < leftRows.length && active ? colors.primary : colors.textDim}>
+              {`   ${boxRow(left, leftWidth, right, rightWidth)}`}
+            </Text>
+          )
+        })}
+        <Text color={colors.textDim}>{`   ${boxBottom(leftWidth, rightWidth, note)}`}</Text>
+        {feedback && <Text color={colors.warning}>{`   ${truncate(feedback, width)}`}</Text>}
+        <Text color={colors.textSubtle}>
+          {isAgentView ? '   ↑↓ agent · j/k scroll · esc back · s save' : '   ↑↓ select · esc back · s save'}
+        </Text>
       </Box>
     )
   }
 
+  const visible = windowRows(runs, selected, Math.max(3, height - 8))
   return (
-    <Box flexDirection="column" paddingLeft={2}>
-      <Text color={colors.primary}>{'● DeepSeek Code'}</Text>
-      <Text color={colors.textSubtle}>{`  Workflows · ${summaryText(runs)}`}</Text>
+    <Box flexDirection="column">
+      <Text color={colors.text} bold>{'   Dynamic workflows'}</Text>
+      {runs.length > 0 && <Text color={colors.textSubtle}>{`   ${workflowSummaryLine(runs)}`}</Text>}
+      <Text>{' '}</Text>
       {runs.length === 0
-        ? <Text color={colors.textDim}>{'No workflow runs in this session.'}</Text>
-        : compact ? <>
-          {visible.start > 0 && <Text color={colors.textSubtle}>{`  ↑ ${visible.start} earlier runs`}</Text>}
-          {visible.runs.map((run, index) => {
-            const actualIndex = visible.start + index
-            const isSelected = actualIndex === selected
-            return <Text key={run.runId} color={['failed', 'cancelled'].includes(run.status) ? colors.error : ['paused', 'timed_out', 'budget_exhausted'].includes(run.status) ? colors.warning : isSelected ? colors.primary : run.status === 'completed' ? colors.textDim : colors.text}>
-              {`${isSelected ? '❯ ' : '  '}${formatCompactWorkflowRow(run, width - 2, now, agents.filter(agent => agent.workflowRunId === run.runId), isSelected)}`}
-            </Text>
+        ? <Text color={colors.textDim}>{'   No dynamic workflows in this session.'}</Text>
+        : <>
+          {visible.start > 0 && <Text color={colors.textSubtle}>{`   ↑ ${visible.start} earlier runs`}</Text>}
+          {visible.rows.map((item, index) => {
+            const isSelected = visible.start + index === selected
+            return (
+              <Text key={item.runId} color={['failed', 'cancelled'].includes(item.status) ? colors.error : isSelected ? colors.primary : colors.textDim}>
+                {`   ${isSelected ? '❯ ' : '  '}${formatWorkflowRunRow(item, width - 5, now)}`}
+              </Text>
+            )
           })}
-          {visible.start + visible.runs.length < runs.length && <Text color={colors.textSubtle}>{`  ↓ ${runs.length - visible.start - visible.runs.length} later runs`}</Text>}
-        </> : <>
-          {visible.start > 0 && <Text color={colors.textSubtle}>{`  ↑ ${visible.start} earlier runs`}</Text>}
-          {displayedGroups.map(group => (
-            <Box key={group.name} flexDirection="column">
-              <Text color={colors.textSubtle}>{`  ${group.name} (${group.runs.length})`}</Text>
-              {group.runs.filter(run => visibleRunIds.has(run.runId)).map(run => {
-                const isSelected = run.runId === selectedRunId
-                return <Text key={run.runId} color={['failed', 'cancelled'].includes(run.status) ? colors.error : ['paused', 'timed_out', 'budget_exhausted'].includes(run.status) ? colors.warning : isSelected ? colors.primary : run.status === 'completed' ? colors.textDim : colors.text}>
-                  {`${isSelected ? '❯ ' : '  '}${formatWorkflowListRow(run, width - 2, now, agents.filter(agent => agent.workflowRunId === run.runId), isSelected)}`}
-                </Text>
-              })}
-            </Box>
-          ))}
-          {visible.start + visible.runs.length < runs.length && <Text color={colors.textSubtle}>{`  ↓ ${runs.length - visible.start - visible.runs.length} later runs`}</Text>}
+          {visible.start + visible.rows.length < runs.length && <Text color={colors.textSubtle}>{`   ↓ ${runs.length - visible.start - visible.rows.length} later runs`}</Text>}
         </>}
-      {feedback && <Text color={colors.warning}>{truncate(feedback, width)}</Text>}
-      <Text color={colors.textSubtle}>{`↑/↓ to select · Enter to view · Ctrl+S ${compact ? 'grouped' : 'compact'} · x stop · p pause/resume · r restart · s save · Esc close`}</Text>
+      <Text>{' '}</Text>
+      {feedback && <Text color={colors.warning}>{`   ${truncate(feedback, width)}`}</Text>}
+      <Text color={colors.textSubtle}>{`   ${runs.length ? workflowListHint(run?.status) : 'Esc to close'}`}</Text>
     </Box>
   )
+}
+
+/** Kept for the activity footer, which still renders workflow rows in the compact list. */
+export function formatWorkflowListRow(run: WorkflowRun, width: number, now = Date.now()): string {
+  return formatWorkflowRunRow(run, width, now)
+}
+
+export function formatCompactWorkflowRow(run: WorkflowRun, width: number, now = Date.now()): string {
+  return truncate(`${runIcon(run.status)} ${run.meta.name} · ${run.status} · ${formatCompactDuration(workflowDurationMs(run, now))}`, width)
 }

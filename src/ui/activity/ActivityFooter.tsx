@@ -157,11 +157,12 @@ export function formatActivityItem(item: ActivityItem, columns: number, now = Da
       metrics.push('idle')
     }
   } else {
-    metrics.push(formatDuration(elapsed), workflowProgress(item.run, item.agents))
-    const tokens = formatTokens(item.run.usage.tokens)
-    if (tokens) metrics.push(tokens)
+    // Claude Code leads with progress, then elapsed, then the token counter.
+    metrics.push(workflowProgress(item.run, item.agents), formatDuration(elapsed))
+    const tokens = formatFooterTokens(item.run.usage.tokens)
+    if (tokens) metrics.push(`↓ ${tokens}`)
   }
-  const prefix = `${icon} ${item.kind === 'workflow' ? 'workflow ' : ''}${item.label}`
+  const prefix = `${icon} ${item.label}`
   if (columns < 55) return truncate(`${prefix} · ${metrics[0]}`, columns)
   const suffix = metrics.join(' · ')
   const descriptionWidth = Math.max(8, columns - prefix.length - suffix.length - 6)

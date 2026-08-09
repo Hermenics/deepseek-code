@@ -20,7 +20,29 @@ function validateMeta(value: unknown): WorkflowMeta {
     throw new Error('Invalid workflow name; use 1-64 lowercase letters, numbers, or hyphens')
   }
   if (record.description !== undefined && typeof record.description !== 'string') throw new Error('Workflow description must be a string')
-  return { name: record.name, ...(record.description ? { description: record.description } : {}) }
+  const phases = validatePhases(record.phases)
+  return {
+    name: record.name,
+    ...(record.description ? { description: record.description } : {}),
+    ...(phases.length ? { phases } : {}),
+  }
+}
+
+/** Accepts `['Scan']` or `[{ title: 'Scan', detail: '…' }]` and normalises both shapes. */
+function validatePhases(value: unknown): WorkflowMeta['phases'] & object[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) throw new Error('Workflow phases must be an array')
+  return value.map(entry => {
+    if (typeof entry === 'string') {
+      if (!entry.trim()) throw new Error('Workflow phase title must be a non-empty string')
+      return { title: entry }
+    }
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw new Error('Workflow phase must be a string or an object')
+    const phase = entry as Record<string, unknown>
+    if (typeof phase.title !== 'string' || !phase.title.trim()) throw new Error('Workflow phase title must be a non-empty string')
+    if (phase.detail !== undefined && typeof phase.detail !== 'string') throw new Error('Workflow phase detail must be a string')
+    return { title: phase.title, ...(phase.detail ? { detail: phase.detail } : {}) }
+  })
 }
 
 function findObjectEnd(source: string, start: number): number {
