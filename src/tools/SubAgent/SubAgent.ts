@@ -188,7 +188,8 @@ async function spawnAgentTask(
     permissionProfile: profile,
     allowedTools,
     cancellationPolicy: mode === 'background' ? 'detach' : 'cascade',
-    metadata: { origin, task: typeof args.label === 'string' ? args.label : task, agentName, role, model: modelName },
+    // `task` is the short display label lists render; `prompt` keeps the full instruction for detail views.
+    metadata: { origin, task: typeof args.label === 'string' ? args.label : task, prompt: task, agentName, role, model: modelName },
   }, async runContext => {
     const lease = await session.acquireWorkspace(runContext.taskId, profile, runContext.signal)
     const toolContext = session.toolContext({

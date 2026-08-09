@@ -1,12 +1,12 @@
 import type { SubagentState } from './types.js'
 import type { SubAgentResult } from '../../tools/SubAgent/contracts.js'
 
-export interface SubagentStartInput { id: string; task: string; role?: string | null; agentName?: string | null; mode?: 'foreground' | 'background'; model?: string | null; workspace?: string | null; workflowRunId?: string | null }
+export interface SubagentStartInput { id: string; task: string; role?: string | null; agentName?: string | null; mode?: 'foreground' | 'background'; model?: string | null; workspace?: string | null; workflowRunId?: string | null; workflowPhase?: string | null; prompt?: string | null }
 export interface SubagentProgressInput { id: string; info: string }
 export interface SubagentToolUseInput { id: string; tool: string; info?: string }
 export interface SubagentDoneInput { id: string; result: string; tokens?: number; costUsd?: number; structured?: SubAgentResult; confidence?: number | null; verified?: boolean | null }
 export interface SubagentErrorInput { id: string; error: string }
-export interface SubagentStateInput { id: string; status?: SubagentState['status']; task?: string; role?: string | null; agentName?: string | null; mode?: 'foreground' | 'background'; model?: string | null; workspace?: string | null; workflowRunId?: string | null; error?: string; tokens?: number }
+export interface SubagentStateInput { id: string; status?: SubagentState['status']; task?: string; role?: string | null; agentName?: string | null; mode?: 'foreground' | 'background'; model?: string | null; workspace?: string | null; workflowRunId?: string | null; workflowPhase?: string | null; prompt?: string | null; error?: string; tokens?: number }
 export interface SubagentMessageInput { id: string; role: 'user' | 'assistant' | 'thinking'; content: string }
 
 export interface UseSubagentsReturn {
@@ -25,7 +25,7 @@ export function useSubagents(): UseSubagentsReturn {
   const hook: UseSubagentsReturn = {
     agents: [],
 
-    onSubagentStart({ id, task, role, agentName, mode, model, workspace, workflowRunId }) {
+    onSubagentStart({ id, task, role, agentName, mode, model, workspace, workflowRunId, workflowPhase, prompt }) {
       const existing = hook.agents.find(agent => agent.id === id)
       if (existing) {
         existing.task = task
@@ -36,6 +36,8 @@ export function useSubagents(): UseSubagentsReturn {
         existing.model = model ?? existing.model
         existing.workspace = workspace ?? existing.workspace
         existing.workflowRunId = workflowRunId ?? existing.workflowRunId
+        existing.workflowPhase = workflowPhase ?? existing.workflowPhase
+        existing.prompt = prompt ?? existing.prompt
         return
       }
       const agent: SubagentState = {
@@ -56,10 +58,12 @@ export function useSubagents(): UseSubagentsReturn {
         verified: null,
         agentName: agentName ?? null,
         mode,
-        messages: [{ role: 'user', content: task }],
+        messages: [{ role: 'user', content: prompt ?? task }],
         model: model ?? null,
         workspace: workspace ?? null,
         workflowRunId: workflowRunId ?? null,
+        workflowPhase: workflowPhase ?? null,
+        prompt: prompt ?? null,
       }
       hook.agents.push(agent)
     },
@@ -102,10 +106,10 @@ export function useSubagents(): UseSubagentsReturn {
       }
     },
 
-    onSubagentState({ id, status, task, role, agentName, mode, model, workspace, workflowRunId, error, tokens }) {
+    onSubagentState({ id, status, task, role, agentName, mode, model, workspace, workflowRunId, workflowPhase, prompt, error, tokens }) {
       let agent = hook.agents.find(candidate => candidate.id === id)
       if (!agent) {
-        hook.onSubagentStart({ id, task: task ?? id, role, agentName, mode, model, workspace, workflowRunId })
+        hook.onSubagentStart({ id, task: task ?? id, role, agentName, mode, model, workspace, workflowRunId, workflowPhase, prompt })
         agent = hook.agents.find(candidate => candidate.id === id)!
       }
       if (status !== undefined) agent.status = status
@@ -113,6 +117,8 @@ export function useSubagents(): UseSubagentsReturn {
       if (model != null) agent.model = model
       if (workspace != null) agent.workspace = workspace
       if (workflowRunId != null) agent.workflowRunId = workflowRunId
+      if (workflowPhase != null) agent.workflowPhase = workflowPhase
+      if (prompt != null) agent.prompt = prompt
       if (tokens != null) agent.tokens = tokens
       if (error) agent.error = error
       if (status !== undefined && ['done', 'failed', 'error', 'cancelled', 'timed_out'].includes(status)) agent.durationMs = Date.now() - agent.startedAt

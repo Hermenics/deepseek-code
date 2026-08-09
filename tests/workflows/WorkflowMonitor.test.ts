@@ -1,17 +1,21 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  agentsInPhase,
   formatCompactWorkflowRow,
-  formatWorkflowAgentRow,
+  formatWorkflowHeaderStats,
   formatWorkflowPanelAgentRow,
   formatWorkflowPhaseRow,
-  formatWorkflowListRow,
-  groupWorkflowRuns,
+  formatWorkflowRunRow,
+  phaseStateOf,
   summarizeWorkflowRuns,
-  windowWorkflowRuns,
-  workflowControlHint,
+  windowRows,
   workflowDurationMs,
+  workflowListHint,
+  workflowPhases,
+  workflowSummaryLine,
 } from '../../src/ui/workflows/WorkflowMonitor.js'
 import type { WorkflowRun } from '../../src/workflows/types.js'
+import type { SubagentState } from '../../src/ui/subagent/types.js'
 
 function run(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
   return {
@@ -20,6 +24,16 @@ function run(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
     optionsHash: 'options', options: {}, createdAt: '2026-01-01T00:00:00.000Z',
     startedAt: '2026-01-01T00:00:00.000Z', usage: { agents: 2, tokens: 4000, costUsd: 0 },
     failures: [], worktrees: [], ...overrides,
+  }
+}
+
+function agent(overrides: Partial<SubagentState> = {}): SubagentState {
+  return {
+    id: 'agent-1', task: 'review', status: 'done', colorIndex: 0, toolCount: 1,
+    lastToolInfo: null, startedAt: Date.parse('2026-01-01T00:00:00.000Z'), durationMs: 3_000,
+    result: 'ok', error: null, tokens: 1200, costUsd: 0.01, role: 'reviewer',
+    confidence: null, verified: null, agentName: 'reviewer', model: 'deepseek-reasoner',
+    workflowRunId: '12345678-abcd', ...overrides,
   }
 }
 
@@ -36,66 +50,93 @@ describe('workflow monitor model', () => {
     expect(summary).toEqual({ running: 1, paused: 1, completed: 1, stopped: 1, failed: 1 })
   })
 
+  test('lists only non-empty status buckets in the subtitle', () => {
+    expect(workflowSummaryLine([
+      run({ runId: 'a', status: 'running' }),
+      run({ runId: 'b', status: 'running' }),
+      run({ runId: 'c', status: 'completed' }),
+    ])).toBe('2 running · 1 completed')
+    expect(workflowSummaryLine([run({ status: 'completed' })])).toBe('1 completed')
+  })
+
   test('freezes duration at completedAt for terminal workflows', () => {
-    const finished = run({
-      status: 'completed',
-      completedAt: '2026-01-01T00:00:12.000Z',
-    })
+    const finished = run({ status: 'completed', completedAt: '2026-01-01T00:00:12.000Z' })
 
     expect(workflowDurationMs(finished, Date.parse('2026-01-01T01:00:00.000Z'))).toBe(12_000)
   })
 
-  test('uses the same cursor markers and dense row style as the activity footer', () => {
-    expect(formatWorkflowListRow(run(), 120)).toStartWith('◯ workflow audit')
-    expect(formatWorkflowListRow(run(), 120, Date.now(), [], true)).toStartWith('● workflow audit')
-  })
-
-  test('groups every status into Working, Needs input, or Completed', () => {
-    const groups = groupWorkflowRuns([
-      run({ runId: 'queued', status: 'queued' }),
-      run({ runId: 'running', status: 'running' }),
-      run({ runId: 'paused', status: 'paused' }),
-      run({ runId: 'completed', status: 'completed' }),
-      run({ runId: 'failed', status: 'failed' }),
-      run({ runId: 'cancelled', status: 'cancelled' }),
-      run({ runId: 'timed-out', status: 'timed_out' }),
-      run({ runId: 'budget', status: 'budget_exhausted' }),
-    ])
-
-    expect(groups.map(group => [group.name, group.runs.map(run => run.status)])).toEqual([
-      ['Working', ['queued', 'running']],
-      ['Needs input', ['paused']],
-      ['Completed', ['completed', 'failed', 'cancelled', 'timed_out', 'budget_exhausted']],
-    ])
-  })
-
-  test('keeps duration right-aligned and terminal status explicit in compact mode', () => {
+  test('renders the run row with the icon, agent count, tokens and duration', () => {
     const now = Date.parse('2026-01-01T00:00:05.000Z')
-    expect(formatWorkflowListRow(run({ phase: 'reviewing' }), 90, now)).toContain('reviewing')
+
+    expect(formatWorkflowRunRow(run(), 120, now)).toBe('⟳ audit  2 agents · 4k tok · 5s')
+    expect(formatWorkflowRunRow(run({ status: 'completed', completedAt: '2026-01-01T00:01:06.000Z' }), 120, now))
+      .toBe('✔ audit  2 agents · 4k tok · 1m 6s')
     expect(formatCompactWorkflowRow(run({ status: 'budget_exhausted' }), 80, now)).toContain('budget_exhausted')
   })
 
-  test('renders workflow agents from the orchestration state', () => {
-    const agentRun = {
-      id: 'agent-1', task: 'Review it', status: 'done' as const, colorIndex: 0, toolCount: 1,
-      lastToolInfo: null, startedAt: Date.parse('2026-01-01T00:00:00.000Z'), durationMs: 3_000,
-      result: 'done', error: null, tokens: 1200, costUsd: 0.01, role: 'reviewer' as const,
-      confidence: null, verified: null, agentName: 'reviewer', model: 'deepseek-reasoner', workflowRunId: '12345678-abcd',
-    }
+  test('appends done to the header only once the run settles', () => {
+    const now = Date.parse('2026-01-01T00:00:05.000Z')
+    const agents = [agent(), agent({ id: 'agent-2', status: 'running' })]
 
-    expect(formatWorkflowListRow(run(), 120, Date.now(), [agentRun])).toContain('1/2 agents done')
-    expect(formatWorkflowListRow(run(), 120)).toContain('4.0k tok')
-    expect(formatWorkflowAgentRow(agentRun, 120)).toBe('✓ Reviewer · Review it · 3s · ↓ 1.2k tokens · deepseek-reasoner')
-    expect(formatWorkflowPanelAgentRow({ ...agentRun, task: 'review:security', status: 'running' }, 120)).toBe('● review:security  deepseek-reasoner · 1.2k tok · 3s')
-    expect(formatWorkflowPhaseRow('Review', 0, true, 0, 2, 30)).toBe('> 1 Review 0/2')
+    expect(formatWorkflowHeaderStats(run(), agents, now)).toBe('1/2 agents · 5s')
+    expect(formatWorkflowHeaderStats(run({ status: 'completed', completedAt: '2026-01-01T00:01:23.000Z' }), agents, now))
+      .toBe('1/2 agents · 1m23s · done')
   })
 
-  test('keeps the selected run visible and exposes state-specific controls', () => {
+  test('marks phases done, active or pending exactly like Claude Code', () => {
+    expect(formatWorkflowPhaseRow('Phase 1', 0, 'done', 2, 2, 15)).toBe('✔ Phase 1   2/2')
+    expect(formatWorkflowPhaseRow('Phase 1', 0, 'active', 0, 2, 15)).toBe('1 Phase 1   0/2')
+    // A phase that has not started yet shows no counter at all.
+    expect(formatWorkflowPhaseRow('Phase 2', 1, 'pending', 0, 0, 15)).toBe('2 Phase 2')
+  })
+
+  test('right-aligns the agent duration inside the phase panel', () => {
+    expect(formatWorkflowPanelAgentRow(agent({ task: 'p1-red', status: 'running' }), 60))
+      .toBe('● p1-red  deepseek-reasoner · 1.2k tok                    3s')
+    expect(formatWorkflowPanelAgentRow(agent({ task: 'p1-red' }), 60)).toStartWith('✔ p1-red')
+  })
+
+  test('groups agents by the phase captured at spawn time', () => {
+    const phases = ['Alpha', 'Beta']
+    const agents = [
+      agent({ id: 'a', task: 'alpha-red', workflowPhase: 'Alpha' }),
+      agent({ id: 'b', task: 'beta-blue', workflowPhase: 'Beta', status: 'running' }),
+    ]
+
+    expect(agentsInPhase(agents, 'Alpha', phases).map(item => item.id)).toEqual(['a'])
+    expect(phaseStateOf('Alpha', run(), agentsInPhase(agents, 'Alpha', phases))).toBe('done')
+    expect(phaseStateOf('Beta', run(), agentsInPhase(agents, 'Beta', phases))).toBe('active')
+  })
+
+  test('falls back to every agent when the runtime never reported phases', () => {
+    const agents = [agent({ id: 'a' }), agent({ id: 'b' })]
+
+    expect(agentsInPhase(agents, 'Phase 1', ['Phase 1'])).toHaveLength(2)
+  })
+
+  test('keeps the selected run visible and offers stop only while active', () => {
     const runs = Array.from({ length: 8 }, (_, index) => run({ runId: `run-${index}` }))
 
-    expect(windowWorkflowRuns(runs, 6, 3)).toEqual({ runs: runs.slice(4, 7), start: 4 })
-    expect(workflowControlHint('running')).toContain('p pause')
-    expect(workflowControlHint('paused')).toContain('p resume')
-    expect(workflowControlHint('completed')).toContain('r restart')
+    expect(windowRows(runs, 6, 3)).toEqual({ rows: runs.slice(4, 7), start: 4 })
+    expect(workflowListHint('running')).toBe('↑/↓ to select · Enter to view · x to stop · s to save · Esc to close')
+    expect(workflowListHint('completed')).toBe('↑/↓ to select · Enter to view · s to save · Esc to close')
+  })
+})
+
+describe('declared phase skeleton', () => {
+  test('shows meta.phases before the runtime announces them', () => {
+    const declared = run({
+      meta: { name: 'audit', phases: [{ title: 'Scan' }, { title: 'Fix' }] },
+      phase: 'Scan', phaseHistory: ['Scan'],
+    })
+
+    // Fix has not started, but it must already be listed so the monitor can render it as pending.
+    expect(workflowPhases(declared)).toEqual(['Scan', 'Fix'])
+    expect(phaseStateOf('Fix', declared, [])).toBe('pending')
+    expect(phaseStateOf('Scan', declared, [])).toBe('active')
+  })
+
+  test('keeps runtime-only phases when nothing was declared', () => {
+    expect(workflowPhases(run({ phaseHistory: ['Alpha'], phase: 'Beta' }))).toEqual(['Alpha', 'Beta'])
   })
 })

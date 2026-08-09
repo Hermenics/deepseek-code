@@ -4,9 +4,16 @@ export const WORKFLOW_STATUSES = [
 
 export type WorkflowStatus = typeof WORKFLOW_STATUSES[number]
 
+export interface WorkflowPhaseMeta {
+  title: string
+  detail?: string
+}
+
 export interface WorkflowMeta {
   name: string
   description?: string
+  /** Declared phase skeleton; lets the monitor show phases that have not started yet. */
+  phases?: WorkflowPhaseMeta[]
 }
 
 export interface WorkflowAgentOptions {

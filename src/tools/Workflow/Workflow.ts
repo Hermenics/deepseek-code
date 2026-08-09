@@ -2,7 +2,7 @@ import type { Tool } from '../types.js'
 
 export const Workflow: Tool = {
   name: 'workflow',
-  description: `Execute a bounded Dynamic Workflow JavaScript program. The program must start with export const meta = {"name":"lowercase-name","description":"..."}; and may use agent(prompt, options), parallel(thunks), pipeline(items, ...stages), workflow(name, args), args, budget, log(value), phase(value), top-level await, and top-level return. Use this for multi-stage work that benefits from parallel specialist agents. Writer agents are isolated in Git worktrees.`,
+  description: `Execute a bounded Dynamic Workflow JavaScript program. The program must start with export const meta = {"name":"lowercase-name","description":"...","phases":[{"title":"Scan","detail":"what this phase does"}]}; and may use agent(prompt, options), parallel(thunks), pipeline(items, ...stages), workflow(name, args), args, budget, log(value), phase(value), top-level await, and top-level return. Declare one meta.phases entry per phase(value) call and use the same titles, so the monitor can show phases before they start. Always pass a short options.label (for example "scan:auth") to every agent(), because that label is the agent's name in the monitor. Use this for multi-stage work that benefits from parallel specialist agents. Writer agents are isolated in Git worktrees.`,
   parameters: {
     type: 'object', additionalProperties: false,
     properties: {
