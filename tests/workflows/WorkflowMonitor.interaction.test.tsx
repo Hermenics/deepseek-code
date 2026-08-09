@@ -60,21 +60,40 @@ function cleanup({ stdout, instance }: ReturnType<typeof renderMonitor>) {
   instance.cleanup()
 }
 
-test('initialRunId opens that run detail directly, like the activity footer', async () => {
-  const monitor = renderMonitor([
+test('initialRunId opens that run detail directly and does not fight navigation', async () => {
+  const runs = [
     run({ runId: 'running-run' }),
     run({ runId: 'paused-run', status: 'paused', phase: 'Review', phaseHistory: ['Review'] }),
-  ], { initialRunId: 'paused-run' })
+  ]
+  const monitor = renderMonitor(runs, { initialRunId: 'paused-run' })
   let rendered = ''
   monitor.stdout.on('data', chunk => { rendered += chunk.toString() })
 
   try {
     await Bun.sleep(100)
-    const plain = rendered.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\s/g, '')
+    const opened = rendered.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\s/g, '')
     // Opening a named run skips the picker entirely: no list chrome, straight to the phases panel.
-    expect(plain).toContain('Phases')
-    expect(plain).not.toContain('Dynamicworkflows')
-    expect(plain).toContain('escback')
+    expect(opened).toContain('Phases')
+    expect(opened).not.toContain('Dynamicworkflows')
+
+    await press(monitor.stdin, '\x1b')
+    rendered = ''
+    // A manager event replaces the runs array; the effect must not drag us back to the detail.
+    monitor.instance.rerender(
+      <WorkflowMonitor
+        runs={[...runs.map(item => ({ ...item, usage: { ...item.usage, tokens: item.usage.tokens + 10 } }))]}
+        initialRunId="paused-run"
+        onClose={() => {}}
+        onPause={async () => false}
+        onResume={async () => false}
+        onStop={async () => false}
+        onRestart={async () => {}}
+        onSave={async () => ''}
+      />,
+    )
+    await Bun.sleep(80)
+    const afterUpdate = rendered.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\s/g, '')
+    expect(afterUpdate).toContain('Dynamicworkflows')
   } finally {
     cleanup(monitor)
   }
