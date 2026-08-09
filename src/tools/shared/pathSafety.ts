@@ -3,6 +3,7 @@ import * as path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { ToolExecutionContext } from '../../orchestration/types.js'
 import { acquireFileLease } from '../../orchestration/fileLease.js'
+import { parseWorkflowSource } from '../../workflows/parser.js'
 
 export const BLOCKED_DIRS = ['.agent', '.claude', '.kiro', '.github', '.deepseek', 'node_modules', 'dist', 'build', '.git']
 
@@ -23,6 +24,14 @@ export function isSensitiveWorkspacePath(filePath: string): boolean {
 function isContained(root: string, target: string): boolean {
   const relative = path.relative(root, target)
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+}
+
+function isWorkflowFile(relativePath: string): boolean {
+  return /^\.deepseek\/workflows\/[^/]+\.js$/.test(relativePath.replace(/\\/g, '/'))
+}
+
+function isWorkspaceWorkflowFile(workspaceRoot: string, target: string): boolean {
+  return isContained(workspaceRoot, target) && isWorkflowFile(path.relative(workspaceRoot, target))
 }
 
 /** Resolve a path exactly as tool execution will resolve it, without granting access. */
@@ -65,12 +74,17 @@ export async function resolveSafePath(filePath: string, context?: ToolExecutionC
   }
   const canonicalRelative = path.relative(allowedRoot.realRoot, realAncestor)
   const canonicalTopDir = canonicalRelative.split(path.sep)[0]
-  if (canonicalTopDir && BLOCKED_DIRS.includes(canonicalTopDir)) throw new Error(`Directory '${canonicalTopDir}/' is off-limits`)
+  const relative = path.relative(allowedRoot.root, target)
+  const workspaceRelative = path.relative(workspaceRoot, target)
+  const workspacePath = isContained(workspaceRoot, target)
+  const workflowFile = allowedRoot.root === workspaceRoot && isWorkspaceWorkflowFile(workspaceRoot, target)
+  if (canonicalTopDir && BLOCKED_DIRS.includes(canonicalTopDir) && !workflowFile) throw new Error(`Directory '${canonicalTopDir}/' is off-limits`)
   if (isSensitiveWorkspacePath(canonicalRelative)) throw new Error(`File '${path.basename(realAncestor)}' is sensitive and cannot be accessed by an agent`)
 
-  const relative = path.relative(allowedRoot.root, target)
   const topDir = relative.split(path.sep)[0]
-  if (topDir && BLOCKED_DIRS.includes(topDir)) throw new Error(`Directory '${topDir}/' is off-limits`)
+  if (topDir && BLOCKED_DIRS.includes(topDir) && !workflowFile) throw new Error(`Directory '${topDir}/' is off-limits`)
+  const workspaceTopDir = workspaceRelative.split(path.sep)[0]
+  if (workspacePath && workspaceTopDir && BLOCKED_DIRS.includes(workspaceTopDir) && !workflowFile) throw new Error(`Directory '${workspaceTopDir}/' is off-limits`)
   if (isSensitiveWorkspacePath(relative)) throw new Error(`File '${path.basename(filePath)}' is sensitive and cannot be accessed by an agent`)
   return target
 }
@@ -101,6 +115,7 @@ export function assertExecutionActive(context?: ToolExecutionContext): void {
 /** Serialize, stage and atomically publish a context-authorized file write. */
 export async function atomicWriteFile(filePath: string, content: string, context?: ToolExecutionContext): Promise<string> {
   const safePath = await resolveSafePath(filePath, context)
+  if (isWorkspaceWorkflowFile(path.resolve(context?.workspacePath ?? process.cwd()), safePath)) parseWorkflowSource(content)
   const lease = await acquireFileLease(`file:${safePath}`, { sessionId: context?.sessionId, taskId: context?.taskId }, context?.signal)
   let temporary: string | undefined
   try {

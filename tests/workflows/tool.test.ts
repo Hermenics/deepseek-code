@@ -28,6 +28,23 @@ describe('Workflow tool', () => {
     expect(output.usage).toEqual({ agents: 1, tokens: 4, costUsd: 0 })
   })
 
+  test('returns the execution error for a failed workflow', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-tool-'))
+    roots.push(root)
+    const manager = new WorkflowManager({
+      sessionId: 'tool-session', projectRoot: root, baseDirectory: join(root, 'state'), providerConfig: { provider: 'deepseek' },
+    })
+    const output = JSON.parse(await Workflow.execute({
+      script: 'export const meta = {"name":"tool-failure"}; throw new Error("workflow exploded");',
+    }, {
+      sessionId: 'tool-session', workspacePath: root, projectRoot: root,
+      permissionProfile: 'coordinator-integrator', workflowManager: manager, interactionMode: 'build',
+    }))
+
+    expect(output).toMatchObject({ status: 'failed' })
+    expect(output.error).toContain('workflow exploded')
+  })
+
   test('cancels the workflow when the tool context is aborted', async () => {
     const controller = new AbortController()
     let cancelReason: string | undefined
