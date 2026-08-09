@@ -10,22 +10,23 @@ import type { ThemeName } from '../theme.js'
 import pkg from '../../../package.json' with { type: 'json' }
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
+import { useClock } from '../clock.js'
 
-function formatToolLine(rawName: string, detail: string): { display: string; arg: string; output: string } {
+export function formatToolLine(rawName: string, detail: string, full = false): { display: string; arg: string; output: string } {
   const display = TOOL_DISPLAY[rawName] ?? rawName
   let arg = ''
   let output = ''
+  const truncate = (value: string) => (!full && value.length > 60) ? value.slice(0, 60) + '...' : value
   try {
     const parsed = JSON.parse(detail)
     if (parsed && typeof parsed === 'object' && 'arg' in parsed) {
-      const plainArg = String(parsed.arg ?? '')
-      arg = plainArg.length > 60 ? plainArg.slice(0, 60) + '...' : plainArg
+      arg = truncate(String(parsed.arg ?? ''))
       output = String(parsed.output ?? '')
     } else {
-      arg = detail.length > 60 ? detail.slice(0, 60) + '...' : detail
+      arg = truncate(detail)
     }
   } catch {
-    arg = detail.length > 60 ? detail.slice(0, 60) + '...' : detail
+    arg = truncate(detail)
   }
   return { display, arg, output }
 }
@@ -82,13 +83,14 @@ export function getDiffPayload(content: string): DiffPayload | null {
   }
 }
 
-function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = true, showWordDiff = true, compact = false, onOpenDiff }: {
+function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = true, showWordDiff = true, compact = false, fullMode = false, onOpenDiff }: {
   message: Message
   theme: ThemeName
   agentLabel: string
   showDiffs?: boolean
   showWordDiff?: boolean
   compact?: boolean
+  fullMode?: boolean
   onOpenDiff?: (diff: Pick<DiffPayload, 'path' | 'lines'>) => void
   key?: React.Key
 }) {
@@ -136,11 +138,11 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = t
     const sep = raw.indexOf(' → ')
     const toolName = sep >= 0 ? raw.slice(0, sep) : raw
     const detail = sep >= 0 ? raw.slice(sep + 3) : ''
-    const { display, arg, output } = formatToolLine(toolName, detail)
+    const { display, arg, output } = formatToolLine(toolName, detail, fullMode)
     const outputLines = output ? output.split(/\r?\n/).filter(Boolean) : []
     const MAX_OUTPUT_LINES = 5
-    const trimmed = outputLines.slice(0, MAX_OUTPUT_LINES)
-    const hasMore = outputLines.length > MAX_OUTPUT_LINES
+    const trimmed = fullMode ? outputLines : outputLines.slice(0, MAX_OUTPUT_LINES)
+    const hasMore = !fullMode && outputLines.length > MAX_OUTPUT_LINES
     const style = TOOL_STYLE[display] || { icon: '▸', color: colors.textDim }
     return (
       <Box flexDirection="column" paddingLeft={2}>
@@ -178,6 +180,14 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = t
   }
 
   if (m.role === 'thinking') {
+    if (!fullMode) {
+      return (
+        <Box flexDirection="row" marginTop={marginTop} marginLeft={2} gap={1}>
+          <Text color={colors.textSubtle}>{STATUS_ICONS.thinking}</Text>
+          <Text color={colors.textSubtle}>{m.thinkingMs != null ? 'Thought for ' + Math.round(m.thinkingMs / 1000) + ' seconds (ctrl+o to expand)' : 'Thought (ctrl+o to expand)'}</Text>
+        </Box>
+      )
+    }
     return (
       <Box flexDirection="column" marginTop={marginTop} marginLeft={2}>
         <Box flexDirection="row" gap={1}>
@@ -253,7 +263,7 @@ function Header({ provider, agentName, theme = 'dark' }: { provider: string; age
   )
 }
 
-export function MessageList({ messages, streamText, thinkingText, streamRole = 'assistant', theme, activeAgent, headerProvider, headerAgent, showToolCalls = true, showDiffs = true, showWordDiff = true, density = 'comfortable', onOpenDiff }: {
+export function MessageList({ messages, streamText, thinkingText, streamRole = 'assistant', theme, activeAgent, headerProvider, headerAgent, showToolCalls = true, showDiffs = true, showWordDiff = true, density = 'comfortable', fullMode = false, thinkingStartedAt = null, onOpenDiff }: {
   messages: Message[]
   streamText: string
   thinkingText?: string
@@ -266,6 +276,8 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
   showDiffs?: boolean
   showWordDiff?: boolean
   density?: 'compact' | 'comfortable'
+  fullMode?: boolean
+  thinkingStartedAt?: number | null
   onOpenDiff?: (diff: Pick<DiffPayload, 'path' | 'lines'>) => void
 }) {
   const colors = getThemeColors(theme)
@@ -290,7 +302,7 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
         return (
           <Box key={`${message.role}-${index}`} flexDirection="column">
             {showDivider && <WorkDivider theme={theme} />}
-            <MessageItem message={message} theme={theme} agentLabel={agentLabel} showDiffs={showDiffs} showWordDiff={showWordDiff} compact={showDivider || density === 'compact'} onOpenDiff={onOpenDiff} />
+            <MessageItem message={message} theme={theme} agentLabel={agentLabel} showDiffs={showDiffs} showWordDiff={showWordDiff} compact={showDivider || density === 'compact'} fullMode={fullMode} onOpenDiff={onOpenDiff} />
           </Box>
         )
       })}
@@ -300,19 +312,7 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
           <DiffFileList files={[...diffFiles.values()]} theme={theme} />
         </Box>
       )}
-      {thinkingText ? (
-        <Box flexDirection="column" marginTop={1} marginLeft={2}>
-          <Box flexDirection="row" gap={1}>
-            <Text color={colors.textSubtle}>{STATUS_ICONS.thinking}</Text>
-            <Text color={colors.textSubtle} italic>{'Thinking'}</Text>
-          </Box>
-          <Box marginLeft={1} paddingLeft={1} paddingRight={1} paddingTop={1} paddingBottom={1} backgroundColor={colors.thinkingBg}>
-            <Box flexShrink={1}>
-              <MarkdownText content={thinkingText} dimmed theme={theme} />
-            </Box>
-          </Box>
-        </Box>
-      ) : null}
+      {thinkingText ? <LiveThinking content={thinkingText} fullMode={fullMode} startedAt={thinkingStartedAt} theme={theme} /> : null}
       {streamText ? (
         <Box flexDirection="column" marginTop={1}>
           {streamRole === 'terminal' ? (
@@ -335,6 +335,58 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
           )}
         </Box>
       ) : null}
+      {fullMode && (
+        <Box flexDirection="column" marginTop={1}>
+          <Text color={colors.textSubtle}>{DIVIDER_CHAR.repeat(Math.max(1, process.stdout.columns ?? 80))}</Text>
+          <Box flexDirection="row" justifyContent="space-between" paddingLeft={1} paddingRight={1}>
+            <Text color={colors.textSubtle}>{'Full mode · ctrl+o to toggle'}</Text>
+            <Text color={colors.textSubtle}>{'verbose'}</Text>
+          </Box>
+        </Box>
+      )}
+    </Box>
+  )
+}
+
+function LiveThinking({ content, fullMode, startedAt, theme }: {
+  content: string
+  fullMode: boolean
+  startedAt: number | null
+  theme: ThemeName
+}) {
+  const colors = getThemeColors(theme)
+  // Read the clock tick each render so the live counter advances as time passes
+  useClock()
+  if (fullMode) {
+    return (
+      <Box flexDirection="column" marginTop={1} marginLeft={2}>
+        <Box flexDirection="row" gap={1}>
+          <Text color={colors.textSubtle}>{STATUS_ICONS.thinking}</Text>
+          <Text color={colors.textSubtle} italic>{'Thinking'}</Text>
+        </Box>
+        <Box marginLeft={1} paddingLeft={1} paddingRight={1} paddingTop={1} paddingBottom={1} backgroundColor={colors.thinkingBg}>
+          <Box flexShrink={1}>
+            <MarkdownText content={content} dimmed theme={theme} />
+          </Box>
+        </Box>
+      </Box>
+    )
+  }
+  if (startedAt == null) {
+    // No start timestamp — render a generic live indicator instead of
+    // calculating from epoch zero (would show billions of seconds).
+    return (
+      <Box flexDirection="row" marginTop={1} marginLeft={2} gap={1}>
+        <Text color={colors.textSubtle}>{STATUS_ICONS.thinking}</Text>
+        <Text color={colors.textSubtle}>{'Thinking...'}</Text>
+      </Box>
+    )
+  }
+  const seconds = Math.floor((Date.now() - startedAt) / 1000)
+  return (
+    <Box flexDirection="row" marginTop={1} marginLeft={2} gap={1}>
+      <Text color={colors.textSubtle}>{STATUS_ICONS.thinking}</Text>
+      <Text color={colors.textSubtle}>{'Thinking for ' + seconds + ' seconds...'}</Text>
     </Box>
   )
 }

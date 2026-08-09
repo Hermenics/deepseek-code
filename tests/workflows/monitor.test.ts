@@ -10,6 +10,6 @@ test('workflow monitor renders phase, duration, budgets, agents and worktrees', 
     usage: { agents: 2, tokens: 40, costUsd: 0.25 }, failures: [], worktrees: [{ taskId: 'writer', path: '/tmp/writer' }],
   }
   expect(formatWorkflowRun(run, Date.parse('2026-01-01T00:00:05.000Z'))).toBe(
-    '  12345678  audit · running · review · 5s · 2 agents · 40/100 tokens · $0.2500/$1.0000 · 1 worktree',
+    '  12345678  audit · running · review · 5s · 2 agents · ↓ 40/100 tokens · $0.2500/$1.0000 · 1 worktree',
   )
 })

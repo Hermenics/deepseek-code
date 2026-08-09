@@ -1,4 +1,5 @@
 import React from "react";
+import { Routes, Route } from "react-router-dom";
 import useLenis from "./lib/useLenis";
 import Header from "./components/landing/Header";
 import Hero from "./components/landing/Hero";
@@ -8,8 +9,9 @@ import ChapterIII from "./components/landing/ChapterIII";
 import Marquee from "./components/landing/Marquee";
 import Quickstart from "./components/landing/Quickstart";
 import Footer from "./components/landing/Footer";
+import DocsApp from "./docs/DocsApp";
 
-export default function App() {
+function Landing() {
   useLenis();
 
   return (
@@ -26,5 +28,14 @@ export default function App() {
       <Quickstart />
       <Footer />
     </main>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route path="/docs/*" element={<DocsApp />} />
+      <Route path="*" element={<Landing />} />
+    </Routes>
   );
 }
