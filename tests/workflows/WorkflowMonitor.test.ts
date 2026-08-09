@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
   agentsInPhase,
-  formatCompactWorkflowRow,
   formatWorkflowHeaderStats,
   formatWorkflowPanelAgentRow,
   formatWorkflowPhaseRow,
@@ -13,7 +12,8 @@ import {
   workflowListHint,
   workflowPhases,
   workflowSummaryLine,
-} from '../../src/ui/workflows/WorkflowMonitor.js'
+} from '../../src/ui/workflows/format.js'
+import { formatCompactWorkflowRow } from '../../src/ui/workflows/WorkflowMonitor.js'
 import type { WorkflowRun } from '../../src/workflows/types.js'
 import type { SubagentState } from '../../src/ui/subagent/types.js'
 
