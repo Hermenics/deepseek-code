@@ -140,3 +140,32 @@ describe('declared phase skeleton', () => {
     expect(workflowPhases(run({ phaseHistory: ['Alpha'], phase: 'Beta' }))).toEqual(['Alpha', 'Beta'])
   })
 })
+
+describe('restored runs without live agents', () => {
+  test('uses the recorded history to tell finished phases from unstarted ones', () => {
+    const restored = run({
+      status: 'running', phase: 'Beta', phaseHistory: ['Alpha', 'Beta'],
+      meta: { name: 'audit', phases: [{ title: 'Alpha' }, { title: 'Beta' }, { title: 'Gamma' }] },
+    })
+
+    // No agents survive a session restart, so the history is the only evidence Alpha ran.
+    expect(phaseStateOf('Alpha', restored, [])).toBe('done')
+    expect(phaseStateOf('Beta', restored, [])).toBe('active')
+    expect(phaseStateOf('Gamma', restored, [])).toBe('pending')
+  })
+
+  test('leaves no phase active once the run has settled', () => {
+    const finished = run({ status: 'completed', phase: 'Beta', phaseHistory: ['Alpha', 'Beta'] })
+
+    expect(phaseStateOf('Beta', finished, [])).toBe('done')
+    expect(phaseStateOf('Alpha', finished, [])).toBe('done')
+  })
+
+  test('keeps the selected phase on screen when the list outgrows the panel', () => {
+    const rows = Array.from({ length: 12 }, (_, index) => `phase-${index}`)
+
+    const windowed = windowRows(rows, 11, 4)
+    expect(windowed.rows).toEqual(['phase-8', 'phase-9', 'phase-10', 'phase-11'])
+    expect(windowed.start + windowed.rows.indexOf('phase-11')).toBe(11)
+  })
+})

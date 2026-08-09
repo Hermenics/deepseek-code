@@ -193,7 +193,15 @@ export function phaseColumnWidth(rows: Array<{ phase: string; index: number; cou
   return Math.min(30, Math.max(11, widest))
 }
 
+/**
+ * Live agents decide the state when we have them. Without them — a run restored from an
+ * earlier session — the recorded history is what distinguishes a phase that already ran
+ * from one that never started; otherwise every past phase would render as pending.
+ */
 export function phaseStateOf(phase: string, run: WorkflowRun, agents: SubagentState[]): PhaseState {
-  if (!agents.length) return run.phase === phase ? 'active' : 'pending'
-  return agents.every(agent => !isAgentActive(agent.status)) ? 'done' : 'active'
+  if (agents.length) return agents.every(agent => !isAgentActive(agent.status)) ? 'done' : 'active'
+  const reached = run.phase === phase || (run.phaseHistory?.includes(phase) ?? false)
+  if (!reached) return 'pending'
+  // A settled run has no active phase, so everything it reached is done.
+  return isRunActive(run.status) && run.phase === phase ? 'active' : 'done'
 }
