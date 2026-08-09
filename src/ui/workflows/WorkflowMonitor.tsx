@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import useInput from '../../ink/hooks/use-input.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
@@ -32,8 +32,10 @@ function boxBottom(leftWidth: number, rightWidth: number, note?: string): string
   return `╰${'─'.repeat(leftWidth)}┴${right}╯`
 }
 
+/** Both cells are truncated as well as padded, so an over-long label cannot push the borders apart. */
 function boxRow(left: string, leftWidth: number, right: string, rightWidth: number): string {
-  return `│ ${left.padEnd(Math.max(0, leftWidth - 2))} │${right.padEnd(rightWidth)}│`
+  const cell = (value: string, width: number) => truncate(value, width).padEnd(width)
+  return `│ ${cell(left, Math.max(0, leftWidth - 2))} │${cell(right, rightWidth)}│`
 }
 
 /** Hard-wraps a paragraph so long agent output stays inside the panel. */
@@ -89,6 +91,7 @@ export function WorkflowMonitor({
   const [scroll, setScroll] = useState(0)
   const [saveName, setSaveName] = useState<string | null>(null)
   const [feedback, setFeedback] = useState('')
+  const appliedRunId = useRef<string | undefined>(undefined)
 
   const width = Math.max(30, (process.stdout.columns ?? 80) - 6)
   const height = process.stdout.rows ?? 24
@@ -106,8 +109,14 @@ export function WorkflowMonitor({
     if (!runs.some(item => item.runId === selectedRunId)) setSelectedRunId(runs[0]!.runId)
   }, [runs, selectedRunId])
 
+  // `runs` changes on every manager event, so this must fire once per initialRunId —
+  // otherwise a live workflow keeps yanking the view back to that run while you navigate.
   useEffect(() => {
-    if (initialRunId && runs.some(item => item.runId === initialRunId)) { setSelectedRunId(initialRunId); setView('run') }
+    if (!initialRunId || appliedRunId.current === initialRunId) return
+    if (!runs.some(item => item.runId === initialRunId)) return
+    appliedRunId.current = initialRunId
+    setSelectedRunId(initialRunId)
+    setView('run')
   }, [initialRunId, runs])
 
   useInput((input, key, event) => {
@@ -197,9 +206,14 @@ export function WorkflowMonitor({
     const body = isAgentView && agent
       ? agentTranscript(agent, rightWidth - 2, now).map(line => ` ${line}`)
       : phaseAgents.map(item => `  ${formatWorkflowPanelAgentRow(item, rightWidth - 3, now, labelWidth)}`)
-    const visibleBody = body.slice(scroll, scroll + panelHeight)
+    // Keep the selected phase/agent on screen once the list outgrows the panel.
+    const activeIndex = isAgentView ? agentIndex : phaseIndex
+    const leftWindow = windowRows(leftRows, activeIndex, panelHeight)
+    // `j` increments freely, so clamp before slicing or the panel scrolls past the end.
+    const scrollOffset = Math.min(scroll, Math.max(0, body.length - panelHeight))
+    const visibleBody = body.slice(scrollOffset, scrollOffset + panelHeight)
     const note = isAgentView && body.length > panelHeight
-      ? `${scroll + 1}–${Math.min(body.length, scroll + panelHeight)} of ${body.length} ↓`
+      ? `${scrollOffset + 1}–${Math.min(body.length, scrollOffset + panelHeight)} of ${body.length} ↓`
       : undefined
     const rightTitle = isAgentView ? agent?.task ?? 'Agent' : `${phase ?? 'Waiting'} · ${phaseAgents.length} agent${phaseAgents.length === 1 ? '' : 's'}`
     const leftTitle = isAgentView ? `${phase ?? 'Phase'} · ${phaseAgents.length} agents` : 'Phases'
@@ -214,11 +228,11 @@ export function WorkflowMonitor({
         <Text>{' '}</Text>
         <Text color={colors.textDim}>{`   ${boxTop(leftTitle, leftWidth, rightTitle, rightWidth)}`}</Text>
         {Array.from({ length: panelHeight }, (_, index) => {
-          const left = leftRows[index] ?? ''
+          const left = leftWindow.rows[index] ?? ''
           const right = visibleBody[index] ?? ''
-          const active = isAgentView ? index === agentIndex : index === phaseIndex
+          const active = leftWindow.start + index === activeIndex
           return (
-            <Text key={index} color={index < leftRows.length && active ? colors.primary : colors.textDim}>
+            <Text key={index} color={index < leftWindow.rows.length && active ? colors.primary : colors.textDim}>
               {`   ${boxRow(left, leftWidth, right, rightWidth)}`}
             </Text>
           )
