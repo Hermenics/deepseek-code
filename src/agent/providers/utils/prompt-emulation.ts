@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { robustParseJSON } from './robust-json.js'
 import { resolveToolName, isInsideCodeFence } from './output-sanitizer.js'
 
@@ -123,7 +124,7 @@ export function parseToolResponses(
     if (allowedTools && !allowedTools.has(resolved)) return null
     return {
       name: resolved,
-      id: `toolu_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+      id: `toolu_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`,
       arguments: validated.arguments,
     }
   }
@@ -170,7 +171,7 @@ export function parseToolResponses(
         }
         try { args[m[1]!] = JSON.parse(val) } catch { args[m[1]!] = val }
       }
-      results.push({ name: resolvedName, id: `toolu_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`, arguments: args })
+      results.push({ name: resolvedName, id: `toolu_${Date.now().toString(36)}_${randomUUID().slice(0, 8)}`, arguments: args })
     }
   }
 

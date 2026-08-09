@@ -2,7 +2,7 @@ import { join, resolve } from 'path'
 import { mkdir, readFile, writeFile, readdir, realpath, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import { execa } from 'execa'
-import { randomBytes } from 'crypto'
+import { randomBytes, randomUUID } from 'crypto'
 import { loadMergedSettings } from '../settings/loader.js'
 
 const ADJECTIVES = [
@@ -35,8 +35,11 @@ export interface WorktreeState {
 }
 
 export function generateWorktreeName(): string {
-  const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)]!
-  const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)]!
+  // Derive both indices from a crypto UUID so names are unique per call and no
+  // Math.random is used (CodeQL js/insecure-randomness).
+  const seed = randomUUID().replace(/-/g, '')
+  const adj = ADJECTIVES[parseInt(seed.slice(0, 2), 16) % ADJECTIVES.length]!
+  const noun = NOUNS[parseInt(seed.slice(2, 4), 16) % NOUNS.length]!
   return `${adj}-${noun}`
 }
 

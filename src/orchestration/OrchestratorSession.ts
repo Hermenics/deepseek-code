@@ -22,6 +22,8 @@ import type {
 export interface OrchestratorCallbacks {
   onStart?(id: string, task: string, agentName?: string): void
   onToolUse?(id: string, tool: string, info?: string): void
+  onTokens?(id: string, tokens: number): void
+  onMessage?(id: string, role: string, content: string): void
   onDone?(id: string, result: string, tokens?: number, costUsd?: number, structured?: unknown): void
   onError?(id: string, error: string): void
   onNote?(agentName: string, text: string): void
@@ -270,6 +272,10 @@ export class OrchestratorSession {
       this.callbacks.onStart?.(taskId, String(record.metadata.task ?? record.type), record.metadata.agentName as string | undefined)
     } else if (type === 'tool_started') {
       this.callbacks.onToolUse?.(taskId, String(payload.tool ?? ''), payload.info as string | undefined)
+    } else if (type === 'token_progress') {
+      this.callbacks.onTokens?.(taskId, Number(payload.tokens ?? 0))
+    } else if (type === 'subagent_message') {
+      this.callbacks.onMessage?.(taskId, String(payload.role ?? 'assistant'), String(payload.content ?? ''))
     } else if (type === 'completed') {
       const value = record.result?.value
       const text = this.formatValue(value)

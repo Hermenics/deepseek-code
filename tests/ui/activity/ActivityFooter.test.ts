@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  buildActionHint,
   buildActivityItems,
   compactActivityItems,
   formatActivityItem,
@@ -99,5 +100,53 @@ describe('activity footer model', () => {
     const child = agent({ status: 'done', workflowRunId: run.runId })
 
     expect(buildActivityItems([child], [run])).toEqual([])
+  })
+})
+
+describe('claude code footer visual contract', () => {
+  test('finished agents render idle instead of a status icon', () => {
+    const item = buildActivityItems([agent({ status: 'done', durationMs: 25_000, tokens: 3_000 })], [])[0]!
+    const row = formatActivityItem(item, 100, 11_000)
+
+    expect(row).toContain('idle')
+    expect(row).not.toContain('✓')
+    expect(row).not.toContain('25s')
+    expect(row).toMatch(/^◯ /)
+  })
+
+  test('active agents render duration and ↓ tokens', () => {
+    const item = buildActivityItems([agent({ status: 'running', durationMs: null, tokens: 63_000 })], [])[0]!
+    const row = formatActivityItem(item, 100, 29_000)
+
+    expect(row).toContain('28s')
+    expect(row).toContain('↓ 63.0k tokens')
+    expect(row).not.toContain('tools')
+  })
+
+  test('non-selected rows always use the ◯ icon regardless of status', () => {
+    const rows = ['done', 'failed', 'timed_out', 'running'].map(status =>
+      formatActivityItem(buildActivityItems([agent({ status } as Partial<SubagentState>)], [])[0]!, 100))
+
+    for (const row of rows) expect(row).toMatch(/^◯ /)
+  })
+
+  test('selected rows use the ● icon override', () => {
+    const item = buildActivityItems([agent({ status: 'running' })], [])[0]!
+
+    expect(formatActivityItem(item, 100, 11_000, '●')).toMatch(/^● /)
+  })
+
+  test('buildActionHint uses claude code phrasing with contextual actions', () => {
+    expect(buildActionHint(undefined)).toBe('↑/↓ to select')
+    expect(buildActionHint(buildActivityItems([agent({ status: 'running' })], [])[0]))
+      .toBe('↑/↓ to select · Enter to view · x stop')
+    expect(buildActionHint(buildActivityItems([agent({ status: 'failed' })], [])[0]))
+      .toBe('↑/↓ to select · Enter to view · r resume')
+    expect(buildActionHint(buildActivityItems([agent({ status: 'blocked' })], [])[0]))
+      .toBe('↑/↓ to select · Enter to view · x stop · r resume')
+    expect(buildActionHint(buildActivityItems([], [workflow()])[0]))
+      .toBe('↑/↓ to select · Enter to view · x stop · p pause')
+    expect(buildActionHint(buildActivityItems([], [workflow({ status: 'queued' })])[0]))
+      .toBe('↑/↓ to select · Enter to view · x stop')
   })
 })

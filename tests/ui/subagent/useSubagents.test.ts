@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
 import { useSubagents } from '../../../src/ui/subagent/useSubagents.js'
 import type { UseSubagentsReturn } from '../../../src/ui/subagent/useSubagents.js'
+import type { SubagentState } from '../../../src/ui/subagent/types.js'
 
 function createHook(): UseSubagentsReturn {
   return useSubagents()
@@ -234,6 +235,75 @@ describe('useSubagents', () => {
 
       expect(hook.agents[1].status).toBe('running')
       expect(hook.agents[1].error).toBeNull()
+    })
+  })
+
+  describe('onSubagentMessage', () => {
+    it('should seed messages with the task on start', () => {
+      const hook = createHook()
+
+      hook.onSubagentStart({ id: 'a1', task: 'fetch data' })
+
+      expect(hook.agents[0].messages).toEqual([{ role: 'user', content: 'fetch data' }])
+    })
+
+    it('should append a message to agent.messages', () => {
+      const hook = createHook()
+      hook.onSubagentStart({ id: 'a1', task: 'task' })
+
+      hook.onSubagentMessage({ id: 'a1', role: 'assistant', content: 'working...' })
+
+      expect(hook.agents[0].messages).toEqual([
+        { role: 'user', content: 'task' },
+        { role: 'assistant', content: 'working...' },
+      ])
+    })
+
+    it('should create the messages array when missing', () => {
+      const hook = createHook()
+      // Legacy/restored agent states may lack the messages field entirely.
+      hook.agents.push({ id: 'a1', task: 'task', status: 'running' } as SubagentState)
+
+      hook.onSubagentMessage({ id: 'a1', role: 'user', content: 'more detail' })
+
+      expect(hook.agents[0].messages).toEqual([{ role: 'user', content: 'more detail' }])
+    })
+
+    it('should ignore messages for unknown agents', () => {
+      const hook = createHook()
+
+      hook.onSubagentMessage({ id: 'nope', role: 'assistant', content: 'x' })
+
+      expect(hook.agents).toHaveLength(0)
+    })
+  })
+
+  describe('onSubagentState', () => {
+    it('should update tokens progressively without clobbering status', () => {
+      const hook = createHook()
+      hook.onSubagentStart({ id: 'a1', task: 'task' })
+      hook.onSubagentState({ id: 'a1', tokens: 12_000 })
+
+      expect(hook.agents[0].tokens).toBe(12_000)
+      expect(hook.agents[0].status).toBe('running')
+    })
+
+    it('should accumulate growing token counts on repeated progress events', () => {
+      const hook = createHook()
+      hook.onSubagentStart({ id: 'a1', task: 'task' })
+      hook.onSubagentState({ id: 'a1', tokens: 12_000 })
+      hook.onSubagentState({ id: 'a1', tokens: 24_500 })
+
+      expect(hook.agents[0].tokens).toBe(24_500)
+    })
+
+    it('should update status and tokens together when both are provided', () => {
+      const hook = createHook()
+      hook.onSubagentStart({ id: 'a1', task: 'task' })
+      hook.onSubagentState({ id: 'a1', status: 'done', tokens: 30_000 })
+
+      expect(hook.agents[0].status).toBe('done')
+      expect(hook.agents[0].tokens).toBe(30_000)
     })
   })
 

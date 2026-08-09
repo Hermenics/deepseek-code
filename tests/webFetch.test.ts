@@ -59,6 +59,18 @@ describe('WebFetch tool', () => {
     expect(result).toContain('negrito')
   })
 
+  it('remove script com tag de fechamento malformada (CodeQL js/bad-tag-filter)', async () => {
+    const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
+    global.fetch = mock(() =>
+      Promise.resolve(okResponse('ok <script>alert(1)</script foo="bar"> resto'))
+    ) as any
+    const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
+    expect(result).not.toContain('alert(1)')
+    expect(result).not.toContain('<script')
+    expect(result).toContain('ok')
+    expect(result).toContain('resto')
+  })
+
   it('trunca conteúdo em 20.000 chars', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     const longContent = 'a'.repeat(30000)
