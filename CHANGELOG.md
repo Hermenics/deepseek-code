@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.7
+
+- Added: Mode and permission summary exposure — `getSystemPrompt()` now returns a safe summary (mode, allowed tools, permission hints) instead of the actual system prompt, with JSDoc explaining the security rationale
+- Added: Introspect tool expanded with a comprehensive codebase map, provider guide, settings precedence documentation, and dynamic version from package.json
+- Added: Refined Plan mode toolset — lsp and get_goal allowed, git/todo/memory read-only access clarified, subagent and MCP tools restricted
+- Added: `edit_file` tracked alongside write_file and patch_file in turn-write metrics and undo snapshot coverage
+- Changed: System command description updated to reflect the new permission-focused behavior
+- Changed: Tool blocking message now references `/permissions` and mode-appropriate alternatives
+- Changed: System prompt rewritten for clarity — autonomous execution, concise communication, and reasoning tag isolation
+- Enhanced: WorkflowMonitor with improved workflow state tracking and interaction patterns
+- Enhanced: Risk evaluation logic and path safety validation across permission layers
+- Tests: Coverage for interaction mode, Introspect tool, risk assessment, plan mode, and WorkflowMonitor interactions
+
 ## 0.6.6
 
 - Added: Full mode toggle (Ctrl+O) — expanded thinking (◌), untruncated tool output and shell commands, and a "Full mode · ctrl+o to toggle" footer while active; toggling never interrupts the agent
