@@ -101,7 +101,9 @@ test('lists runs with the Claude-style header, icons and hint', async () => {
 
 test('renders the Claude-style phases and agents detail panel', async () => {
   const monitor = renderMonitor([run({
-    phase: 'Review', phaseHistory: ['Review', 'Verify'], usage: { agents: 2, tokens: 1200, costUsd: 0.01 },
+    // Verify is declared but never reached: it comes from meta.phases, not the history.
+    meta: { name: 'audit', phases: [{ title: 'Review' }, { title: 'Verify' }] },
+    phase: 'Review', phaseHistory: ['Review'], usage: { agents: 2, tokens: 1200, costUsd: 0.01 },
   })], {
     agents: [
       { id: 'security', task: 'review:security', status: 'running' as const, colorIndex: 0, toolCount: 0, lastToolInfo: null, startedAt: Date.now(), durationMs: null, result: null, error: null, tokens: 1200, costUsd: 0, role: null, confidence: null, verified: null, agentName: 'Agent 1', model: 'deepseek-v4-flash', workflowRunId: 'workflow-run' },
