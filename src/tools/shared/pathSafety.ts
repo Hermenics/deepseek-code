@@ -30,8 +30,28 @@ function isWorkflowFile(relativePath: string): boolean {
   return /^\.deepseek\/workflows\/[^/]+\.js$/.test(relativePath.replace(/\\/g, '/'))
 }
 
-function isWorkspaceWorkflowFile(workspaceRoot: string, target: string): boolean {
-  return isContained(workspaceRoot, target) && isWorkflowFile(path.relative(workspaceRoot, target))
+/** Canonical path of an existing target, or nearest real ancestor plus the missing tail for a new file. */
+async function canonicalTargetPath(target: string): Promise<string> {
+  const missing: string[] = []
+  let current = target
+  while (true) {
+    try {
+      return path.join(await fs.realpath(current), ...missing)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      missing.unshift(path.basename(current))
+      const parent = path.dirname(current)
+      if (parent === current) throw error
+      current = parent
+    }
+  }
+}
+
+async function isWorkspaceWorkflowFile(workspaceRoot: string, target: string): Promise<boolean> {
+  if (!isContained(workspaceRoot, target)) return false
+  const realRoot = await fs.realpath(workspaceRoot)
+  const canonical = await canonicalTargetPath(target)
+  return isContained(realRoot, canonical) && isWorkflowFile(path.relative(realRoot, canonical))
 }
 
 /** Resolve a path exactly as tool execution will resolve it, without granting access. */
@@ -77,7 +97,7 @@ export async function resolveSafePath(filePath: string, context?: ToolExecutionC
   const relative = path.relative(allowedRoot.root, target)
   const workspaceRelative = path.relative(workspaceRoot, target)
   const workspacePath = isContained(workspaceRoot, target)
-  const workflowFile = allowedRoot.root === workspaceRoot && isWorkspaceWorkflowFile(workspaceRoot, target)
+  const workflowFile = allowedRoot.root === workspaceRoot && await isWorkspaceWorkflowFile(workspaceRoot, target)
   if (canonicalTopDir && BLOCKED_DIRS.includes(canonicalTopDir) && !workflowFile) throw new Error(`Directory '${canonicalTopDir}/' is off-limits`)
   if (isSensitiveWorkspacePath(canonicalRelative)) throw new Error(`File '${path.basename(realAncestor)}' is sensitive and cannot be accessed by an agent`)
 
@@ -115,7 +135,7 @@ export function assertExecutionActive(context?: ToolExecutionContext): void {
 /** Serialize, stage and atomically publish a context-authorized file write. */
 export async function atomicWriteFile(filePath: string, content: string, context?: ToolExecutionContext): Promise<string> {
   const safePath = await resolveSafePath(filePath, context)
-  if (isWorkspaceWorkflowFile(path.resolve(context?.workspacePath ?? process.cwd()), safePath)) parseWorkflowSource(content)
+  if (await isWorkspaceWorkflowFile(path.resolve(context?.workspacePath ?? process.cwd()), safePath)) parseWorkflowSource(content)
   const lease = await acquireFileLease(`file:${safePath}`, { sessionId: context?.sessionId, taskId: context?.taskId }, context?.signal)
   let temporary: string | undefined
   try {

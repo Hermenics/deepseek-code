@@ -468,8 +468,20 @@ export class Agent {
     return [...this.filesModified]
   }
 
+  /**
+   * Returns a safe summary of the active mode and permission setup.
+   * The system prompt forbids exposing itself, so this never returns it.
+   */
   getSystemPrompt(): string {
-    return this.systemPrompt
+    const info = this.getPermissionsInfo()
+    return [
+      `Mode: ${info.mode}`,
+      `Allowed tools: ${info.allowedTools === '*' ? 'all (each call confirmed)' : Array.isArray(info.allowedTools) && info.allowedTools.length > 0 ? info.allowedTools.join(', ') : 'no restriction'}`,
+      `Mode tools (${info.modeTools.length}): ${info.modeTools.join(', ')}`,
+      `Session approvals: ${info.sessionApproved.length > 0 ? info.sessionApproved.join(', ') : 'none'}`,
+      `Permission rules: ${JSON.stringify(info.permissions ?? {})}`,
+      `Risk rules: ${JSON.stringify(info.risk ?? {})}`,
+    ].join('\n')
   }
 
   getToolNames(): string[] {
@@ -1793,7 +1805,7 @@ export class Agent {
       }
     }
     // ── Undo snapshot (only for file-writing tools that passed all checks) ──
-    if ((tc.function.name === 'write_file' || tc.function.name === 'patch_file') && effectiveArgs.path) {
+    if (['write_file', 'patch_file', 'edit_file'].includes(tc.function.name) && effectiveArgs.path) {
       const filePath = effectiveArgs.path as string
       const generated = (this.settings.git?.generatedPatterns ?? []).some(pattern => globMatch(pattern, filePath))
       if (!generated) {

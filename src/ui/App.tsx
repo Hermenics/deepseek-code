@@ -990,9 +990,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           return
         }
         case 'system': {
-          const prompt = agent.getSystemPrompt()
-          const preview = prompt.length > 2000 ? prompt.slice(0, 2000) + '\n\n...(truncated)' : prompt
-          setMessages((m) => [...m, { role: 'assistant', content: `**Active system prompt:**\n\n\`\`\`\n${preview}\n\`\`\`` }])
+          const summary = agent.getSystemPrompt()
+          setMessages((m) => [...m, { role: 'assistant', content: `**Active mode & permissions:**\n\n\`\`\`\n${summary}\n\`\`\`` }])
           return
         }
         case 'checkpoint': {

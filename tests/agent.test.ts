@@ -12,6 +12,11 @@ function resolveReady(agent: Agent) {
   ;(agent as unknown as Record<string, unknown>).readyPromise = Promise.resolve()
 }
 
+// Helper: lê o conteúdo do system message atual (observador do prompt real)
+function systemPromptContent(agent: Agent): string {
+  return String(agent.getMessages()[0]?.content ?? '')
+}
+
 // Helper: cria um async iterable a partir de chunks
 async function* makeStream(chunks: object[]) {
   for (const chunk of chunks) {
@@ -109,11 +114,12 @@ describe('Agent class', () => {
   })
 
   describe('getSystemPrompt', () => {
-    it('should return a non-empty string', () => {
+    it('should return a safe permission summary, never the prompt', () => {
       const agent = new Agent()
-      const prompt = agent.getSystemPrompt()
-      expect(typeof prompt).toBe('string')
-      expect(prompt.length).toBeGreaterThan(100)
+      const summary = agent.getSystemPrompt()
+      expect(summary).toContain('Mode:')
+      expect(summary).toContain('Mode tools')
+      expect(summary).not.toContain('Never do these things')
     })
   })
 
@@ -150,7 +156,7 @@ describe('Agent class', () => {
     it('should add language instruction to system prompt', () => {
       const agent = new Agent()
       agent.setLanguage('Portuguese')
-      const prompt = agent.getSystemPrompt()
+      const prompt = systemPromptContent(agent)
       expect(prompt).toContain('PREFERRED LANGUAGE')
       expect(prompt).toContain('Portuguese')
     })
@@ -159,7 +165,7 @@ describe('Agent class', () => {
       const agent = new Agent()
       agent.setLanguage('English')
       agent.setLanguage('Portuguese')
-      const prompt = agent.getSystemPrompt()
+      const prompt = systemPromptContent(agent)
       expect(prompt).toContain('Portuguese')
       expect(prompt).not.toContain('Always respond in English')
     })

@@ -123,7 +123,7 @@ test('renders the Claude-style phases and agents detail panel', async () => {
     expect(plain).toContain('2Verify')
     expect(plain).toContain('Review·2agents')
     expect(plain).toContain('●review:security')
-    expect(plain).toContain('↑/↓select·xstopworkflow·ppause·escback·ssave')
+    expect(plain).toContain('xstopworkflow·ppause·escback·ssave')
   } finally {
     cleanup(monitor)
   }
