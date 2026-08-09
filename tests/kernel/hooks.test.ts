@@ -51,11 +51,23 @@ describe('Legacy hook executor audit', () => {
   })
 
   it('should bound in-memory audit retention', async () => {
-    for (let i = 0; i < MAX_HOOK_AUDIT_ENTRIES + 20; i++) {
-      const input = buildInput({ event: 'SessionStart', session_id: 's1' })
-      await runHookCommand({ type: 'command', command: 'true' }, input)
+    // Seeding the log directly keeps this a pure check of the cap. Spawning 520 real
+    // processes made it exceed the default timeout under --coverage, and the aborted
+    // loop kept appending entries that corrupted the following test.
+    const seedInput = buildInput({ event: 'SessionStart', session_id: 's1' })
+    await runHookCommand({ type: 'command', command: 'true' }, seedInput)
+    const template = hookAuditLog[0]!
+    while (hookAuditLog.length < MAX_HOOK_AUDIT_ENTRIES) {
+      hookAuditLog.push({ ...template, run_id: `filler-${hookAuditLog.length}` })
     }
+
+    const input = buildInput({ event: 'SessionStart', session_id: 's1' })
+    await runHookCommand({ type: 'command', command: 'true' }, input)
+
     expect(hookAuditLog.length).toBe(MAX_HOOK_AUDIT_ENTRIES)
+    // Retention is FIFO: the newest run survives and the oldest is evicted.
+    expect(hookAuditLog.at(-1)!.run_id).toBe(input.run_id)
+    expect(hookAuditLog.some(run => run.run_id === seedInput.run_id)).toBe(false)
   })
 
   it('should use one correlation_id for a pre-tool group', async () => {
@@ -134,8 +146,11 @@ describe('HookRuntime execution', () => {
   })
 
   it('should bound in-memory runtime runs', async () => {
-    runtime.register(shellHook())
-    runtime.trust('h-shell')
+    // An in-process handler keeps this a pure check of the cap; 520 real shells pushed
+    // the test past the default timeout under --coverage.
+    runtime.registerHandler('agent', async () => ({ decision: 'allow' }))
+    runtime.register(shellHook({ id: 'h-fast', handler_type: 'agent', handler_config: {} }))
+    runtime.trust('h-fast')
     for (let i = 0; i < MAX_HOOK_RUNTIME_RUNS + 20; i++) {
       await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: '/tmp' })
     }
