@@ -23,6 +23,12 @@
     --input: 0 0% 14.9%;
     --ring: 0 0% 83.1%;
     --radius: 0px;
+
+    /* Free space beside the 1440px shell — 0 as soon as the viewport is narrower.
+       Decorations that bleed outside the container must clamp to this, otherwise
+       `overflow-x: hidden` below silently crops them (visible on 1440px laptops). */
+    --gutter: max(0px, (100vw - 1440px) / 2);
+    --bleed-max: calc(var(--gutter) + 24px);
 }
 
 * {
@@ -138,6 +144,27 @@ body::before {
 .marquee-track {
     animation: marquee 60s linear infinite;
     will-change: transform;
+}
+
+/* Oversized display text that bleeds into the gutter, never past the screen */
+.bleed-left {
+    left: 0;
+}
+@media (min-width: 768px) {
+    .bleed-left {
+        left: calc(-1 * min(10vw, var(--bleed-max)));
+    }
+}
+
+/* Flourish drawn outside the shell: it reaches ~218px into the left gutter,
+   so it only renders once the viewport is wide enough to hold it. */
+.gutter-flourish {
+    display: none;
+}
+@media (min-width: 1820px) {
+    .gutter-flourish {
+        display: block;
+    }
 }
 
 /* Reveal helpers */

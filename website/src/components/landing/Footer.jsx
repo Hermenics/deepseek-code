@@ -15,7 +15,7 @@ export default function Footer() {
   return (
     <footer data-testid="site-footer" className="relative border-t border-white/10 pt-24 pb-10">
       <div className="max-w-[1440px] mx-auto px-6 md:px-10">
-        <div className="relative left-0 md:-left-[10vw] whitespace-nowrap font-sans font-black tracking-tightest text-white leading-[0.85] text-[14vw] md:text-[17vw] mb-16 md:mb-24">
+        <div className="relative bleed-left whitespace-nowrap font-sans font-black tracking-tightest text-white leading-[0.85] text-[14vw] md:text-[17vw] mb-16 md:mb-24">
           HERMENICS<span className="text-neon-blue font-serif italic font-normal">.</span>
         </div>
 

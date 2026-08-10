@@ -30,7 +30,7 @@ export default function Header() {
           <span className="ml-2 text-[11px] text-white/40 border border-white/10 px-2 py-1 tracking-widest">{version}</span>
         </a>
 
-        <nav className="hidden md:flex items-center gap-10 text-[12px] uppercase tracking-widest font-mono text-white/60">
+        <nav className="hidden lg:flex items-center gap-6 xl:gap-10 text-[12px] uppercase tracking-widest font-mono text-white/60">
           <a href="#chapter-i" className="hover:text-white transition-colors">i. tools</a>
           <a href="#chapter-ii" className="hover:text-white transition-colors">ii. orchestration</a>
           <a href="#chapter-iii" className="hover:text-white transition-colors">iii. providers</a>
@@ -38,13 +38,13 @@ export default function Header() {
         </nav>
 
         <div className="flex items-center gap-3">
-          <a href="https://www.npmjs.com/package/@hermenics/deepseek-code" target="_blank" rel="noreferrer" data-testid="header-npm" title="npm downloads in the last year" className="hidden sm:flex items-center gap-2.5 text-[12px] uppercase tracking-widest font-mono text-white/70 hover:text-white transition-colors border border-white/10 hover:border-white/30 px-4 py-3">
+          <a href="https://www.npmjs.com/package/@hermenics/deepseek-code" target="_blank" rel="noreferrer" data-testid="header-npm" title="npm downloads in the last year" className="hidden lg:flex items-center gap-2.5 text-[12px] uppercase tracking-widest font-mono text-white/70 hover:text-white transition-colors border border-white/10 hover:border-white/30 px-4 py-3">
             <svg aria-hidden="true" viewBox="0 0 100 100" className="w-5 h-5 text-current">
               <path d="M16 16h68v68H61V32H47v52H16z" fill="currentColor" />
             </svg>
             <span className="text-white/40">{downloads}</span>
           </a>
-          <a href="https://github.com/Hermenics/deepseek-code" target="_blank" rel="noreferrer" data-testid="header-github" className="hidden sm:flex items-center gap-2.5 text-[12px] uppercase tracking-widest font-mono text-white/70 hover:text-white transition-colors border border-white/10 hover:border-white/30 px-4 py-3">
+          <a href="https://github.com/Hermenics/deepseek-code" target="_blank" rel="noreferrer" data-testid="header-github" className="hidden xl:flex items-center gap-2.5 text-[12px] uppercase tracking-widest font-mono text-white/70 hover:text-white transition-colors border border-white/10 hover:border-white/30 px-4 py-3">
             <Github className="w-4 h-4" strokeWidth={1.5} />github
           </a>
           <a href="#quickstart" data-testid="header-install" className="group flex items-center gap-2.5 text-[12px] uppercase tracking-widest font-mono bg-white text-black hover:bg-neon-blue hover:text-white transition-colors px-5 py-3">

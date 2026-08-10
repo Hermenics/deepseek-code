@@ -52,7 +52,7 @@ export default function Quickstart() {
             ))}
           </div>
 
-          <svg aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 hidden h-[calc(100%-1rem)] w-full overflow-visible md:block" viewBox="0 0 100 100" preserveAspectRatio="none">
+          <svg aria-hidden="true" className="gutter-flourish pointer-events-none absolute inset-x-0 top-0 h-[calc(100%-1rem)] w-full overflow-visible" viewBox="0 0 100 100" preserveAspectRatio="none">
             <path d="M-3 7 C-16 25 -15 55 -3 87" fill="none" stroke="currentColor" strokeWidth="0.24" strokeLinecap="round" className="text-white" />
             <path d="M-3.55 81.3 L-3 87" fill="none" stroke="currentColor" strokeWidth="0.24" strokeLinecap="round" className="text-white" />
             <path d="M-4.95 85.6 L-3 87" fill="none" stroke="currentColor" strokeWidth="0.24" strokeLinecap="round" className="text-white" />
