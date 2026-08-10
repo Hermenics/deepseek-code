@@ -1,5 +1,15 @@
 [
   {
+    "version": "0.6.8",
+    "changes": [
+      "Added: Mirror Claude Code's dynamic workflow monitor — three-level drill-down (run list, phases beside their agents, agent prompt/output), agents pinned to the phase active at spawn, pending phases rendered from parsed meta.phases, and a footer reading \"4/4 agents done · 5s · ↓ 226k tokens\"",
+      "Fixed: Workflow parser now accepts the JavaScript meta literal the API documents — unquoted keys, single quotes, and trailing commas are evaluated in a sandboxed vm context, while strict JSON keeps working",
+      "Fixed: Keep the monitor stable under long labels and live updates — the initial-run effect fires once per initialRunId, panel cells truncate instead of misaligning borders, and phase/agent columns respect the panel height",
+      "Fixed: Keep workflow identity on state-only agent discovery — the orchestrator subscriber uses the workflow-aware lookup so agents keep their run id and phase; wrapText no longer loops forever on non-positive widths",
+      "Tests: Stop retention tests from spawning 520 processes — seed the audit log and register an in-process handler instead; runtime drops from ~8s to under 1s"
+    ]
+  },
+  {
     "version": "0.6.7",
     "changes": [
       "Added: Mode and permission summary exposure — `getSystemPrompt()` now returns a safe summary (mode, allowed tools, permission hints) instead of the actual system prompt, with JSDoc explaining the security rationale",
