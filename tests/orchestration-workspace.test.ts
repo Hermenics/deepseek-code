@@ -179,7 +179,7 @@ describe('task workspace isolation', () => {
 
     await WriteFile.execute({ path, content: 'export const meta = {"name":"review"}; return 1;' }, context)
     expect(await readFile(join(root, path), 'utf8')).toContain('"name":"review"')
-    await expect(WriteFile.execute({ path: '.deepseek/workflows/bad.js', content: 'export const meta = { name: "bad" }; return 1;' }, context)).rejects.toThrow('JSON-compatible')
+    await expect(WriteFile.execute({ path: '.deepseek/workflows/bad.js', content: 'export const meta = { name: }; return 1;' }, context)).rejects.toThrow('plain object literal')
     await expect(resolveSafePath('.deepseek/settings.json', context)).rejects.toThrow('off-limits')
     await expect(resolveSafePath('.deepseek/workflows/nested/review.js', context)).rejects.toThrow('off-limits')
   })

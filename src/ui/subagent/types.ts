@@ -33,6 +33,10 @@ export interface SubagentState {
   model?: string | null
   workspace?: string | null
   workflowRunId?: string | null
+  /** Workflow phase active when this agent was spawned; drives the phase/agent split in the monitor. */
+  workflowPhase?: string | null
+  /** Original instruction; `task` is only a short label when the workflow supplied one. */
+  prompt?: string | null
 }
 
 export interface SubagentLineProps {
