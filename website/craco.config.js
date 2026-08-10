@@ -89,6 +89,18 @@ let webpackConfig = {
         ],
       };
 
+      // Silence cssnano's postcss-calc on CSS Math Functions (min()/max()/clamp()).
+      // postcss-calc (pre-2019) can't parse them, emits a warning that breaks CI,
+      // and leaves the value intact anyway — the browser resolves these at runtime.
+      for (const minimizer of webpackConfig.optimization?.minimizer ?? []) {
+        if (minimizer?.constructor?.name === 'CssMinimizerPlugin' && minimizer.options?.minimizer) {
+          minimizer.options.minimizer.options = {
+            ...minimizer.options.minimizer.options,
+            preset: [require.resolve('cssnano-preset-default'), { calc: false }],
+          };
+        }
+      }
+
       // Add health check plugin to webpack if enabled
       if (config.enableHealthCheck && healthPluginInstance) {
         webpackConfig.plugins.push(healthPluginInstance);
