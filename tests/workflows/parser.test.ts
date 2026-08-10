@@ -22,7 +22,7 @@ describe('workflow source parser', () => {
   })
 
   test('rejects malformed metadata and names', () => {
-    expect(() => parseWorkflowSource('export const meta = { name: "bad" }; return 1')).toThrow('JSON-compatible')
+    expect(() => parseWorkflowSource('export const meta = { name: }; return 1')).toThrow('plain object literal')
     expect(() => parseWorkflowSource('export const meta = {"name":"Bad Name"}; return 1')).toThrow('Invalid workflow name')
   })
 
@@ -41,5 +41,38 @@ describe('workflow source parser', () => {
     const parsed = parseWorkflowSource(formatWorkflowSource({ name: 'round-trip', description: 'Round trip' }, body))
     expect(parsed.meta).toEqual({ name: 'round-trip', description: 'Round trip' })
     expect(parsed.body.trim()).toBe(body)
+  })
+})
+
+describe('JavaScript meta literals', () => {
+  test('accepts the idiomatic literal every caller actually writes', () => {
+    const parsed = parseWorkflowSource([
+      "export const meta = {",
+      "  name: 'color-check',",
+      "  description: 'Return one word per agent',",
+      "  phases: [{ title: 'Alpha' }, { title: 'Beta', detail: 'second' }],",
+      "}",
+      "phase('Alpha')",
+    ].join('\n'))
+    expect(parsed.meta.name).toBe('color-check')
+    expect(parsed.meta.description).toBe('Return one word per agent')
+    expect(parsed.meta.phases?.map(phase => phase.title)).toEqual(['Alpha', 'Beta'])
+    expect(parsed.body.trim()).toBe("phase('Alpha')")
+  })
+
+  test('keeps accepting strict JSON so saved workflows still load', () => {
+    const parsed = parseWorkflowSource('export const meta = {"name":"json-form"};\nphase("A")')
+    expect(parsed.meta.name).toBe('json-form')
+  })
+
+  test('a closing brace inside a single-quoted string does not end the object', () => {
+    const parsed = parseWorkflowSource("export const meta = { name: 'brace', description: 'a } b' }\nphase('A')")
+    expect(parsed.meta.description).toBe('a } b')
+    expect(parsed.body.trim()).toBe("phase('A')")
+  })
+
+  test('the literal is evaluated with no capability, so a call is rejected', () => {
+    expect(() => parseWorkflowSource("export const meta = { name: process.exit(1) }\nphase('A')"))
+      .toThrow('Workflow metadata must be a plain object literal')
   })
 })

@@ -1,3 +1,4 @@
+import { Script, createContext } from 'node:vm'
 import type { WorkflowMeta, WorkflowPhaseMeta } from './types.js'
 
 const MAX_SOURCE_BYTES = 256 * 1024
@@ -14,7 +15,7 @@ export function isWorkflowName(value: string): boolean {
 }
 
 function validateMeta(value: unknown): WorkflowMeta {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Workflow metadata must be a JSON-compatible object')
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Workflow metadata must be a plain object literal')
   const record = value as Record<string, unknown>
   if (typeof record.name !== 'string' || !isWorkflowName(record.name)) {
     throw new Error('Invalid workflow name; use 1-64 lowercase letters, numbers, or hyphens')
@@ -46,7 +47,8 @@ function validatePhases(value: unknown): WorkflowPhaseMeta[] {
 }
 
 function findObjectEnd(source: string, start: number): number {
-  // Metadata is parsed as JSON, so only JSON's double-quoted strings need tracking here.
+  // The literal is JavaScript, so single quotes and backticks delimit strings too — a brace
+  // inside `{ name: 'a}b' }` must not be mistaken for the end of the object.
   let depth = 0
   let quote = ''
   let escaped = false
@@ -58,11 +60,22 @@ function findObjectEnd(source: string, start: number): number {
       else if (char === quote) quote = ''
       continue
     }
-    if (char === '"') { quote = char; continue }
+    if (char === '"' || char === "'" || char === '`') { quote = char; continue }
     if (char === '{') depth++
     if (char === '}' && --depth === 0) return index + 1
   }
   throw new Error('Workflow metadata object is not closed')
+}
+
+/**
+ * `meta` is documented as a plain JavaScript literal, so `JSON.parse` rejects the ordinary
+ * form (`{ name: 'x' }`) that every caller actually writes. Evaluating it in an empty vm
+ * context with code generation disabled accepts the literal without granting it any
+ * capability: with no globals bound, anything that is not a literal simply fails.
+ */
+function evaluateMetaLiteral(literal: string): unknown {
+  const context = createContext(Object.create(null) as object, { codeGeneration: { strings: false, wasm: false } })
+  return new Script(`(${literal})`).runInContext(context, { timeout: 1_000 })
 }
 
 export function parseWorkflowSource(source: string, fallbackName?: string): ParsedWorkflowSource {
@@ -75,11 +88,11 @@ export function parseWorkflowSource(source: string, fallbackName?: string): Pars
   }
 
   const objectStart = prefix[0].length
-  if (source[objectStart] !== '{') throw new Error('Workflow metadata must be a JSON-compatible object')
+  if (source[objectStart] !== '{') throw new Error('Workflow metadata must be a plain object literal')
   const objectEnd = findObjectEnd(source, objectStart)
   let meta: unknown
-  try { meta = JSON.parse(source.slice(objectStart, objectEnd)) } catch {
-    throw new Error('Workflow metadata must be a JSON-compatible object')
+  try { meta = evaluateMetaLiteral(source.slice(objectStart, objectEnd)) } catch {
+    throw new Error('Workflow metadata must be a plain object literal')
   }
   let bodyStart = objectEnd
   while (/\s/.test(source[bodyStart] ?? '')) bodyStart++
