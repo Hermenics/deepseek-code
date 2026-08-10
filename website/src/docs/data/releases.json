@@ -1,5 +1,51 @@
 [
   {
+    "version": "0.6.7",
+    "changes": [
+      "Added: Mode and permission summary exposure — `getSystemPrompt()` now returns a safe summary (mode, allowed tools, permission hints) instead of the actual system prompt, with JSDoc explaining the security rationale",
+      "Added: Introspect tool expanded with a comprehensive codebase map, provider guide, settings precedence documentation, and dynamic version from package.json",
+      "Added: Refined Plan mode toolset — lsp and get_goal allowed, git/todo/memory read-only access clarified, subagent and MCP tools restricted",
+      "Added: `edit_file` tracked alongside write_file and patch_file in turn-write metrics and undo snapshot coverage",
+      "Changed: System command description updated to reflect the new permission-focused behavior",
+      "Changed: Tool blocking message now references `/permissions` and mode-appropriate alternatives",
+      "Changed: System prompt rewritten for clarity — autonomous execution, concise communication, and reasoning tag isolation",
+      "Enhanced: WorkflowMonitor with improved workflow state tracking and interaction patterns",
+      "Enhanced: Risk evaluation logic and path safety validation across permission layers",
+      "Tests: Coverage for interaction mode, Introspect tool, risk assessment, plan mode, and WorkflowMonitor interactions"
+    ]
+  },
+  {
+    "version": "0.6.6",
+    "changes": [
+      "Added: Full mode toggle (Ctrl+O) — expanded thinking (◌), untruncated tool output and shell commands, and a \"Full mode · ctrl+o to toggle\" footer while active; toggling never interrupts the agent",
+      "Added: Live thinking timer — the thinking block shows \"Thinking for N seconds...\" counting in real time while the model reasons, then collapses to \"Thought for N seconds (ctrl+o to expand)\" with the total duration once finished",
+      "Fixed: Live thinking falls back to a generic indicator when no start timestamp is available instead of computing from epoch zero",
+      "Tests: Add rendering coverage for full mode, the live timer, collapsed/expanded thinking blocks, and the verbose footer"
+    ]
+  },
+  {
+    "version": "0.6.5",
+    "changes": [
+      "Added: Claude Code-style subagent chat — Enter on a subagent row in the activity footer opens its live transcript (@name header, \"Message @name\" input); messages typed while focused are routed to that subagent via the mailbox",
+      "Added: Progressive token reporting and live reasoning — the footer shows \"↓ tokens\" growing during a run and the focused view streams the subagent's thinking",
+      "Added: Activity footer renders while focused on a subagent (Enter on main exits focus; v-key keeps the detail view reachable)",
+      "Added: Deterministic loading-spinner messages (rotate on each tool call instead of Math.random)",
+      "Fixed: Reset all subagent callbacks (onMessage/onTokens) on cleanup so detached listeners don't receive later events",
+      "Fixed: Drain coordinator questions on every subagent-loop return path so a message arriving during a final completion is not dropped",
+      "Fixed: Merge consecutive transcript deltas of the same role into one entry; clear subagent focus before slash/! routes to the main agent",
+      "Fixed: Address CodeQL findings — HTML sanitization accepts malformed closing tags and decodes ampersand last; worktree names and emulated tool-call ids use crypto.randomUUID; WebFetch strips script/style with attribute-carrying end tags",
+      "Docs: Improve subagent code documentation with JSDoc comments"
+    ]
+  },
+  {
+    "version": "0.6.4",
+    "changes": [
+      "Added: Progressive token tracking in the activity footer (\"↓ tokens\" grows during a subagent run)",
+      "Added: Improved activity display for subagents and workflows",
+      "Docs: Expand the documentation site with new pages and navigation structure"
+    ]
+  },
+  {
     "version": "0.6.3",
     "changes": [
       "Fixed: Make update notifier cooldown deadline-based — failures now retry after 10 minutes instead of silencing update checks for an hour",
