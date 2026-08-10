@@ -48,6 +48,7 @@
     "zod": "3.24.4"
   },
   "scripts": {
+    "dev": "npm start",
     "start": "node scripts/generate-releases.js && craco start",
     "build": "node scripts/generate-releases.js && craco build",
     "test": "craco test",
