@@ -218,7 +218,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   useEffect(() => {
     const subs = subagentsRef.current
     const findTask = (id: string) => {
-      try { return { task: agent.orchestrator.registry.getStatus(id), workflowRunId: null } }
+      try { return { task: agent.orchestrator.registry.getStatus(id), workflowRunId: null, workflowPhase: null } }
       catch { return agent.workflows.findTask(id) }
     }
     const syncTask = (id: string) => {
@@ -231,6 +231,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         agentName: record.metadata.agentName as string | undefined,
         mode: record.mode, model: record.metadata.model as string | undefined,
         workspace: record.workspace?.path, workflowRunId: located.workflowRunId,
+        workflowPhase: located.workflowPhase,
+        prompt: typeof record.metadata.prompt === 'string' ? record.metadata.prompt : undefined,
         error: record.error?.message ?? record.blockReason,
       })
       return true
@@ -247,6 +249,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           model: record.metadata.model as string | undefined,
           workspace: record.workspace?.path,
           workflowRunId: located.workflowRunId,
+          workflowPhase: located.workflowPhase,
+          prompt: typeof record.metadata.prompt === 'string' ? record.metadata.prompt : undefined,
         })
         setSubagentTick((t) => t + 1)
       },
@@ -278,11 +282,23 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   useEffect(() => agent.orchestrator.subscribe(event => {
     if (event.type !== 'state_changed' || !event.taskId) return
-    const record = agent.orchestrator.registry.getStatus(event.taskId)
+    // Workflow agents live in their own session registry, so fall back to the workflow-aware
+    // lookup: a workflow agent first seen through a state change must still carry the run and
+    // phase the monitor groups by.
+    const taskId = event.taskId
+    const located = (() => {
+      try { return { task: agent.orchestrator.registry.getStatus(taskId), workflowRunId: null, workflowPhase: null } }
+      catch { return agent.workflows.findTask(taskId) }
+    })()
+    if (!located) return
+    const record = located.task
     subagentsRef.current.onSubagentState({
       id: record.taskId,
       status: record.state,
+      workflowRunId: located.workflowRunId,
+      workflowPhase: located.workflowPhase,
       task: String(record.metadata.task ?? record.type),
+      prompt: typeof record.metadata.prompt === 'string' ? record.metadata.prompt : undefined,
       role: record.metadata.role as string | undefined,
       agentName: record.metadata.agentName as string | undefined,
       mode: record.mode,
