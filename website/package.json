@@ -50,7 +50,7 @@
   "scripts": {
     "dev": "npm start",
     "start": "node scripts/generate-releases.js && craco start",
-    "build": "node scripts/generate-releases.js && craco build",
+    "build": "node scripts/generate-releases.js && NODE_OPTIONS=--no-deprecation craco build",
     "test": "craco test",
     "test:ci": "CI=true craco test --watchAll=false",
     "lint": "ESLINT_USE_FLAT_CONFIG=false eslint src --ext .js,.jsx --max-warnings=0"
