@@ -7,12 +7,13 @@ import Text from '../../ink/components/Text.js'
 interface Props {
   current: string
   latest: string
+  packageManagers: readonly ('bun' | 'npm')[]
   onChoice: (choice: 'update' | 'skip' | 'dismiss') => void
 }
 
 const OPTIONS = ['update', 'skip', 'dismiss'] as const
 
-export function UpdatePrompt({ current, latest, onChoice }: Props) {
+export function UpdatePrompt({ current, latest, packageManagers, onChoice }: Props) {
   const [idx, setIdx] = useState(0)
 
   useInput((input: string, key: Key) => {
@@ -23,7 +24,9 @@ export function UpdatePrompt({ current, latest, onChoice }: Props) {
   })
 
   const labels: Record<typeof OPTIONS[number], string> = {
-    update: `Update now (runs \`npm install -g @hermenics/deepseek-code@${latest}\`)`,
+    update: packageManagers.length === 2
+      ? 'Update now (updates the npm and Bun global packages in parallel)'
+      : `Update now (runs \`${packageManagers[0]} ${packageManagers[0] === 'bun' ? 'add' : 'install'} -g @hermenics/deepseek-code@${latest}\`)`,
     skip: 'Skip',
     dismiss: "Don't ask again for this version",
   }
@@ -31,6 +34,7 @@ export function UpdatePrompt({ current, latest, onChoice }: Props) {
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text>  ✨ Update available! {current} -{'>'} {latest}</Text>
+      {packageManagers.length === 2 && <Text color="yellow">  ⚠ Installed globally with npm and Bun; both will be updated.</Text>}
       <Box flexDirection="column" marginTop={1}>
         {OPTIONS.map((opt, i) => (
           <Box key={opt}>

@@ -84,6 +84,7 @@ import { ApiKeySetup, loadSavedConfig } from '../ui/setup/ApiKeySetup.js'
 import { ResumePicker } from '../ui/setup/ResumePicker.js'
 import type { ThemeName, ProviderConfig } from '../types/provider.js'
 import { migrateConfigIfNeeded, logout as doLogout } from '../utils/credentials.js'
+import { getGlobalPackageManagers } from '../utils/bun-global-package.js'
 import { loadAgentConfig, type LoadedAgent } from '../agent/config.js'
 import { getLastProjectSession, listSessions, loadSession, newSessionId, type SessionData } from '../agent/session.js'
 import { loadMergedSettings } from '../settings/loader.js'
@@ -184,13 +185,18 @@ if (update) {
     } else {
       process.stdout.write(`Updating ${current} → ${latest}...\n`)
       const { execa } = await import('execa')
-      // ponytail: always npm — bun is the runtime, not the package manager used for global install
-      const pm = 'npm'
-      const { stdout, stderr, exitCode } = await execa(pm, ['install', '-g', `${name}@${latest}`], { reject: false })
-      if (stdout) process.stdout.write(stdout + '\n')
-      if (stderr) process.stderr.write(stderr + '\n')
-      if (exitCode !== 0) {
-        process.stderr.write(`Update failed (exit ${exitCode}). Check the errors above.\n`)
+      const managers = await getGlobalPackageManagers(name)
+      if (managers.length === 2) process.stdout.write(`Warning: ${name} is installed globally with npm and Bun; updating both in parallel.\n`)
+      const results = await Promise.all(managers.map(async (pm) => ({
+        pm,
+        result: await execa(pm, pm === 'bun' ? ['add', '-g', `${name}@${latest}`] : ['install', '-g', `${name}@${latest}`], { reject: false }),
+      })))
+      for (const { result } of results) {
+        if (result.stdout) process.stdout.write(result.stdout + '\n')
+        if (result.stderr) process.stderr.write(result.stderr + '\n')
+      }
+      if (results.some(({ result }) => result.exitCode !== 0)) {
+        process.stderr.write('Update failed. Check the errors above.\n')
         process.exit(1)
       }
       process.stdout.write(`Updated to ${latest}. Restart deepseek to use the new version.\n`)
@@ -223,11 +229,13 @@ if (!ARGV.update) {
   if (update && !isDismissed(update.latest)) {
     const { UpdatePrompt } = await import('../ui/setup/UpdatePrompt.js')
     const { renderSync } = await import('../ink/root.js')
+    const managers = await getGlobalPackageManagers(pkg.name)
     const choice = await new Promise<'update' | 'skip' | 'dismiss'>((resolve) => {
       const instance = renderSync(
         <UpdatePrompt
           current={update.current}
           latest={update.latest}
+          packageManagers={managers}
           onChoice={(c) => { instance.unmount(); resolve(c) }}
         />,
         { exitOnCtrlC: false, patchConsole: false }
@@ -236,12 +244,17 @@ if (!ARGV.update) {
     if (choice === 'update') {
       const { execa } = await import('execa')
       process.stdout.write(`\nUpdating to ${update.latest}...\n`)
-      const { stdout, stderr, exitCode } = await execa('npm', ['install', '-g', `${pkg.name}@${update.latest}`], { reject: false })
-      if (stdout) process.stdout.write(stdout + '\n')
-      if (stderr) process.stderr.write(stderr + '\n')
-      if (exitCode !== 0) {
-        process.stderr.write(`Update failed (exit ${exitCode}).\n`)
-        process.exit(exitCode ?? 1)
+      if (managers.length === 2) process.stdout.write(`Warning: ${pkg.name} is installed globally with npm and Bun; updating both in parallel.\n`)
+      const results = await Promise.all(managers.map(async (pm) => ({
+        result: await execa(pm, pm === 'bun' ? ['add', '-g', `${pkg.name}@${update.latest}`] : ['install', '-g', `${pkg.name}@${update.latest}`], { reject: false }),
+      })))
+      for (const { result } of results) {
+        if (result.stdout) process.stdout.write(result.stdout + '\n')
+        if (result.stderr) process.stderr.write(result.stderr + '\n')
+      }
+      if (results.some(({ result }) => result.exitCode !== 0)) {
+        process.stderr.write('Update failed. Check the errors above.\n')
+        process.exit(1)
       } else {
         process.stdout.write(`Updated! Restart deepseek to use ${update.latest}.\n`)
         process.exit(0)
