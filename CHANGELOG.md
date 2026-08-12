@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.9
+
+- Added: Detect and update packages installed via both npm and Bun global installs — checks both package manager directories, updates whichever are found in parallel, and shows the matching install command for each
+- Fixed: Silence cssnano postcss-calc warnings on CSS Math Functions during the website build
+- Chore: Suppress Node deprecation warnings during the website build
+
 ## 0.6.8
 
 - Added: Mirror Claude Code's dynamic workflow monitor — three-level drill-down (run list, phases beside their agents, agent prompt/output), agents pinned to the phase active at spawn, pending phases rendered from parsed meta.phases, and a footer reading "4/4 agents done · 5s · ↓ 226k tokens"
