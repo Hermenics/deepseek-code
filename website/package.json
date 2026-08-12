@@ -31,7 +31,7 @@
     "@radix-ui/react-toggle-group": "1.1.10",
     "@radix-ui/react-tooltip": "1.2.7",
     "@tanstack/react-query": "5.56.2",
-    "axios": "1.16.0",
+    "axios": "1.19.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "1.1.1",
@@ -40,8 +40,8 @@
     "lucide-react": "0.516.0",
     "react": "19.0.0",
     "react-dom": "19.0.0",
+    "react-router-dom": "7.18.2",
     "react-scripts": "5.0.1",
-    "react-router-dom": "7.15.0",
     "sonner": "2.0.3",
     "tailwind-merge": "3.2.0",
     "tailwindcss-animate": "1.0.7",
@@ -68,24 +68,6 @@
     "eslint": "8.57.0",
     "postcss": "8.5.10",
     "tailwindcss": "3.4.17"
-  },
-  "resolutions": {
-    "react-router": "7.15.0",
-    "node-forge": "1.4.0",
-    "fast-uri": "3.1.2",
-    "flatted": "3.4.2",
-    "qs": "6.15.2",
-    "diff": "4.0.4",
-    "follow-redirects": "1.16.0",
-    "rollup": "2.80.0",
-    "underscore": "1.13.8",
-    "uuid": "11.1.1",
-    "shell-quote": "1.8.4",
-    "jsonpath": "1.3.0",
-    "nth-check": "2.0.1",
-    "micromatch": "4.0.8",
-    "readdirp": "4.1.2",
-    "jest-util": "30.0.2"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c3997078417bacf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }
