@@ -45,6 +45,26 @@ html {
     html {
         scroll-behavior: auto;
     }
+
+    .product-switcher-menu,
+    .product-switcher-chevron {
+        animation: none;
+        transition: none;
+    }
+}
+
+@keyframes product-switcher-enter {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+.product-switcher-menu {
+    animation: product-switcher-enter 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.product-switcher-chevron {
+    display: inline-block;
+    transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 body {

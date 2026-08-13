@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import { Link, useLocation } from "react-router-dom";
+import ProductSwitcher from "../components/ProductSwitcher";
 
 /* ---------- Icons (inline SVG, no deps) ---------- */
 export const Icon = {
@@ -295,14 +296,19 @@ export default function Layout({ children }) {
     <div className="dsc-docs" ref={rootRef}>
       <header className="topbar">
         <div className="topbar-inner">
-          <Link to="/docs" className="brand">
+          <ProductSwitcher
+            triggerClassName="brand product-switcher-trigger"
+            contentClassName="product-switcher-menu"
+            itemClassName="product-switcher-item"
+            alignOffset={126}
+          >
             <span className="brand-mark">
               <img src={`${process.env.PUBLIC_URL}/dsc-logo.png`} alt="DeepSeek Code logo" />
             </span>
             <span className="brand-name">
-              DeepSeek Code<span className="slash">/</span><span className="docs">Docs</span>
+              DeepSeek Code<span className="slash">/</span><span className="docs">Docs</span><span aria-hidden="true" className="product-switcher-chevron"> &gt;</span>
             </span>
-          </Link>
+          </ProductSwitcher>
 
           <div className="top-actions">
             <button
