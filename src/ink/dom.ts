@@ -80,6 +80,14 @@ export type DOMElement = {
   // time the throttled render fires, the element ref defers the position
   // read to paint time. One-shot.
   scrollAnchor?: { el: DOMElement; offset: number }
+  // Claims left-button drags that begin inside this node's rect. Normally a
+  // press starts a text selection and every subsequent motion extends it;
+  // when this is set, the press is routed here instead and keeps receiving
+  // screen coordinates until the button is released — even once the pointer
+  // leaves the node. That is what a scrollbar thumb needs: grabbing it must
+  // not paint a selection, and dragging past the bar must keep scrolling.
+  // Assign via a ref (see ui/layout/Scrollbar.tsx); there is no JSX prop.
+  onPointerDrag?: (col: number, row: number) => void
   // Only set on ink-root. The document owns focus — any node can
   // reach it by walking parentNode, like browser getRootNode().
   focusManager?: FocusManager

@@ -72,6 +72,13 @@ type Props = {
   // exact cell; word/line mode snaps to word/line boundaries. Needs
   // screen-buffer access (word boundaries) so lives on Ink, not here.
   readonly onSelectionDrag: (col: number, row: number) => void;
+  // Called on left-press to ask whether a node at that cell claims the drag
+  // (see DOMElement.onPointerDrag). Returns its handler, or null to fall
+  // through to text selection. Optional so testing.tsx needn't stub it.
+  readonly findPointerDragTarget?: (
+    col: number,
+    row: number,
+  ) => ((col: number, row: number) => void) | null;
   // Called when stdin data arrives after a >STDIN_RESUME_GAP_MS gap.
   // Ink re-asserts terminal modes: extended key reporting, and (when in
   // fullscreen) re-enters alt-screen + mouse tracking. Idempotent on the
@@ -141,6 +148,10 @@ export default class App extends PureComponent<Props, State> {
   // repeat events (drag-then-release at same cell, etc.).
   lastHoverCol = -1;
   lastHoverRow = -1;
+  // Active pointer-drag handler, set on press when a node claimed the drag
+  // and cleared on release. While set, motion goes here instead of extending
+  // the text selection.
+  pointerDrag: ((col: number, row: number) => void) | null = null;
 
   // Timestamp of last stdin chunk. Used to detect long gaps (tmux attach,
   // ssh reconnect, laptop wake) and trigger terminal mode re-assert.
@@ -536,6 +547,11 @@ export function handleMouseEvent(app: App, m: ParsedMouse): void {
         finishSelection(sel);
         app.props.onSelectionChange();
       }
+      // Same lost-release case for a claimed pointer drag: motion with no
+      // button held means the button is up, so drop the handler. Left stale it
+      // would hijack the next drag — the user would try to select text and the
+      // scrollbar would scroll instead.
+      app.pointerDrag = null;
       if (col === app.lastHoverCol && row === app.lastHoverRow) return;
       app.lastHoverCol = col;
       app.lastHoverRow = row;
@@ -548,6 +564,13 @@ export function handleMouseEvent(app: App, m: ParsedMouse): void {
       return;
     }
     if ((m.button & 0x20) !== 0) {
+      // A node claimed this drag on press (scrollbar thumb): feed it the
+      // motion and never touch the selection. Coordinates are unclamped on
+      // purpose — dragging past the node's edge should keep driving it.
+      if (app.pointerDrag) {
+        app.pointerDrag(col, row);
+        return;
+      }
       // Drag motion: mode-aware extension (char/word/line). onSelectionDrag
       // calls notifySelectionChange internally — no extra onSelectionChange.
       app.props.onSelectionDrag(col, row);
@@ -562,6 +585,11 @@ export function handleMouseEvent(app: App, m: ParsedMouse): void {
       finishSelection(sel);
       app.props.onSelectionChange();
     }
+    // A fresh press always supersedes any previous claim, so clear it before
+    // the new one is resolved below. Without this, a press that claims nothing
+    // (anywhere off the scrollbar) would leave the previous handler armed and
+    // route this drag to it.
+    app.pointerDrag = null;
     // Fresh left press. Detect multi-click HERE (not on release) so the
     // word/line highlight appears immediately and a subsequent drag can
     // extend by word/line like native macOS. Previously detected on
@@ -585,6 +613,17 @@ export function handleMouseEvent(app: App, m: ParsedMouse): void {
       app.props.onMultiClick(col, row, count);
       return;
     }
+    // Does something at this cell want the drag instead of the selection?
+    // Checked after multi-click (a double-click on a scrollbar is still a
+    // click) and before startSelection, so grabbing a thumb never paints a
+    // highlight. The handler fires once here too, so a press that never
+    // moves still acts.
+    const claimed = app.props.findPointerDragTarget?.(col, row) ?? null;
+    if (claimed) {
+      app.pointerDrag = claimed;
+      claimed(col, row);
+      return;
+    }
     startSelection(sel, col, row);
     // SGR bit 0x08 = alt (xterm.js wires altKey here, not metaKey — see
     // comment at the hyperlink-open guard below). On macOS xterm.js,
@@ -592,6 +631,14 @@ export function handleMouseEvent(app: App, m: ParsedMouse): void {
     // xterm.js would have consumed the event for native selection).
     sel.lastPressHadAlt = (m.button & 0x08) !== 0;
     app.props.onSelectionChange();
+    return;
+  }
+
+  // A claimed pointer drag ends here, whatever button code the terminal used
+  // for the release. No selection was ever started, so there is nothing to
+  // finish and no click to dispatch — the handler already ran on press.
+  if (app.pointerDrag) {
+    app.pointerDrag = null;
     return;
   }
 

@@ -80,6 +80,7 @@ import { App } from '../ui/App.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
 import { AlternateScreen } from '../ink/components/AlternateScreen.js'
+import { resolveFullscreen, setFullscreenActive } from '../utils/fullscreen.js'
 import { ApiKeySetup, loadSavedConfig } from '../ui/setup/ApiKeySetup.js'
 import { ResumePicker } from '../ui/setup/ResumePicker.js'
 import type { ThemeName, ProviderConfig } from '../types/provider.js'
@@ -279,6 +280,7 @@ function Root() {
   const [savedLanguage, setSavedLanguage] = useState<string | null>(null)
   const [savedEnchant, setSavedEnchant] = useState<boolean>(true)
   const [initialSettings, setInitialSettings] = useState<DeepSeekSettings>({})
+  const [alternateScreen, setAlternateScreen] = useState(false)
 
   useEffect(() => {
     const init = async () => {
@@ -292,6 +294,14 @@ function Root() {
 
         setTheme(savedTheme)
         setInitialSettings(settings)
+        // Resolve once, here, rather than in render: the probe can shell out to
+        // tmux and builds a fresh cache per call, so running it every render
+        // would repeat that work. Publishing to module state is a side effect
+        // and belongs in the effect too — and it lands before setChecked(true)
+        // below, so the first frame that reads isFullscreenActive() sees it.
+        const fullscreen = resolveFullscreen(settings)
+        setFullscreenActive(fullscreen.enabled)
+        setAlternateScreen(fullscreen.enabled)
         setSavedLanguage(language)
         setSavedEnchant(enchant)
         if (saved) {
@@ -357,7 +367,6 @@ function Root() {
     )
   }
 
-  const alternateScreen = initialSettings.interface?.alternateScreen === true
   const application = (
     <App
       initialAgent={initialAgent}

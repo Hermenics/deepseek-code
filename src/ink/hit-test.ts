@@ -41,6 +41,26 @@ export function hitTest(
 }
 
 /**
+ * Find the node that claims pointer drags starting at (col, row), if any.
+ *
+ * Walks up from the deepest hit node through parentNode, mirroring how
+ * dispatchClick finds onClick handlers. Returns the node's handler so the
+ * caller can keep feeding it coordinates for the life of the drag.
+ */
+export function findPointerDragTarget(
+  root: DOMElement,
+  col: number,
+  row: number,
+): ((col: number, row: number) => void) | null {
+  let node: DOMElement | undefined | null = hitTest(root, col, row)
+  while (node) {
+    if (node.onPointerDrag) return node.onPointerDrag
+    node = node.parentNode
+  }
+  return null
+}
+
+/**
  * Hit-test the root at (col, row) and bubble a ClickEvent from the deepest
  * containing node up through parentNode. Only nodes with an onClick handler
  * fire. Stops when a handler calls stopImmediatePropagation(). Returns

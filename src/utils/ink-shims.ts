@@ -119,18 +119,6 @@ export function execFileNoThrow(
   })
 }
 
-export function isMouseClicksDisabled(): boolean {
-  return true
-}
-
-export function isFullscreenEnvEnabled(): boolean {
-  return false
-}
-
-export function isFullscreenActive(): boolean {
-  return false
-}
-
 export function stopCapturingEarlyInput(): void {}
 
 export function updateLastInteractionTime(): void {}

@@ -41,7 +41,7 @@ export const DEFAULT_SETTINGS: DeepSeekSettings = {
     vim: false,
     density: 'comfortable',
     reducedMotion: false,
-    alternateScreen: false,
+    alternateScreen: true,
     showThoughts: true,
     showToolCalls: true,
     showDiffs: true,
