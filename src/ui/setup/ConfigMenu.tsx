@@ -141,7 +141,7 @@ const CATEGORIES: Category[] = [
       { path: 'interface.vim', label: 'Vim input', description: 'Persist Vim-style input mode.', kind: 'boolean' },
       { path: 'interface.density', label: 'Density', description: 'Compact or comfortable vertical spacing.', kind: 'enum', options: ['compact', 'comfortable'] },
       { path: 'interface.reducedMotion', label: 'Reduced motion', description: 'Disable non-essential shimmer and motion.', kind: 'boolean' },
-      { path: 'interface.alternateScreen', label: 'Alternate screen', description: 'Use the terminal alternate buffer next session.', kind: 'boolean', restart: true },
+      { path: 'interface.alternateScreen', label: 'Fullscreen', description: 'Run the TUI in the terminal alternate buffer, pinning the input to the bottom. On by default. Turn it off to keep native scrollback. Applies next session.', kind: 'boolean', restart: true },
       { path: 'interface.showThoughts', label: 'Show thoughts', description: 'Show or hide reasoning panels without deleting history data.', kind: 'boolean' },
       { path: 'interface.showToolCalls', label: 'Show tool calls', description: 'Show tool call details in the transcript.', kind: 'boolean' },
       { path: 'interface.showDiffs', label: 'Show diffs', description: 'Show diffs while preserving their history records.', kind: 'boolean' },

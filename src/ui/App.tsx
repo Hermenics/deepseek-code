@@ -33,6 +33,8 @@ import { getGoal, getElapsedSeconds, resumeGoal, updateGoal, buildContinuationPr
 import { DEFAULT_MODE, nextMode, isBuildMode, isAutoMode, type InteractionMode } from './interactionMode.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
+import ScrollBox, { type ScrollBoxHandle } from '../ink/components/ScrollBox.js'
+import { Scrollbar } from './layout/Scrollbar.js'
 import { ThemeProvider } from './design-system/index.js'
 import { PlanApprovalPrompt, type PlanApprovalResult } from './plan/PlanApprovalPrompt.js'
 import { newPlanPath, buildPlanModeInjection } from '../agent/planMode.js'
@@ -106,6 +108,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   initialSettings?: DeepSeekSettings
   alternateScreen?: boolean
 }) {
+  const transcriptRef = useRef<ScrollBoxHandle | null>(null)
   const initialSessionRef = useRef(initialSession)
   const handleSubmitRef = useRef<((text: string) => Promise<void>) | null>(null)
   const projectRootRef = useRef(initialSession?.cwd && existsSync(initialSession.cwd) ? initialSession.cwd : process.cwd())
@@ -191,6 +194,21 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     event.stopImmediatePropagation()
     setFullMode((v) => !v)
   })
+
+  // Fullscreen replaces the terminal's own scrollback, so the transcript needs
+  // its own scroll keys: wheel notches move 3 lines, PageUp/PageDown move half a
+  // viewport. stickyScroll re-pins to the bottom once the user scrolls back down.
+  useInput((_input, key, event) => {
+    const transcript = transcriptRef.current
+    if (!transcript) return
+    const halfPage = Math.max(1, Math.floor(transcript.getViewportHeight() / 2))
+    if (key.wheelUp) transcript.scrollBy(-3)
+    else if (key.wheelDown) transcript.scrollBy(3)
+    else if (key.pageUp) transcript.scrollBy(-halfPage)
+    else if (key.pageDown) transcript.scrollBy(halfPage)
+    else return
+    event.stopImmediatePropagation()
+  }, { isActive: alternateScreen })
 
   // Esc while focused on a subagent returns to the main conversation. InputBox's
   // own Esc handler does not stopImmediatePropagation, so this fires after it.
@@ -1795,10 +1813,20 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     workflowRuns.filter(run => ['queued', 'running'].includes(run.status)).length
   const focusedAgent = focusedSubagent ? subagentsRef.current.agents.find(a => a.id === focusedSubagent.id) ?? null : null
 
+  // Fullscreen has no native scrollback: the root is pinned to exactly termRows
+  // and the transcript lives in a ScrollBox that keeps itself pinned to the
+  // bottom as content grows. Outside fullscreen the terminal scrolls for us, so
+  // the transcript stays a plain Box and grows past the viewport as before.
+  const TranscriptArea = alternateScreen ? ScrollBox : Box
+  const transcriptProps = alternateScreen
+    ? { stickyScroll: true, flexDirection: 'column' as const, width: '100%', ref: transcriptRef }
+    : {}
+
   return (
     <ThemeProvider value={theme}>
-    <Box flexDirection="column" width="100%" minHeight={alternateScreen ? termRows : undefined}>
-      <Box flexGrow={1}>
+    <Box flexDirection="column" width="100%" height={alternateScreen ? termRows : undefined}>
+      <Box flexDirection="row" flexGrow={1}>
+      <TranscriptArea flexGrow={1} {...transcriptProps}>
         <Box flexDirection="column">
           <MessageList
             messages={focusedSubagent
@@ -1832,6 +1860,13 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           {btw && <BtwSideQuestion btw={btw} theme={theme} onDismiss={() => { btwAbortRef.current?.abort(); setBtw(null) }} />}
           {queuedMessages.length > 0 && <QueuedMessagesList messages={queuedMessages} />}
         </Box>
+      </TranscriptArea>
+      {alternateScreen && (
+        <Scrollbar
+          target={transcriptRef}
+          revision={`${messages.length}:${streamText.length}:${thinkingText.length}:${toolCallCount}:${queuedMessages.length}`}
+        />
+      )}
       </Box>
 
       {/* Footer */}
@@ -1902,6 +1937,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             activityAvailable={activityCount > 0}
             onActivityOpen={() => setActivityOpen(true)}
             isActive={!activityOpen}
+            showFullscreenHint={messages.length === 0}
             placeholderOverride={focusedSubagent ? `Message @${focusedSubagent.agentName ?? 'subagent'}…` : undefined}
           />
         )}

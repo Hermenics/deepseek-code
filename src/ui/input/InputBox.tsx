@@ -22,6 +22,7 @@ import { InputChrome } from './render/InputChrome.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 import { getAtMention, searchFiles } from './fileMatcher.js'
+import { isFullscreenActive } from '../../utils/fullscreen.js'
 
 // Convert Ink's Key (boolean flags) to KeyEvent (name-based) used by processTextInputKey/processVimKey
 export function inkKeyToKeyEvent(key: Key, input: string): KeyEvent {
@@ -81,6 +82,7 @@ export function InputBox({
   onActivityOpen,
   isActive = true,
   placeholderOverride,
+  showFullscreenHint = false,
 }: {
   onSubmit: (text: string) => void
   isLoading: boolean
@@ -101,6 +103,8 @@ export function InputBox({
   activityAvailable?: boolean
   onActivityOpen?: () => void
   isActive?: boolean
+  /** Show the "switch it in /config" hint. Caller hides it once the conversation starts. */
+  showFullscreenHint?: boolean
 }) {
   const cols = process.stdout.columns ?? 80
   const [cursor, setCursor] = useState(() => Cursor.fromText('', cols))
@@ -427,6 +431,11 @@ export function InputBox({
 
   return (
     <Box flexDirection="column">
+      {showFullscreenHint && isFullscreenActive() && (
+        <Box justifyContent="flex-end">
+          <Text dimColor>{"Don't like this screen? Change it in /config"}</Text>
+        </Box>
+      )}
       <InputChrome
         columns={cols}
         agentLabel={agentLabel}
