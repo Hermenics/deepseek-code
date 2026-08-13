@@ -29,7 +29,7 @@ const TOKEN_GROUPS = [
     "Semantic",
     [
       ["success / error / warning / info", "Status colors — green/red/yellow/cyan (blue in daltonized)"],
-      ["suggestion / suggestionShimmer", "Ghost-text and assistant accent"],
+      ["suggestion / suggestionShimmer", "Assistant-message accent and its shimmer counterpart"],
     ],
   ],
   [
@@ -109,8 +109,9 @@ export default function Themes() {
         <section id="themes">
           <h2><span className="anchor">#</span>The six themes</h2>
           <p>
-            All colors come from a single <code className="inline">ThemeColors</code> object per
-            theme, defined in <code className="inline">src/ui/theme.ts</code>:
+            The primary transcript, status, Markdown and diff palettes come from one
+            <code className="inline">ThemeColors</code> object per theme, defined in
+            <code className="inline">src/ui/theme.ts</code>:
           </p>
           <div className="doc-table-wrap">
             <table className="doc-table">
@@ -136,7 +137,7 @@ export default function Themes() {
 
         <section id="tokens">
           <h2><span className="anchor">#</span>Design tokens</h2>
-          <p>Roughly 40 tokens in nine groups, consumed by every TUI component:</p>
+          <p>Roughly 40 tokens in nine groups cover the main themed surfaces:</p>
           <div className="doc-table-wrap">
             <table className="doc-table">
               <thead>
@@ -158,6 +159,11 @@ export default function Themes() {
               </tbody>
             </table>
           </div>
+          <Note>
+            Theme coverage is not universal. Some input chrome, dropdown selection, ghost text and
+            transient tool UI still use direct ANSI/hex colors or a component&apos;s dark-theme default.
+            For example, ghost text is currently a fixed dim gray rather than the suggestion token.
+          </Note>
         </section>
 
         <section id="daltonized">
@@ -194,7 +200,7 @@ export default function Themes() {
           <h2><span className="anchor">#</span>ANSI themes</h2>
           <p>
             <code className="inline">dark-ansi</code> and <code className="inline">light-ansi</code>{" "}
-            are for terminals with no truecolor support: every token resolves to a basic ANSI name
+            are for terminals with no truecolor support: active color tokens resolve to basic ANSI names
             (<code className="inline">blue</code>, <code className="inline">green</code>,{" "}
             <code className="inline">red</code>, <code className="inline">gray</code>,{" "}
             <code className="inline">white</code>...), with shimmer, gradients, and subtle
@@ -232,7 +238,7 @@ export default function Themes() {
         <section id="applying">
           <h2><span className="anchor">#</span>Applying a theme</h2>
           <p>
-            Components resolve colors through{" "}
+            Theme-aware components resolve colors through{" "}
             <code className="inline">getThemeColors(theme)</code>, which falls back to{" "}
             <code className="inline">dark</code> for unknown names. The active theme persists to
             settings — set it with the <code className="inline">interface.theme</code> setting

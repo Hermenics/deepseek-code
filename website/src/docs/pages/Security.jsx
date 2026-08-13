@@ -38,7 +38,7 @@ const HIGH_RISK = [
   ["shell", "rm, rm -rf, force push, git reset --hard, git clean, git checkout --"],
   ["shell", "npm install, bun add, pip install, apt install, sudo, systemctl, docker --rm, chmod"],
   ["shell", "deploy commands: *run deploy*, deploy.sh, serverless deploy, cdk deploy, bun run build"],
-  ["write_file / patch_file", "writes into .deepseek/ (including .deepseek/steering/)"],
+  ["write_file / edit_file / patch_file", "writes into .deepseek/ (including .deepseek/steering/)"],
   ["write_file", "large overwrites (≥ 100 lines)"],
   ["git", "push, pull"],
 ];
@@ -70,12 +70,14 @@ export default function Security() {
           <p>
             Every tool call is checked by the same pipeline before it executes:
           </p>
-          <CodeBlock lang="text">{`mode gate → risk rules → settings allow/deny → agent allowlist → hooks → execution`}</CodeBlock>
+          <CodeBlock lang="text">{`mode gate → pre-tool hooks → path and risk authorization → settings rules → agent allowlist → execution`}</CodeBlock>
           <p>
             The layers below are the hardening under that pipeline. They run regardless of mode and
-            cannot be turned off through permissions or settings — a file tool cannot escape the
-            workspace, a shell command cannot see your home directory, and a fetch cannot reach your
-            network metadata.
+            cannot be turned off through permissions or settings. Path-based file tools require containment
+            or an explicit external-directory approval, worker shell commands cannot see your home directory,
+            and a fetch cannot reach private or metadata-network targets. The coordinator shell is different:
+            it runs on the host in the active workspace, so its command paths are not constrained by file-tool
+            external-path approvals.
           </p>
           <Note>
             The pipeline is evaluated in order and each stage can deny the call. Plan and Review modes
@@ -90,13 +92,14 @@ export default function Security() {
             <code className="inline">resolveSafePath</code> / <code className="inline">assertSafePath</code>{" "}
             (<code className="inline">src/tools/shared/pathSafety.ts</code>). The returned path is the
             only one the tool is allowed to use. A path is valid when it stays inside the workspace
-            root or inside an explicitly approved external path; anything else is rejected.
+            root or inside an explicitly approved external path; anything else is rejected. These
+            approvals govern path-aware tools, not paths embedded in coordinator shell commands.
           </p>
           <p>
             Symlink escapes are caught by resolving the nearest existing ancestor with{" "}
             <code className="inline">fs.realpath</code> and checking it against the canonical approved
             root — a symlink that points outside the workspace is refused even if the literal path
-            looks contained. Two directory classes are always off-limits:
+            looks contained. Protected names are rejected relative to the workspace or approved root:
           </p>
           <ul className="capabilities">
             <li>
@@ -123,6 +126,12 @@ export default function Security() {
               </tbody>
             </table>
           </div>
+          <Note>
+            Approve a directory <em>above</em> a protected child, never the protected directory itself.
+            Protected-name checks are relative to each approved root; choosing the protected directory as
+            the root would hide its own name from that relative-path check. Sensitive filenames remain
+            blocked within approved external roots.
+          </Note>
           <p>
             Writes are atomic: content is staged in a temporary file, the target is re-validated after
             authorization, and only then renamed into place — preserving the existing file mode. Each
@@ -145,8 +154,9 @@ export default function Security() {
             <li><b>Cleared environment</b> — only <code className="inline">PATH=/opt/bin:/usr/local/bin:/usr/bin:/bin</code>, <code className="inline">HOME=/tmp</code>, <code className="inline">TMPDIR=/tmp</code> are set; no inherited secrets.</li>
           </ul>
           <p>
-            Destructive commands are blocked outright unless the coordinator has approved the
-            operation (<code className="inline">dangerousOperationApproved</code>):
+            Destructive shell patterns require coordinator-integrator execution plus an explicit runtime
+            authorization marker. Worker shell calls matching them are blocked rather than promoted into the
+            coordinator's host shell:
           </p>
           <div className="doc-table-wrap">
             <table className="doc-table">
@@ -196,7 +206,7 @@ export default function Security() {
           </p>
           <ul className="capabilities">
             <li><b>Minimal env</b> — stdio servers inherit only <code className="inline">PATH</code>, <code className="inline">TMPDIR</code> and <code className="inline">LANG</code>. Critical variables — <code className="inline">PATH</code>, <code className="inline">HOME</code>, <code className="inline">USER</code>, <code className="inline">SHELL</code>, <code className="inline">LD_*</code>, <code className="inline">DYLD_*</code>, <code className="inline">PYTHONPATH</code>, <code className="inline">NODE_OPTIONS</code>, <code className="inline">NODE_PATH</code>, <code className="inline">BUN_INSTALL</code> — can never be overridden by server configuration.</li>
-            <li><b>Command validation</b> — <code className="inline">validateMcpCommand</code> rejects empty commands, path traversal (<code className="inline">../</code>), and shell injection characters (<code className="inline">;`&lt;&gt;&amp;&amp;||$(&gt;&gt;&lt;&lt;</code>) before any process is spawned.</li>
+            <li><b>Command validation</b> — <code className="inline">validateMcpCommand</code> rejects empty commands, path traversal (<code className="inline">../</code>), and shell injection characters (<code className="inline">;`&lt;&gt;&&||$(&gt;&gt;&lt;&lt;</code>) before any process is spawned.</li>
             <li><b>Timeouts</b> — tool calls are raced against a 30s timeout so an unresponsive server cannot hang the agent.</li>
             <li><b>Audit trail</b> — every successful server load is recorded as an <code className="inline">mcp_server_load</code> event in the session audit log.</li>
           </ul>
@@ -206,10 +216,11 @@ export default function Security() {
           <h2><span className="anchor">#</span>Risk rules</h2>
           <p>
             Risk rules (<code className="inline">src/permissions/risk.ts</code>) match tool input against
-            glob patterns and conditions. <b>High</b> rules <b>always</b> require confirmation in every
-            mode and cannot be disabled or downgraded — not by an id override and not even by{" "}
-            <code className="inline">risk.enabled: false</code>. They are the floor of the risk system.
-            <b>Medium</b> rules require confirmation only when the call comes from inside a subagent.
+            glob patterns and conditions. Built-in <b>high</b> rules cannot be disabled or downgraded — not by
+            an id override and not even by <code className="inline">risk.enabled: false</code>. In the coordinator,
+            they require confirmation; in a worker, they are blocked and do not use the mailbox permission
+            handshake. <b>Medium</b> rules require confirmation only in a worker context, where the current
+            executor also blocks the call.
           </p>
           <div className="doc-table-wrap">
             <table className="doc-table">
@@ -236,6 +247,11 @@ export default function Security() {
               </tbody>
             </table>
           </div>
+          <p>
+            The <code className="inline">.deepseek/</code> risk rules still exist, but ordinary settings,
+            steering, and nested workflow paths are normally rejected first by path safety. A valid flat
+            project workflow file is the narrow exception and remains subject to risk authorization.
+          </p>
           <p>
             Add custom rules via <code className="inline">risk.rules</code> (new ids append, existing
             ids override defaults) and tune thresholds with{" "}

@@ -1,193 +1,404 @@
 import { CodeBlock, Note, Toc } from "../Layout";
 
-const TOOL_GROUPS = [
-  {
-    title: "File operations",
-    items: [
-      ["ReadFile", "Read a file with 1-indexed line numbers — 200-line default window, read large files in ranges using start_line / end_line (the header hints the next start_line to continue)."],
-      ["WriteFile", "Atomic full-file write that creates parent directories and returns a structured diff (added / removed / first-changed). Diffs are skipped for files over 5,000 lines."],
-      ["EditFile", "Surgical per-line substring replacement — the most token-efficient file tool. Multiple old/new pairs per line, validated before applying, applied bottom-to-top; lines are split on newlines."],
-      ["PatchFile", "Replace an exact string with new content. The match must appear exactly once — ambiguous matches fail with “be more specific”. Replacement is literal: $ patterns are never interpreted."],
-      ["ReadFolder", "List directory contents (recursive option). Caps at 1,000 entries and depth 5, skipping blocked dirs and .cache."],
-    ],
-  },
-  {
-    title: "Search & shell",
-    items: [
-      ["Glob", "Find files matching a glob pattern via fast-glob with curated ignores (heavy dirs + lockfiles, binaries, media and other non-source files), dot:true, 500-file cap."],
-      ["Grep", "Search file contents with grep -rn, optional include-glob filter, heavy-dir exclusions, 200-line cap and a 15s timeout. No matches is reported as such."],
-      ["Shell", "Run a shell command — sandboxed with bubblewrap for non-coordinator profiles (no network or inherited secrets). 300s default timeout, 50k-char output cap; destructive commands are blocked unless coordinator-approved."],
-      ["Git", "Structured git actions: status, diff, log (default 20), add, commit (message required), branch, stash, pull, push. Push uses --force-with-lease and auto-sets the upstream branch."],
-    ],
-  },
-  {
-    title: "Web & context",
-    items: [
-      ["WebFetch", "Fetch a URL — SSRF-hardened: DNS-pinned, blocks private / localhost / metadata IPs and fails closed on DNS failure. Strips HTML, follows up to 5 redirects, 15s timeout, 20k-char cap."],
-      ["Memory", "Persistent memory across sessions, split into agent and user stores. Actions: add, replace, remove, list. 2,000-char cap per store, entries §-delimited, safety-filtered."],
-      ["Todo", "Manage a task list visible in the TUI: add, update (pending | in_progress | done), clear, list."],
-      ["UpdateKnowledge", "Record project knowledge into DEEPSEEK.md for future sessions — validated section names; creates the file with a header when it doesn't exist."],
-      ["Introspect", "Return DeepSeek Code's embedded self-documentation. Note: that embedded doc is stale (version 0.2.0) — treat this website as the source of truth, not the tool."],
-    ],
-  },
-  {
-    title: "Code intelligence",
-    items: [
-      ["Lsp", "Read-only language-server queries: definition, references, hover, document_symbols, workspace_symbols. Requires settings.lsp.servers; 10s timeout; falls back to grep when unavailable."],
-    ],
-  },
-  {
-    title: "Goals & planning",
-    items: [
-      ["CreateGoal", "Set a goal with an objective and an optional tokenBudget. Fails if an unfinished goal already exists — complete or clear it first."],
-      ["GetGoal", "Read the current goal: objective, status, tokens used, budget, time elapsed, and block reason."],
-      ["UpdateGoal", "Move the goal to complete, paused, active, or blocked. Blocked requires a blocker and only sticks after 3 consecutive occurrences of the same blocker."],
-      ["WritePlan", "Write the designated plan markdown file — only available in plan mode; the file path is managed internally."],
-      ["SubmitPlan", "Signal that the plan file is complete at the designated path — pauses execution and shows the plan for user approval. No other tool should be called after it."],
-    ],
-  },
-  {
-    title: "Orchestration",
-    items: [
-      ["SubAgent", "Spawn a bounded specialist sub-agent: foreground or background, fresh or fork context, optional verify flag and dependencies, role reader | writer | executor | reviewer | unrestricted. 50-iteration cap; the result must follow the submit_result contract exactly once."],
-      ["AskAgent", "Dispatch a question to a named specialist in the background, or broadcast:true to every enabled sub-agent. Responses arrive in the next turn as @agent notes."],
-      ["MoA", "Mixture of agents — sends the prompt to up to 5 reference models in parallel (sha256-deduped), synthesizes with an aggregator. Defaults to deepseek-v4-flash + deepseek-v4-pro, temperature 0.4, 60s timeout."],
-      ["Workflow", "Execute a user-authored JavaScript coordination program (export const meta, agent / parallel / pipeline / workflow helpers, top-level await). Bounded by timeoutMs, maxTokens and maxCostUsd; 17-agent cap."],
-    ],
-  },
-];
-
-const LIMITS = [
-  ["grep", "200 result lines"],
-  ["glob", "500 files"],
-  ["read_file", "200-line window (per call)"],
-  ["read_folder", "1,000 entries, depth 5"],
-  ["shell", "50k output chars, 300s timeout"],
-  ["web_fetch", "20k chars, 15s timeout"],
-  ["subagent", "50 iterations per task"],
-  ["moa", "60s timeout"],
-];
-
 const TOC = [
-  { id: "overview", label: "Overview" },
-  { id: "groups", label: "Tool groups" },
-  { id: "limits", label: "Limits" },
-  { id: "contracts", label: "Tool contracts" },
-  { id: "customize", label: "Extending tools" },
+  { id: "how", label: "How tools work" },
+  { id: "reading", label: "Reading & search" },
+  { id: "writing", label: "Writing" },
+  { id: "shell", label: "Shell & git" },
+  { id: "nav", label: "Code navigation" },
+  { id: "delegation", label: "Delegation" },
+  { id: "state", label: "Memory, goals & plans" },
+  { id: "terminal", label: "Terminal-only tools" },
+  { id: "risk", label: "Which tools trigger prompts" },
+  { id: "compaction", label: "Which results get cleared" },
+  { id: "restricting", label: "Restricting the tool set" },
 ];
+
+const READ = [
+  ["read_file", "path", "start_line, end_line", "Read a file. Defaults to a 200-line window from start_line."],
+  ["read_folder", "path", "recursive", "List files and directories."],
+  ["glob", "pattern", "cwd", "Find files matching a glob pattern."],
+  ["grep", "pattern", "path, include", "Regex search. include filters by file glob, e.g. \"*.ts\"."],
+  ["web_fetch", "url", "—", "Fetch a URL and return the page text."],
+];
+
+const WRITE = [
+  ["write_file", "path, content", "—", "Write a file, creating parent directories as needed."],
+  ["edit_file", "path, line, old, new", "—", "Line-addressed edits. old/new are parallel lists of substrings."],
+  ["patch_file", "path, old_content, new_content", "—", "Exact string replacement."],
+];
+
+const SHELL = [
+  ["shell", "command", "timeout", "Run a shell command. Default timeout 5 minutes. Worker tasks are sandboxed."],
+  ["git", "action", "message, items, file, staged, n, create, switch, pop, force", "Structured git operations."],
+];
+
+const NAV = [
+  ["lsp", "operation", "path, line, character, query", "Language-server operations: definitions, references, symbols."],
+];
+
+const DELEGATION = [
+  ["subagent", "task", "role, mode, context, verify, agent, dependencies, timeoutMs, model", "Spawn a bounded specialist worker."],
+  ["ask_agent", "question", "agent, broadcast", "Ask configured specialists in the background. Returns handles immediately."],
+  ["moa", "prompt", "systemPrompt, referenceModels, aggregatorModel", "Several models answer independently; one synthesizes."],
+  ["workflow", "script", "name", "Run a dynamic workflow script."],
+];
+
+const STATE = [
+  ["memory", "action, target", "content, match", "Read or modify the memory store. target is agent or user."],
+  ["update_knowledge", "section, content", "—", "Record knowledge under a named section."],
+  ["todo", "action", "title, id, status", "Manage the session todo list."],
+  ["create_goal", "objective", "maxTokens", "Create a persistent goal with an optional token budget."],
+  ["get_goal", "—", "—", "Read the current goal."],
+  ["update_goal", "status", "blockedReason", "Update goal status. blockedReason is required when status is blocked."],
+  ["write_plan", "content", "—", "Write a plan document."],
+  ["submit_plan", "path", "summary", "Submit a written plan for approval."],
+];
+
+const TERMINAL_TOOLS = [
+  ["submit_result", "Sub-agent workers", "The only way a worker terminates. Schema-validated, exactly once."],
+  ["submit_verification", "Verifiers", "Returns CONFIRMED, PLAUSIBLE or REFUTED with a reason and evidence."],
+  ["submit_workflow_result", "Workflow runs", "Terminates a workflow with its result."],
+  ["introspect", "The agent itself", "Inspect the tool surface at runtime."],
+];
+
+const RISK_TOOLS = [
+  ["shell", "high / medium", "rm, sudo, chmod, systemctl, package installs, deploys, git push/reset/clean."],
+  ["git", "high", "push, pull and force-push are high risk even through the structured tool."],
+  ["write_file", "high / medium", "Anything under .deepseek/, plus large overwrites and edit bursts."],
+  ["edit_file", "high / medium", "Same paths and burst conditions as write_file."],
+  ["patch_file", "high / medium", "Same paths and burst conditions as write_file."],
+];
+
+const COMPACTABLE = [
+  "read_file", "grep", "glob", "list_files", "web_search", "web_fetch", "file_search", "directory_tree",
+];
+
+function ToolTable({ rows }) {
+  return (
+    <div className="doc-table-wrap">
+      <table className="doc-table">
+        <thead>
+          <tr>
+            <th style={{ width: "16%" }}>Tool</th>
+            <th style={{ width: "22%" }}>Required</th>
+            <th style={{ width: "26%" }}>Optional</th>
+            <th>What it does</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([t, r, o, d]) => (
+            <tr key={t}>
+              <td><code className="inline">{t}</code></td>
+              <td><code className="inline">{r}</code></td>
+              <td>{o === "—" ? <span style={{ opacity: 0.5 }}>none</span> : <code className="inline">{o}</code>}</td>
+              <td>{d}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export default function Tools() {
   return (
     <>
       <main className="content">
         <nav className="breadcrumb" aria-label="Breadcrumb">
-          <span>Docs</span><span className="sep">/</span><span>Guides</span><span className="sep">/</span><span className="current">Tools</span>
+          <span>Docs</span><span className="sep">/</span><span>Reference</span><span className="sep">/</span><span className="current">Tools</span>
         </nav>
 
         <div className="hero">
           <h1>Tools</h1>
           <p className="tagline">
-            The 24 capabilities DeepSeek Code ships with out of the box.
+            Every capability the model can invoke, with its required and optional parameters, its risk
+            level, and whether its output survives compaction.
           </p>
         </div>
 
-        <section id="overview">
-          <h2><span className="anchor">#</span>Overview</h2>
+        <section id="how">
+          <h2><span className="anchor">#</span>How tools work</h2>
           <p>
-            Tools are how the agent acts on your behalf. Every tool below is enabled by default
-            and can be gated, extended, or replaced through configuration and hooks.
+            A tool is a named capability with a JSON schema. The model emits a{" "}
+            <code className="inline">tool_call</code> with arguments; the executor resolves the name against a
+            map built once at startup, runs it, and appends the result as a message with{" "}
+            <code className="inline">role: "tool"</code> keyed by the originating{" "}
+            <code className="inline">tool_call_id</code>.
           </p>
-          <div className="tools-grid">
-            {["ReadFile", "WriteFile", "EditFile", "PatchFile", "ReadFolder", "Glob", "Grep", "Lsp", "Shell", "Git", "WebFetch", "Memory", "Todo", "UpdateKnowledge", "Introspect", "CreateGoal", "GetGoal", "UpdateGoal", "WritePlan", "SubmitPlan", "SubAgent", "AskAgent", "MoA", "Workflow"].map((t) => (
-              <span className="tool-chip" key={t}><span className="dot-tool" />{t}</span>
-            ))}
-          </div>
-        </section>
-
-        <section id="groups">
-          <h2><span className="anchor">#</span>Tool groups</h2>
-          {TOOL_GROUPS.map((g) => (
-            <div key={g.title}>
-              <h3>{g.title}</h3>
-              <div className="doc-table-wrap">
-                <table className="doc-table">
-                  <thead>
-                    <tr>
-                      <th style={{ width: "18%" }}>Tool</th>
-                      <th>What it does</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {g.items.map(([name, desc]) => (
-                      <tr key={name}>
-                        <td><code className="inline">{name}</code></td>
-                        <td>{desc}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ))}
-        </section>
-
-        <section id="limits">
-          <h2><span className="anchor">#</span>Limits</h2>
           <p>
-            Tools are bounded so a runaway call can never hang the session. These are the
-            built-in caps:
+            Every schema is sent to the provider on <b>every call</b>. That makes the enabled tool set a
+            fixed cost on your context budget — usually the second-largest block after conversation history,
+            visible as <b>Tools</b> in <a href="/docs/context-window">/context</a>. It is also the reason{" "}
+            <a href="#restricting">restricting the tool set</a> is one of the few real levers on that cost.
+          </p>
+          <p>
+            Before any tool runs it passes three gates: workspace containment, risk assessment, and
+            permission resolution — plus any <a href="/docs/hooks">PreToolUse hook</a>. See{" "}
+            <a href="/docs/how-it-works#gates">How it works</a>.
+          </p>
+        </section>
+
+        <section id="reading">
+          <h2><span className="anchor">#</span>Reading & search</h2>
+          <ToolTable rows={READ} />
+          <p>
+            <code className="inline">read_file</code> defaults to a <b>200-line window</b>:{" "}
+            <code className="inline">end_line</code> falls back to{" "}
+            <code className="inline">start_line + 199</code> rather than to the end of the file. Reading a
+            10,000-line file therefore costs 200 lines of context by default, not 10,000 — the model has to
+            ask for more explicitly, which makes large reads a decision rather than an accident.
+          </p>
+          <p>
+            <code className="inline">grep</code> takes <code className="inline">include</code> as a file glob,
+            which is the parameter that most changes result quality.{" "}
+            <code className="inline">include: "*.ts"</code> on a repository with a{" "}
+            <code className="inline">node_modules</code> or a build directory is the difference between four
+            matches and four hundred.
+          </p>
+          <CodeBlock lang="json">{`{ "name": "grep", "arguments": {
+    "pattern": "refreshToken",
+    "path": "src",
+    "include": "*.ts"
+} }`}</CodeBlock>
+        </section>
+
+        <section id="writing">
+          <h2><span className="anchor">#</span>Writing</h2>
+          <ToolTable rows={WRITE} />
+          <p>
+            Three write tools exist because they fail differently, and the choice matters.
+          </p>
+          <p>
+            <code className="inline">write_file</code> replaces the whole file. Correct for new files,
+            dangerous for existing ones — which is why a large overwrite is its own{" "}
+            <a href="#risk">risk condition</a>.
+          </p>
+          <p>
+            <code className="inline">patch_file</code> replaces an exact string. It fails loudly if the string
+            is not found or is ambiguous, which is the property you want: a patch that silently applied to the
+            wrong occurrence is worse than one that refused.
+          </p>
+          <p>
+            <code className="inline">edit_file</code> is line-addressed and takes <b>parallel lists</b> —{" "}
+            <code className="inline">old</code> and <code className="inline">new</code> are arrays of substrings
+            applied at the given line. It is the right tool for several small edits in one pass.
+          </p>
+          <Note>
+            Every write is preceded by an automatic file backup, which is what makes{" "}
+            <code className="inline">/undo</code> work without any setup. See{" "}
+            <a href="/docs/checkpointing">Checkpointing</a>.
+          </Note>
+        </section>
+
+        <section id="shell">
+          <h2><span className="anchor">#</span>Shell & git</h2>
+          <ToolTable rows={SHELL} />
+          <p>
+            <code className="inline">shell</code> has a <b>five-minute default timeout</b>. Pass an explicit{" "}
+            <code className="inline">timeout</code> for a command with a known shorter or longer bound, and use
+            an observable background workflow for a service that is meant to keep running.
+          </p>
+          <p>
+            When a worker task runs <code className="inline">shell</code>, it is sandboxed — cleared
+            environment, private home and tmp, no network, namespace isolation. Testers additionally get a
+            read-only project mount. If sandboxing is unavailable on the host, the tool returns an error
+            rather than running unsandboxed. See <a href="/docs/agent-teams#sandbox">Agent teams</a>.
+          </p>
+          <p>
+            <code className="inline">git</code> exists as a structured alternative to shelling out, with one
+            parameter per operation rather than a command string. It is not a security boundary:{" "}
+            <code className="inline">push</code>, force-push and <code className="inline">pull</code> are classified
+            high risk <b>through this tool too</b>, precisely so the structured path is not a way around the
+            confirmation.
+          </p>
+          <CodeBlock lang="json">{`{ "name": "git", "arguments": { "action": "commit", "message": "fix token refresh race" } }
+{ "name": "git", "arguments": { "action": "diff", "staged": true } }
+{ "name": "git", "arguments": { "action": "log", "n": 5 } }`}</CodeBlock>
+        </section>
+
+        <section id="nav">
+          <h2><span className="anchor">#</span>Code navigation</h2>
+          <ToolTable rows={NAV} />
+          <p>
+            <code className="inline">lsp</code> answers structural questions that grep cannot: where is this
+            symbol defined, who references it, what symbols does this file export. Its parameter requirements
+            vary by operation, and the schema says so explicitly —{" "}
+            <code className="inline">path</code> is required except for{" "}
+            <code className="inline">workspace_symbols</code>, and{" "}
+            <code className="inline">line</code>/<code className="inline">character</code> are required except for{" "}
+            <code className="inline">document_symbols</code> and <code className="inline">workspace_symbols</code>.
+          </p>
+          <p>
+            Encoding conditional requirements in the description rather than the JSON schema is a pragmatic
+            choice: JSON Schema can express it, but the resulting schema is large, and every byte is resent
+            on every call. See <a href="/docs/lsp">LSP navigation</a>.
+          </p>
+        </section>
+
+        <section id="delegation">
+          <h2><span className="anchor">#</span>Delegation</h2>
+          <ToolTable rows={DELEGATION} />
+          <p>
+            These four are how one session becomes several. <code className="inline">subagent</code> spawns a
+            bounded worker and is the general case; <code className="inline">ask_agent</code> is the background
+            question that returns a handle immediately; <code className="inline">moa</code> asks several models
+            the same thing; <code className="inline">workflow</code> runs a deterministic script.
+          </p>
+          <p>
+            All of them cost their own context rather than yours, which is the point. A sub-agent that reads
+            twenty files returns a summary — your session pays for the conclusion, not the evidence.
+          </p>
+          <p>
+            See <a href="/docs/subagents">Sub-agents</a>, <a href="/docs/moa">MoA</a>,{" "}
+            <a href="/docs/parallel-tasks">Parallel tasks</a> and{" "}
+            <a href="/docs/workflows">Workflows</a>.
+          </p>
+        </section>
+
+        <section id="state">
+          <h2><span className="anchor">#</span>Memory, goals & plans</h2>
+          <ToolTable rows={STATE} />
+          <p>
+            <code className="inline">memory</code> takes a <code className="inline">target</code> that decides which
+            store is written: <code className="inline">agent</code> for facts and conventions,{" "}
+            <code className="inline">user</code> for preferences and style. Separating them means "this project
+            uses Bun" and "this person prefers terse answers" do not travel together.
+          </p>
+          <p>
+            <code className="inline">update_goal</code> has a conditional requirement worth noting:{" "}
+            <code className="inline">blockedReason</code> is <b>required</b> when status is{" "}
+            <code className="inline">blocked</code>. A goal cannot be marked blocked without saying by what,
+            which is what makes a blocked goal actionable rather than just stalled.
+          </p>
+          <p>
+            <code className="inline">write_plan</code> and <code className="inline">submit_plan</code> are a pair:
+            one writes a plan document, the other submits it for approval with a one-line summary shown in
+            the dialog header. That split is what allows plan mode to be read-only until you approve. See{" "}
+            <a href="/docs/interaction-modes">Interaction modes</a>.
+          </p>
+        </section>
+
+        <section id="terminal">
+          <h2><span className="anchor">#</span>Terminal-only tools</h2>
+          <p>
+            Four tools are not part of the ordinary surface. They exist to <b>end</b> something, and are only
+            available in the context that can end it:
           </p>
           <div className="doc-table-wrap">
             <table className="doc-table">
               <thead>
-                <tr>
-                  <th style={{ width: "30%" }}>Tool</th>
-                  <th>Limit</th>
-                </tr>
+                <tr><th style={{ width: "24%" }}>Tool</th><th style={{ width: "22%" }}>Available to</th><th>Purpose</th></tr>
               </thead>
               <tbody>
-                {LIMITS.map(([tool, limit]) => (
-                  <tr key={tool}>
-                    <td><code className="inline">{tool}</code></td>
-                    <td>{limit}</td>
+                {TERMINAL_TOOLS.map(([t, a, p]) => (
+                  <tr key={t}>
+                    <td><code className="inline">{t}</code></td>
+                    <td>{a}</td>
+                    <td>{p}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          <p>
+            <code className="inline">submit_result</code> is the one with real consequences. A worker must call
+            it <b>exactly once</b> and the result must pass schema validation. Missing, repeated, mixed or
+            invalid calls get one correction attempt, then fail as{" "}
+            <code className="inline">INVALID_RESULT</code> with the raw content preserved. See{" "}
+            <a href="/docs/parallel-tasks#envelope">the result envelope</a>.
+          </p>
         </section>
 
-        <section id="contracts">
-          <h2><span className="anchor">#</span>Tool contracts</h2>
+        <section id="risk">
+          <h2><span className="anchor">#</span>Which tools trigger prompts</h2>
           <p>
-            Two guarantees apply to every tool call:
+            Risk is assessed per tool <em>and per argument</em>, so the same tool can be silent or blocking
+            depending on what it was asked to do:
           </p>
-          <ul>
-            <li><b>Schema validation</b> — arguments are validated against the tool's JSON schema before execution.</li>
-            <li><b>Path safety</b> — file-taking tools resolve every path through the safety layer: blocked dirs are <code className="inline">.agent</code>, <code className="inline">.claude</code>, <code className="inline">.kiro</code>, <code className="inline">.github</code>, <code className="inline">.deepseek</code>, <code className="inline">node_modules</code>, <code className="inline">dist</code>, <code className="inline">build</code> and <code className="inline">.git</code>; sensitive files (<code className="inline">.env*</code>, keys, credentials, and similar) are rejected outright.</li>
-          </ul>
-          <Note>
-            Writes are atomic: content is staged to a temp file, validated, and renamed into
-            place under a file lease, so a cancelled write can never corrupt a file.
-          </Note>
+          <div className="doc-table-wrap">
+            <table className="doc-table">
+              <thead>
+                <tr><th style={{ width: "18%" }}>Tool</th><th style={{ width: "18%" }}>Levels</th><th>Triggers</th></tr>
+              </thead>
+              <tbody>
+                {RISK_TOOLS.map(([t, l, tr]) => (
+                  <tr key={t}>
+                    <td><code className="inline">{t}</code></td>
+                    <td><code className="inline">{l}</code></td>
+                    <td>{tr}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Every other tool is <b>low risk by default</b> — reads, searches and navigation do not prompt
+            unless a permission rule or workspace-containment check says otherwise.
+          </p>
+          <p>
+            Two conditions are contextual rather than pattern-based:{" "}
+            <code className="inline">large_overwrite</code> fires on a write above the configured line
+            threshold, and <code className="inline">multi_edit_burst</code> fires when several edits happen in
+            quick succession. Both catch the case where an individually reasonable operation becomes
+            concerning at volume. See <a href="/docs/permissions">Permissions</a>.
+          </p>
         </section>
 
-        <section id="customize">
-          <h2><span className="anchor">#</span>Extending tools</h2>
+        <section id="compaction">
+          <h2><span className="anchor">#</span>Which results get cleared</h2>
           <p>
-            Tools can be extended or replaced with <b>custom tools</b> defined by the project, and
-            <b> pre/post hooks</b> run around tool execution to validate or transform results.
+            Micro-compaction clears the contents of old tool results to reclaim context. It only touches
+            tools whose output is <b>reproducible by re-running them</b>:
           </p>
-          <CodeBlock lang="text">{`// a custom tool module
-export default {
-  name: "MyTool",
-  description: "Does something useful",
-  async execute(args) { /* ... */ },
-};`}</CodeBlock>
-          <Note>
-            Use <code className="inline">/tools</code> inside a session to see which tools are
-            active in the current project.
-          </Note>
+          <div className="doc-table-wrap">
+            <table className="doc-table">
+              <thead>
+                <tr><th style={{ width: "34%" }}>Compactable</th><th>Why safe</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>{COMPACTABLE.map((t) => <code className="inline" key={t} style={{ marginRight: 6 }}>{t}</code>)}</td>
+                  <td>All read-only. If the content is needed again it can simply be read again.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Results from <code className="inline">shell</code>, <code className="inline">git</code> and the write
+            tools are <b>never</b> cleared. Discarding "created 3 files" or a test run's output destroys
+            evidence the model cannot recover without causing side effects. See{" "}
+            <a href="/docs/compaction">Compaction</a>.
+          </p>
+        </section>
+
+        <section id="restricting">
+          <h2><span className="anchor">#</span>Restricting the tool set</h2>
+          <p>
+            Fewer tools means a smaller fixed context cost and a narrower blast radius. Three mechanisms
+            narrow it, and they compose:
+          </p>
+          <p>
+            <b>Permission rules</b> deny a tool outright or restrict it to matching arguments. A deny rule
+            cannot be suppressed at a narrower scope.
+          </p>
+          <p>
+            <b>Agent definitions</b> declare a <code className="inline">tools</code> allowlist, so a named agent
+            only ever sees what it needs.
+          </p>
+          <p>
+            <b>Permission profiles</b> cap workers by role — a{" "}
+            <code className="inline">researcher-readonly</code> worker has no write tools at all, regardless of
+            what its task asks for.
+          </p>
+          <p>
+            The final set a worker gets is the <b>intersection</b> of its role's tools, its profile's tools,
+            and its parent's allowlist. Delegation can therefore only ever narrow privileges, never widen
+            them. See <a href="/docs/agent-teams#profiles">Agent teams</a> and{" "}
+            <a href="/docs/permissions">Permissions</a>.
+          </p>
+          <CodeBlock lang="bash">{`/tools          # what is enabled right now
+/permissions    # effective allow, deny and risk rules`}</CodeBlock>
         </section>
       </main>
 

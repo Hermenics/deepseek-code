@@ -32,7 +32,7 @@ export default function Automation() {
         </nav>
 
         <div className="hero">
-          <h1>Automation &amp; scripting</h1>
+          <h1>Automation & scripting</h1>
           <p className="tagline">
             Drive the agent from scripts, CI jobs, and cron — no terminal UI needed.
           </p>
@@ -68,7 +68,7 @@ deepseek --pipe "add a --dry-run flag to build.ts"`}</CodeBlock>
         </section>
 
         <section id="output">
-          <h2><span className="anchor">#</span>Output &amp; exit handling</h2>
+          <h2><span className="anchor">#</span>Output & exit handling</h2>
           <p>
             Plain mode streams tokens to stdout as they are generated and writes tool calls to stderr
             as <code className="inline">[tool] &lt;name&gt;</code>, so the result stays clean.{" "}

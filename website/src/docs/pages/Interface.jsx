@@ -26,7 +26,7 @@ const EMACS_KEYS = [
   ["Ctrl+Y", "Yank last kill ring entry"],
   ["Meta+B / Meta+F", "Move one word back / forward"],
   ["Meta+D", "Delete word after cursor"],
-  ["Ctrl+Z / Shift+Z", "Undo / redo (50-entry buffer)"],
+  ["Ctrl+Z / Ctrl+Shift+Z", "Undo / redo where Ctrl+Z is not reserved for Unix process suspension"],
   ["Shift+Enter", "Insert newline (multiline input)"],
   ["↑ / ↓", "History at first/last visual line, line navigation inside multiline"],
 ];
@@ -63,12 +63,12 @@ const MONITORS = [
 
 const RENDERER_CAPS = [
   ["Alternate screen", "DEC 1049 (used when settings.interface.alternateScreen is on)"],
-  ["Mouse tracking", "SGR 1000/1002/1003/1006 — click, drag, hover, wheel"],
+  ["Mouse protocol", "SGR sequences are parsed; application click/drag handling is currently disabled"],
   ["Focus events", "Tracks terminal focus to pause rendering while unfocused"],
   ["Bracketed paste", "Distinguishes pasted input from typed keys"],
   ["Synchronized updates", "DEC 2026 — tear-free repaints"],
   ["OSC hyperlinks", "OSC 8 links inside rendered output"],
-  ["Text selection", "Copy-on-select via pbcopy/OSC 52 with tmux passthrough"],
+  ["Text selection", "Renderer support exists, but application mouse selection is currently disabled"],
   ["Search highlight", "Find matches highlighted in the rendered buffer"],
   ["Bidi reordering", "Bi-directional text laid out correctly (native in Terminal.app/iTerm2)"],
   ["Kitty keyboard protocol", "Extended key reporting (also via tmux csi-u)"],
@@ -168,10 +168,12 @@ export default function Interface() {
           <p>Two completion dropdowns live in the input layer:</p>
           <ul className="capabilities">
             <li>
-              <b><code className="inline">/</code> command dropdown</b> — fuzzy search over built-in,
-              workflow, and slash commands via <b>Fuse.js</b>, capped at 8 results, each with its
-              description. <code className="inline">↑/↓</code> moves, <code className="inline">Tab</code> or{" "}
-              <code className="inline">Enter</code> submits the selection.
+              <b><code className="inline">/</code> command dropdown</b> — prefix-first search over
+              built-in commands, aliases, and cached workflow commands. A bare slash and prefix matches
+              can return more than eight candidates; only the Fuse.js fuzzy fallback is capped at eight.
+              The dropdown shows a moving window of six rows with descriptions truncated to fit the
+              terminal. <code className="inline">↑/↓</code> moves, while <code className="inline">Tab</code> or{" "}
+              <code className="inline">Enter</code> immediately submits the selection.
             </li>
             <li>
               <b><code className="inline">@</code> file dropdown</b> — searches relative paths with{" "}
@@ -189,14 +191,14 @@ export default function Interface() {
         <section id="paste">
           <h2><span className="anchor">#</span>Paste</h2>
           <p>
-            Pastes arrive through bracketed-paste events or <code className="inline">Ctrl+Shift+V</code>{" "}
+            Pastes arrive through bracketed-paste events or the editor's <code className="inline">Ctrl+V</code>{" "}
             (reading <code className="inline">xclip</code>/<code className="inline">xsel</code>/
             <code className="inline">wl-paste</code>), with CRLF normalized to <code className="inline">\n</code>.
             Short pastes (≤60 chars) insert inline — multiline pastes collapse to a single line.
             Longer pastes become a <code className="inline">[Text #n]</code> placeholder, and an{" "}
             <code className="inline">[n pasted]</code> badge appears in the input chrome; the real
-            content is re-expanded when you submit. The clipboard shortcut also works in the setup
-            wizard's credential fields.
+            content is re-expanded when you submit. The setup wizard&apos;s credential fields provide a
+            separate <code className="inline">Ctrl+Shift+V</code> clipboard-helper shortcut.
           </p>
         </section>
 

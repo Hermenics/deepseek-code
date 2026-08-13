@@ -19,7 +19,6 @@ const SLASH = [
   ["/plan", "Enter plan mode"],
   ["/review", "Code review"],
   ["/vim", "Toggle vim keybindings"],
-  ["/theme", "Change color theme"],
   ["/tools", "List available tools"],
   ["/doctor", "Check runtime, workspace, credentials, settings, and MCP configuration"],
   ["/verify", "Run the detected project test command"],
@@ -45,7 +44,7 @@ const SLASH = [
   ["/retry", "Re-run last message"],
   ["/skill", "Manage skills (install, list, remove, update)"],
   ["/stats", "Show session statistics"],
-  ["/system", "Show active system prompt"],
+  ["/system", "Show active mode and permission summary"],
   ["/task", "Inspect or control a task"],
   ["/tasks", "Inspect the session task DAG"],
   ["/undo", "Restore last file modified by the agent (all | list)"],
@@ -213,8 +212,8 @@ $ cat src/index.tsx | deepseek --pipe --json "summarize"`}</CodeBlock>
             </table>
           </div>
           <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
-            Each provider also exposes provider-specific models (e.g. Bedrock Claude, Vertex
-            Gemini, or any local Ollama tag).
+            The built-in Bedrock and Vertex discovery paths filter for DeepSeek model IDs. A local endpoint
+            can expose whatever model IDs its OpenAI-compatible server reports.
           </p>
         </section>
 

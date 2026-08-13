@@ -63,7 +63,7 @@ export default function Troubleshooting() {
         </nav>
 
         <div className="hero">
-          <h1>Troubleshooting &amp; diagnostics</h1>
+          <h1>Troubleshooting & diagnostics</h1>
           <p className="tagline">
             Doctor checks, log locations, update behavior and provider-specific errors — the fastest
             way from "something is off" to a diagnosis.

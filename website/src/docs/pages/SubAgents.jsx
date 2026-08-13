@@ -9,12 +9,28 @@ const TOC = [
   { id: "limits", label: "Limits" },
   { id: "askagent", label: "Background questions (ask_agent)" },
   { id: "moa", label: "Mixture of Agents (moa)" },
+  { id: "profiles", label: "Permission profiles" },
+  { id: "isolation", label: "Workspace isolation" },
+  { id: "blocked", label: "When a worker gets blocked" },
   { id: "config", label: "Connecting to agent config" },
 ];
 
+const PROFILES = [
+  ["researcher-readonly", "readonly-shared", "Read and search tools only. Shares the project without write access."],
+  ["tester", "readonly-shared", "May run shell, but the project is mounted read-only."],
+  ["writer-worktree", "git-worktree", "Writes inside its own worktree. Shell is writable only there."],
+  ["coordinator-integrator", "—", "Integrates worker patches. Cannot be selected by a delegated config."],
+];
+
+const ISOLATION = [
+  ["readonly-shared", "Readers and testers", "The real project, without write access."],
+  ["git-worktree", "Writers, normal case", "A detached worktree under .deepseek/worktrees/."],
+  ["serialized-writer", "Writers, fallback", "A project-scoped lease. Shell denied; only path-validated file tools may write."],
+];
+
 const TRIGGERS = [
-  ["Files changed &amp; confidence &lt; 0.7", "A sub-agent that touched files but isn't sure gets an independent check"],
-  ["More than 2 issues &amp; confidence &lt; 0.8", "Many findings with moderate confidence also trigger one"],
+  ["Files changed & confidence &lt; 0.7", "A sub-agent that touched files but isn't sure gets an independent check"],
+  ["More than 2 issues & confidence &lt; 0.8", "Many findings with moderate confidence also trigger one"],
   ["verify: true", "Explicit opt-in forces verification; verify: false disables it"],
 ];
 
@@ -83,7 +99,7 @@ export default function SubAgents() {
         </nav>
 
         <div className="hero">
-          <h1>Sub-agents &amp; delegation</h1>
+          <h1>Sub-agents & delegation</h1>
           <p className="tagline">
             Bounded specialist workers with their own context, tools, and permission profile.
           </p>
@@ -242,7 +258,7 @@ export default function SubAgents() {
         </section>
 
         <section id="roles">
-          <h2><span className="anchor">#</span>Roles &amp; least privilege</h2>
+          <h2><span className="anchor">#</span>Roles & least privilege</h2>
           <p>
             When no role is given, it is <b>inferred from the task wording</b> — and ambiguity
             defaults to the narrowest role:
@@ -358,6 +374,109 @@ export default function SubAgents() {
               </tbody>
             </table>
           </div>
+        </section>
+
+        <section id="profiles">
+          <h2><span className="anchor">#</span>Permission profiles</h2>
+          <p>
+            A role selects a tool family; a <b>permission profile</b> is the runtime capability envelope the
+            worker actually executes inside. Profile checks run <b>before</b> declarative allow rules, so
+            rules can narrow a profile and never open it:
+          </p>
+          <div className="doc-table-wrap">
+            <table className="doc-table">
+              <thead>
+                <tr><th style={{ width: "26%" }}>Profile</th><th style={{ width: "22%" }}>Isolation</th><th>Capabilities</th></tr>
+              </thead>
+              <tbody>
+                {PROFILES.map(([p, i, c]) => (
+                  <tr key={p}>
+                    <td><code className="inline">{p}</code></td>
+                    <td><code className="inline">{i}</code></td>
+                    <td>{c}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p>
+            <code className="inline">coordinator-integrator</code> is the privileged one — it can apply worker
+            patches back into the project — and a <b>delegated config cannot select it</b>. That closes the
+            obvious escalation path: a worker declaring itself an integrator to gain write access to the real
+            tree.
+          </p>
+          <p>
+            Profile and isolation must also <b>agree</b>. An agent config pairing{" "}
+            <code className="inline">researcher-readonly</code> with a writable isolation, or{" "}
+            <code className="inline">writer-worktree</code> without a worktree, is rejected at load. A profile
+            that meant something different depending on the workspace would not be a guarantee. See{" "}
+            <a href="/docs/agents#coherence">Agents</a>.
+          </p>
+          <p>
+            Worker shell commands additionally run through Bubblewrap with a cleared environment, private
+            home and tmp, no network and namespace isolation. If sandboxing is unavailable the tool returns
+            an error — there is <b>no unsandboxed worker fallback</b>.
+          </p>
+        </section>
+
+        <section id="isolation">
+          <h2><span className="anchor">#</span>Workspace isolation</h2>
+          <div className="doc-table-wrap">
+            <table className="doc-table">
+              <thead>
+                <tr><th style={{ width: "24%" }}>Mode</th><th style={{ width: "24%" }}>Used by</th><th>Mechanism</th></tr>
+              </thead>
+              <tbody>
+                {ISOLATION.map(([m, u, mech]) => (
+                  <tr key={m}>
+                    <td><code className="inline">{m}</code></td>
+                    <td>{u}</td>
+                    <td>{mech}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Writers get a worktree by default, and absolute paths from the parent are translated into it — a
+            worker writing <code className="inline">/home/you/proj/src/a.ts</code> actually writes inside its own
+            directory.
+          </p>
+          <p>
+            The dirty-parent case is handled explicitly rather than ignored. Cloning from a stale{" "}
+            <code className="inline">HEAD</code> when the parent has uncommitted changes would hand the worker a
+            view of the code that does not match reality, so that case takes the serialized fallback instead:
+            the worker sees current state, at the cost of parallelism.
+          </p>
+          <p>
+            Degradation is never silent. When a worktree cannot be created, a{" "}
+            <code className="inline">workspace_fallback</code> event records the reason. See{" "}
+            <a href="/docs/worktrees">Worktrees</a> and{" "}
+            <a href="/docs/agent-teams#integration">Integration</a>.
+          </p>
+        </section>
+
+        <section id="blocked">
+          <h2><span className="anchor">#</span>When a worker gets blocked</h2>
+          <p>
+            A worker has no human attached, so an <code className="inline">ask</code> permission decision cannot
+            prompt. Instead it <b>stops the entire tool-call batch</b>, moves the task to{" "}
+            <code className="inline">blocked</code>, and sends a permission message to the coordinator.
+          </p>
+          <p>
+            Stopping the whole batch rather than just the one call matters: three of four calls succeeding
+            while the fourth waits would leave the worker in a half-applied state, and those three may have
+            been the setup for the fourth.
+          </p>
+          <CodeBlock lang="bash">{`/tasks                              # see the blocked task
+/task <id> message allow shell      # grant the exact pending request
+/task <id> resume                   # continue the same handle`}</CodeBlock>
+          <p>
+            Grants are structured, sender-checked, acknowledged and bound to the exact request id, tool and
+            arguments. No text a worker generates can create or widen one, and no timeout converts an
+            unanswered request into approval. See{" "}
+            <a href="/docs/agent-messaging#permission">the permission handshake</a>.
+          </p>
         </section>
 
         <section id="config">
