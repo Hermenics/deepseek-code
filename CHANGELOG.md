@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.10
+
+- Added: Fullscreen TUI on by default — the session runs in the terminal's alternate screen buffer with the input pinned to the bottom and the transcript scrolling inside a fixed viewport, matching Claude Code's flicker-free renderer
+- Added: Environment-aware fullscreen detection — a precedence cascade auto-disables the alternate screen where it is known to break (no TTY, CI, `TERM=dumb`, screen-reader mode, tmux control mode, Windows over SSH) and explains the override in the decision it returns; `DEEPSEEK_FULLSCREEN=1/0` forces either direction
+- Added: Scrollbar in the right-hand gutter while fullscreen is active, with half-line resolution (`▀`/`▄`/`█`) so the thumb tracks position to half a row; the column is reserved even with nothing to scroll, since showing and hiding it would re-wrap the transcript and oscillate
+- Added: Grab-and-drag the scrollbar thumb, plus click anywhere on the track to jump there — backed by a new pointer-capture path in the vendored Ink (`DOMElement.onPointerDrag` + `findPointerDragTarget`), so a claimed drag bypasses text selection and keeps receiving coordinates past the node's edge
+- Added: Transcript scroll keys for fullscreen, where the terminal's own scrollback no longer applies — PageUp/PageDown move half a viewport, the wheel moves three lines, and growth re-pins to the bottom
+- Added: One-line hint above the input pointing at `/config`, shown only in fullscreen and only until the first message is sent
+- Changed: `interface.alternateScreen` now defaults to on and is labelled "Fullscreen" in `/config`; set it to false to keep native terminal scrollback
+- Fixed: Fullscreen state helpers were hardcoded stubs — `isFullscreenActive()` and `isFullscreenEnvEnabled()` always returned false and `isMouseClicksDisabled()` always returned true, leaving the alternate-screen renderer, mouse tracking and text selection inert
+- Fixed: Clear a claimed pointer drag on lost-release recovery — releasing outside the window never delivers the SGR release, so the handler stayed armed and hijacked the next drag, scrolling the view while the user tried to select text
+- Fixed: Resolve fullscreen once during initialization instead of in the render body, so the tmux control-mode probe no longer spawns a process on every re-render and module state is no longer mutated mid-render
+- Fixed: Exclude the scrollbar from text selection so dragging across the transcript neither highlights the gutter nor drops its glyphs into copied text
+- Tests: Cover the fullscreen precedence cascade and the scrollbar thumb geometry, including half-line edges, clamping and end-to-end track rendering
+
 ## 0.6.9
 
 - Added: Detect and update packages installed via both npm and Bun global installs — checks both package manager directories, updates whichever are found in parallel, and shows the matching install command for each
