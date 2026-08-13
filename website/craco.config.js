@@ -108,6 +108,15 @@ let webpackConfig = {
       return webpackConfig;
     },
   },
+  jest: {
+    configure: (jestConfig) => {
+      jestConfig.moduleNameMapper = {
+        ...jestConfig.moduleNameMapper,
+        '^react-router/dom$': path.join(path.dirname(require.resolve('react-router/package.json')), 'dist/development/dom-export.js'),
+      };
+      return jestConfig;
+    },
+  },
 };
 
 webpackConfig.devServer = (devServerConfig) => {

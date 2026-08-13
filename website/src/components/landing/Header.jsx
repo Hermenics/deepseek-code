@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { Github, Terminal, ArrowUpRight } from "lucide-react";
 import useNpmVersion from "@/lib/useNpmVersion";
 import useNpmDownloads from "@/lib/useNpmDownloads";
+import ProductSwitcher from "@/components/ProductSwitcher";
 
 export default function Header() {
   const version = useNpmVersion();
@@ -23,12 +24,20 @@ export default function Header() {
       className={`fixed top-0 left-0 right-0 z-50 transition-colors duration-500 ${scrolled ? "bg-void/80 backdrop-blur-xl border-b border-white/10" : ""}`}
     >
       <div className="max-w-[1440px] mx-auto px-6 md:px-10 h-20 flex items-center justify-between">
-        <a href="#top" data-testid="brand-mark" className="flex shrink-0 items-center gap-2.5 whitespace-nowrap font-mono text-[15px] tracking-tighter">
+        <ProductSwitcher
+          triggerClassName="group flex shrink-0 items-center gap-2.5 whitespace-nowrap border-0 bg-transparent p-0 text-left font-mono text-[15px] tracking-tighter"
+          contentClassName="product-switcher-menu z-50 min-w-28 border border-white/15 bg-[#050505] p-1 text-[12px] font-mono tracking-widest text-white shadow-lg shadow-black/20"
+          itemClassName="block cursor-pointer px-3 py-2 text-white/60 outline-none transition-colors hover:bg-white/10 hover:text-white focus:bg-white/10 focus:text-white data-[disabled]:cursor-default data-[disabled]:text-white"
+          testId="brand-mark"
+          alignOffset={100}
+        >
           <Terminal className="w-5 h-5 shrink-0 text-neon-blue" strokeWidth={1.5} />
           <span className="text-white">deepseek</span>
-          <span className="text-white/40">/code</span>
+          <span className="flex items-center gap-1 text-white/40">
+            <span>/code</span><span aria-hidden="true" className="product-switcher-chevron group-data-[state=open]:rotate-90">&gt;</span>
+          </span>
           <span className="ml-2 text-[11px] text-white/40 border border-white/10 px-2 py-1 tracking-widest">{version}</span>
-        </a>
+        </ProductSwitcher>
 
         <nav className="hidden lg:flex items-center gap-6 xl:gap-10 text-[12px] uppercase tracking-widest font-mono text-white/60">
           <a href="#chapter-i" className="hover:text-white transition-colors">i. tools</a>
