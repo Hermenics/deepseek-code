@@ -153,7 +153,7 @@ export default function Goals() {
         </section>
 
         <section id="continuation">
-          <h2><span className="anchor">#</span>Continuation &amp; limits</h2>
+          <h2><span className="anchor">#</span>Continuation & limits</h2>
           <p>
             A goal continues automatically. When a turn ends with the goal still{" "}
             <code className="inline">active</code>, the agent:

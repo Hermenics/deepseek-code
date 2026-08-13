@@ -93,7 +93,7 @@ export default function Workflows() {
         </section>
 
         <section id="isolation">
-          <h2><span className="anchor">#</span>Isolation &amp; safety</h2>
+          <h2><span className="anchor">#</span>Isolation & safety</h2>
           <p>
             Workflows that write code get the same isolation as sub-agents. Pass{" "}
             <code className="inline">isolation: "worktree"</code> to <code className="inline">agent()</code> to run the
@@ -118,7 +118,7 @@ export default function Workflows() {
         </section>
 
         <section id="limits">
-          <h2><span className="anchor">#</span>Limits &amp; budgets</h2>
+          <h2><span className="anchor">#</span>Limits & budgets</h2>
           <p>Exact bounds enforced per run:</p>
           <div className="doc-table-wrap">
             <table className="doc-table">
@@ -144,7 +144,7 @@ export default function Workflows() {
         </section>
 
         <section id="replay">
-          <h2><span className="anchor">#</span>Journal &amp; replay</h2>
+          <h2><span className="anchor">#</span>Journal & replay</h2>
           <p>
             Every <code className="inline">agent()</code> and <code className="inline">workflow()</code> call is journaled
             with a SHA-256 fingerprint of its method and arguments. When a run starts, the manager
@@ -162,7 +162,7 @@ export default function Workflows() {
         </section>
 
         <section id="storage">
-          <h2><span className="anchor">#</span>Saving runs &amp; storage</h2>
+          <h2><span className="anchor">#</span>Saving runs & storage</h2>
           <p>
             <code className="inline">/workflow save &lt;run-id&gt; &lt;name&gt;</code> persists a finished run as a saved
             workflow at <code className="inline">.deepseek/workflows/&lt;name&gt;.js</code> in the project — written

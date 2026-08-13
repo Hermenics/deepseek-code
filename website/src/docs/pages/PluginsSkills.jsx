@@ -19,11 +19,11 @@ export default function PluginsSkills() {
     <>
       <main className="content">
         <nav className="breadcrumb" aria-label="Breadcrumb">
-          <span>Docs</span><span className="sep">/</span><span>Guides</span><span className="sep">/</span><span className="current">Plugins &amp; skills</span>
+          <span>Docs</span><span className="sep">/</span><span>Guides</span><span className="sep">/</span><span className="current">Plugins & skills</span>
         </nav>
 
         <div className="hero">
-          <h1>Plugins &amp; skills</h1>
+          <h1>Plugins & skills</h1>
           <p className="tagline">
             Extend DeepSeek Code from GitHub repositories — with an honest wiring status.
           </p>
@@ -36,9 +36,9 @@ export default function PluginsSkills() {
           </p>
           <CodeBlock lang="bash">/skill <span className="k">install</span> <span className="s">openai/openai-docs</span></CodeBlock>
           <p>
-            The repo is cloned into <code className="inline">&lt;project&gt;/.deepseek/skills</code> — the
-            directory the runtime actually loads skills from. <code className="inline">/skill list</code> reads
-            that directory and also scans the legacy <code className="inline">.claude/skills</code> for
+            The repo is cloned into <code className="inline">&lt;project&gt;/.deepseek/skills</code>.{" "}
+            <code className="inline">/skill list</code> reads its registry and also scans the legacy{" "}
+            <code className="inline">.claude/skills</code> registry for
             compatibility. Remove and update operate against either location; when you update a skill
             that still lives in <code className="inline">.claude/skills</code>, it is migrated to{" "}
             <code className="inline">.deepseek/skills</code> first, then updated.
@@ -77,8 +77,8 @@ export default function PluginsSkills() {
             <code className="inline">&lt;cwd&gt;/.deepseek/skills/&lt;name&gt;</code> — project scope.
           </p>
           <Note>
-            <code className="inline">.deepseek/skills</code> is the runtime skill directory — what lands
-            there is what runs.
+            Installation does not execute a skill. In the current runtime, no loader injects installed skill
+            bodies into the agent prompt; the command surface manages packages on disk only.
           </Note>
         </section>
 
@@ -119,13 +119,12 @@ export default function PluginsSkills() {
         <section id="wiring">
           <h2><span className="anchor">#</span>Component wiring status</h2>
           <p>
-            One honest caveat: the two systems are not wired up equally. Skills in{" "}
-            <code className="inline">.deepseek/skills</code> are live at runtime and work immediately. Plugin
-            components are metadata-only: they are discovered and reported by{" "}
-            <code className="inline">/plugin list</code>, but <b>not registered</b> into the live command, agent,
-            or skill registries — only the plugin's metadata is loaded, and only{" "}
-            <code className="inline">/plugin list</code> consumes it. Manage and update plugins today; expect
-            component wiring in a future release.
+            The package-management surfaces are implemented, but installed components are not wired into the
+            agent runtime yet. Standalone skills are validated and registered on disk, but their instructions
+            are not loaded into the prompt. Plugin components are discovered and reported by{" "}
+            <code className="inline">/plugin list</code>, but commands, agents, skills, and hooks are not
+            registered into their live runtimes. Manage and inspect packages today; do not assume installing
+            one changes agent behavior.
           </p>
           <Note>
             Plugin hooks are detected (<code className="inline">hooks</code> shows in{" "}

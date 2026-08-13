@@ -25,11 +25,11 @@ const AUDIT_EVENTS = [
 
 const UNDO = [
   ["/undo", "Restore the last file write"],
-  ["/undo-all", "Roll back all writes in this session"],
-  ["/undo-list", "Show what can be undone"],
-  ["/checkpoint save [label]", "Snapshot messages + files"],
+  ["/undo all", "Roll back all durable file checkpoints in this process"],
+  ["/undo list", "Show the durable file checkpoints available to undo"],
+  ["/checkpoint save [label]", "Snapshot model messages plus modified-file metadata"],
   ["/checkpoint list", "List snapshots"],
-  ["/checkpoint restore <id>", "Restore a snapshot"],
+  ["/checkpoint restore <id>", "Restore model-message history; it does not restore files"],
 ];
 
 export default function SessionsContext() {
@@ -37,41 +37,57 @@ export default function SessionsContext() {
     <>
       <main className="content">
         <nav className="breadcrumb" aria-label="Breadcrumb">
-          <span>Docs</span><span className="sep">/</span><span>Guides</span><span className="sep">/</span><span className="current">Sessions &amp; context</span>
+          <span>Docs</span><span className="sep">/</span><span>Guides</span><span className="sep">/</span><span className="current">Sessions & context</span>
         </nav>
 
         <div className="hero">
-          <h1>Sessions, context &amp; checkpoints</h1>
+          <h1>Sessions, context & checkpoints</h1>
           <p className="tagline">
-            Everything is persisted, the context window is finite — here's the safety net.
+            Completed turns are saved best-effort, the context window is finite — know the exact recovery boundary.
           </p>
         </div>
 
         <section id="sessions">
           <h2><span className="anchor">#</span>Session lifecycle</h2>
           <p>
-            Every turn is saved to disk at{" "}
+            After a main-agent turn reaches its completion callback, DeepSeek Code schedules a short,
+            best-effort save to{" "}
             <code className="inline">~/.deepseek/sessions/&lt;project&gt;-&lt;sha8&gt;/&lt;id&gt;.json</code>{" "}
             (the <code className="inline">&lt;sha8&gt;</code> is a short hash of the workspace path). Each
             session file records the agent messages, UI messages, files modified, model, provider,
             active agent, and goal.
           </p>
           <p>
-            Sessions are pruned by age, keeping the newest{" "}
-            <code className="inline">settings.sessions.retention</code> (default <b>50</b>).{" "}
-            <code className="inline">deepseek</code> with no arguments shows a resume picker, or you can
-            resume directly:
+            A slash command, a <code className="inline">!</code> shell line, streaming output or an outer
+            request error does not independently force that session-record save. Persistence failures are
+            swallowed so they cannot crash the TUI, and an abrupt exit can therefore leave the newest state
+            absent. The first eligible completed turn is what makes a fresh session discoverable.
           </p>
-          <CodeBlock lang="bash">$ <span className="k">deepseek</span> <span className="m">--resume</span> <span className="s">&lt;session-id&gt;</span></CodeBlock>
           <p>
-            Set <code className="inline">settings.sessions.autoResume</code> to{" "}
+            Sessions are pruned by update time, keeping the newest{" "}
+            <code className="inline">sessions.retention</code> records globally (default <b>50</b>). Plain
+            <code className="inline">deepseek</code> starts fresh by default. Use
+            <code className="inline">deepseek --resume</code> with no ID for the project picker, or pass a
+            current 12-character hexadecimal ID directly:
+          </p>
+          <CodeBlock lang="bash">{`$ deepseek --resume
+$ deepseek --resume a1b2c3d4e5f6`}</CodeBlock>
+          <p>
+            Resume lookup is scoped to the exact absolute current project path. Set
+            <code className="inline">sessions.autoResume</code> to{" "}
             <code className="inline">'project-last'</code> to auto-resume the most recent session for the
             current project.
           </p>
+          <Note>
+            Resume hydrates old messages into a new process with a new session ID. Saved model, provider and
+            active-agent values are metadata: current credentials, CLI agent selection and effective settings
+            choose the live runtime. The modified-file tracker, process counters and the raw prompt used by
+            <code className="inline">/retry</code> are not restored.
+          </Note>
         </section>
 
         <section id="snapshots">
-          <h2><span className="anchor">#</span>Task snapshots &amp; resume</h2>
+          <h2><span className="anchor">#</span>Task snapshots & resume</h2>
           <p>
             Beyond the transcript, the session's <b>task graph</b> (delegated sub-agent tasks and
             their orchestration state) is snapshotted to{" "}
@@ -84,14 +100,17 @@ export default function SessionsContext() {
             before anything is restored.
           </p>
           <p>
-            Resuming a session reconciles the graph: tasks that were <b>running</b> when the process
-            died become <code className="inline">failed</code> with the{" "}
-            <code className="inline">INTERRUPTED</code> error (retryable), and <b>queued</b> tasks with
-            no reattached runner become <code className="inline">blocked</code> with{" "}
-            <i>"Runner unavailable after restart"</i> until a runner is attached. The{" "}
-            <code className="inline">AgentN</code> naming counter is re-derived from the restored
-            tasks, so new spawns continue the sequence.
+            Task snapshots are keyed by the orchestration session ID and can restore a runtime only when it
+            starts with that same identity and project root. During that same-ID restoration, interrupted
+            running work is reconciled, unavailable queued runners are blocked, workspace ownership is
+            validated and the generic <code className="inline">AgentN</code> counter continues safely.
           </p>
+          <Note>
+            Ordinary <code className="inline">deepseek --resume</code> is conversation continuation, not
+            same-ID orchestration recovery: the CLI creates a new ID before loading saved messages. It does
+            not automatically attach or reconcile the old task snapshot. Inspect old task artifacts separately
+            rather than assuming workers resumed.
+          </Note>
         </section>
 
         <section id="export">
@@ -137,11 +156,11 @@ export default function SessionsContext() {
         </section>
 
         <section id="compaction">
-          <h2><span className="anchor">#</span>Compaction (manual &amp; auto)</h2>
+          <h2><span className="anchor">#</span>Compaction (manual & auto)</h2>
           <p>
             <code className="inline">/compact</code> asks the LLM to summarize everything after the last
             compact boundary into a 9-section structured summary — Primary Task, Key Technical
-            Decisions, Current State, Files Modified, Errors &amp; Solutions, Pending Tasks,
+            Decisions, Current State, Files Modified, Errors & Solutions, Pending Tasks,
             Requirements, Code Patterns, and Open Questions. It then resets to system + boundary +
             summary and re-injects <code className="inline">DEEPSEEK.md</code> so project instructions are
             fresh.
@@ -169,18 +188,21 @@ export default function SessionsContext() {
         </section>
 
         <section id="checkpoints">
-          <h2><span className="anchor">#</span>Checkpoints &amp; undo</h2>
+          <h2><span className="anchor">#</span>Checkpoints & undo</h2>
           <p>
-            <code className="inline">/checkpoint</code> snapshots the full message array plus modified files:
+            <code className="inline">/checkpoint</code> snapshots the full model-message array plus the paths
+            currently tracked as modified. Restoring a checkpoint replaces message history; it does not roll
+            workspace files back:
           </p>
-          <CodeBlock lang="bash">{`/checkpoint save "before refactor"   # snapshot with an optional label
+          <CodeBlock lang="bash">{`/checkpoint save before refactor     # snapshot with an optional label
 /checkpoint list                      # list snapshots
 /checkpoint restore <id>              # restore one`}</CodeBlock>
           <p>
             Every <code className="inline">write_file</code>/<code className="inline">patch_file</code> also records
-            a per-file checkpoint. <code className="inline">/undo</code>, <code className="inline">/undo-all</code>, and{" "}
-            <code className="inline">/undo-list</code> roll back individual writes, and an in-memory undo
-            stack covers the last 10 writes in the session.
+            a per-file checkpoint. <code className="inline">/undo</code> restores the latest in-memory write;
+            <code className="inline">/undo all</code> restores every durable file checkpoint in reverse order;
+            and <code className="inline">/undo list</code> lists those durable entries. The in-memory undo stack
+            covers the last 10 writes in the process.
           </p>
           <p>
             Under the hood: the in-memory stack is capped at <code className="inline">UNDO_STACK_MAX</code>{" "}
@@ -236,7 +258,7 @@ export default function SessionsContext() {
         </section>
 
         <section id="history">
-          <h2><span className="anchor">#</span>Input &amp; conversation history</h2>
+          <h2><span className="anchor">#</span>Input & conversation history</h2>
           <p>
             Your typed input is recorded in{" "}
             <code className="inline">~/.deepseek/input_history.json</code> — capped at{" "}
@@ -245,19 +267,27 @@ export default function SessionsContext() {
           </p>
           <p>
             A separate <code className="inline">~/.deepseek/history.json</code> keeps the{" "}
-            <b>last 500 messages</b> (system prompt plus the most recent messages) per session, which
-            is what powers the resume picker when you launch{" "}
-            <code className="inline">deepseek</code> with no arguments.
+            <b>last 500 model-facing messages</b> from the most recently written live history. It is a
+            bounded compatibility/history artifact, not a per-session store and not the source of the picker.
+            The project picker reads the structured records below
+            <code className="inline">~/.deepseek/sessions/</code> when you launch
+            <code className="inline">deepseek --resume</code> without an ID.
           </p>
         </section>
 
         <section id="clear">
           <h2><span className="anchor">#</span>Starting fresh (/clear)</h2>
           <p>
-            <code className="inline">/clear</code> empties the live context. Because every turn is already
-            saved to disk, the previous conversation survives and can be resumed later with{" "}
-            <code className="inline">deepseek --resume &lt;session-id&gt;</code> — clearing is a fresh start,
-            not a loss.
+            <code className="inline">/clear</code> immediately resets model-facing history to the current
+            system/project prompt, clears the visible transcript, the in-memory undo stack and the tracked
+            modified-file set. It does not delete or restore workspace files, create a new session ID, revoke
+            approvals, stop goals/tasks/workflows, or reset model, effort and usage counters.
+          </p>
+          <p>
+            The command does not immediately rewrite or delete the saved record, so the older disk snapshot
+            may remain briefly. Once a later main-agent turn completes, the same session ID is saved with the
+            cleared history plus new messages, replacing that record&apos;s resumable conversation. Export anything
+            you need before clearing; use a new process when you need an independent session ID.
           </p>
         </section>
       </main>

@@ -18,8 +18,9 @@ const SESSION_KEYS = [
   ["Ctrl+C", "Abort the running turn; pressed twice, exits the app"],
   ["Esc", "Abort the running turn; pressed twice with text, clears the input"],
   ["Ctrl+D", "Open the latest diff fullscreen (DiffDialog)"],
+  ["Ctrl+O", "Toggle full display mode for expanded reasoning and untruncated tool details"],
   ["Shift+Tab", "Cycle interaction mode: plan → review → build → auto"],
-  ["Ctrl+Z / Shift+Z", "Undo / redo the last input edit"],
+  ["Ctrl+Z / Ctrl+Shift+Z", "Undo / redo where Ctrl+Z is not reserved for Unix suspension"],
 ];
 
 const EMACS_KEYS = [
@@ -37,7 +38,8 @@ const VIM_KEYS = [
   ["Esc", "Insert → normal mode (Esc also cancels a pending operator)"],
   ["i / a / I / A", "Enter insert: at cursor / after cursor / at line start / at line end"],
   ["o", "Open a new line below and insert"],
-  ["h l j k", "Move left / right / down / up (k and j also walk history in normal mode)"],
+  ["h / l", "Move left / right"],
+  ["j / k or ↓ / ↑", "Navigate newer / older prompt history; these keys do not move vertically inside the draft"],
   ["w b e", "Word forward / backward / to word end"],
   ["0 $", "Line start / line end"],
   ["G / gg", "End of text / start of text"],
@@ -45,9 +47,9 @@ const VIM_KEYS = [
   ["d / c / y + motion", "Delete / change / yank with counts, e.g. d3w"],
   ["dd / cc / yy", "Line delete / change / yank"],
   ["x / D", "Delete character / delete to end of line"],
-  ["iw / aw", "Inner / around text objects — word, quotes (“ ” ' `), brackets, and parens"],
+  ["iw / aw", "Inner / around text objects — word, straight quotes, backticks, brackets, braces, and parentheses"],
   ["p / P", "Paste register after / before cursor"],
-  ["Enter", "Submit the input (normal mode)"],
+  ["Enter", "Submit in insert or normal mode; Shift+Enter also submits while Vim is enabled"],
 ];
 
 const PROMPT_KEYS = [
@@ -179,8 +181,8 @@ export default function Keybindings() {
           <h2><span className="anchor">#</span>Vim mode</h2>
           <p>
             Toggle with <code className="inline">/vim</code> (or persist it via{" "}
-            <code className="inline">settings.interface.vim</code>). Insert mode handles printable
-            input normally; in normal mode the classic motion set applies, with counts, operators,
+            <code className="inline">interface.vim</code>). Insert mode handles printable
+            input normally; in normal mode the supported motion subset applies, with counts, operators,
             and text objects:
           </p>
           <div className="doc-table-wrap">
@@ -199,9 +201,10 @@ export default function Keybindings() {
             </table>
           </div>
           <Note>
-            Chunked input (common over tmux/SSH) is processed per-character, so multi-key sequences
-            like <code className="inline">d3w</code> or <code className="inline">ci"</code> work even
-            when the terminal delivers them as one paste.
+            Ordinary printable input delivered in one chunk (common over tmux/SSH) is processed
+            character by character, so sequences such as <code className="inline">d3w</code> and{" "}
+            <code className="inline">ci"</code> still work. A terminal-declared bracketed paste is
+            deliberately inserted as literal text and is never replayed as Vim commands.
           </Note>
         </section>
 
@@ -333,10 +336,14 @@ export default function Keybindings() {
         <section id="mobile">
           <h2><span className="anchor">#</span>Mobile QR</h2>
           <p>
-            <code className="inline">/mobile</code> shows a QR code that pairs a mobile browser with
-            the session. <code className="inline">Tab</code> or any arrow key toggles between the iOS
-            and Android variants; <code className="inline">Esc</code> or <code className="inline">q</code>{" "}
-            closes it.
+            <code className="inline">/mobile</code> shows QR codes for the DeepSeek app listings. It does
+            not pair the phone with this CLI session or expose your terminal remotely. Press{" "}
+            <code className="inline">Tab</code> or any arrow key to switch between the iOS and Android
+            listings; <code className="inline">Esc</code> or <code className="inline">q</code> closes it.
+          </p>
+          <p>
+            See <a href="/docs/mobile">Mobile app links</a> for the destinations, aliases, and privacy
+            boundary.
           </p>
         </section>
 

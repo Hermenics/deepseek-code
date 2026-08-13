@@ -44,14 +44,14 @@ export default function Providers() {
         <section id="overview">
           <h2><span className="anchor">#</span>Overview</h2>
           <p>
-            DeepSeek Code speaks natively to multiple LLM backends. Pick one at first launch, or
-            switch anytime with <code className="inline">/model</code>. Each provider has its own
-            authentication flow.
+            DeepSeek Code speaks natively to multiple LLM backends. Pick a provider during setup or in
+            <code className="inline">/config</code>; then use <code className="inline">/model</code> to choose
+            among that provider&apos;s available models. Each provider has its own authentication flow.
           </p>
         </section>
 
         <section id="table">
-          <h2><span className="anchor">#</span>Providers &amp; auth</h2>
+          <h2><span className="anchor">#</span>Providers & auth</h2>
           <div className="doc-table-wrap">
             <table className="doc-table">
               <thead>
@@ -130,8 +130,8 @@ export default function Providers() {
             </table>
           </div>
           <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
-            Each provider also exposes provider-specific models (e.g. Bedrock Claude, Vertex
-            Gemini, or any local Ollama tag).
+            The built-in Bedrock and Vertex discovery paths filter for DeepSeek model IDs. A local endpoint
+            can expose whatever model IDs its OpenAI-compatible server reports.
           </p>
         </section>
 
@@ -197,14 +197,16 @@ Vertex:   https://{location}-aiplatform.googleapis.com/v1/projects/{project}/loc
         </section>
 
         <section id="switching">
-          <h2><span className="anchor">#</span>Switching providers</h2>
+          <h2><span className="anchor">#</span>Switching the active model</h2>
           <p>
-            Switch the active model at any time:
+            Switch the active model for the current process at any time:
           </p>
           <CodeBlock lang="bash">$ deepseek
 ❯ /model</CodeBlock>
           <p>
-            Your selection is persisted for the next session.
+            This does not switch providers or write settings. Change <code className="inline">provider.name</code>
+            and related credentials in <code className="inline">/config</code> when the next session should use
+            another provider.
           </p>
         </section>
 

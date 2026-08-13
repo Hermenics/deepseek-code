@@ -1,116 +1,150 @@
-import { CodeBlock, Note, Toc, Icon } from "../Layout";
+import { CodeBlock, Note, Toc } from "../Layout";
 
 const TOC = [
-  { id: "scopes", label: "Config scopes" },
-  { id: "precedence", label: "Precedence" },
-  { id: "secrets", label: "Secrets" },
-  { id: "reference", label: "Settings reference" },
-  { id: "merge", label: "Merge behavior" },
-  { id: "legacy", label: "Legacy compatibility" },
-  { id: "validation", label: "Validation" },
-  { id: "settings-center", label: "Settings center" },
-  { id: "mcp", label: "MCP servers" },
-  { id: "next", label: "Next steps" },
+  { id: "levels", label: "The three levels" },
+  { id: "resolution", label: "How a value is resolved" },
+  { id: "diagnostics", label: "Validation & unknown paths" },
+  { id: "provider", label: "provider" },
+  { id: "models", label: "model" },
+  { id: "agents", label: "agents" },
+  { id: "permissions-risk", label: "permissions & risk" },
+  { id: "compaction", label: "compaction & promptRefiner" },
+  { id: "git", label: "git" },
+  { id: "interface", label: "interface" },
+  { id: "rest", label: "memory, sessions, lsp, mcp, goal, workflows" },
+  { id: "hooks", label: "hooks" },
+  { id: "legacy", label: "Legacy keys" },
+  { id: "export", label: "Exporting settings" },
 ];
 
-// Full schema grouped by section. Defaults come from DEFAULT_SETTINGS in
-// src/settings/repository.ts; "—" means no default (inherits or unset).
-const SETTINGS = [
-  { group: true, label: "provider — backend & connection" },
-  { key: "provider.name", def: "deepseek", notes: "deepseek · bedrock · vertex · local" },
-  { key: "provider.timeoutMs", def: "30000", notes: "Must be at least 100 ms" },
-  { key: "provider.endpoint", def: "—", notes: "Optional API base URL override" },
-  { key: "provider.region", def: "—", notes: "AWS region (Bedrock)" },
-  { key: "provider.profile", def: "—", notes: "Named AWS credentials profile" },
-  { key: "provider.projectId", def: "—", notes: "Google Cloud project (Vertex)" },
-  { key: "provider.location", def: "—", notes: "Vertex location, e.g. us-central1" },
-
-  { group: true, label: "model — primary & subagent models" },
-  { key: "model.default", def: "—", notes: "Primary agent model; per-provider default when unset" },
-  { key: "model.subagent", def: "—", notes: "Model used for delegated work" },
-
-  { group: true, label: "interaction" },
-  { key: "interaction.defaultMode", def: "build", notes: "build · plan · review · auto — auto may only be set at User scope" },
-
-  { group: true, label: "compaction — automatic context compaction" },
-  { key: "compaction.enabled", def: "true", notes: "Summarize context near the threshold; /compact stays manual" },
-  { key: "compaction.threshold", def: "0.9", notes: "Context utilization ratio, valid 0.70–0.95" },
-
-  { group: true, label: "promptRefiner — prompt refinement before execution" },
-  { key: "promptRefiner.enabled", def: "true", notes: "Refine sufficiently long coding requests first" },
-  { key: "promptRefiner.model", def: "—", notes: "Optional override; empty inherits the primary model" },
-  { key: "promptRefiner.minimumLength", def: "30", notes: "Messages shorter than this are never refined" },
-  { key: "promptRefiner.excludeTypes", def: "['command']", notes: "Message types that are never refined" },
-
-  { group: true, label: "permissions — allow/deny rules" },
-  { key: "permissions.allow", def: "[]", notes: "Rules like Shell(git *) or ReadFile; concatenated and deduped across scopes" },
-  { key: "permissions.deny", def: "[]", notes: "Mandatory deny rules — higher scopes cannot suppress them" },
-  { key: "permissions.suppress", def: "[]", notes: "Exact inherited allow rules to hide at this scope" },
-  { key: "permissions.autoApproveLowRisk", def: "false", notes: "Allow low-risk operations without a prompt; deny and high-risk checks stay mandatory" },
-
-  { group: true, label: "risk — built-in risk checks" },
-  { key: "risk.enabled", def: "true", notes: "Evaluate built-in and custom risk rules before tool execution" },
-  { key: "risk.thresholds.largeFileLines", def: "100", notes: "Line count marking an overwrite as high risk" },
-  { key: "risk.thresholds.burstCount", def: "3", notes: "Write count that activates edit-burst risk" },
-  { key: "risk.rules", def: "[]", notes: "Custom rules (id, level, tool, pattern, condition); HIGH rules cannot be disabled" },
-
-  { group: true, label: "agents — delegation policy" },
-  { key: "agents.default", def: "—", notes: "Primary agent for the next session" },
-  { key: "agents.additionalDirectories", def: "[]", notes: "Extra agent library paths" },
-  { key: "agents.basePrompt", def: "—", notes: "Editable prompt composed before each specialization" },
-  { key: "agents.subagentModel", def: "—", notes: "Default model for delegated work" },
-  { key: "agents.concurrency", def: "5", notes: "Maximum concurrent subagents, integer 1–16" },
-  { key: "agents.permissionPolicy", def: "inherit", notes: "inherit · isolated — parent deny and risk rules always remain" },
-  { key: "agents.disabledBuiltins", def: "[]", notes: "Built-ins disabled by name; concatenated and deduped across scopes" },
-  { key: "agents.maxTasks / maxDepth / maxFanOut / maxRetries", def: "—", notes: "Limits for subagent fan-out" },
-  { key: "agents.timeoutMs / retryBackoffMs", def: "—", notes: "Timing controls for subagent retries" },
-  { key: "agents.maxTokens / maxCostUsd", def: "—", notes: "Budget ceilings per delegated task" },
-
-  { group: true, label: "memory — durable memory" },
-  { key: "memory.enabled", def: "true", notes: "Enable durable agent and user memory" },
-  { key: "memory.scope", def: "user", notes: "user · project — where memory is stored" },
-
-  { group: true, label: "sessions" },
-  { key: "sessions.retention", def: "50", notes: "Maximum saved sessions, positive integer" },
-  { key: "sessions.autoResume", def: "off", notes: "off · project-last — explicit CLI flags always win" },
-
-  { group: true, label: "git" },
-  { key: "git.checkpoint", def: "true", notes: "Create git checkpoints before risky changes" },
-  { key: "git.worktree", def: "ask", notes: "off · ask · auto — worktree usage for isolation" },
-  { key: "git.branchPattern", def: "deepseek/{slug}-{shortId}", notes: "Must include {shortId} to keep branch names unique" },
-  { key: "git.reviewDiff", def: "false", notes: "Show the diff before committing" },
-  { key: "git.verifyAfterEdit", def: "true", notes: "Re-verify files after edits" },
-  { key: "git.generatedPatterns", def: "[]", notes: "Patterns excluded from checkpoints, tracking and review" },
-
-  { group: true, label: "lsp — language servers (User scope only)" },
-  { key: "lsp.servers", def: "[]", notes: "JSON array of trusted LSP commands and file extensions" },
-  { key: "lsp.timeoutMs", def: "10000", notes: "LSP request timeout, 100–60000 ms" },
-
-  { group: true, label: "mcp — project MCP servers (User scope only)" },
-  { key: "mcp.enabled", def: "false", notes: "Consent to load project .deepseek/mcp.json servers; restart required" },
-
-  { group: true, label: "interface" },
-  { key: "interface.theme", def: "dark", notes: "Color theme" },
-  { key: "interface.language", def: "—", notes: "Preferred language instruction" },
-  { key: "interface.vim", def: "false", notes: "Vim keybindings" },
-  { key: "interface.density", def: "comfortable", notes: "compact · comfortable" },
-  { key: "interface.reducedMotion", def: "false", notes: "Disable animations" },
-  { key: "interface.alternateScreen", def: "false", notes: "Fullscreen alternate-screen buffer" },
-  { key: "interface.showThoughts", def: "true", notes: "Show streamed thinking" },
-  { key: "interface.showToolCalls", def: "true", notes: "Show tool call details in the transcript" },
-  { key: "interface.showDiffs", def: "true", notes: "Show diffs inline" },
-  { key: "interface.statusBar", def: "[mode, model, tokens, branch, context]", notes: "Status bar items and order" },
-  { key: "interface.narrowPriority", def: "[mode, context, model, branch, tokens]", notes: "Items kept on narrow terminals" },
-
-  { group: true, label: "hooks — executable lifecycle hooks (User scope only)" },
-  { key: "hooks.PreToolUse / PostToolUse / SessionStart", def: "—", notes: "See the Hooks page; ignored outside User scope" },
-
-  { group: true, label: "goal" },
-  { key: "goal.maxContinuations", def: "3", notes: "Maximum auto-continuation turns for /goal" },
-
-  { group: true, label: "workflows" },
-  { key: "workflows.enabled", def: "true", notes: "Enable Dynamic Workflows" },
+const LEVELS = [
+  ["local", ".deepseek/settings.local.json", "Highest", "Personal, machine-specific. Do not commit."],
+  ["project", ".deepseek/settings.json", "Middle", "Team configuration. Commit this."],
+  ["user", "~/.deepseek/settings.json", "Lowest", "Your defaults across every project."],
 ];
+
+const PROVIDER = [
+  ["provider.name", "ProviderName", "deepseek, bedrock, vertex or local."],
+  ["provider.endpoint", "string", "Base URL override — gateways, proxies, local runtimes."],
+  ["provider.region", "string", "AWS region for Bedrock."],
+  ["provider.profile", "string", "AWS profile for Bedrock."],
+  ["provider.projectId", "string", "GCP project for Vertex."],
+  ["provider.location", "string", "GCP location for Vertex."],
+  ["provider.timeoutMs", "number", "Timeout used by the settings screen's connection test; minimum 100 ms."],
+];
+
+const MODELS = [
+  ["model", "string | ModelSettings", "A bare string is the default model. An object splits it out."],
+  ["model.default", "string", "The model for your main session."],
+  ["model.subagent", "string", "Compatibility fallback for workers; agents.subagentModel has priority."],
+];
+
+const AGENTS = [
+  ["agents.default", "string", "—", "Default agent to load."],
+  ["agents.additionalDirectories", "string[]", "—", "Extra directories scanned for agent definitions."],
+  ["agents.basePrompt", "string", "—", "Prompt prefix applied to every agent."],
+  ["agents.subagentModel", "string", "—", "Worker model. Overlaps model.subagent."],
+  ["agents.concurrency", "number", "5", "Tasks running at once per session."],
+  ["agents.permissionPolicy", "'inherit' | 'isolated'", "—", "Whether workers inherit the parent's permissions."],
+  ["agents.disabledBuiltins", "string[]", "—", "Built-in agents to switch off."],
+  ["agents.maxTasks", "number", "17", "Total tasks a session may create."],
+  ["agents.maxDepth", "number", "2", "How deep delegation may nest."],
+  ["agents.maxFanOut", "number", "5", "Children per parent."],
+  ["agents.maxRetries", "number", "1", "Bounded retries per task."],
+  ["agents.timeoutMs", "number", "120000", "Per-attempt deadline."],
+  ["agents.retryBackoffMs", "number", "—", "Base for exponential retry backoff."],
+  ["agents.maxTokens", "number", "—", "Token budget for the session's delegated work."],
+  ["agents.maxCostUsd", "number", "—", "Cost budget for the session's delegated work."],
+];
+
+const PERMS = [
+  ["permissions.allow", "string[]", "Rules like Shell(git status). No pattern means every use."],
+  ["permissions.deny", "string[]", "Refusals. Cannot be suppressed at a narrower level."],
+  ["permissions.suppress", "string[]", "Exact inherited allow rules to disable here."],
+  ["permissions.autoApproveLowRisk", "boolean", "Approve anything that matched no risk rule."],
+  ["risk.enabled", "boolean", "false keeps high rules and silences medium ones."],
+  ["risk.rules", "RiskRule[]", "Override defaults by id, or append new ids."],
+  ["risk.thresholds.largeFileLines", "number (100)", "Lines that make an overwrite large."],
+  ["risk.thresholds.burstCount", "number (3)", "Writes in succession that count as a burst."],
+];
+
+const COMPACT = [
+  ["compaction.enabled", "boolean (true)", "Controls the configurable pre-turn auto-compact check."],
+  ["compaction.threshold", "number (0.90)", "Pre-turn context ratio; valid range 0.70–0.95."],
+  ["promptRefiner.enabled", "boolean", "Rewrite prompts for clarity before sending."],
+  ["promptRefiner.model", "string", "Model used for the rewrite."],
+  ["promptRefiner.minimumLength", "number (30)", "Messages shorter than this are not refined."],
+  ["promptRefiner.excludeTypes", "string[]", "Reserved setting; the current refiner path does not consume it."],
+];
+
+const GIT = [
+  ["git.checkpoint", "boolean", "Snapshot a file before a built-in mutating file tool changes it."],
+  ["git.worktree", "'off' | 'ask' | 'auto'", "Whether risky work is isolated into a worktree."],
+  ["git.branchPattern", "string", "Default deepseek/{slug}-{shortId}. Sanitized after substitution."],
+  ["git.reviewDiff", "boolean", "Show a consolidated diff at end of turn."],
+  ["git.verifyAfterEdit", "boolean", "Offer the detected project test command after changed files."],
+  ["git.generatedPatterns", "string[]", "Paths treated as generated output."],
+];
+
+const INTERFACE = [
+  ["interface.theme", "ThemeName", "Color theme."],
+  ["interface.language", "string", "Response language."],
+  ["interface.vim", "boolean", "Vim keybindings."],
+  ["interface.density", "'compact' | 'comfortable'", "Vertical spacing."],
+  ["interface.reducedMotion", "boolean", "Suppress animation."],
+  ["interface.alternateScreen", "boolean", "Use the terminal's alternate screen buffer."],
+  ["interface.showThoughts", "boolean", "Render reasoning blocks."],
+  ["interface.showToolCalls", "boolean", "Render tool calls inline."],
+  ["interface.showDiffs", "boolean", "Render diffs for edits."],
+  ["interface.statusBar", "StatusBarItem[]", "Items shown: mode, model, tokens, branch, context."],
+  ["interface.narrowPriority", "StatusBarItem[]", "Which items survive on a narrow terminal."],
+];
+
+const REST = [
+  ["memory.enabled", "boolean", "Whether the agent may persist memory."],
+  ["memory.scope", "'user' | 'project'", "Where memory is written."],
+  ["sessions.retention", "number", "How many sessions to keep."],
+  ["sessions.autoResume", "'off' | 'project-last'", "Resume the last session for this project on launch."],
+  ["lsp.servers", "LspServerSettings[]", "name, command, args, extensions, languageId."],
+  ["lsp.timeoutMs", "number", "Language-server request timeout."],
+  ["mcp.enabled", "boolean", "User-scoped permission to load project MCP servers."],
+  ["goal.maxContinuations", "number", "Cap on automatic goal continuations."],
+  ["workflows.enabled", "boolean", "false disables dynamic workflows."],
+];
+
+const LEGACY = [
+  ["theme", "interface.theme"],
+  ["language", "interface.language"],
+  ["autoCompact", "compaction.enabled"],
+  ["autoCompactThreshold", "compaction.threshold"],
+];
+
+function KeyTable({ rows, cols }) {
+  return (
+    <div className="doc-table-wrap">
+      <table className="doc-table">
+        <thead>
+          <tr>
+            <th style={{ width: "30%" }}>{cols[0]}</th>
+            <th style={{ width: cols.length === 4 ? "20%" : "24%" }}>{cols[1]}</th>
+            {cols.length === 4 && <th style={{ width: "12%" }}>{cols[2]}</th>}
+            <th>{cols[cols.length - 1]}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r[0]}>
+              <td><code className="inline">{r[0]}</code></td>
+              <td><code className="inline">{r[1]}</code></td>
+              {cols.length === 4 && <td><code className="inline">{r[2]}</code></td>}
+              <td>{r[r.length - 1]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
 export default function Settings() {
   return (
@@ -123,217 +157,306 @@ export default function Settings() {
         <div className="hero">
           <h1>Settings</h1>
           <p className="tagline">
-            Configure DeepSeek Code at User, Project, or Local scope — with visible origins.
+            Three layered files, one merged result, and a loader that records where every effective value
+            came from.
           </p>
         </div>
 
-        <section id="scopes">
-          <h2><span className="anchor">#</span>Config scopes</h2>
-          <p>
-            Non-secret preferences live in <code className="inline">settings.json</code> and are
-            resolved across three scopes:
-          </p>
+        <section id="levels">
+          <h2><span className="anchor">#</span>The three levels</h2>
           <div className="doc-table-wrap">
             <table className="doc-table">
               <thead>
                 <tr>
-                  <th style={{ width: "22%" }}>Scope</th>
-                  <th>Where it lives</th>
-                  <th>Use for</th>
+                  <th style={{ width: "14%" }}>Level</th>
+                  <th style={{ width: "32%" }}>File</th>
+                  <th style={{ width: "14%" }}>Priority</th>
+                  <th>Purpose</th>
                 </tr>
               </thead>
               <tbody>
-                <tr><td><b>User</b></td><td><code className="inline">~/.deepseek/settings.json</code></td><td>Defaults for every project you open</td></tr>
-                <tr><td><b>Project</b></td><td><code className="inline">.deepseek/settings.json</code> in the repo</td><td>Settings that travel with the project</td></tr>
-                <tr><td><b>Local</b></td><td><code className="inline">.deepseek/settings.local.json</code>, git-ignored</td><td>Machine-specific tweaks (not committed)</td></tr>
+                {LEVELS.map(([l, f, p, u]) => (
+                  <tr key={l}>
+                    <td><code className="inline">{l}</code></td>
+                    <td><code className="inline">{f}</code></td>
+                    <td>{p}</td>
+                    <td>{u}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
           <p>
-            A few groups are <b>User-scoped only</b>: <code className="inline">hooks</code>,{" "}
-            <code className="inline">lsp</code> and <code className="inline">mcp</code> are ignored
-            in Project and Local files, because they execute or trust third-party code.
+            Three levels rather than two exists to solve one specific conflict: a team needs shared
+            configuration in version control, and an individual needs to deviate without dirtying the
+            repository. <code className="inline">project</code> is committed,{" "}
+            <code className="inline">local</code> is gitignored, and both sit above your personal defaults.
           </p>
-        </section>
-
-        <section id="precedence">
-          <h2><span className="anchor">#</span>Precedence</h2>
-          <p>
-            When the same key exists in multiple scopes, the effective value is resolved as:
-          </p>
-          <CodeBlock lang="text">User &lt; Project &lt; Local</CodeBlock>
-          <p>
-            So <b>Local wins</b> over Project, which wins over User. The settings center shows the
-            <b> origin</b> of every value, so you always know where a setting came from.
-          </p>
-        </section>
-
-        <section id="secrets">
-          <h2><span className="anchor">#</span>Secrets</h2>
-          <p>
-            Secrets — like provider API keys — are <b>never</b> stored in{" "}
-            <code className="inline">settings.json</code>. They're saved only to:
-          </p>
-          <CodeBlock lang="bash">~/.deepseek/config.json</CodeBlock>
-          <p>
-            The settings API rejects any key or nested value matching{" "}
-            <code className="inline">api key | token | secret | credential | password</code> with:
-          </p>
-          <CodeBlock lang="text">Secrets must be stored in ~/.deepseek/config.json</CodeBlock>
           <Note>
-            Secrets stay out of the repo and out of logs. If you spot a key in a log, report it
-            via the security policy.
+            <code className="inline">settings.local.json</code> being gitignored is also the most common source
+            of "why is my project setting ignored" — it is invisible in every diff and review. See{" "}
+            <a href="/docs/debug-config#origins">Debug your config</a>.
           </Note>
         </section>
 
-        <section id="reference">
-          <h2><span className="anchor">#</span>Settings reference</h2>
-          <p className="lead">
-            The complete schema with defaults. Every group is optional — missing groups fall back
-            to these values.
+        <section id="resolution">
+          <h2><span className="anchor">#</span>How a value is resolved</h2>
+          <p>
+            The loader does more than merge. It produces a snapshot recording, for every setting path, the{" "}
+            <b>effective value</b>, the <b>origin</b> level that supplied it, and every explicitly supplied
+            candidate in precedence order:
           </p>
-          <div className="doc-table-wrap">
-            <table className="doc-table">
-              <thead>
-                <tr>
-                  <th style={{ width: "34%" }}>Key</th>
-                  <th style={{ width: "26%" }}>Default</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                {SETTINGS.map((row, i) =>
-                  row.group ? (
-                    <tr key={i} style={{ background: "var(--bg-subtle)" }}>
-                      <td colSpan={3}><b style={{ color: "var(--text-strong)" }}>{row.label}</b></td>
-                    </tr>
-                  ) : (
-                    <tr key={i}>
-                      <td><code className="inline">{row.key}</code></td>
-                      <td><code className="inline">{row.def}</code></td>
-                      <td>{row.notes}</td>
-                    </tr>
-                  )
-                )}
-              </tbody>
-            </table>
-          </div>
+          <CodeBlock lang="text">{`agents.subagentModel
+  effective  deepseek-v4-flash
+  origin     local
+  candidates user    → deepseek-v4-pro
+             project → deepseek-v4-pro
+             local   → deepseek-v4-flash`}</CodeBlock>
+          <p>
+            Keeping every candidate—including the winning value—rather than discarding it is what turns
+            "this setting is not working" from an investigation into a lookup. Origin can also be{" "}
+            <code className="inline">default</code> (nothing set it) or <code className="inline">legacy</code> (it
+            came from a deprecated flat key).
+          </p>
+          <p>
+            Each level is loaded into its own <code className="inline">SettingsFileState</code> with its own
+            optional <code className="inline">error</code>. A malformed project file does not prevent your user
+            settings from loading — partial configuration beats no session.
+          </p>
         </section>
 
-        <section id="merge">
-          <h2><span className="anchor">#</span>Merge behavior</h2>
+        <section id="diagnostics">
+          <h2><span className="anchor">#</span>Validation & unknown paths</h2>
           <p>
-            Scopes are combined with a <b>deep merge</b>: nested objects merge key by key, so a
-            Project file can override a single field of <code className="inline">git</code> without
-            restating the rest.
+            Two diagnostics catch most mistakes.
           </p>
           <p>
-            Arrays are <b>replaced</b> as a whole — except on concatenation paths, where values are
-            appended and deduplicated across scopes:
+            <b><code className="inline">unknownPaths</code></b> lists unrecognized <em>top-level</em> keys present
+            in your files. The settings type ends with an index signature, so an unknown key is legal JSON
+            and simply never read — a misspelled{" "}
+            <code className="inline">"compation"</code> produces no error anywhere except this list.
           </p>
-          <ul className="capabilities">
-            <li><code className="inline">permissions.allow</code>, <code className="inline">permissions.deny</code>, <code className="inline">permissions.suppress</code></li>
-            <li><code className="inline">risk.rules</code></li>
-            <li><code className="inline">hooks.*</code> — <code className="inline">PreToolUse</code>, <code className="inline">PostToolUse</code>, <code className="inline">SessionStart</code></li>
-            <li><code className="inline">agents.disabledBuiltins</code></li>
-          </ul>
           <p>
-            Allow rules and suppressions are also reconciled across scopes: suppressed allow rules
-            are removed from the final allow list, while deny rules always survive.
+            <b><code className="inline">ValidationIssue</code></b> carries a <code className="inline">path</code>,
+            the <code className="inline">level</code> it came from, a{" "}
+            <code className="inline">severity</code> of <code className="inline">error</code> or{" "}
+            <code className="inline">warning</code>, and a message. The level is what makes it actionable: the
+            same bad value in three files needs three different fixes.
+          </p>
+          <p>
+            Warnings exist so a deprecated-but-working key can be reported without being treated as broken.
+          </p>
+        </section>
+
+        <section id="provider">
+          <h2><span className="anchor">#</span>provider</h2>
+          <KeyTable rows={PROVIDER} cols={["Key", "Type", "Meaning"]} />
+          <CodeBlock lang="json">{`{ "provider": { "name": "bedrock", "region": "us-east-1", "profile": "work" } }`}</CodeBlock>
+          <p>
+            Note what is <b>not</b> here: secrets. The setup flow stores a DeepSeek API key and Vertex
+            credential-file path in private <code className="inline">~/.deepseek/config.json</code>; DeepSeek
+            and AWS credentials may also come from supported environment variables. Never put them in project
+            settings designed to be committed. See{" "}
+            <a href="/docs/env-vars">Environment variables</a>.
+          </p>
+          <p>
+            <code className="inline">provider.endpoint</code> takes priority over{" "}
+            <code className="inline">DEEPSEEK_BASE_URL</code> — an explicit setting beats an ambient variable.
+          </p>
+        </section>
+
+        <section id="models">
+          <h2><span className="anchor">#</span>model</h2>
+          <KeyTable rows={MODELS} cols={["Key", "Type", "Meaning"]} />
+          <p>
+            <code className="inline">model</code> accepts <b>either a string or an object</b>. The string form is
+            backward compatibility carried forward as an ergonomic win — most people want one model, and{" "}
+            <code className="inline">"model": "deepseek-v4-pro"</code> should not require an object.
+          </p>
+          <CodeBlock lang="json">{`{ "model": "deepseek-v4-pro" }
+
+{ "model": { "default": "deepseek-v4-pro", "subagent": "deepseek-v4-flash" } }`}</CodeBlock>
+          <p>
+            Prefer <code className="inline">agents.subagentModel</code> for delegated work. The runtime resolves
+            an explicit task model first, then a named agent's model, then{" "}
+            <code className="inline">agents.subagentModel</code>, then the compatibility{" "}
+            <code className="inline">model.subagent</code>, and finally the current/default model. See{" "}
+            <a href="/docs/model-config#subagent">Model configuration</a>.
+          </p>
+        </section>
+
+        <section id="agents">
+          <h2><span className="anchor">#</span>agents</h2>
+          <KeyTable rows={AGENTS} cols={["Key", "Type", "Default", "Meaning"]} />
+          <p>
+            These replace the orchestrator defaults and are then normalized against hard runtime bounds.
+            For example, settings may raise concurrency above its default of 5, but settings validation caps
+            it at 16; lower-level runtime normalization provides additional absolute clamps for all limits.
+          </p>
+          <p>
+            <code className="inline">maxTokens</code> and <code className="inline">maxCostUsd</code> are budgets
+            for delegated work. Exceeding them surfaces as{" "}
+            <code className="inline">BUDGET_EXCEEDED</code> rather than as a silent truncation. See{" "}
+            <a href="/docs/agent-teams#limits">Agent teams</a>.
+          </p>
+        </section>
+
+        <section id="permissions-risk">
+          <h2><span className="anchor">#</span>permissions & risk</h2>
+          <KeyTable rows={PERMS} cols={["Key", "Type", "Meaning"]} />
+          <p>
+            Two independent systems share this section.{" "}
+            <code className="inline">permissions</code> is declarative allow/deny;{" "}
+            <code className="inline">risk</code> is the pattern-based classifier with around fifty built-in
+            rules.
+          </p>
+          <p>
+            <code className="inline">risk.enabled: false</code> does <b>not</b> disable risk assessment — it
+            keeps every <b>high</b> rule and silences only <b>medium</b> ones. There is no setting that turns
+            off confirmation for <code className="inline">rm -rf</code>.
+          </p>
+          <p>
+            Overriding a rule by id is likewise asymmetric: medium rules are fully overridable, high rules
+            keep their level and stay enabled regardless of what you write. Full detail in{" "}
+            <a href="/docs/permissions">Permissions</a>.
+          </p>
+        </section>
+
+        <section id="compaction">
+          <h2><span className="anchor">#</span>compaction & promptRefiner</h2>
+          <KeyTable rows={COMPACT} cols={["Key", "Type / default", "Meaning"]} />
+          <p>
+            <code className="inline">promptRefiner</code> rewrites a prompt for clarity before sending it.{" "}
+            <code className="inline">minimumLength</code> defaults to 30 characters — refining "fix this" costs
+            a model call to add nothing, since there is no intent to clarify.
+          </p>
+          <p>
+            The refiner is instructed to preserve intent, but its result is still model-generated and may
+            rephrase or omit nuance. Use the preview in <code className="inline">/config</code> when exact wording
+            matters, or disable it when your prompts are already precise, including in{" "}
+            <a href="/docs/headless">headless mode</a> — where the saved preference is honored.
+          </p>
+        </section>
+
+        <section id="git">
+          <h2><span className="anchor">#</span>git</h2>
+          <KeyTable rows={GIT} cols={["Key", "Type", "Meaning"]} />
+          <p>
+            <code className="inline">git.worktree</code> has three values rather than a boolean, and the middle
+            one is the useful one: <code className="inline">ask</code> offers isolation for risky work instead of
+            always or never creating a worktree.
+          </p>
+          <p>
+            <code className="inline">git.branchPattern</code> is substituted with{" "}
+            <code className="inline">{"{slug}"}</code> and <code className="inline">{"{shortId}"}</code>, then{" "}
+            <b>sanitized</b> — anything outside <code className="inline">[a-zA-Z0-9/_-]</code> becomes a hyphen.
+            A pattern containing spaces or shell metacharacters cannot produce an invalid or dangerous ref.
+            See <a href="/docs/worktrees#branches">Worktrees</a>.
+          </p>
+        </section>
+
+        <section id="interface">
+          <h2><span className="anchor">#</span>interface</h2>
+          <KeyTable rows={INTERFACE} cols={["Key", "Type", "Meaning"]} />
+          <p>
+            <code className="inline">statusBar</code> and <code className="inline">narrowPriority</code> are a pair.
+            The first lists what you want; the second lists what survives when the terminal is too narrow for
+            all of it. Without the second, a narrow window would drop items in arbitrary order.
+          </p>
+          <CodeBlock lang="json">{`{ "interface": {
+    "statusBar": ["mode", "model", "context", "tokens", "branch"],
+    "narrowPriority": ["mode", "context"]
+} }`}</CodeBlock>
+          <p>
+            See <a href="/docs/interface">Interface</a> and <a href="/docs/themes">Themes</a>.
+          </p>
+        </section>
+
+        <section id="rest">
+          <h2><span className="anchor">#</span>memory, sessions, lsp, mcp, goal, workflows</h2>
+          <KeyTable rows={REST} cols={["Key", "Type", "Meaning"]} />
+          <p>
+            Two of these carry comments in the source marking them <b>user-scoped</b> on purpose.{" "}
+            <code className="inline">lsp.servers</code> defines executable commands, and{" "}
+            <code className="inline">mcp.enabled</code> governs whether project MCP servers load at all.
+          </p>
+          <p>
+            Both are capabilities a cloned repository should not be able to grant itself: a project file that
+            could register an executable language server, or auto-load an MCP server, would be remote code
+            execution by <code className="inline">git clone</code>. Keeping them at the user level means the
+            decision is always yours.
+          </p>
+          <CodeBlock lang="json">{`// ~/.deepseek/settings.json
+{ "lsp": { "servers": [
+    { "name": "typescript", "command": "typescript-language-server",
+      "args": ["--stdio"], "extensions": [".ts", ".tsx"] }
+] } }`}</CodeBlock>
+        </section>
+
+        <section id="hooks">
+          <h2><span className="anchor">#</span>hooks</h2>
+          <p>
+            <code className="inline">hooks</code> takes a <code className="inline">HooksConfig</code> with three
+            keys — <code className="inline">PreToolUse</code>, <code className="inline">PostToolUse</code> and{" "}
+            <code className="inline">SessionStart</code>. The first two hold matcher lists; the third holds a
+            flat command list.
+          </p>
+          <CodeBlock lang="json">{`{ "hooks": {
+    "PostToolUse": [
+      { "matcher": "edit_file|write_file",
+        "hooks": [{ "type": "command", "command": "bunx tsc --noEmit" }] }
+    ]
+} }`}</CodeBlock>
+          <p>
+            Hooks run <code className="inline">sh -c</code> with your OS permissions. A failing PreToolUse
+            hook returns a block decision; PostToolUse hooks are launched asynchronously and SessionStart
+            failures are recorded without aborting initialization. Read <a href="/docs/hooks">Hooks</a> before
+            enabling one you did not write.
           </p>
         </section>
 
         <section id="legacy">
-          <h2><span className="anchor">#</span>Legacy compatibility</h2>
+          <h2><span className="anchor">#</span>Legacy keys</h2>
           <p>
-            Old top-level keys stay readable for one compatibility cycle and are migrated
-            automatically:
+            Four flat keys predate the nested structure and remain readable:
           </p>
-          <ul className="capabilities">
-            <li><code className="inline">theme</code> / <code className="inline">language</code> → <code className="inline">interface.theme</code> / <code className="inline">interface.language</code></li>
-            <li><code className="inline">autoCompact</code> / <code className="inline">autoCompactThreshold</code> → <code className="inline">compaction.enabled</code> / <code className="inline">compaction.threshold</code></li>
-            <li>String <code className="inline">model</code> → <code className="inline">model.default</code></li>
-          </ul>
-          <p>
-            Legacy credentials in <code className="inline">~/.deepseek/config.json</code>{" "}
-            (<code className="inline">THEME</code>, <code className="inline">LANGUAGE</code>,{" "}
-            <code className="inline">ENCHANT</code>, <code className="inline">MODEL</code>,{" "}
-            <code className="inline">PROVIDER</code> and the provider env keys) are read as the
-            lowest-precedence User layer.
-          </p>
-        </section>
-
-        <section id="validation">
-          <h2><span className="anchor">#</span>Validation</h2>
-          <p>
-            Every scope file is validated when loaded. Hard constraints fail the save — for
-            example <code className="inline">compaction.threshold</code> must be between 0.70 and
-            0.95, and <code className="inline">agents.concurrency</code> must be an integer from 1
-            to 16. Soft constraints surface as warnings, such as a{" "}
-            <code className="inline">git.branchPattern</code> without{" "}
-            <code className="inline">{"{shortId}"}</code>.
-          </p>
-          <p>
-            Unknown top-level keys are <b>not</b> rejected — they are tracked as{" "}
-            <code className="inline">unknownPaths</code> and listed in the settings center
-            diagnostics, so plugins can keep their own configuration in the same file.
-          </p>
-        </section>
-
-        <section id="settings-center">
-          <h2><span className="anchor">#</span>Settings center</h2>
-          <p>
-            Open the fullscreen settings center with <code className="inline">/config</code> or{" "}
-            <code className="inline">/settings</code>. Settings are organized into ten categories:
-            <b> Provider &amp; Model</b>, <b>Agent Behavior</b>, <b>Context &amp; Compaction</b>,
-            <b> Permissions &amp; Risk</b>, <b>Agents</b>, <b>Memory &amp; Sessions</b>,{" "}
-            <b>Git</b>, <b>Interface</b>, <b>Hooks</b>, and <b>Advanced</b>.
-          </p>
-          <ul className="capabilities">
-            <li><b>Tab</b> / <b>Shift+Tab</b> cycle the active scope: user → project → local → user</li>
-            <li><b>/</b> starts a full-text search across labels, descriptions and aliases</li>
-            <li><b>r</b> removes the scoped override and restores the inherited value</li>
-            <li>The detail pane shows <b>Effective</b> value, <b>Origin</b> (default, user, project, local or legacy) and the <b>Chain</b> of overrides</li>
-            <li>Settings that need a restart are marked <b>"Applies next session"</b>; the rest apply immediately</li>
-          </ul>
-          <p>Built-in actions include:</p>
-          <ul className="capabilities">
-            <li><b>Test connection</b> — latency check and model listing for the active provider</li>
-            <li><b>Refiner preview</b> and <b>Permission preview</b> — try values before saving</li>
-            <li><b>Clear session approvals</b>, <b>Clear memory</b>, <b>Clear sessions</b> (project or global)</li>
-            <li><b>Export</b> — a secret-free JSON bundle of effective settings, memory and sessions</li>
-            <li><b>Reset scope</b>, <b>Reload settings</b>, <b>Diagnostics</b>, and opening the raw scope file in <code className="inline">$EDITOR</code></li>
-          </ul>
-          <p>
-            The center adapts its layout to terminal width — from three panes down to a sequential
-            flow (categories → items → detail) on narrow terminals.
-          </p>
-        </section>
-
-        <section id="mcp">
-          <h2><span className="anchor">#</span>MCP servers</h2>
-          <p>
-            Project MCP servers are <b>off by default</b>. Enable them with the User-scoped{" "}
-            <b>Enable project MCP servers</b> setting, then restart DeepSeek Code.
-          </p>
-          <Note>
-            Browse integrations with <code className="inline">/catalog</code> or{" "}
-            <code className="inline">/marketplace</code>.
-          </Note>
-        </section>
-
-        <section id="next">
-          <h2><span className="anchor">#</span>Next steps</h2>
-          <div className="next-links">
-            <a className="next-card" href="/docs/providers">
-              <div className="nc-title">Providers <Icon.Arrow /></div>
-              <div className="nc-desc">Configure authentication for each backend.</div>
-            </a>
-            <a className="next-card" href="/docs/commands">
-              <div className="nc-title">Commands <Icon.Arrow /></div>
-              <div className="nc-desc">Open settings from the palette.</div>
-            </a>
+          <div className="doc-table-wrap">
+            <table className="doc-table">
+              <thead>
+                <tr><th style={{ width: "36%" }}>Legacy key</th><th>Now</th></tr>
+              </thead>
+              <tbody>
+                {LEGACY.map(([l, n]) => (
+                  <tr key={l}>
+                    <td><code className="inline">{l}</code></td>
+                    <td><code className="inline">{n}</code></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+          <p>
+            The nested form wins when both are present. Values resolved from a legacy key report their origin
+            as <code className="inline">legacy</code>, which is how you find them without grepping your files —
+            the snapshot tells you which settings are still arriving the old way.
+          </p>
+        </section>
+
+        <section id="export">
+          <h2><span className="anchor">#</span>Exporting settings</h2>
+          <p>
+            The settings screen writes a versioned bundle — <code className="inline">version</code>,{" "}
+            <code className="inline">exportedAt</code>, effective <code className="inline">settings</code>, memory,
+            and the saved-session index — below the current project's{" "}
+            <code className="inline">.deepseek/settings-export-&lt;timestamp&gt;.json</code>.
+          </p>
+          <p>
+            The repository export API accepts memory and sessions as optional fields, but the interactive
+            Export action supplies both. Secret-looking keys are removed recursively; project content is not.
+            Review and redact the file before sharing it, or create a settings-only export through the API.
+          </p>
+          <CodeBlock lang="bash">{`/config     # fullscreen settings center — alias /settings
+/doctor     # resolved values with their origin level`}</CodeBlock>
         </section>
       </main>
 

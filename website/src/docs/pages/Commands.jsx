@@ -75,7 +75,7 @@ const GROUPS = [
     title: "Inspect",
     items: [
       ["/tools", "List the tools available in this session"],
-      ["/system", "Show the active system prompt"],
+      ["/system", "Show the active interaction-mode and permission summary"],
       ["/doctor", "Check runtime, workspace, credentials, settings, and MCP configuration"],
       ["/logout", "Clear all stored credentials and API keys"],
       ["/help", "Show all commands"],
