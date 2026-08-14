@@ -38,7 +38,18 @@ import { refinePrompt, previewPromptRefinement, type PromptRefinementPreview } f
 import { canUseTool, DEFAULT_MODE, getToolsForMode, isReviewMode, type InteractionMode } from '../ui/interactionMode.js'
 import { globMatch, resolvePermission } from '../permissions/index.js'
 import { assessRisk } from '../permissions/risk.js'
-import { runPreToolHooks, runPostToolHooks, runSessionStartHooks } from '../hooks/index.js'
+import {
+  runPostCompactHooks,
+  runPostToolHooks,
+  runPreCompactHooks,
+  runPreToolHooks,
+  runPermissionRequestHooks,
+  runClaudeHookEvent,
+  runSessionEndHooks,
+  runSessionStartHooks,
+  runStopHooks,
+  runUserPromptSubmitHooks,
+} from '../hooks/index.js'
 import type { HooksConfig } from '../hooks/types.js'
 import { OrchestratorSession, taskSnapshotFile, type OrchestratorCallbacks } from '../orchestration/OrchestratorSession.js'
 import { validateToolArguments as validateToolSchema } from '../orchestration/schema.js'
@@ -234,6 +245,8 @@ export class Agent {
   private sessionStartTime: number = Date.now()
   private toolCallTotal: number = 0
   private readonly hookSessionId = randomUUID()
+  private sessionEndHooksRun = false
+  private stopHookActive = false
   public readonly orchestrator: OrchestratorSession
   public readonly workflows: WorkflowManager
   private orchestrationCallbacks: OrchestratorCallbacks = {}
@@ -290,11 +303,41 @@ export class Agent {
     this.toolPermissionHandler = handler
   }
 
+  private async permissionHookDecision(toolName: string, args: Record<string, unknown>): Promise<{ decision: 'pass' | 'block'; approved?: boolean; reason?: string }> {
+    if (!this.settings.hooks) return { decision: 'pass' }
+    return runPermissionRequestHooks(this.settings.hooks as HooksConfig, toolName, args, this.hookSessionId)
+  }
+
+  private async runStopFailureHook(error: unknown): Promise<void> {
+    if (!this.settings.hooks) return
+    const message = error instanceof Error ? error.message : String(error)
+    await runClaudeHookEvent(this.settings.hooks as HooksConfig, 'StopFailure', this.hookSessionId, {
+      cwd: this.workspacePath, model: this.model, error: 'unknown', error_details: message,
+    }, 'unknown')
+  }
+
+  private async runPostToolBatchHooks(toolCalls: Array<Record<string, unknown>>): Promise<void> {
+    if (!this.settings.hooks || toolCalls.length === 0) return
+    await runClaudeHookEvent(this.settings.hooks as HooksConfig, 'PostToolBatch', this.hookSessionId, {
+      cwd: this.workspacePath, model: this.model, tool_calls: toolCalls,
+    })
+  }
+
+  private async runPermissionDeniedHook(toolName: string, args: Record<string, unknown>, reason: string): Promise<void> {
+    if (!this.settings.hooks) return
+    await runClaudeHookEvent(this.settings.hooks as HooksConfig, 'PermissionDenied', this.hookSessionId, {
+      cwd: this.workspacePath, model: this.model, tool_name: toolName, tool_input: args, reason,
+    }, toolName)
+  }
+
   private async authorizeWorkflow(script: string, args: object): Promise<void> {
     if (this.settings.workflows?.enabled === false || process.env.DEEPSEEK_DISABLE_WORKFLOWS === '1') throw new Error('Dynamic Workflows are disabled')
     const scriptHash = hashWorkflowValue(script)
     const approvals = new WorkflowApprovalStore(this.workspacePath)
     if (this.interactionMode === 'auto' || await approvals.isApproved(scriptHash)) return
+    const hookDecision = await this.permissionHookDecision('workflow', args as Record<string, unknown>)
+    if (hookDecision.decision === 'block') throw new DenyAbortError()
+    if (hookDecision.approved) return
     if (!this.toolPermissionHandler) throw new Error('Workflow execution requires explicit confirmation, but no confirmation handler is available.')
     const decision = await this.toolPermissionHandler({
       toolName: 'workflow', args, reason: 'workflow',
@@ -410,6 +453,19 @@ export class Agent {
       }
       this.messages = [{ role: 'system', content: this.systemPrompt }]
 
+      await runClaudeHookEvent(settings.hooks as HooksConfig, 'Setup', this.hookSessionId, {
+        cwd: this.workspacePath, model: this.model, trigger: 'init',
+      })
+      for (const [content, filePath] of [[agentsMd, 'AGENTS.md'], [deepseekMd, 'DEEPSEEK.md']] as const) {
+        if (!content) continue
+        await runClaudeHookEvent(settings.hooks as HooksConfig, 'InstructionsLoaded', this.hookSessionId, {
+          cwd: this.workspacePath,
+          file_path: resolve(this.workspacePath, filePath),
+          load_reason: 'session_start',
+          memory_type: 'Project',
+        }, 'session_start')
+      }
+
       // Run SessionStart hooks
       if (this.settings.hooks) {
         await runSessionStartHooks(this.settings.hooks as HooksConfig, this.hookSessionId)
@@ -496,6 +552,7 @@ export class Agent {
   async setWorkingDirectory(path: string, _changeProjectRoot = true): Promise<void> {
     await this.readyPromise
     const target = resolve(path)
+    const oldCwd = this.workspacePath
     const activeAgent = this.activeAgent
     if (this.workflows.hasActiveRuns()) throw new Error('Cannot change directory while a workflow is active')
     await this.orchestrator.changeProjectRoot(target)
@@ -505,6 +562,9 @@ export class Agent {
     this.allowedTools = null
     this.readyPromise = this.initialize(false)
     await this.readyPromise
+    await runClaudeHookEvent(this.settings.hooks as HooksConfig, 'CwdChanged', this.hookSessionId, {
+      cwd: target, old_cwd: oldCwd, new_cwd: target,
+    })
     if (activeAgent) {
       const replacement = (await loadAgentRegistry(target)).find(agent => agent.config.name === activeAgent && agent.config.enabled !== false)
       if (replacement) await this.applyAgentConfig(replacement.config)
@@ -513,6 +573,16 @@ export class Agent {
 
   async shutdown(): Promise<void> {
     this.abortController?.abort(new Error('Agent shutdown'))
+    if (!this.sessionEndHooksRun) {
+      this.sessionEndHooksRun = true
+      if (this.settings.hooks) {
+        try {
+          await runSessionEndHooks(this.settings.hooks as HooksConfig, this.hookSessionId, this.workspacePath)
+        } catch {
+          // Shutdown must continue even when a SessionEnd hook rejects.
+        }
+      }
+    }
     await this.workflows.shutdown('Agent shutdown')
     await this.orchestrator.shutdown('Agent shutdown')
   }
@@ -746,10 +816,15 @@ export class Agent {
 
   // ── Compact ────────────────────────────────────────────────────────────────
 
-  async compact(): Promise<string> {
+  async compact(trigger: 'manual' | 'auto' = 'manual'): Promise<string> {
     const activeMessages = getMessagesAfterBoundary(this.messages)
     const nonSystem = activeMessages.filter((m) => m.role !== 'system')
     if (nonSystem.length === 0) return 'Nothing to compact.'
+
+    if (this.settings.hooks) {
+      const preCompact = await runPreCompactHooks(this.settings.hooks as HooksConfig, this.hookSessionId, trigger, { cwd: this.workspacePath, model: this.model })
+      if (preCompact.decision === 'block') throw new Error(preCompact.reason ?? 'Compaction blocked by PreCompact hook')
+    }
 
     const response = await this.withRetry(() =>
       this.client.chat.completions.create(
@@ -793,6 +868,7 @@ export class Agent {
 
     await saveHistory(this.messages)
     this.contextStale = true
+    if (this.settings.hooks) await runPostCompactHooks(this.settings.hooks as HooksConfig, this.hookSessionId, trigger, { cwd: this.workspacePath, model: this.model })
     return summary
   }
 
@@ -1054,6 +1130,7 @@ export class Agent {
   async run(userMessage: string, cb: AgentCallbacks) {
     // Wait for settings, snapshots and project context before resetting turn state.
     await this.readyPromise
+    const originalUserMessage = userMessage
 
     this.orchestrator.resetTurnMemory()
     this.turnWriteCount = 0
@@ -1061,6 +1138,13 @@ export class Agent {
 
     // One signal owns the entire turn, including foreground tools and tasks.
     this.abortController = new AbortController()
+
+    let hookContext = ''
+    if (this.settings.hooks) {
+      const promptHook = await runUserPromptSubmitHooks(this.settings.hooks as HooksConfig, this.hookSessionId, userMessage, { cwd: this.workspacePath, model: this.model })
+      if (promptHook.decision === 'block') throw new Error(promptHook.reason ?? 'Prompt blocked by UserPromptSubmit hook')
+      if (promptHook.additionalContext) hookContext = `\n\n[Hook context]\n${promptHook.additionalContext}`
+    }
 
     // Micro-compact old read-only tool results before considering an LLM compaction.
     if (isEnabled('microCompact', loadFeatures())) {
@@ -1072,7 +1156,7 @@ export class Agent {
     // Auto-compact when context is above threshold (with circuit breaker)
     if (shouldAutoCompact(this.contextUsage, this.contextLimit, this.autoCompactConfig, this.compactState)) {
       try {
-        const summary = await this.compact()
+        const summary = await this.compact('auto')
         this.compactState.consecutiveFailures = 0
         this.compactState.lastCompactTimestamp = Date.now()
         auditLog({ type: 'compact', reason: 'context_threshold' })
@@ -1090,18 +1174,18 @@ export class Agent {
     // Always remember the user's ORIGINAL message (what they typed), never the
     // PromptRefiner-refined variant. /retry and the input history depend on this
     // staying the raw input so the history shows what the user actually wrote.
-    this.lastUserMessage = userMessage
+    this.lastUserMessage = originalUserMessage
 
     // Prompt refinement (if enabled)
-    let effectiveMessage = userMessage
+    let effectiveMessage = originalUserMessage
     const refinementMinimum = this.settings.promptRefiner?.minimumLength ?? 30
-    if (this.settings.promptRefiner?.enabled !== false && userMessage.length >= refinementMinimum && !userMessage.startsWith('/')) {
+    if (this.settings.promptRefiner?.enabled !== false && originalUserMessage.length >= refinementMinimum && !originalUserMessage.startsWith('/')) {
       cb.onPhaseChange?.('refining')
-      effectiveMessage = await refinePrompt(this.client, this.settings.promptRefiner?.model ?? this.model, userMessage)
+      effectiveMessage = await refinePrompt(this.client, this.settings.promptRefiner?.model ?? this.model, originalUserMessage)
     }
 
     // Inject asynchronous agent responses into the next foreground turn.
-    let messageContent = `[${now}]\n${effectiveMessage}`
+    let messageContent = `[${now}]\n${effectiveMessage}${hookContext}`
     if (this.pendingAgentNotes.length > 0) {
       messageContent += `\n\n[Async agent responses — informational, not a new task]\n${this.pendingAgentNotes.map(n => `• @${n.agentName}: ${n.text}`).join('\n')}`
       this.pendingAgentNotes = []
@@ -1202,6 +1286,7 @@ export class Agent {
           )
         } catch (e: unknown) {
           if (this.abortController?.signal.aborted) { cb.onDone(); return }
+          await this.runStopFailureHook(e)
           throw e
         }
 
@@ -1240,11 +1325,14 @@ export class Agent {
             this.messages.push(assistantMsg)
 
             // Execute each tool and append results as user messages
+            const batchCalls: Array<Record<string, unknown>> = []
             for (const tc of toolCalls) {
               const fakeTc = { id: `bedrock-${randomUUID().slice(0, 8)}`, type: 'function' as const, function: { name: tc.name, arguments: JSON.stringify(tc.args) } }
               const { result } = await this.checkAndExecuteTool(fakeTc, tc.args, cb)
+              batchCalls.push({ tool_name: tc.name, tool_input: tc.args, tool_response: result })
               this.messages.push({ role: 'user', content: `<tool_result>\n<name>${tc.name}</name>\n<result>${result}</result>\n</tool_result>` })
             }
+            await this.runPostToolBatchHooks(batchCalls)
             continue // next iteration — model will process tool results
           }
           // No tool calls — final response
@@ -1294,10 +1382,13 @@ export class Agent {
           return { tc, parsedArgs }
         })
 
+        const batchCalls: Array<Record<string, unknown>> = []
         for (const { tc, parsedArgs } of parsedList) {
           const { result } = await this.checkAndExecuteTool(tc, parsedArgs, cb)
+          batchCalls.push({ tool_name: tc.function.name, tool_input: parsedArgs, tool_response: result, tool_use_id: tc.id })
           this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
         }
+        await this.runPostToolBatchHooks(batchCalls)
         continue // next iteration of the agent loop
       }
 
@@ -1320,6 +1411,7 @@ export class Agent {
           cb.onDone()
           return
         }
+        await this.runStopFailureHook(e)
         throw e
       }
 
@@ -1392,6 +1484,7 @@ export class Agent {
           cb.onDone()
           return
         }
+        await this.runStopFailureHook(e)
         throw e
       }
 
@@ -1400,7 +1493,7 @@ export class Agent {
         const usageRatio = this.contextUsage / this.contextLimit
         if (usageRatio >= CONTEXT_COMPACT_THRESHOLD && this.compactState.consecutiveFailures < this.autoCompactConfig.maxConsecutiveFailures) {
           try {
-            const summary = await this.compact()
+            const summary = await this.compact('auto')
             this.compactState.consecutiveFailures = 0
             this.compactState.lastCompactTimestamp = Date.now()
             auditLog({ type: 'compact', reason: 'mid_turn_threshold' })
@@ -1456,31 +1549,66 @@ export class Agent {
           parsedList.map(({ tc, parsedArgs }) => this.checkAndExecuteTool(tc, parsedArgs, cb))
         )
         let hasDeny = false
+        const batchCalls: Array<Record<string, unknown>> = []
         for (let idx = 0; idx < settled.length; idx++) {
           const s = settled[idx]!
           const tcId = parsedList[idx]!.tc.id
           if (s.status === 'fulfilled') {
+            batchCalls.push({ tool_name: parsedList[idx]!.tc.function.name, tool_input: parsedList[idx]!.parsedArgs, tool_response: s.value.result, tool_use_id: s.value.tc.id })
             this.messages.push({ role: 'tool', tool_call_id: s.value.tc.id, content: s.value.result })
           } else {
             // Fill rejected/denied entries with a placeholder so API stays consistent
+            batchCalls.push({ tool_name: parsedList[idx]!.tc.function.name, tool_input: parsedList[idx]!.parsedArgs, tool_response: '[tool call cancelled by user]', tool_use_id: tcId })
             this.messages.push({ role: 'tool', tool_call_id: tcId, content: '[tool call cancelled by user]' })
             if (s.reason instanceof DenyAbortError) hasDeny = true
           }
         }
+        await this.runPostToolBatchHooks(batchCalls)
         if (hasDeny) throw new DenyAbortError()
       } else {
         // Sequential execution (file writes, or mixed batch)
+        const batchCalls: Array<Record<string, unknown>> = []
         for (const { tc, parsedArgs } of parsedList) {
           const { result } = await this.checkAndExecuteTool(tc, parsedArgs, cb)
+          batchCalls.push({ tool_name: tc.function.name, tool_input: parsedArgs, tool_response: result, tool_use_id: tc.id })
           this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
         }
+        await this.runPostToolBatchHooks(batchCalls)
       }
 
     }
   }
 
   private async completeTurn(cb: AgentCallbacks): Promise<void> {
+    let completionHandled = false
     try {
+      if (this.settings.hooks && !this.stopHookActive) {
+        const lastMessage = this.messages.at(-1)
+        const lastAssistantMessage = lastMessage?.role === 'assistant' && typeof lastMessage.content === 'string'
+          ? lastMessage.content
+          : null
+        const stopHook = await runStopHooks(this.settings.hooks as HooksConfig, this.hookSessionId, lastAssistantMessage, false, {
+          cwd: this.workspacePath,
+          model: this.model,
+        })
+        if (stopHook.decision === 'block') {
+          this.stopHookActive = true
+          this.messages.push({ role: 'user', content: `[Stop hook feedback]\n${stopHook.reason ?? 'Continue working on the request.'}` })
+          try {
+            await this.runLoop(cb)
+            completionHandled = true
+          } finally {
+            this.stopHookActive = false
+          }
+          return
+        }
+      }
+      const displayedMessage = this.messages.at(-1)
+      if (displayedMessage?.role === 'assistant' && typeof displayedMessage.content === 'string') {
+        await runClaudeHookEvent(this.settings.hooks as HooksConfig, 'MessageDisplay', this.hookSessionId, {
+          cwd: this.workspacePath, model: this.model, message: displayedMessage.content,
+        })
+      }
       if (this.settings.git?.reviewDiff && this.diffReviewHandler && this.turnModifiedFiles.size > 0) {
         const files = [...this.turnModifiedFiles]
         let review = `Files changed this turn:\n${files.map(file => `• ${file}`).join('\n')}`
@@ -1505,7 +1633,7 @@ export class Agent {
         await this.verificationHandler([...this.turnModifiedFiles])
       }
     } finally {
-      cb.onDone()
+      if (!completionHandled) cb.onDone()
     }
   }
 
@@ -1543,6 +1671,17 @@ export class Agent {
 
       const message = error instanceof Error ? error.message : String(error)
       const result = `Error: ${message}`
+      if (this.settings.hooks) {
+        await runClaudeHookEvent(this.settings.hooks as HooksConfig, 'PostToolUseFailure', this.hookSessionId, {
+          cwd: this.workspacePath,
+          model: this.model,
+          tool_name: tc.function.name,
+          tool_input: calledArgs as Record<string, unknown>,
+          tool_use_id: tc.id,
+          error: message,
+          error_details: message,
+        }, tc.function.name).catch(() => {})
+      }
       if (lifecycle.startedAt !== undefined) {
         const durationMs = Date.now() - lifecycle.startedAt
         await auditLog({ type: 'tool_result', tool: tc.function.name, result: result.slice(0, 200), durationMs })
@@ -1656,7 +1795,17 @@ export class Agent {
         approvedExternalDirectory = [...this.sessionApprovedDirectories]
           .some(directory => isPathContained(directory, externalDirectory))
         if (!approvedExternalDirectory) {
-          if (!this.toolPermissionHandler) {
+          const hookDecision = await this.permissionHookDecision(tc.function.name, effectiveArgs)
+          if (hookDecision.decision === 'block') {
+            const blockMsg = hookDecision.reason ?? `Tool '${tc.function.name}' blocked by PermissionRequest hook.`
+            cb.onToolCall(tc.function.name, effectiveArgs)
+            cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
+            return { tc, result: blockMsg }
+          }
+          if (hookDecision.approved) {
+            approvedThisCall = true
+            executionExternalPaths = [...this.sessionApprovedDirectories, externalDirectory]
+          } else if (!this.toolPermissionHandler) {
             // Preserve the existing fail-closed path error for non-interactive callers.
             await resolveSafePath(requestedPath, pathContext)
           }
@@ -1717,7 +1866,16 @@ export class Agent {
       const riskSessionKey = `risk:${riskResult.matchedRule}:${riskContentKey}`
 
       if (!this.sessionApprovedTools.has(riskSessionKey)) {
-        if (!this.toolPermissionHandler) {
+        const hookDecision = await this.permissionHookDecision(tc.function.name, effectiveArgs)
+        if (hookDecision.decision === 'block') {
+          const blockMsg = hookDecision.reason ?? `Tool '${tc.function.name}' blocked by PermissionRequest hook.`
+          cb.onToolCall(tc.function.name, effectiveArgs)
+          cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
+          return { tc, result: blockMsg }
+        }
+        if (hookDecision.approved) {
+          approvedThisCall = true
+        } else if (!this.toolPermissionHandler) {
           if (!this.confirmHandler) {
             const blockMsg = `⚠️ Tool '${tc.function.name}' requer confirmação (${riskResult.level} risk: ${riskResult.description}). Sem handler de confirmação disponível.`
             cb.onToolCall(tc.function.name, effectiveArgs)
@@ -1747,6 +1905,7 @@ export class Agent {
     const ruleDecision = resolvePermission(this.settings.permissions, tc.function.name, effectiveArgs)
     if (ruleDecision === 'deny') {
       const blockMsg = `Tool '${tc.function.name}' blocked by permission rule.`
+      await this.runPermissionDeniedHook(tc.function.name, effectiveArgs, blockMsg)
       auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied_by_rule: true } })
       cb.onToolCall(tc.function.name, effectiveArgs)
       cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
@@ -1754,27 +1913,40 @@ export class Agent {
     }
     const autoApproveLowRisk = this.settings.permissions?.autoApproveLowRisk === true && riskResult === null
     if (ruleDecision === 'ask' && !autoApproveLowRisk && !approvedThisCall && !approvedExternalDirectory && !this.sessionApprovedTools.has(tc.function.name)) {
-      if (!this.toolPermissionHandler) {
-        const blockMsg = `Tool '${tc.function.name}' requires confirmation, but no confirmation handler is available.`
+      const hookDecision = await this.permissionHookDecision(tc.function.name, effectiveArgs)
+      if (hookDecision.decision === 'block') {
+        const blockMsg = hookDecision.reason ?? `Tool '${tc.function.name}' blocked by PermissionRequest hook.`
         cb.onToolCall(tc.function.name, effectiveArgs)
         cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
         return { tc, result: blockMsg }
       }
-      const userDecision = await this.toolPermissionHandler({ toolName: tc.function.name, args: effectiveArgs, reason: 'permission' })
-      if (userDecision === 'deny') {
-        auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied: true } })
-        throw new DenyAbortError()
-      }
-      if (userDecision === 'session') this.sessionApprovedTools.add(tc.function.name)
-      if (userDecision === 'always') {
-        this.sessionApprovedTools.add(tc.function.name)
-        const { saveUserSettings } = await import('../settings/writer.js')
-        const currentAllow = this.settings.permissions?.allow ?? []
-        if (!currentAllow.includes(tc.function.name)) {
-          const newAllow = [...currentAllow, tc.function.name]
-          await saveUserSettings({ permissions: { allow: newAllow } })
-          if (!this.settings.permissions) this.settings.permissions = {}
-          this.settings.permissions.allow = newAllow
+      if (hookDecision.approved) {
+        approvedThisCall = true
+      } else {
+        const handler = this.toolPermissionHandler
+        if (!handler) {
+          const blockMsg = `Tool '${tc.function.name}' requires confirmation, but no confirmation handler is available.`
+          await this.runPermissionDeniedHook(tc.function.name, effectiveArgs, blockMsg)
+          cb.onToolCall(tc.function.name, effectiveArgs)
+          cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
+          return { tc, result: blockMsg }
+        }
+        const userDecision = await handler({ toolName: tc.function.name, args: effectiveArgs, reason: 'permission' })
+        if (userDecision === 'deny') {
+          auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied: true } })
+          throw new DenyAbortError()
+        }
+        if (userDecision === 'session') this.sessionApprovedTools.add(tc.function.name)
+        if (userDecision === 'always') {
+          this.sessionApprovedTools.add(tc.function.name)
+          const { saveUserSettings } = await import('../settings/writer.js')
+          const currentAllow = this.settings.permissions?.allow ?? []
+          if (!currentAllow.includes(tc.function.name)) {
+            const newAllow = [...currentAllow, tc.function.name]
+            await saveUserSettings({ permissions: { allow: newAllow } })
+            if (!this.settings.permissions) this.settings.permissions = {}
+            this.settings.permissions.allow = newAllow
+          }
         }
       }
     }
@@ -1792,19 +1964,32 @@ export class Agent {
     }
     // allowedTools === '*' means all tools require permission confirmation
     if (this.allowedTools === '*' && !approvedThisCall && !approvedExternalDirectory && !this.sessionApprovedTools.has(tc.function.name)) {
-      if (!this.toolPermissionHandler) {
-        const blockMsg = `Tool '${tc.function.name}' requires confirmation, but no confirmation handler is available.`
+      const hookDecision = await this.permissionHookDecision(tc.function.name, effectiveArgs)
+      if (hookDecision.decision === 'block') {
+        const blockMsg = hookDecision.reason ?? `Tool '${tc.function.name}' blocked by PermissionRequest hook.`
         cb.onToolCall(tc.function.name, effectiveArgs)
         cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
         return { tc, result: blockMsg }
       }
-      const decision = await this.toolPermissionHandler({ toolName: tc.function.name, args: effectiveArgs, reason: 'agent_config' })
-      if (decision === 'deny') {
-        auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied: true } })
-        throw new DenyAbortError()
-      }
-      if (decision === 'session') {
-        this.sessionApprovedTools.add(tc.function.name)
+      if (hookDecision.approved) {
+        approvedThisCall = true
+      } else {
+        const handler = this.toolPermissionHandler
+        if (!handler) {
+          const blockMsg = `Tool '${tc.function.name}' requires confirmation, but no confirmation handler is available.`
+          await this.runPermissionDeniedHook(tc.function.name, effectiveArgs, blockMsg)
+          cb.onToolCall(tc.function.name, effectiveArgs)
+          cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
+          return { tc, result: blockMsg }
+        }
+        const decision = await handler({ toolName: tc.function.name, args: effectiveArgs, reason: 'agent_config' })
+        if (decision === 'deny') {
+          auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied: true } })
+          throw new DenyAbortError()
+        }
+        if (decision === 'session') {
+          this.sessionApprovedTools.add(tc.function.name)
+        }
       }
     }
     // ── Undo snapshot (only for file-writing tools that passed all checks) ──
@@ -1843,6 +2028,11 @@ export class Agent {
     // PostToolUse hooks (fire-and-forget)
     if (this.settings.hooks) {
       runPostToolHooks(this.settings.hooks as HooksConfig, tc.function.name, effectiveArgs, result, this.hookSessionId).catch(() => {})
+      if (['write_file', 'patch_file', 'edit_file'].includes(tc.function.name) && typeof effectiveArgs.path === 'string') {
+        runClaudeHookEvent(this.settings.hooks as HooksConfig, 'FileChanged', this.hookSessionId, {
+          cwd: this.workspacePath, model: this.model, file_path: effectiveArgs.path, file_change_type: 'change',
+        }, effectiveArgs.path).catch(() => {})
+      }
     }
 
     cb.onToolResult(tc.function.name, result, effectiveArgs)

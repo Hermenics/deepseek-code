@@ -111,13 +111,13 @@ describe('SettingsRepository', () => {
       permissions: { allow: 'ReadFile' } as never,
       hooks: {
         PreToolUse: [null, { matcher: '*', hooks: 'bad' }],
-        SessionStart: [null, { command: 42 }],
+        SessionStart: [null, { matcher: '*', hooks: [{ command: 42 }] }],
       } as never,
     })
     expect(issues.map(issue => issue.path)).toContain('permissions.allow')
     expect(issues.map(issue => issue.path)).toContain('hooks.PreToolUse.0')
     expect(issues.map(issue => issue.path)).toContain('hooks.PreToolUse.1.hooks')
-    expect(issues.map(issue => issue.path)).toContain('hooks.SessionStart.1.command')
+    expect(issues.map(issue => issue.path)).toContain('hooks.SessionStart.1.hooks.0.command')
   })
 
   it('rejects malformed workflow configuration containers', () => {
@@ -133,7 +133,7 @@ describe('SettingsRepository', () => {
     await mkdir(dir, { recursive: true })
     await writeFile(join(dir, 'settings.json'), JSON.stringify({
       interaction: { defaultMode: 'auto' },
-      hooks: { SessionStart: [{ command: 'echo unsafe' }] },
+      hooks: { SessionStart: [{ matcher: '*', hooks: [{ command: 'echo unsafe' }] }] },
       lsp: { servers: [{ name: 'unsafe', command: 'echo', extensions: ['.ts'] }] },
       mcp: { enabled: true },
     }))

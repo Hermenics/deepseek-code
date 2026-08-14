@@ -4,6 +4,7 @@ import { existsSync } from 'fs'
 import { execa } from 'execa'
 import { randomBytes, randomUUID } from 'crypto'
 import { loadMergedSettings } from '../settings/loader.js'
+import { runClaudeHookEvent } from '../hooks/lifecycle.js'
 
 const ADJECTIVES = [
   'swift', 'bold', 'calm', 'dark', 'keen', 'warm', 'wild', 'sure', 'vast', 'pure',
@@ -89,13 +90,17 @@ export async function createWorktree(projectRoot: string, sessionId?: string): P
   if (useGit) {
     // Use git worktree
     const worktreesDir = join(projectRoot, WORKTREES_DIR)
-    if (!existsSync(worktreesDir)) await mkdir(worktreesDir, { recursive: true })
+    const pattern = settings.git?.branchPattern ?? 'deepseek/{slug}-{shortId}'
+    branch = pattern
+      .replaceAll('{slug}', name)
+      .replaceAll('{shortId}', randomBytes(3).toString('hex'))
+      .replace(/[^a-zA-Z0-9/_-]/g, '-')
+    const hook = await runClaudeHookEvent(settings.hooks, 'WorktreeCreate', sessionId ?? 'worktree', {
+      cwd: projectRoot, name, path: worktreePath,
+    })
+    if (hook.decision === 'block') throw new Error(hook.reason ?? 'Worktree creation blocked by hook')
     try {
-      const pattern = settings.git?.branchPattern ?? 'deepseek/{slug}-{shortId}'
-      branch = pattern
-        .replaceAll('{slug}', name)
-        .replaceAll('{shortId}', randomBytes(3).toString('hex'))
-        .replace(/[^a-zA-Z0-9/_-]/g, '-')
+      if (!existsSync(worktreesDir)) await mkdir(worktreesDir, { recursive: true })
       await execa('git', ['worktree', 'add', '-b', branch, worktreePath], { cwd: projectRoot, stdio: 'pipe' })
     } catch (e) {
       throw new Error(`git worktree add failed: ${(e as Error).message}`)
@@ -153,6 +158,14 @@ export async function exitWorktree(projectRoot: string, keep: boolean): Promise<
   if (!state.active) return 'No active worktree.'
 
   const { name, path, isGitWorktree } = state.active
+
+  if (!keep) {
+    const settings = await loadMergedSettings(projectRoot)
+    const hook = await runClaudeHookEvent(settings.hooks, 'WorktreeRemove', state.active.sessionId ?? 'worktree', {
+      cwd: projectRoot, name, path,
+    })
+    if (hook.decision === 'block') throw new Error(hook.reason ?? 'Worktree removal blocked by hook')
+  }
 
   if (!keep) {
     // Validate path is under worktrees dir

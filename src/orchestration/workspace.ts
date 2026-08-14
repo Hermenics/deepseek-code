@@ -1,11 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { appendFile, mkdir, readFile, realpath } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import { execa } from 'execa'
 import { TaskEventSink } from './events.js'
 import { acquireFileLease } from './fileLease.js'
 import type { PermissionProfile, TaskWorkspaceV1 } from './types.js'
 import { BLOCKED_DIRS, isSensitiveWorkspacePath } from '../tools/shared/pathSafety.js'
+import { loadMergedSettings } from '../settings/loader.js'
+import { runClaudeHookEvent } from '../hooks/lifecycle.js'
 
 interface ManagedWorkspace extends TaskWorkspaceV1 {
   taskId: string
@@ -16,6 +18,13 @@ interface ManagedWorkspace extends TaskWorkspaceV1 {
 export interface WorkspaceLease {
   workspace: TaskWorkspaceV1
   release(): Promise<void>
+}
+
+export class WorktreeHookBlockedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'WorktreeHookBlockedError'
+  }
 }
 
 export interface IntegrationResult {
@@ -53,10 +62,14 @@ export class TaskWorkspaceManager {
       return { workspace: this.snapshot(workspace), release: async () => {} }
     }
 
-    const isolated = await this.createGitWorktree(taskId).catch(error => {
+    let isolated: ManagedWorkspace | null
+    try {
+      isolated = await this.createGitWorktree(taskId)
+    } catch (error) {
+      if (error instanceof WorktreeHookBlockedError) throw error
       this.events.emit('workspace_fallback', { reason: error instanceof Error ? error.message : String(error) }, taskId)
-      return null
-    })
+      isolated = null
+    }
     if (isolated) {
       this.workspaces.set(taskId, isolated)
       this.events.emit('workspace_created', { workspace: isolated }, taskId)
@@ -159,6 +172,12 @@ export class TaskWorkspaceManager {
     const workspace = this.required(taskId)
     if (workspace.isolation !== 'git-worktree') return false
     if (!workspace.integrated || !workspace.integratedPatchHash) return false
+    const settings = await loadMergedSettings(this.projectRoot)
+    const worktreeName = basename(workspace.path)
+    const hook = await runClaudeHookEvent(settings.hooks, 'WorktreeRemove', this.sessionId, {
+      cwd: this.projectRoot, name: worktreeName, path: worktreeName,
+    } as Record<string, unknown>)
+    if (hook.decision === 'block') return false
     const { patch } = await this.capturePatch(workspace)
     const currentHash = createHash('sha256').update(patch).digest('hex')
     if (currentHash !== workspace.integratedPatchHash) return false
@@ -175,10 +194,16 @@ export class TaskWorkspaceManager {
     const root = (await execa('git', ['rev-parse', '--show-toplevel'], { cwd: this.projectRoot })).stdout.trim()
     if (resolve(root) !== resolve(this.projectRoot)) throw new Error('Session root is not the Git repository root')
     if ((await this.changedPaths(this.projectRoot)).size > 0) throw new Error('Session checkout has uncommitted changes; writer fallback must be serialized')
-    await this.ensureWorktreeIgnored()
     const baseHead = (await execa('git', ['rev-parse', 'HEAD'], { cwd: this.projectRoot })).stdout.trim()
     const path = join(this.projectRoot, '.deepseek', 'worktrees', `${this.sessionId.slice(0, 8)}-${taskId.slice(0, 8)}-${randomUUID().slice(0, 6)}`)
     this.assertOwnedPath(path)
+    const settings = await loadMergedSettings(this.projectRoot)
+    const worktreeName = basename(path)
+    const hook = await runClaudeHookEvent(settings.hooks, 'WorktreeCreate', this.sessionId, {
+      cwd: this.projectRoot, name: worktreeName, path: worktreeName,
+    } as Record<string, unknown>)
+    if (hook.decision === 'block') throw new WorktreeHookBlockedError(hook.reason ?? 'Worktree creation blocked by hook')
+    await this.ensureWorktreeIgnored()
     await mkdir(join(this.projectRoot, '.deepseek', 'worktrees'), { recursive: true })
     await execa('git', ['worktree', 'add', '--detach', path, baseHead], { cwd: this.projectRoot })
     return { taskId, path, projectRoot: this.projectRoot, isolation: 'git-worktree', baseHead, integrated: false, preserved: true }

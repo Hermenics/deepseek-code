@@ -11,4 +11,16 @@ describe('hook library persistence', () => {
     }
     expect(unflattenHooks(flattenHooks(config)).PreToolUse?.[0]).toEqual(config.PreToolUse[0])
   })
+
+  it('preserves lifecycle matcher groups through the settings library', () => {
+    const config = {
+      SessionStart: [{ matcher: 'resume', hooks: [{ type: 'command' as const, command: 'echo start' }] }],
+      Setup: [{ matcher: 'init', hooks: [{ type: 'command' as const, command: 'echo setup' }] }],
+      SessionEnd: [{ matcher: 'other', hooks: [{ type: 'command' as const, command: 'echo end' }] }],
+      PreCompact: [{ matcher: 'auto', hooks: [{ type: 'command' as const, command: 'echo pre' }] }],
+      PostCompact: [{ matcher: 'manual', hooks: [{ type: 'command' as const, command: 'echo post' }] }],
+    }
+    const restored = unflattenHooks(flattenHooks(config))
+    expect(restored).toMatchObject(config)
+  })
 })

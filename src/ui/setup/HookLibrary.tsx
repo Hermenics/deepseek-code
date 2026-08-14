@@ -16,22 +16,40 @@ interface FlatHook { event: HookEvent; matcher: string; matcherId?: string; matc
 type EditMode = 'new' | 'command' | 'matcher' | 'timeout' | null
 let hookTestSessionConfirmed = false
 
+const MATCHER_EVENTS = [
+  'PreToolUse', 'PostToolUse', 'PermissionRequest', 'SubagentStart', 'SubagentStop',
+  'SessionStart', 'Setup', 'SessionEnd', 'PreCompact', 'PostCompact',
+  'InstructionsLoaded', 'UserPromptExpansion', 'PostToolUseFailure', 'PermissionDenied',
+  'Notification', 'StopFailure', 'ConfigChange', 'DirectoryAdded', 'FileChanged',
+  'Elicitation', 'ElicitationResult',
+] as const
+const COMMAND_EVENTS = [
+  'UserPromptSubmit', 'Stop', 'MessageDisplay', 'PostToolBatch', 'TaskCreated', 'TaskCompleted', 'TeammateIdle',
+  'CwdChanged', 'WorktreeCreate', 'WorktreeRemove',
+] as const
+
+function isMatcherEvent(event: HookEvent): event is typeof MATCHER_EVENTS[number] {
+  return (MATCHER_EVENTS as readonly string[]).includes(event)
+}
+
 function flatten(config: HooksConfig | undefined): FlatHook[] {
   const result: FlatHook[] = []
-  for (const event of ['PreToolUse', 'PostToolUse'] as const) {
+  for (const event of MATCHER_EVENTS) {
     for (const matcher of config?.[event] ?? []) {
       for (const command of matcher.hooks) result.push({ event, matcher: matcher.matcher, matcherId: matcher.id, matcherEnabled: matcher.enabled, command })
     }
   }
-  for (const command of config?.SessionStart ?? []) result.push({ event: 'SessionStart', matcher: '—', command })
+  for (const event of COMMAND_EVENTS) {
+    for (const command of config?.[event] ?? []) result.push({ event, matcher: '—', command })
+  }
   return result
 }
 
 function unflatten(items: FlatHook[]): HooksConfig {
   const config: HooksConfig = {}
   for (const item of items) {
-    if (item.event === 'SessionStart') {
-      config.SessionStart = [...(config.SessionStart ?? []), item.command]
+    if (!isMatcherEvent(item.event)) {
+      config[item.event] = [...(config[item.event] ?? []), item.command]
       continue
     }
     const matchers = config[item.event] ?? []
@@ -90,8 +108,8 @@ export default function HookLibrary({ scope, theme, onBack }: Props) {
     const output = await runHookCommand(selected.command, buildInput({
       event: selected.event,
       session_id: 'settings-preview',
-      tool_name: selected.event === 'SessionStart' ? undefined : 'read_file',
-      tool_input: selected.event === 'SessionStart' ? undefined : { path: 'README.md', simulated: true },
+      tool_name: isMatcherEvent(selected.event) ? 'read_file' : undefined,
+      tool_input: isMatcherEvent(selected.event) ? { path: 'README.md', simulated: true } : undefined,
       tool_result: selected.event === 'PostToolUse' ? 'simulated result' : undefined,
     }))
     setStatus(`Test ${output ? `output: ${output}` : 'completed'} · ${Date.now() - started}ms`)
@@ -130,7 +148,7 @@ export default function HookLibrary({ scope, theme, onBack }: Props) {
     if (key.downArrow || text === 'j') { setIndex(value => (value + 1) % Math.max(1, hooks.length)); return }
     if (text === 'n') { setEditMode('new'); setInput(''); setStatus('Command for new PreToolUse(*) hook'); return }
     if (text === 'e' && selected) { setEditMode('command'); setInput(selected.command.command); setStatus('Edit command'); return }
-    if (text === 'm' && selected && selected.event !== 'SessionStart') { setEditMode('matcher'); setInput(selected.matcher); setStatus('Edit matcher'); return }
+    if (text === 'm' && selected && isMatcherEvent(selected.event)) { setEditMode('matcher'); setInput(selected.matcher); setStatus('Edit matcher'); return }
     if (text === 'x' && selected) { setEditMode('timeout'); setInput(String(selected.command.timeout ?? 30)); setStatus('Timeout in seconds'); return }
     if (text === 'd' && selected) { void persist(hooks.filter((_, itemIndex) => itemIndex !== index), 'Hook removed'); return }
     if (text === ' ' && selected) {
@@ -138,9 +156,9 @@ export default function HookLibrary({ scope, theme, onBack }: Props) {
       return
     }
     if (text === 'v' && selected) {
-      const events: HookEvent[] = ['PreToolUse', 'PostToolUse', 'SessionStart']
+      const events: HookEvent[] = [...MATCHER_EVENTS, ...COMMAND_EVENTS]
       const event = events[(events.indexOf(selected.event) + 1) % events.length]!
-      void persist(hooks.map((hook, itemIndex) => itemIndex === index ? { ...hook, event, matcher: event === 'SessionStart' ? '—' : hook.matcher === '—' ? '*' : hook.matcher } : hook), `Event changed to ${event}`)
+      void persist(hooks.map((hook, itemIndex) => itemIndex === index ? { ...hook, event, matcher: isMatcherEvent(event) ? hook.matcher === '—' ? '*' : hook.matcher : '—' } : hook), `Event changed to ${event}`)
       return
     }
     if (text === 't' && selected) {
