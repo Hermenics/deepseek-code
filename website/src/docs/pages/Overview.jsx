@@ -1,4 +1,5 @@
 import { CodeBlock, Note, Toc, Icon } from "../Layout";
+import useNpmVersion from "../../lib/useNpmVersion";
 
 const PROVIDERS = [
   { name: "DeepSeek API", badge: "default", auth: "API key from platform.deepseek.com", env: ["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"] },
@@ -73,6 +74,8 @@ const TOC = [
 ];
 
 export default function Overview() {
+  const version = useNpmVersion();
+
   return (
     <>
       <main className="content">
@@ -94,7 +97,7 @@ export default function Overview() {
           <div className="badges">
             <span className="badge"><b>model</b><span className="sep">—</span>DeepSeek</span>
             <span className="badge"><b>license</b><span className="sep">—</span>Apache 2.0</span>
-            <span className="badge"><b>v0.6.3</b></span>
+            <span className="badge"><b>{version}</b></span>
           </div>
 
           <div className="terminal-demo">
