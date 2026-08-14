@@ -1,7 +1,7 @@
 # DeepSeek Code — Project Report
 
-> **Release snapshot:** `v0.6.0` (`2da41f4`)  
-> **Report date:** 2026-08-02  
+> **Release snapshot:** `v0.6.10` (`3ac6796`)
+> **Report date:** 2026-08-14
 > **Package:** `@hermenics/deepseek-code`  
 > **License:** Apache-2.0  
 > **Confidence:** 🟢 confirmed in source · 🟡 architectural assessment · 🔵 recommendation
@@ -10,7 +10,7 @@
 
 DeepSeek Code is a local-first AI coding assistant for the terminal. It combines a React terminal interface, a provider-neutral agent loop, a controlled tool boundary, persistent sessions and goals, bounded multi-agent orchestration, and JavaScript Dynamic Workflows in one Bun application.
 
-The product is no longer just a conversational wrapper around a model API. Release `0.6.0` is an agent execution platform with four distinct coordination levels:
+The product is no longer just a conversational wrapper around a model API. Release `0.6.10` is an agent execution platform with four distinct coordination levels:
 
 1. A primary agent handles the interactive model/tool loop.
 2. Subagents execute typed, role-constrained tasks, optionally in isolated Git worktrees.
@@ -29,6 +29,8 @@ This document is the architectural index and executive assessment. Detailed refe
 - [Capabilities and operation](project-report/capabilities-and-operation.md) — tools, commands, modes, agents, orchestration, Dynamic Workflows, configuration, extensions, and user journeys.
 - [Security, trust, and persistence](project-report/security-trust-and-persistence.md) — authorization, sandboxing, path safety, worktrees, data locations, recovery, and threat boundaries.
 - [Quality, risks, and roadmap](project-report/quality-risks-and-roadmap.md) — test architecture, CI/release gates, maintainability findings, maturity assessment, and prioritized recommendations.
+
+The comparative analysis is included in this document under [What makes it different](#what-makes-it-different-from-other-famous-clis). It deliberately treats Claude Code and Codex CLI as capable peer products; it does not use feature absence as a comparison shortcut.
 
 Existing specialized documents remain useful:
 
@@ -54,27 +56,57 @@ Existing specialized documents remain useful:
 | Extension model | Agents, skills, plugins, MCP servers, LSP servers, hooks, and saved workflows |
 | Safety model | Interaction mode + schema + path + risk + policy + hook + approval checks |
 
-## Release `0.6.0` in context
+## What makes it different from other famous CLIs
 
-Release `0.6.0` establishes **Dynamic Workflows** as a production capability. The release adds the workflow runtime, manager, persistence, discovery, approval store, TUI monitor, slash commands, public `Workflow` tool, workflow-aware prompt language, and contract tests.
+This is a **positioning comparison**, not a benchmark. Claude Code, Codex CLI, and DeepSeek Code all implement the same broad category: a terminal agent that can inspect a repository, call tools, change files, and run commands. The meaningful differences are their model ecosystems, host architecture, extension conventions, safety primitives, and degree of local configurability. Feature overlap is expected.
+
+The Claude Code comparison was checked against the official documentation at [Extend Claude Code](https://code.claude.com/docs/en/features-overview), [parallel agents](https://code.claude.com/docs/en/agents), [agent teams](https://code.claude.com/docs/en/agent-teams), [permissions](https://code.claude.com/docs/en/permissions), [hooks](https://code.claude.com/docs/en/hooks), and [configuration](https://code.claude.com/docs/en/configuration). The Codex comparison was checked against the official [Codex CLI repository](https://github.com/openai/codex), [security guidance](https://developers.openai.com/codex/security), [rules](https://developers.openai.com/codex/exec-policy), [skills](https://developers.openai.com/codex/skills), [AGENTS.md guidance](https://developers.openai.com/codex/guides/agents-md), and [non-interactive mode](https://developers.openai.com/codex/noninteractive). These products change quickly; the links are the authoritative source for current behavior.
+
+| Dimension | DeepSeek Code | Claude Code | Codex CLI |
+| --- | --- | --- | --- |
+| **Product center** | A local-first, provider-configurable coding CLI. The source has explicit adapters for DeepSeek, Bedrock, Vertex, and local OpenAI-compatible endpoints. | A Claude-centered coding agent with a mature extension and policy ecosystem. Its official docs describe built-in tools, subagents, agent teams, dynamic workflows, MCP, skills, hooks, and plugins. | An OpenAI coding agent that runs locally, with CLI, app, IDE, SDK, and cloud-adjacent surfaces in the broader product. The open-source CLI supports ChatGPT or API-key authentication. |
+| **Agent orchestration** | `OrchestratorSession` owns a bounded task registry, DAG dependencies, mailbox, retries, cancellation, snapshots, typed result envelopes, role profiles, and writer workspaces. Dynamic Workflows reuse this spine. | Claude Code is not single-agent-only: it has isolated subagents, background agent views, experimental agent teams with a shared task list/mailbox, and dynamic workflows. The difference is not feature existence; DeepSeek's distinguishing choice is a local typed runtime with explicit task limits and integration contracts. | OpenAI's current Codex documentation also covers multi-agent workflows and broader automation surfaces. This report makes no claim that Codex lacks multi-agent support; DeepSeek's narrower distinction is the implementation of its local task registry and worktree integration inside this TypeScript runtime. |
+| **Model/provider strategy** | Provider choice is a first-class runtime setting, including local Ollama/LM Studio-style endpoints. This is useful when deployment, cost, or model portability matters more than one vendor's integrated experience. | The product and documentation are organized around Claude models and Anthropic's surrounding platform, while deployment options and integrations are handled by Claude Code's own configuration model. | The product is organized around OpenAI/Codex models and OpenAI authentication, with the CLI itself remaining local. |
+| **Safety boundary** | Layered host-side checks: interaction mode, closed schemas, canonical/symlink-aware paths, sensitive-path blocks, risk rules, allow/deny policy, hooks, approvals, fail-closed delegation, and Git worktrees. Worker shells use a Linux `bwrap` sandbox when a task context is present; this is not a universal OS sandbox for every interactive path. | Fine-grained permission rules, permission modes, hooks, managed settings, MCP controls, and additional-directory rules are documented as first-class controls. Claude also has deny/ask precedence and hook interception. | Sandbox and approval modes are central to the CLI, with explicit workspace/network choices and executable policy rules. `codex exec` defaults to read-only sandboxing and supports JSONL and structured output for automation. |
+| **Project instructions** | Loads root `AGENTS.md` for cross-tool compatibility, DeepSeek-specific `DEEPSEEK.md`, and `.deepseek/steering/*.md`. In this snapshot, `AGENTS.md` loading is root-level rather than the full hierarchical discovery described by Codex. | Uses `CLAUDE.md`, rules, settings, skills, subagents, workflows, and `.mcp.json` across documented project/user scopes. | Uses hierarchical `AGENTS.md`/`AGENTS.override.md` discovery, configurable fallback filenames, and a project instruction size limit. |
+| **Automation surface** | Interactive TUI plus `--pipe`; pipe mode can emit a compact JSON result containing the final output and tool names. Slash commands expose configuration, sessions, tasks, workflows, worktrees, goals, and diagnostics. | Interactive CLI plus non-interactive flags, settings, hooks, plugins, subagents, teams, and workflows. | Interactive CLI plus `codex exec`, JSONL event output, `--output-schema`, resumable sessions, and explicit automation-oriented sandbox controls. |
+| **Terminal implementation** | Bun + TypeScript + React 19 with an in-tree Ink-compatible renderer and TypeScript Yoga/layout code. This gives DeepSeek Code direct control over Unicode width, focus, scrolling, resize, alternate-screen behavior, and frame rendering. | Its terminal UX is a mature reference point for this project, but this report does not infer internal implementation details from public behavior. | The official repository is a substantially different, Rust-heavy implementation with its own terminal, sandbox, policy, and app-server architecture. |
+| **Extension model** | Skills, plugins, MCP, LSP, hooks, declarative agents, saved Dynamic Workflows, and local settings. Extensions are deliberately opt-in at several trust boundaries. | Skills, subagents, agent teams, hooks, MCP, plugins/marketplaces, rules, workflows, and managed enterprise policy are all documented first-class concepts. | Skills, MCP, AGENTS.md, configuration, rules, hooks, and SDK/app-server integrations are documented extension points. |
+
+### The honest differentiator
+
+DeepSeek Code is different because it is trying to be a **portable local agent runtime**, not because it invented terminal agents, multi-agent systems, worktrees, hooks, MCP, skills, or workflows. Its strongest combination is the coexistence of four provider choices, a fully local TypeScript/Bun implementation, a custom terminal renderer, explicit task/workspace contracts, and a deliberately layered authorization pipeline.
+
+That combination has a trade-off. A smaller project could ship a simpler CLI faster; DeepSeek Code instead owns more infrastructure: its renderer, provider quirks, orchestration state machine, workflow host, persistence, and security checks. That increases control and portability, but also increases maintenance cost and the number of edge cases that must be tested.
+
+### Claims this report deliberately does not make
+
+- It does not claim Claude Code lacks multi-agent systems. Its official docs explicitly describe subagents, agent teams, and dynamic workflows.
+- It does not claim Codex CLI lacks sandboxing, approvals, skills, `AGENTS.md`, rules, hooks, MCP, non-interactive execution, or multi-agent capabilities.
+- It does not claim DeepSeek Code is more capable than those products on coding tasks. No controlled benchmark, task-success dataset, latency study, or cost study is part of this repository audit.
+- It does not treat a `node:vm` workflow runtime or a path guard as an absolute security boundary. The effective safety level depends on the host, provider, permissions, extensions, and operating-system facilities available at runtime.
+
+## Release `0.6.10` in context
+
+Release `0.6.0` established **Dynamic Workflows** as a production capability. The current `0.6.10` line builds on that foundation with a more complete terminal experience: fullscreen alternate-screen rendering, environment-aware fullscreen detection, transcript scrolling, scrollbar interaction, progressive subagent activity, live thinking display, and workflow monitoring.
 
 The implementation is intentionally layered over the existing production orchestrator. It does not introduce a second task scheduler and does not activate the experimental workflow engine in `src/kernel/`. Every workflow run owns a dedicated `OrchestratorSession`, so concurrency, agent limits, task state, budgets, worktrees, events, and snapshots reuse the same operational model as direct subagent execution.
 
-The release also fixes the prompt-refinement boundary so a request for a Dynamic Workflow retains the product-specific meaning instead of being generalized into an ambiguous “dynamic” program. This is important because discoverability is partly linguistic: the model must know that **Dynamic Workflows** is the feature name, while `/workflow` and `/workflows` are its command surfaces.
+The release line also keeps the prompt-refinement boundary explicit: a request for a **Dynamic Workflow** retains that product-specific meaning instead of being generalized into an ambiguous “dynamic” program. Discoverability is partly linguistic because the model must know that **Dynamic Workflows** is the feature name, while `/workflow` and `/workflows` are its command surfaces.
 
 ## Repository snapshot
 
-The following counts were measured from the `v0.6.0` checkout. Generated artifacts and dependencies are excluded unless stated otherwise.
+The following counts were measured from the `v0.6.10` checkout. Generated artifacts and dependencies are excluded unless stated otherwise.
 
 | Surface | Files | Lines | Interpretation |
 | --- | ---: | ---: | --- |
-| `src/` | 389 | 66,314 | Production CLI, renderer, orchestration, tools, and embedded public data |
-| `tests/` | 118 | 17,969 | Bun test suite and fixtures |
-| Repository source + tests | 507 | 84,283 | Production tree (including embedded public data/assets) plus root tests |
-| Website source | 18 | 1,628 | Separate React marketing site |
+| `src/` | 395 total; 391 TS/TSX | 52,519 TS/TSX | Production CLI, renderer, orchestration, tools, and embedded public data |
+| `tests/` | 128 | 19,985 | Bun test suite and fixtures |
+| TypeScript/TSX source + tests | 519 | 72,504 | Production TypeScript/TSX plus root tests |
+| Website source | separate tree | not included | React marketing/documentation site |
 | Built-in tools | 24 | — | Model-callable capability registry |
 | Slash commands | 40 | — | Interactive command modules, excluding aliases and saved-workflow shortcuts |
-| Test declarations | ~1,558 | — | Approximate `test`/`it` declarations from static source scan |
+| Test declarations | ~2,162 | — | Approximate `test`/`it`/`describe` matches from static source scan |
 | Production dependencies | 34 | — | Runtime packages in the root package |
 | Development dependencies | 6 | — | TypeScript and type packages |
 
@@ -291,32 +323,35 @@ Sensitive or resumable files use restrictive permissions where the host supports
 
 The release pipeline checks the core application and the marketing website independently. The root CI installs with Bun using a frozen lockfile, runs TypeScript validation, executes coverage tests, builds the package, and smoke-tests the packed npm artifact. The website job installs with npm and runs lint, tests, and a production build.
 
-The latest full validation performed in this workspace for the release candidate recorded:
+The latest validation performed for this report recorded:
 
 | Gate | Result |
 | --- | --- |
 | `bun run typecheck` | Passed |
-| `bun test` | 1,555 passed, 3 skipped, 0 failed |
-| `bun run test:coverage` | 1,554 passed, 3 skipped, 0 failed |
+| `bun test tests` | **1,669 passed, 3 skipped, 0 failed** across 127 files and 3,606 assertions |
 | `bun run build` | Passed |
-| `bun run pack:check` | Passed, including installed-package smoke test |
+| Restricted-sandbox test run | 1,663 passed, 3 skipped, 6 environment-dependent failures; worker `bwrap` could not create its network namespace |
 
-The one-test difference is explained by command scope: `bun test` scans beyond the root script's explicit `tests` target and includes the website test, while `test:coverage` runs `bun test tests`.
+The passing suite was run with the host sandbox available and an isolated `HOME`. The restricted-sandbox result is retained because it identifies a real operational dependency: worker shell tests require Linux `bwrap` and the ability to create the namespaces requested by the implementation. This is an environment limitation, not evidence of a source-level regression in the host-validated run. `bun run pack:check` was not re-run for this report.
+
+### Practical quality verdict
+
+For a pre-1.0 project, DeepSeek Code is **technically strong and unusually ambitious**, especially in its local orchestration, workspace isolation, provider adapters, terminal renderer, and contract tests. It is good enough to be a serious power-user tool and a credible foundation for continued development. The repository evidence does not justify calling it a universally superior coding agent: model quality is provider-dependent and unbenchmarked, the project requires Bun, worker-shell isolation depends on host facilities such as `bwrap`, and several central modules remain expensive to maintain. The fairest summary is **strong engineering foundation, broad capability, incomplete product maturity**.
 
 ## Architectural assessment
 
 | Dimension | Assessment | Rationale |
 | --- | --- | --- |
-| Product coherence | **8.5/10** 🟡 | Local-first coding, agent delegation, worktrees, goals, and workflows reinforce one product thesis |
+| Product coherence | **8.5/10** 🟡 | Local-first coding, provider choice, agent delegation, worktrees, goals, and workflows reinforce one product thesis |
 | Runtime architecture | **8/10** 🟡 | Clear control boundaries and reuse of orchestration; a few integration modules are oversized |
-| Safety model | **8.5/10** 🟡 | Strong layered defenses and explicit authority; executable extensions still require disciplined review |
-| Test discipline | **9/10** 🟡 | Broad contract/regression coverage and strong release gates; coverage percentage is not enforced as a threshold |
+| Safety model | **8.5/10** 🟡 | Strong layered defenses and explicit authority; executable extensions and host dependencies still require disciplined review |
+| Test discipline | **8.5/10** 🟡 | Broad contract/regression coverage with a clean host-validated run; coverage percentage and cross-platform sandbox behavior still need ongoing gates |
 | Operability | **8/10** 🟡 | Cancellation, persistence, recovery, diagnostics, and monitoring are first class; no remote fleet control by design |
 | Extensibility | **8.5/10** 🟡 | Multiple deliberate extension surfaces with validation and opt-in rules; path conventions are not fully unified |
 | Maintainability | **6.5/10** 🟡 | Good module map, but several 1,700–2,500-line central files exceed the stated 500-line project rule |
-| Documentation | **7.5/10** 🟡 | Strong specialized and reverse-engineered docs; root README and generated Reversa snapshot lag `0.6.0` |
+| Documentation | **7.5/10** 🟡 | Strong specialized and reverse-engineered docs; older generated snapshots and companion chapters still lag the current release |
 
-**Overall engineering maturity: 8.1/10.** This is a mature pre-1.0 CLI with production-quality safety and test foundations. Its next maturity step is not more capability breadth; it is reducing integration hotspots, aligning documentation with release behavior, and consolidating transitional paths.
+**Overall engineering maturity: 8.1/10.** This is a strong pre-1.0 CLI with unusually broad safety, orchestration, and test foundations. That rating is about the engineering system, not model intelligence or guaranteed task success. Its next maturity step is not more capability breadth; it is reducing integration hotspots, aligning documentation with release behavior, making `bwrap`/platform requirements explicit, and consolidating transitional paths.
 
 ## Principal strengths
 
@@ -330,10 +365,10 @@ The one-test difference is explained by command scope: `bun test` scans beyond t
 
 ## Principal risks
 
-1. **Oversized integration modules.** `agent.ts` (1,904 lines), `App.tsx` (1,881), `ink.tsx` (1,754), `native-ts/yoga-layout/index.ts` (2,578), and `ink/components/App.tsx` (657) exceed the project's 500-line rule. This raises review surface and regression coupling.
+1. **Oversized integration modules.** `agent.ts` (1,922 lines), `App.tsx` (2,099), `ink.tsx` (1,763), `native-ts/yoga-layout/index.ts` (2,578), and `ink/components/App.tsx` (704) exceed the project's 500-line rule. This raises review surface and regression coupling.
 2. **Two orchestration narratives.** Production uses `src/orchestration/` and `src/workflows/`, while `src/kernel/` contains an unreferenced experimental SQLite/event-bus/workflow stack. Without a clear decision, contributors can mistake research code for the supported path.
 3. **Path convention drift.** Most modern state lives under `.deepseek`, but plugin and legacy checkpoint paths still include `.deepseek-code`. Compatibility is useful, but the intended destination should remain explicit.
-4. **Documentation drift.** The prior Reversa extraction describes `v0.4.15`, counts 23 tools and 38 commands, and predates Dynamic Workflows. The root README also contains behavior that can diverge from current defaults.
+4. **Documentation drift.** The prior Reversa extraction describes `v0.4.15`, counts 23 tools and 38 commands, and predates Dynamic Workflows. The root report and specialized chapters now have a current `v0.6.10` index, but older generated snapshots and companion chapters still need synchronized refreshes.
 5. **Capability-matrix drift.** The built-in registry and introspection advertise `edit_file`, `moa`, and goal tools, but the current Build-mode allowlist omits them. Auto permits them because it bypasses the static set. Tests assert the existing partial matrix instead of registry completeness.
 6. **Owned renderer cost.** The custom Ink/Yoga stack is a differentiator and a permanent correctness burden across terminals, Unicode, input methods, and React reconciler changes.
 7. **Workflow trust semantics.** `node:vm` reduces accidental capability exposure but cannot be marketed as a hard isolation boundary; approval wording and host RPC constraints must stay precise.
@@ -364,7 +399,7 @@ The roadmap is intentionally conservative: preserve working behavior and reduce 
 
 ## Final judgment
 
-DeepSeek Code `0.6.0` has a strong architectural identity: **a local agent operating system for software work, expressed through a terminal**. The codebase has gone beyond a single-agent CLI while retaining explicit limits, local ownership, and observable execution.
+DeepSeek Code `0.6.10` has a strong architectural identity: **a local agent operating system for software work, expressed through a terminal**. The codebase has gone beyond a single-agent CLI while retaining explicit limits, local ownership, and observable execution.
 
 Dynamic Workflows fits the system because it is a coordination language over existing agents and task infrastructure, not a parallel framework. That decision is the release's most important architectural success.
 
@@ -374,4 +409,4 @@ The project should now favor consolidation over feature accumulation. The shorte
 
 ### Evidence notes
 
-This report combines direct inspection of the `v0.6.0` source, repository metrics, CI/build configuration, the release validation results, and the project's existing reverse-engineered architecture artifacts. Statements labeled 🟡 are assessments or inferences rather than runtime guarantees. Recommendations are labeled 🔵 and are not claims about already implemented behavior.
+This report combines direct inspection of the `v0.6.10` source, repository metrics, CI/build configuration, host-validated tests, official Claude Code/Codex documentation, and the project's existing reverse-engineered architecture artifacts. The local `~/claude-code` reference mentioned in project guidance was not present, so no local Claude source comparison was claimed. Statements labeled 🟡 are assessments or inferences rather than runtime guarantees. Recommendations are labeled 🔵 and are not claims about already implemented behavior.
