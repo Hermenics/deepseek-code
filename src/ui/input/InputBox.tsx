@@ -436,51 +436,57 @@ export function InputBox({
           <Text dimColor>{"Don't like this screen? Change it in /config"}</Text>
         </Box>
       )}
-      <InputChrome
-        columns={cols}
-        agentLabel={agentLabel}
-        agentColor={agentColor}
-        contextPct={contextPct}
-        hasExclamation={hasExclamation}
-      >
-        {pastedTexts.length > 0 && (
-          <Box border borderStyle="rounded" borderColor="#888888" paddingLeft={1} paddingRight={1} marginRight={1}>
-            <Text color="#888888">{`[${pastedTexts.length} pasted]`}</Text>
+      <Box flexDirection="column" position="relative">
+        <InputChrome
+          columns={cols}
+          agentLabel={agentLabel}
+          agentColor={agentColor}
+          contextPct={contextPct}
+          hasExclamation={hasExclamation}
+        >
+          {pastedTexts.length > 0 && (
+            <Box border borderStyle="rounded" borderColor="#888888" paddingLeft={1} paddingRight={1} marginRight={1}>
+              <Text color="#888888">{`[${pastedTexts.length} pasted]`}</Text>
+            </Box>
+          )}
+          <InputLine
+            cursor={cursor}
+            columns={cols}
+            placeholder={placeholder}
+            ghostText={ghost?.text}
+            prefix={''}
+            prefixColor={hasExclamation ? 'magenta' : 'cyan'}
+          />
+          {ctrlCDouble.armed && (
+            <Text color="yellow">{'  Press Ctrl+C again to exit'}</Text>
+          )}
+          {escDouble.armed && (
+            <Text color="yellow">{'  Press Esc again to clear input'}</Text>
+          )}
+        </InputChrome>
+
+        {showDropdown && (
+          <Box position="absolute" bottom="100%" width="100%">
+            <CommandDropdown
+              matches={matches}
+              selectedIdx={selectedIdx}
+              columns={cols}
+              descriptions={{ ...getWorkflowCommandDescriptions(), ...COMMAND_DESCRIPTIONS }}
+            />
           </Box>
         )}
-        <InputLine
-          cursor={cursor}
-          columns={cols}
-          placeholder={placeholder}
-          ghostText={ghost?.text}
-          prefix={''}
-          prefixColor={hasExclamation ? 'magenta' : 'cyan'}
-        />
-        {ctrlCDouble.armed && (
-          <Text color="yellow">{'  Press Ctrl+C again to exit'}</Text>
-        )}
-        {escDouble.armed && (
-          <Text color="yellow">{'  Press Esc again to clear input'}</Text>
-        )}
-      </InputChrome>
 
-      {showDropdown && (
-        <CommandDropdown
-          matches={matches}
-          selectedIdx={selectedIdx}
-          columns={cols}
-          descriptions={{ ...getWorkflowCommandDescriptions(), ...COMMAND_DESCRIPTIONS }}
-        />
-      )}
-
-      {showFileDropdown && (
-        <FileDropdown
-          files={fileMatches}
-          selectedIdx={fileSelectedIdx}
-          columns={cols}
-          query={getAtMention(cursor.text, cursor.offset)?.query ?? ''}
-        />
-      )}
+        {showFileDropdown && (
+          <Box position="absolute" bottom="100%" width="100%">
+            <FileDropdown
+              files={fileMatches}
+              selectedIdx={fileSelectedIdx}
+              columns={cols}
+              query={getAtMention(cursor.text, cursor.offset)?.query ?? ''}
+            />
+          </Box>
+        )}
+      </Box>
     </Box>
   )
 }
