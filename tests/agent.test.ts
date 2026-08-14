@@ -1,6 +1,12 @@
-import { describe, it, expect, mock, beforeEach, afterEach, beforeAll } from 'bun:test'
+import { describe, it, expect, mock, beforeEach, afterEach, beforeAll, afterAll } from 'bun:test'
 import { Agent } from '../src/agent/agent.js'
 import type { AgentCallbacks, ToolPermissionResult } from '../src/agent/agent.js'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { rm } from 'node:fs/promises'
+
+const TEST_HISTORY_PATH = join(tmpdir(), `deepseek-code-agent-history-${process.pid}.json`)
+const ORIGINAL_HISTORY_PATH = process.env.DEEPSEEK_HISTORY_PATH
 
 // Helper: injeta um client mockado no Agent via cast (mesmo padrão de reasoning.test.ts)
 function injectMockClient(agent: Agent, clientMock: object) {
@@ -35,6 +41,13 @@ async function* makeErrorStream(chunks: object[], error: Error) {
 // Agent requires an API key to instantiate the OpenAI client
 beforeAll(() => {
   process.env.DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || 'test-key-for-unit-tests'
+  process.env.DEEPSEEK_HISTORY_PATH = TEST_HISTORY_PATH
+})
+
+afterAll(async () => {
+  if (ORIGINAL_HISTORY_PATH === undefined) delete process.env.DEEPSEEK_HISTORY_PATH
+  else process.env.DEEPSEEK_HISTORY_PATH = ORIGINAL_HISTORY_PATH
+  await rm(TEST_HISTORY_PATH, { force: true })
 })
 
 // Helper: create a no-op callbacks object

@@ -47,6 +47,7 @@ import { resolveExternalApprovalDirectory, resolvePathForContext, resolveSafePat
 import { isSafeMemoryEntry, normalizeMemoryEntry } from './memory.js'
 import { WorkflowManager, type StartWorkflowInput, type WorkflowHandle } from '../workflows/manager.js'
 import { WorkflowApprovalStore, hashWorkflowValue } from '../workflows/storage.js'
+import { loadSkillPrompt } from '../skills/native.js'
 
 /** Workaround: OpenAI SDK has not typed reasoning_content yet (exclusive field of deepseek-reasoner) */
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & { reasoning_content?: string }
@@ -361,11 +362,12 @@ export class Agent {
 
   private async initialize(restorePersisted = true): Promise<void> {
     try {
-      const [steering, deepseekMd, agentsMd, settings] = await Promise.all([
+      const [steering, deepseekMd, agentsMd, settings, skills] = await Promise.all([
         loadSteering(this.workspacePath),
         loadDeepSeekMd(this.workspacePath),
         loadAgentsMd(this.workspacePath),
         loadMergedSettings(this.workspacePath),
+        loadSkillPrompt(this.workspacePath),
       ])
       const { tools: mcpTools, errors: mcpErrors } = await loadMcpTools(this.workspacePath, { enabled: settings.mcp?.enabled === true })
       this.mcpErrors = mcpErrors
@@ -393,6 +395,7 @@ export class Agent {
       if (steering) parts.push(steering)
       if (agentsMd) parts.push(`--- AGENTS.md ---\n${agentsMd}`)
       if (deepseekMd) parts.push(`--- DEEPSEEK.md ---\n${deepseekMd}`)
+      if (skills) parts.push(skills)
 
       const memorySnapshot = await this.orchestrator.memory.snapshot()
       if (memorySnapshot) parts.push(`--- MEMORY ---\n${memorySnapshot}`)
