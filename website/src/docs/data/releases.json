@@ -1,5 +1,18 @@
 [
   {
+    "version": "0.6.13",
+    "changes": [
+      "Added: Expanded lifecycle hooks for session start/end, setup, instruction loading, compaction, permission requests, tool failures and batches, task events, notifications, working-directory changes, worktrees, and MCP elicitation",
+      "Added: Matcher-based hook dispatch with event-specific values, structured hook input metadata, correlation IDs, control decisions, additional context, retries, and permission outcomes",
+      "Added: Hook blocking for permission requests, workflows, worktree operations, and message-history compaction",
+      "Added: Session-end, pre-compaction, and post-compaction integration in the agent lifecycle, plus centralized lifecycle runners for a consistent hook API",
+      "Added: Hook configuration entries and library support for the expanded event set in `/config`",
+      "Changed: Hook settings validation and normalization now preserve matcher groups and distinguish matcher events from direct command events",
+      "Tests: Add Claude Code and Codex lifecycle coverage for event ordering, payloads, matcher dispatch, and manual versus automatic compaction",
+      "Docs: Expand the Introspect hook reference with lifecycle events, matcher values, payloads, and blocking behavior"
+    ]
+  },
+  {
     "version": "0.6.12",
     "changes": [
       "Fixed: Anchor command and file autocomplete overlays to the input container so clearing a slash command no longer shifts the fullscreen hint or leaves ghost rows in the alternate screen"
