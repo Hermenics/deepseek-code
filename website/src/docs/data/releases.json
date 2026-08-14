@@ -1,5 +1,11 @@
 [
   {
+    "version": "0.6.12",
+    "changes": [
+      "Fixed: Anchor command and file autocomplete overlays to the input container so clearing a slash command no longer shifts the fullscreen hint or leaves ghost rows in the alternate screen"
+    ]
+  },
+  {
     "version": "0.6.11",
     "changes": [
       "Added: Native skill loading for built-in and project-defined skills, making valid skill descriptions and instructions available during agent initialization for description-based selection",
