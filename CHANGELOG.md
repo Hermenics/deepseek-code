@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.11
+
+- Added: Native skill loading for built-in and project-defined skills, making valid skill descriptions and instructions available during agent initialization for description-based selection
+- Added: `generate-png-images` native skill with local PNG rendering guidance for Pillow, Matplotlib, NumPy, OpenCV, and ImageMagick without requiring an image-generation API key
+- Added: Configurable history storage through `DEEPSEEK_HISTORY_PATH`, while preserving the existing default history location
+- Changed: Skill and plugin documentation now distinguishes prompt-loaded skills from plugin commands, agents, and hooks that are not yet registered into live runtimes
+- Tests: Add coverage for native skill loading, project skill discovery, and isolated history-path cleanup
+- Docs: Update the project report with the v0.6.10 release snapshot and comparative architecture analysis
+
 ## 0.6.10
 
 - Added: Fullscreen TUI on by default — the session runs in the terminal's alternate screen buffer with the input pinned to the bottom and the transcript scrolling inside a fixed viewport, matching Claude Code's flicker-free renderer
