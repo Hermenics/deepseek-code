@@ -99,7 +99,15 @@ function unsetAtPath(target: Record<string, unknown>, path: string): void {
 function shouldConcat(path: string): boolean {
   return [
     'permissions.allow', 'permissions.deny', 'permissions.suppress',
-    'risk.rules', 'hooks.PreToolUse', 'hooks.PostToolUse', 'hooks.SessionStart',
+    'risk.rules',
+    ...['PreToolUse', 'PostToolUse', 'PermissionRequest', 'SubagentStart', 'SubagentStop',
+      'SessionStart', 'Setup', 'SessionEnd', 'PreCompact', 'PostCompact',
+      'InstructionsLoaded', 'UserPromptExpansion', 'PostToolUseFailure', 'PermissionDenied', 'Notification',
+      'StopFailure', 'ConfigChange', 'DirectoryAdded', 'FileChanged', 'Elicitation', 'ElicitationResult']
+      .map(event => `hooks.${event}`),
+    ...['UserPromptSubmit', 'Stop',
+      'MessageDisplay', 'PostToolBatch', 'TaskCreated', 'TaskCompleted', 'TeammateIdle', 'CwdChanged',
+      'WorktreeCreate', 'WorktreeRemove'].map(event => `hooks.${event}`),
     'agents.disabledBuiltins',
   ].includes(path)
 }
@@ -163,7 +171,10 @@ function stableHookId(parts: unknown[]): string {
 
 function normalizeHooks(settings: DeepSeekSettings): void {
   if (!isObject(settings.hooks)) { settings.hooks = undefined; return }
-  for (const event of ['PreToolUse', 'PostToolUse'] as const) {
+  for (const event of ['PreToolUse', 'PostToolUse', 'PermissionRequest', 'SubagentStart', 'SubagentStop',
+    'SessionStart', 'Setup', 'SessionEnd', 'PreCompact', 'PostCompact',
+    'InstructionsLoaded', 'UserPromptExpansion', 'PostToolUseFailure', 'PermissionDenied', 'Notification',
+    'StopFailure', 'ConfigChange', 'DirectoryAdded', 'FileChanged', 'Elicitation', 'ElicitationResult'] as const) {
     const matchers = settings.hooks[event]
     settings.hooks[event] = Array.isArray(matchers) ? matchers.flatMap((matcher, matcherIndex) => {
       if (!isObject(matcher) || typeof matcher.matcher !== 'string' || !Array.isArray(matcher.hooks)) return []
@@ -179,14 +190,18 @@ function normalizeHooks(settings: DeepSeekSettings): void {
       }]
     }) : undefined
   }
-  const sessionStart = settings.hooks.SessionStart
-  settings.hooks.SessionStart = Array.isArray(sessionStart) ? sessionStart.flatMap((hook, index) =>
-    !isObject(hook) || typeof hook.command !== 'string' ? [] : [{
-      ...hook,
-      id: typeof hook.id === 'string' ? hook.id : stableHookId(['SessionStart', hook.command, index]),
-      enabled: typeof hook.enabled === 'boolean' ? hook.enabled : true,
-    }]
-  ) : undefined
+  for (const event of ['UserPromptSubmit', 'Stop',
+    'MessageDisplay', 'PostToolBatch', 'TaskCreated', 'TaskCompleted', 'TeammateIdle', 'CwdChanged',
+    'WorktreeCreate', 'WorktreeRemove'] as const) {
+    const commands = settings.hooks[event]
+    settings.hooks[event] = Array.isArray(commands) ? commands.flatMap((hook, index) =>
+      !isObject(hook) || typeof hook.command !== 'string' ? [] : [{
+        ...hook,
+        id: typeof hook.id === 'string' ? hook.id : stableHookId([event, hook.command, index]),
+        enabled: typeof hook.enabled === 'boolean' ? hook.enabled : true,
+      }]
+    ) : undefined
+  }
 }
 
 async function loadLegacyPreferences(): Promise<DeepSeekSettings> {
@@ -294,7 +309,10 @@ export function validateSettings(settings: DeepSeekSettings, level?: SettingsLev
   const hooks = settings.hooks as unknown
   if (hooks !== undefined && !isObject(hooks)) add('hooks', 'Must be an object')
   if (isObject(hooks)) {
-    for (const event of ['PreToolUse', 'PostToolUse'] as const) {
+    for (const event of ['PreToolUse', 'PostToolUse', 'PermissionRequest', 'SubagentStart', 'SubagentStop',
+      'SessionStart', 'Setup', 'SessionEnd', 'PreCompact', 'PostCompact',
+      'InstructionsLoaded', 'UserPromptExpansion', 'PostToolUseFailure', 'PermissionDenied', 'Notification',
+      'StopFailure', 'ConfigChange', 'DirectoryAdded', 'FileChanged', 'Elicitation', 'ElicitationResult'] as const) {
       const matchers = hooks[event]
       if (matchers !== undefined && !Array.isArray(matchers)) { add(`hooks.${event}`, 'Must be an array'); continue }
       for (const [matcherIndex, matcher] of (matchers ?? []).entries()) {
@@ -305,9 +323,13 @@ export function validateSettings(settings: DeepSeekSettings, level?: SettingsLev
         matcher.hooks.forEach((hook, hookIndex) => validateHook(hook, `${matcherPath}.hooks.${hookIndex}`))
       }
     }
-    const sessionStart = hooks.SessionStart
-    if (sessionStart !== undefined && !Array.isArray(sessionStart)) add('hooks.SessionStart', 'Must be an array')
-    else (sessionStart ?? []).forEach((hook, index) => validateHook(hook, `hooks.SessionStart.${index}`))
+    for (const event of ['UserPromptSubmit', 'Stop',
+      'MessageDisplay', 'PostToolBatch', 'TaskCreated', 'TaskCompleted', 'TeammateIdle', 'CwdChanged',
+      'WorktreeCreate', 'WorktreeRemove'] as const) {
+      const commands = hooks[event]
+      if (commands !== undefined && !Array.isArray(commands)) add(`hooks.${event}`, 'Must be an array')
+      else (commands ?? []).forEach((hook, index) => validateHook(hook, `hooks.${event}.${index}`))
+    }
   }
   const lsp = settings.lsp as unknown
   if (lsp !== undefined && !isObject(lsp)) add('lsp', 'Must be an object')

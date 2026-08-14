@@ -92,13 +92,14 @@ interface PlanApprovalState {
   reject(reason: string): void
 }
 
-export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, onLogout, language, enchant, sessionId, initialSession, headerProvider, headerAgent, initialSettings, alternateScreen = false }: {
+export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, onLogout, onExit, language, enchant, sessionId, initialSession, headerProvider, headerAgent, initialSettings, alternateScreen = false }: {
   initialAgent?: LoadedAgent | null
   initialMessage?: string | null
   theme: ThemeName
   providerConfig?: ProviderConfig | null
   onThemeChange?: (t: ThemeName) => void
   onLogout?: () => void
+  onExit?: () => void
   language?: string | null
   enchant?: boolean
   sessionId?: string
@@ -867,7 +868,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     if (cmd) {
       switch (cmd.type) {
         case 'quit':
-          process.stdout.write('\x1b[?25h\n')
+          if (onExit) {
+            onExit()
+            return
+          }
           process.exit(0)
         case 'logout': {
           const { logout } = await import('../utils/credentials.js')
@@ -1718,7 +1722,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     }
 
     await runWithPrompt(text, text, interactionMode)
-  }, [agent, isLoading, runWithPrompt, runAgent, runBtw, interactionMode, focusedSubagent])
+  }, [agent, isLoading, onExit, runWithPrompt, runAgent, runBtw, interactionMode, focusedSubagent])
 
   // Keep ref in sync so the init effect always calls the latest handleSubmit
   handleSubmitRef.current = handleSubmit
@@ -1938,6 +1942,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             onActivityOpen={() => setActivityOpen(true)}
             isActive={!activityOpen}
             showFullscreenHint={messages.length === 0}
+            onExit={onExit}
             placeholderOverride={focusedSubagent ? `Message @${focusedSubagent.agentName ?? 'subagent'}…` : undefined}
           />
         )}

@@ -80,7 +80,7 @@ import { App } from '../ui/App.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
 import { AlternateScreen } from '../ink/components/AlternateScreen.js'
-import { resolveFullscreen, setFullscreenActive } from '../utils/fullscreen.js'
+import { isFullscreenActive, resolveFullscreen, setFullscreenActive } from '../utils/fullscreen.js'
 import { ApiKeySetup, loadSavedConfig } from '../ui/setup/ApiKeySetup.js'
 import { ResumePicker } from '../ui/setup/ResumePicker.js'
 import type { ThemeName, ProviderConfig } from '../types/provider.js'
@@ -383,6 +383,7 @@ function Root() {
       headerAgent={initialAgent?.config.name ?? null}
       initialSettings={initialSettings}
       alternateScreen={alternateScreen}
+      onExit={() => cleanExit(0)}
     />
   )
   return alternateScreen
@@ -398,8 +399,9 @@ root.render(<Root />)
 
 function cleanExit(code = 0): never {
   // Disable mouse tracking and restore cursor before exit
-  process.stdout.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?25h')
-  process.stdout.write(`\n  Resume this session:\n  deepseek --resume ${SESSION_ID}\n\n`)
+  const exitAlternateScreen = isFullscreenActive() ? '\x1b[?1049l' : ''
+  process.stdout.write(`\x1b[?1000l\x1b[?1002l\x1b[?1003l${exitAlternateScreen}\x1b[?25h`)
+  process.stdout.write(`\n  To continue this session, run:\n  deepseek --resume ${SESSION_ID}\n\n`)
   process.exit(code)
 }
 

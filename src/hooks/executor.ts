@@ -30,15 +30,16 @@ function appendCapped(target: string, chunk: Buffer): string {
  * fresh ID is generated.
  */
 export function buildInput(
-  base: Omit<HookInput, 'schema_version' | 'correlation_id' | 'run_id' | 'cwd'>,
+  base: Omit<HookInput, 'schema_version' | 'hook_event_name' | 'correlation_id' | 'run_id' | 'cwd'> & { cwd?: string },
   correlationId?: string,
 ): HookInput {
   return {
     ...base,
+    hook_event_name: base.event,
     schema_version: 1,
     correlation_id: correlationId ?? randomUUID(),
     run_id: randomUUID(),
-    cwd: process.cwd(),
+    cwd: base.cwd ?? process.cwd(),
   }
 }
 
@@ -245,22 +246,5 @@ export async function runPostToolHooks(
       }, correlationId)
       runHookCommand(hook, input).catch(() => {})
     }
-  }
-}
-
-/**
- * Run SessionStart hooks.
- */
-export async function runSessionStartHooks(
-  config: HooksConfig | undefined,
-  sessionId: string,
-): Promise<void> {
-  if (!config?.SessionStart?.length) return
-
-  const correlationId = randomUUID()
-  for (const hook of config.SessionStart) {
-    if (hook.enabled === false) continue
-    const input = buildInput({ event: 'SessionStart', session_id: sessionId }, correlationId)
-    await runHookCommand(hook, input).catch(() => {})
   }
 }

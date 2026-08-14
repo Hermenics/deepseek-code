@@ -67,6 +67,7 @@ export function InputBox({
   isLoading,
   toolCallCount: _toolCallCount,
   onAbort,
+  onExit,
   onQueue,
   phase: _phase = 'idle',
   contextPct = 0,
@@ -88,6 +89,7 @@ export function InputBox({
   isLoading: boolean
   toolCallCount: number
   onAbort?: () => void
+  onExit?: () => void
   onQueue?: (text: string) => void
   phase?: AgentPhase
   contextPct?: number
@@ -108,6 +110,7 @@ export function InputBox({
 }) {
   const cols = process.stdout.columns ?? 80
   const [cursor, setCursor] = useState(() => Cursor.fromText('', cols))
+  const [fullscreenHintVisible, setFullscreenHintVisible] = useState(showFullscreenHint)
   const [pastedTexts, setPastedTexts] = useState<string[]>([])
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [vimState, setVimState] = useState<VimState>(createVimState)
@@ -118,16 +121,24 @@ export function InputBox({
   const bufferRef = useRef(new InputBuffer())
   const fileSearchRequestRef = useRef(0)
 
+  useEffect(() => {
+    if (!showFullscreenHint) setFullscreenHintVisible(false)
+  }, [showFullscreenHint])
+
   const updateCursor = (next: Cursor) => {
     fileSearchRequestRef.current++
     setFileMatches([])
     setFileSelectedIdx(0)
+    if (next.text.length > 0) setFullscreenHintVisible(false)
     setCursor(next)
   }
 
   const ctrlCDouble = useDoublePress({
     timeout: 800,
-    onDoublePress: () => process.exit(0),
+    onDoublePress: () => {
+      onExit?.()
+      if (!onExit) process.exit(0)
+    },
   })
 
   const escDouble = useDoublePress({
@@ -431,7 +442,7 @@ export function InputBox({
 
   return (
     <Box flexDirection="column">
-      {showFullscreenHint && isFullscreenActive() && (
+      {fullscreenHintVisible && showFullscreenHint && isFullscreenActive() && (
         <Box justifyContent="flex-end">
           <Text dimColor>{"Don't like this screen? Change it in /config"}</Text>
         </Box>

@@ -13,6 +13,7 @@ import { StructuredOutputError } from './contracts.js'
 import { isToolAllowedForProfile } from './permissions.js'
 import { TaskRuntimeError } from '../../orchestration/lifecycle.js'
 import { isDeepStrictEqual } from 'node:util'
+import { runPermissionRequestHooks } from '../../hooks/lifecycle.js'
 
 export interface ExecutorCallbacks {
   onToolUse?(id: string, tool: string, info?: string): void
@@ -234,14 +235,22 @@ export async function runSubAgentLoop<T = never>(
         return Boolean(request && request.taskId === options.context!.taskId && request.senderId === options.context!.taskId &&
           request.type === 'permission' && request.payload.tool === call.function.name && isDeepStrictEqual(request.payload.args, args))
       })
-      const decision = permissionGrant ? String(permissionGrant.payload.decision) as 'allow' | 'deny' : resolvePermission(permissions, call.function.name, args)
+      const configuredDecision = permissionGrant ? String(permissionGrant.payload.decision) as 'allow' | 'deny' : resolvePermission(permissions, call.function.name, args)
+      const hookDecision: Awaited<ReturnType<typeof runPermissionRequestHooks>> = configuredDecision === 'ask'
+        ? await runPermissionRequestHooks(settings.hooks, call.function.name, args, options.context?.sessionId ?? '', { cwd: options.context?.workspacePath, model: modelName })
+        : { decision: 'pass' as const }
+      const decision = hookDecision.decision === 'block'
+        ? 'deny' as const
+        : hookDecision.approved
+          ? 'allow' as const
+          : configuredDecision
       if (permissionGrant) {
         registry!.acknowledgeMessage(permissionGrant.messageId)
         registry!.acknowledgeMessage(String(permissionGrant.payload.requestId))
         options.context?.emit?.('authorization', { tool: call.function.name, decision, source: 'coordinator_message', messageId: permissionGrant.messageId })
       }
       if (decision !== 'allow') {
-        const reason = decision === 'ask' ? `Tool '${call.function.name}' requires coordinator permission` : `Tool '${call.function.name}' is denied`
+        const reason = hookDecision.reason ?? (decision === 'ask' ? `Tool '${call.function.name}' requires coordinator permission` : `Tool '${call.function.name}' is denied`)
         options.context?.emit?.('authorization', { tool: call.function.name, decision, reason })
         if (decision === 'ask' && options.context?.taskId && options.context.session) {
           options.context.session.registry.sendMessage(options.context.taskId, 'permission', { tool: call.function.name, args, reason }, 'coordinator', options.context.taskId)
