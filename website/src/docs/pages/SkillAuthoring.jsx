@@ -83,9 +83,9 @@ export default function SkillAuthoring() {
           </p>
           <Note>
             The current CLI implements skill installation, validation, listing, update, removal, and
-            migration. It does not yet load installed <code className="inline">SKILL.md</code> bodies into the
-            live agent prompt or expose a skill invocation path. Treat authoring as package preparation until
-            runtime wiring lands.
+            migration. Valid native and project <code className="inline">SKILL.md</code> files are loaded into
+            the agent prompt, and their descriptions are the metadata the model uses to select applicable
+            instructions. They remain separate from the install registry.
           </Note>
         </section>
 

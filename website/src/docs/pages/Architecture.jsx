@@ -21,7 +21,7 @@ const DIRECTORIES = [
   ["src/orchestration/", "Multi-agent runtime: TaskRegistry DAG, mailbox, git-worktree workspaces, file leases, snapshot persistence, events, review"],
   ["src/workflows/", "Dynamic workflow JS programs: discovery, parser, runtime sandbox, manager (journal + replay), storage, approvals"],
   ["src/kernel/", "Dormant reference subsystem — SQLite event sourcing, GoalEngine, HookRuntime, TaskBoard, ThreadRuntime, WorkflowEngine, PathOwnership"],
-  ["src/plugins/ + src/skills/", "Installer / registry / validation. Metadata only — not wired into runtime registries"],
+  ["src/plugins/ + src/skills/", "Plugin installer / registry remains metadata-only; native and project skills are loaded into the prompt and selected by description"],
   ["src/hooks/", "Pre/post tool hooks: matcher + executor, permission-based tool gating"],
   ["src/permissions/", "Permission rule matcher, risk scoring, explain"],
   ["src/settings/", "User / Project / Local scopes, loader, repository, writer"],
@@ -116,7 +116,7 @@ export default function Architecture() {
 ├── plugins/        # Installer / registry / validation (metadata only)
 ├── services/       # Compaction: autoCompact, microCompact, cleanup
 ├── settings/       # User / Project / Local scopes
-├── skills/         # Installer / registry / validation (metadata only)
+├── skills/         # Skill loader plus installer / registry / validation
 ├── tools/          # 24 agent tools
 ├── ui/             # TUI app layer (~9.5k lines)
 ├── utils/          # Credentials, update-notifier, fs, env
@@ -323,14 +323,13 @@ export default function Architecture() {
               confirms <b>nothing imports it</b>. It is a design reference, not a feature.
             </li>
             <li>
-              <b>src/plugins/ and src/skills/</b> — installable components (commands, agents, skills,
-              hooks) are <b>metadata-only</b> in their registries; they are not wired into runtime
-              dispatch. Only skills placed in <code className="inline">.deepseek/skills</code> are live for
-              the runtime.
+              <b>src/plugins/ and src/skills/</b> — plugin components remain <b>metadata-only</b> in their
+              registries, while native and project skills are loaded into the prompt and selected by their
+              descriptions.
             </li>
           </ul>
           <Note>
-            Treat both as <i>future wiring</i>. If you are contributing, the live path is{" "}
+            Treat the registries and standalone/plugin components as <i>future wiring</i>. If you are contributing, the live path is{" "}
             <code className="inline">entrypoints → ui → agent → tools</code> — the kernel and plugin
             registries will not execute your code.
           </Note>

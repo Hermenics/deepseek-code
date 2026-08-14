@@ -77,8 +77,10 @@ export default function PluginsSkills() {
             <code className="inline">&lt;cwd&gt;/.deepseek/skills/&lt;name&gt;</code> — project scope.
           </p>
           <Note>
-            Installation does not execute a skill. In the current runtime, no loader injects installed skill
-            bodies into the agent prompt; the command surface manages packages on disk only.
+            Installation does not execute a standalone skill immediately. On the next agent initialization,
+            valid project skill descriptions and instructions are loaded into the prompt, and the model uses
+            the descriptions to select applicable skills. Built-in native skills are loaded the same way
+            without appearing in the install registry.
           </Note>
         </section>
 
@@ -119,12 +121,12 @@ export default function PluginsSkills() {
         <section id="wiring">
           <h2><span className="anchor">#</span>Component wiring status</h2>
           <p>
-            The package-management surfaces are implemented, but installed components are not wired into the
-            agent runtime yet. Standalone skills are validated and registered on disk, but their instructions
-            are not loaded into the prompt. Plugin components are discovered and reported by{" "}
-            <code className="inline">/plugin list</code>, but commands, agents, skills, and hooks are not
-            registered into their live runtimes. Manage and inspect packages today; do not assume installing
-            one changes agent behavior.
+            The package-management surfaces are implemented. Valid project skills are loaded into the prompt
+            during the next agent initialization and selected by their descriptions. Installed commands, agents,
+            and hooks are not yet registered into live runtimes. Plugin components are discovered and reported by{" "}
+            <code className="inline">/plugin list</code>, but plugin commands, agents, and hooks are not
+            registered into their live runtimes. Do not assume installing a command, agent, or hook changes live
+            runtime behavior.
           </p>
           <Note>
             Plugin hooks are detected (<code className="inline">hooks</code> shows in{" "}
