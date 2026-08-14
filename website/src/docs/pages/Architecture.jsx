@@ -1,4 +1,5 @@
 import { CodeBlock, Note, Toc } from "../Layout";
+import useNpmVersion from "../../lib/useNpmVersion";
 
 const TOC = [
   { id: "overview", label: "Overview" },
@@ -62,6 +63,8 @@ const PROVIDERS = [
 ];
 
 export default function Architecture() {
+  const version = useNpmVersion();
+
   return (
     <>
       <main className="content">
@@ -95,7 +98,7 @@ export default function Architecture() {
             permissions, settings, multi-agent orchestration, and dynamic workflows.
           </p>
           <Note>
-            Everything in this page was verified against the source tree at version 0.6.3. Line counts
+            Everything in this page is maintained against the published version {version}. Line counts
             are approximate (<code className="inline">wc -l</code> over <code className="inline">.ts*</code> files).
           </Note>
         </section>
