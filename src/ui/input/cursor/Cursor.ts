@@ -1,6 +1,29 @@
 import { MeasuredText } from './MeasuredText.js'
 import { pushToKillRing } from './killRing.js'
 
+/** Placeholder the input inserts for a long paste — edited as one unit. */
+const PASTE_PLACEHOLDER_RE = /\[Text #\d+\]/g
+
+/**
+ * Finds the paste placeholder a delete at `offset` would cut into, so it gets
+ * removed whole instead of leaving a broken `[Text #1` behind.
+ * `before` looks at what a backspace would eat, `after` at what delete would.
+ */
+export function placeholderSpanAt(
+  text: string,
+  offset: number,
+  side: 'before' | 'after',
+): { start: number; end: number } | null {
+  PASTE_PLACEHOLDER_RE.lastIndex = 0
+  for (const match of text.matchAll(PASTE_PLACEHOLDER_RE)) {
+    const start = match.index
+    const end = start + match[0].length
+    const touches = side === 'before' ? offset > start && offset <= end : offset >= start && offset < end
+    if (touches) return { start, end }
+  }
+  return null
+}
+
 export class Cursor {
   readonly offset: number
   readonly measuredText: MeasuredText
@@ -88,16 +111,24 @@ export class Cursor {
 
   backspace(): Cursor {
     if (this.offset === 0) return this
+    const placeholder = placeholderSpanAt(this.text, this.offset, 'before')
+    if (placeholder) return this.cut(placeholder.start, placeholder.end)
     const start = this.measuredText.prevOffset(this.offset)
-    const nextText = this.text.slice(0, start) + this.text.slice(this.offset)
-    return Cursor.fromText(nextText, this.measuredText.columns + 1, start)
+    return this.cut(start, this.offset)
   }
 
   del(): Cursor {
     if (this.offset >= this.text.length) return this
+    const placeholder = placeholderSpanAt(this.text, this.offset, 'after')
+    if (placeholder) return this.cut(placeholder.start, placeholder.end)
     const end = this.measuredText.nextOffset(this.offset)
-    const nextText = this.text.slice(0, this.offset) + this.text.slice(end)
-    return Cursor.fromText(nextText, this.measuredText.columns + 1, this.offset)
+    return this.cut(this.offset, end)
+  }
+
+  /** Removes [start, end) and leaves the cursor where the text was. */
+  private cut(start: number, end: number): Cursor {
+    const nextText = this.text.slice(0, start) + this.text.slice(end)
+    return Cursor.fromText(nextText, this.measuredText.columns + 1, start)
   }
 
   deleteToLineEnd(): { cursor: Cursor; killed: string } {

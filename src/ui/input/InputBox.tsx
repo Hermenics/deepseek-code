@@ -10,6 +10,7 @@ import { processTextInputKey, type KeyEvent } from './hooks/useTextInput.js'
 import { processVimKey, processVimTextChunk, createVimState, type VimState } from './hooks/useVimMode.js'
 import { InputBuffer } from './hooks/useInputBuffer.js'
 import { useDoublePress } from './hooks/useDoublePress.js'
+import { usePasteHandler } from './hooks/usePasteHandler.js'
 import { InputHistory } from './hooks/useInputHistory.js'
 import { getCommandSuggestions, getMatches } from './commandMatches.js'
 import { computeGhostText } from './ghost/index.js'
@@ -178,24 +179,24 @@ export function InputBox({
     return () => clearTimeout(timer)
   }, [cursor.text, cursor.offset, fuzzyFileSearch, workingDirectory])
 
-  const applyInlinePaste = (text: string) => {
-    const normalized = text.replace(/\r\n/g, '\n')
-    // Long pastes get a [Text #n] placeholder — real content sent on submit
-    if (normalized.length > 60) {
-      let idx = 0
-      setPastedTexts((prev) => { idx = prev.length; return [...prev, normalized] })
-      // Use queueMicrotask to read idx after setPastedTexts updater ran
+  // usePasteHandler owns the block-vs-inline rule; these two say what to do
+  // with each kind. The threshold lives there — don't restate it here.
+  const { handlePaste } = usePasteHandler({
+    onPasteBlock: (text: string) => {
+      // Stored out of band and given a [Text #n] placeholder — expanded on submit
+      const idx = pastedTexts.length
+      setPastedTexts((prev) => [...prev, text.replace(/\r\n/g, '\n')])
       updateCursor(cursor.insert(`[Text #${idx + 1}]`))
       setSelectedIdx(0)
       historyRef.current.reset()
-      return
-    }
-    const lines = normalized.split('\n')
-    const inserted = lines.length > 1 ? lines.join(' ') : text
-    updateCursor(cursor.insert(inserted))
-    setSelectedIdx(0)
-    historyRef.current.reset()
-  }
+    },
+    onPasteInline: (text: string) => {
+      const lines = text.replace(/\r\n/g, '\n').split('\n')
+      updateCursor(cursor.insert(lines.length > 1 ? lines.join(' ') : text))
+      setSelectedIdx(0)
+      historyRef.current.reset()
+    },
+  })
 
   // Expand [Text #n] placeholders back to real pasted content
   const expandPastedTexts = (text: string): string => {
@@ -221,7 +222,7 @@ export function InputBox({
   useInput((input: string, key: Key) => {
     // Bracketed paste from terminal (Ctrl+Shift+V or middle-click)
     if (key.isPasted && input.length > 0) {
-      applyInlinePaste(input)
+      handlePaste(input)
       return
     }
     if (input === '\x1b[Z' || (key.shift && key.tab)) {
@@ -252,7 +253,7 @@ export function InputBox({
     if (key.ctrl && input === 'v') {
       try {
         const text = execSync('xclip -selection clipboard -o 2>/dev/null || xsel --clipboard --output 2>/dev/null || wl-paste 2>/dev/null', { encoding: 'utf-8', timeout: 2000 })
-        if (text) applyInlinePaste(text)
+        if (text) handlePaste(text)
       } catch {}
       return
     }
@@ -455,11 +456,6 @@ export function InputBox({
           contextPct={contextPct}
           hasExclamation={hasExclamation}
         >
-          {pastedTexts.length > 0 && (
-            <Box border borderStyle="rounded" borderColor="#888888" paddingLeft={1} paddingRight={1} marginRight={1}>
-              <Text color="#888888">{`[${pastedTexts.length} pasted]`}</Text>
-            </Box>
-          )}
           <InputLine
             cursor={cursor}
             columns={cols}
