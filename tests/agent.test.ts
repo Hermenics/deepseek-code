@@ -388,9 +388,14 @@ describe('Agent error propagation', () => {
   it('does not emit onDone when the iteration limit fails the turn', async () => {
     const agent = new Agent({ provider: 'vertex', gcpProject: 'test', gcpLocation: 'global', gcpCredentials: '/tmp/test-service-account.json' })
     resolveReady(agent)
+    // Vertex streams now — the mock returns a fresh async-iterable stream per call
     const create = mock(async () => ({
-      choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'loop', type: 'function', function: { name: 'unknown_tool', arguments: '{}' } }] } }],
-      usage: { total_tokens: 1 },
+      [Symbol.asyncIterator]: async function* () {
+        yield {
+          choices: [{ delta: { tool_calls: [{ index: 0, id: 'loop', function: { name: 'unknown_tool', arguments: '{}' } }] } }],
+          usage: { total_tokens: 1, prompt_tokens: 1, completion_tokens: 0 },
+        }
+      },
     }))
     injectMockClient(agent, { chat: { completions: { create } } })
     const cb = makeTrackedCallbacks()

@@ -8,6 +8,7 @@ import { MessageList, getDiffPayload } from './messages/MessageList.js'
 import { DiffDialog, type DiffLine } from './messages/DiffDialog.js'
 import { TodoPanel } from './messages/TodoPanel.js'
 import { ToolUseDisplay } from './messages/ToolUseDisplay.js'
+import { previewStreamingArgs } from './messages/toolDisplay.js'
 import { useSubagents } from './subagent/index.js'
 import { useWorkflowRuns } from './workflows/WorkflowList.js'
 import { WorkflowMonitor } from './workflows/WorkflowMonitor.js'
@@ -566,6 +567,20 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       thinkingAccum = ''
     }
 
+    // Live tool call being streamed by the model. Coalesced into the 50ms flush
+    // below instead of re-rendering on every argument delta.
+    let pendingTool: { name: string; args: string } | null = null
+
+    // Shows a tool as active, cancelling any pending clear from the previous
+    // tool — otherwise that 800ms timer would wipe this one's card.
+    const showActiveTool = (status: ToolStatus) => {
+      if (toolStatusClearTimerRef.current) {
+        clearTimeout(toolStatusClearTimerRef.current)
+        toolStatusClearTimerRef.current = null
+      }
+      setToolStatus(status)
+    }
+
     const flushInterval = setInterval(() => {
       if (tokenBuffer) {
         const buf = tokenBuffer
@@ -580,12 +595,18 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         }
         setStreamText(content)
       }
+      if (pendingTool) {
+        const { name, args } = pendingTool
+        pendingTool = null
+        showActiveTool({ name, args: previewStreamingArgs(args), done: false })
+      }
     }, 50)
 
     try {
       await agent.run(prompt, {
         onPhaseChange(phase) { setAgentPhase(phase) },
         onToken(token) { tokenBuffer += token },
+        onToolPending(name, argsText) { pendingTool = { name, args: argsText } },
         onThinking(text) {
           if (thinkingStartedAtRef.current == null) thinkingStartedAtRef.current = Date.now()
           thinkingAccum += text
@@ -607,6 +628,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             setThinkingText('')
           }
           setToolCallCount((c) => c + 1)
+          // Streamed preview is superseded by the real args — drop it so a late
+          // flush cannot overwrite them.
+          pendingTool = null
           // For subagent, show the task text instead of raw JSON
           const argsPreview = name === 'subagent' && typeof (args as Record<string, unknown>)?.task === 'string'
             ? (() => {
@@ -615,7 +639,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
                 return firstLine.length > 80 ? firstLine.slice(0, 80) + '…' : firstLine
               })()
             : JSON.stringify(args).slice(0, 100)
-          setToolStatus({ name, args: argsPreview, done: false })
+          showActiveTool({ name, args: argsPreview, done: false })
         },
         onToolResult(name, result, args) {
           // Mark tool as done (shows checkmark briefly) then clear
@@ -646,6 +670,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           const pending = (streamTextAccum + tokenBuffer).trim()
           tokenBuffer = ''
           streamTextAccum = ''
+          pendingTool = null
           setToolStatus(null)
           setStreamText('')
           if (pending) {
@@ -1860,7 +1885,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           {!focusedSubagent && <TodoPanel />}
           {!focusedSubagent && isLoading && (interfaceSettings.reducedMotion
             ? <Text dimColor>{agentPhase === 'refining' ? 'Refining…' : 'Working…'}</Text>
-            : <LoadingSpinner toolCallCount={toolCallCount} phase={agentPhase} />)}
+            : <LoadingSpinner toolCallCount={toolCallCount} phase={agentPhase} activeTool={toolStatus && !toolStatus.done ? toolStatus.name : null} />)}
           {btw && <BtwSideQuestion btw={btw} theme={theme} onDismiss={() => { btwAbortRef.current?.abort(); setBtw(null) }} />}
           {queuedMessages.length > 0 && <QueuedMessagesList messages={queuedMessages} />}
         </Box>

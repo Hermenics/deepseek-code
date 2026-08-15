@@ -139,6 +139,84 @@ function parseAutoMemoryFact(content: unknown): { kind: 'user_preference' | 'pro
   }
 }
 
+const R1_BLOCK_TAGS = ['tool_call', 'tool_result', 'step', 'think', 'thinking']
+const R1_THINK_TAGS = new Set(['step', 'think', 'thinking'])
+const R1_TAG_STRINGS = [...R1_BLOCK_TAGS, 'response'].flatMap((t) => [`<${t}>`, `</${t}>`])
+
+/**
+ * Incremental filter for Bedrock R1's prompt-based markup, which arrives as
+ * plain text in the stream instead of native fields. Holds text back while a
+ * block is open (or a tag may be starting), so <think>/<tool_call> never reach
+ * onToken, and routes finished thinking blocks to onThinking — same contract
+ * the aggregated path gets from extractThinking/stripToolCalls.
+ */
+export function createR1MarkupFilter(onText: (text: string) => void, onThink: (text: string) => void) {
+  let buffer = ''
+
+  const consume = () => {
+    while (buffer.length > 0) {
+      const lt = buffer.indexOf('<')
+      if (lt === -1) { onText(buffer); buffer = ''; return }
+      if (lt > 0) { onText(buffer.slice(0, lt)); buffer = buffer.slice(lt); continue }
+
+      const open = /^<([a-z_]+)>/.exec(buffer)
+      const close = /^<\/([a-z_]+)>/.exec(buffer)
+      const tag = open?.[1] ?? close?.[1]
+
+      // <response> only wraps the answer — drop the tag, keep the content
+      if (tag === 'response') { buffer = buffer.slice((open ?? close)![0].length); continue }
+
+      if (open && R1_BLOCK_TAGS.includes(tag!)) {
+        const closeTag = `</${tag}>`
+        const end = buffer.indexOf(closeTag)
+        if (end === -1) return // block still open — wait for the rest
+        const block = buffer.slice(0, end + closeTag.length)
+        if (R1_THINK_TAGS.has(tag!)) {
+          const inner = extractThinking(block)
+          if (inner) onThink(inner)
+        }
+        buffer = buffer.slice(block.length)
+        continue
+      }
+
+      // A '<' that could still grow into one of our tags — wait for more text
+      if (!open && !close && R1_TAG_STRINGS.some((t) => t.startsWith(buffer))) return
+
+      // Any other '<' is ordinary text (e.g. code, generics)
+      onText('<')
+      buffer = buffer.slice(1)
+    }
+  }
+
+  return {
+    push(text: string) { buffer += text; consume() },
+    /** End of stream — release whatever is left, stripped like the aggregated path. */
+    flush() {
+      if (!buffer) return
+      const rest = buffer
+      buffer = ''
+
+      // A block the stream cut short: the helpers below only match complete
+      // blocks, so handle it here — keep truncated reasoning, drop tool markup.
+      const open = /^<([a-z_]+)>/.exec(rest)
+      if (open && R1_BLOCK_TAGS.includes(open[1]!)) {
+        if (R1_THINK_TAGS.has(open[1]!)) {
+          const inner = rest.slice(open[0].length).trim()
+          if (inner) onThink(inner)
+        }
+        return
+      }
+      // A tag that never finished arriving
+      if (/^<\/?[a-z_]*$/.test(rest)) return
+
+      const think = extractThinking(rest)
+      if (think) onThink(think)
+      const text = stripToolCalls(rest)
+      if (text) onText(text)
+    },
+  }
+}
+
 function extractThinking(text: string): string {
   const parts: string[] = []
   const regexes = [/<step>([\s\S]*?)<\/step>/g, /<think>([\s\S]*?)<\/think>/g, /<thinking>([\s\S]*?)<\/thinking>/g]
@@ -213,6 +291,8 @@ export interface AgentCallbacks {
   onToken(text: string): void
   onThinking?(text: string): void
   onToolCall(name: string, args: object): void
+  /** Live tool call while its arguments are still streaming in. `argsText` is partial JSON. */
+  onToolPending?(name: string, argsText: string): void
   onToolResult(name: string, result: string, args: Record<string, unknown>): void
   onDone(): void
   onPhaseChange?(phase: 'refining' | 'executing'): void
@@ -1244,10 +1324,11 @@ export class Agent {
   }
 
   private get useStreaming(): boolean {
-    // Bedrock R1 (InvokeModel) and Vertex don't support streaming reliably
-    // Bedrock V3.2/V3.1 via bedrock-mantle supports streaming
-    if (this.provider === 'bedrock') return modelSupportsChatCompletions(this.model)
-    return this.provider !== 'vertex'
+    // All providers stream now: Vertex's OpenAI-compatible endpoint speaks SSE,
+    // and Bedrock R1 goes through the event-stream→SSE bridge in createBedrockFetch.
+    // DEEPSEEK_NO_STREAM=1 is the escape hatch back to the aggregated path
+    // while the bridge beds in with live credentials.
+    return process.env.DEEPSEEK_NO_STREAM !== '1'
   }
 
   private async runLoop(cb: AgentCallbacks) {
@@ -1419,6 +1500,13 @@ export class Agent {
       let reasoningText = ''
       const toolCalls: Map<number, { id: string; name: string; args: string }> = new Map()
 
+      // Bedrock R1 emits <think>/<tool_call> as plain text — filter it out of
+      // onToken so consumers (TUI, headless stdout) never see the raw markup.
+      const isPromptToolCalling = this.provider === 'bedrock' && !modelSupportsChatCompletions(this.model)
+      const r1Filter = isPromptToolCalling
+        ? createR1MarkupFilter((text) => cb.onToken(text), (text) => cb.onThinking?.(text))
+        : null
+
       try {
         for await (const chunk of stream) {
           // Proxy error chunk: { error: { message: '...' } } — treat as recoverable, surface to user
@@ -1454,8 +1542,10 @@ export class Agent {
           }
 
           if (delta.content) {
+            // assistantText stays raw — parseBedrockToolCalls and history need the markup
             assistantText += delta.content
-            cb.onToken(delta.content)
+            if (r1Filter) r1Filter.push(delta.content)
+            else cb.onToken(delta.content)
           }
 
           if (delta.tool_calls) {
@@ -1468,6 +1558,7 @@ export class Agent {
               if (tc.id) entry.id = tc.id
               if (tc.function?.name) entry.name = tc.function.name
               if (tc.function?.arguments) entry.args += tc.function.arguments
+              if (entry.name) cb.onToolPending?.(entry.name, entry.args)
             }
           }
         }
@@ -1488,6 +1579,8 @@ export class Agent {
         throw e
       }
 
+      r1Filter?.flush()
+
       // Post-response compact check: trigger immediately when threshold crossed mid-turn
       if (this.contextUsage > 0 && this.contextLimit > 0) {
         const usageRatio = this.contextUsage / this.contextLimit
@@ -1506,6 +1599,28 @@ export class Agent {
       }
 
       if (toolCalls.size === 0) {
+        // Bedrock R1 has no native tool calling — its calls arrive as
+        // <tool_call> text blocks (prompt-based). Same handling as the
+        // aggregated path, just at end-of-stream.
+        if (this.provider === 'bedrock' && !modelSupportsChatCompletions(this.model)) {
+          const textCalls = parseBedrockToolCalls(assistantText)
+          if (textCalls.length > 0) {
+            const assistantMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText }
+            if (reasoningText) assistantMsg.reasoning_content = reasoningText
+            this.messages.push(assistantMsg)
+
+            const batchCalls: Array<Record<string, unknown>> = []
+            for (const tc of textCalls) {
+              const fakeTc = { id: `bedrock-${randomUUID().slice(0, 8)}`, type: 'function' as const, function: { name: tc.name, arguments: JSON.stringify(tc.args) } }
+              const { result } = await this.checkAndExecuteTool(fakeTc, tc.args, cb)
+              batchCalls.push({ tool_name: tc.name, tool_input: tc.args, tool_response: result })
+              this.messages.push({ role: 'user', content: `<tool_result>\n<name>${tc.name}</name>\n<result>${result}</result>\n</tool_result>` })
+            }
+            await this.runPostToolBatchHooks(batchCalls)
+            continue // next iteration — model will process tool results
+          }
+        }
+
         const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText }
         // Always preserve reasoning_content — DeepSeek-V4-Flash has built-in thinking mode
         if (reasoningText) finalMsg.reasoning_content = reasoningText
