@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <!--
+    .deepseekignore icon, traced from the supplied transparent pixel-art
+    reference. The cyan geometry is intentionally borderless.
+  -->
+  <defs>
+    <!-- The source image is a stepped band, not a closed oval silhouette. -->
+    <path id="dsi-body" d="
+      M 5.43,2.87 H 8.13 V 3.95 H 9.86 V 5.03 H 3.70 V 3.95 H 5.43 Z
+      M 3.70,5.03 H 4.52 V 6.11 H 3.70 Z
+      M 9.90,5.03 H 11.66 V 6.11 H 9.90 Z
+      M 2.79,6.11 H 4.52 V 7.19 H 2.79 Z
+      M 9.90,6.11 H 12.54 V 7.19 H 9.90 Z
+      M 1.88,7.19 H 2.79 V 9.35 H 1.88 Z
+      M 2.79,9.35 H 3.70 V 10.40 H 2.79 Z
+      M 5.46,9.35 H 6.31 V 10.40 H 5.46 Z
+      M 9.93,9.35 H 11.66 V 10.40 H 9.93 Z
+      M 3.70,10.40 H 10.78 V 11.45 H 3.70 Z" />
+    <!-- Explicit even-odd annulus: the center must remain transparent. -->
+    <path id="dsi-eye" fill-rule="evenodd" d="
+      M 5.89,5.75 A 0.50,0.50 0 1 1 5.89,6.75 A 0.50,0.50 0 1 1 5.89,5.75 Z
+      M 5.89,6.00 A 0.25,0.25 0 1 1 5.89,6.50 A 0.25,0.25 0 1 1 5.89,6.00 Z" />
+    <path id="dsi-wake" fill="none" stroke-linecap="round"
+      d="M 11.80,8.30 q 0.35,-0.20 0.70,0 q 0.35,0.20 0.70,0 q 0.35,-0.20 0.70,0" />
+    <rect id="dsi-tail" x="13.51" y="7.19" width="0.88" height="2.10" />
+  </defs>
+
+  <use href="#dsi-body" fill="#00E6FC" />
+  <use href="#dsi-eye" fill="#00E6FC" />
+  <use href="#dsi-wake" stroke="#00E6FC" stroke-width="0.18" />
+  <use href="#dsi-tail" fill="#00E6FC" />
+</svg>

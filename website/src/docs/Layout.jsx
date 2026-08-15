@@ -151,6 +151,7 @@ const NAV = [
       { label: "Tool results & truncation", href: "/docs/tool-results" },
       { label: "File operations", href: "/docs/file-operations" },
       { label: "Search tools", href: "/docs/search" },
+      { label: ".deepseekignore", href: "/docs/deepseekignore" },
       { label: "Shell commands", href: "/docs/shell" },
       { label: "Web fetch", href: "/docs/web-fetch" },
       { label: "Update project knowledge", href: "/docs/update-knowledge" },

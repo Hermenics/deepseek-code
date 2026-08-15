@@ -56,15 +56,17 @@ export default function ClipboardPasting() {
         <section id="normalization">
           <h2><span className="anchor">#</span>Normalization and the 60-character boundary</h2>
           <p>
-            Windows CRLF line endings are normalized to LF before the editor classifies a paste. A normalized payload of
-            60 characters or fewer is inserted directly. If it has multiple lines, hard line breaks are replaced with
-            single spaces; the editor does not trim leading, trailing or repeated whitespace.
+            Windows CRLF line endings are normalized to LF before the editor classifies a paste. A normalized payload is
+            inserted directly only when it is 60 characters or fewer <em>and</em> spans at most 3 lines. If it has
+            multiple lines, hard line breaks are replaced with single spaces; the editor does not trim leading, trailing
+            or repeated whitespace.
           </p>
           <CodeBlock lang="text">{"Pasted:\nfirst line\nsecond line\n\nInserted:\nfirst line second line"}</CodeBlock>
           <p>
-            A payload longer than 60 characters uses the large-paste path described below. The boundary is an implementation
-            string length, not a byte count or a user-perceived grapheme count. Some emoji and composed characters occupy
-            more than one counted unit, so a visually short Unicode paste can cross the boundary earlier than expected.
+            A payload longer than 60 characters <em>or</em> spanning more than 3 lines uses the large-paste path described
+            below. The boundary is an implementation string length, not a byte count or a user-perceived grapheme count.
+            Some emoji and composed characters occupy more than one counted unit, so a visually short Unicode paste can
+            cross the boundary earlier than expected.
           </p>
           <p>
             An empty bracketed paste has no effect. Pasting never presses Enter on your behalf: even content containing
@@ -75,16 +77,19 @@ export default function ClipboardPasting() {
         <section id="large">
           <h2><span className="anchor">#</span>Large-paste markers</h2>
           <p>
-            A payload over 60 characters is retained in process memory and represented in the draft by a numbered marker.
-            This keeps logs, stack traces and source excerpts from expanding the input viewport. A textual badge reports
-            how many large blocks are attached to the current editor state.
+            A payload longer than 60 characters or spanning more than 3 lines is retained in process memory and
+            represented in the draft by a numbered marker. Thus, even a short four-line payload gets a marker, while a
+            payload of 60 characters or fewer stays inline only when it also spans at most 3 lines. This keeps logs, stack
+            traces and source excerpts from expanding the input viewport. The marker is the only indicator — there is no
+            separate badge next to the input.
           </p>
-          <CodeBlock lang="text">{"Explain this failure and propose the smallest fix:\n[Text #1]\n\nInput badge: [1 pasted]"}</CodeBlock>
+          <CodeBlock lang="text">{"Explain this failure and propose the smallest fix:\n[Text #1]"}</CodeBlock>
           <p>
-            The marker is ordinary editable text. You can move it, duplicate it or delete it. Each occurrence of a valid
-            marker expands to the same retained block at submission time. Deleting every occurrence means that block is not
-            sent, even though the badge may remain until the editor is cleared or submitted. A marker with no matching
-            retained block stays literal.
+            The marker is editable text that behaves as one unit: pressing Backspace or Delete anywhere inside
+            <code className="inline">[Text #n]</code> removes the whole marker at once, so a broken fragment like
+            <code className="inline">[Text #1</code> can never linger. Each occurrence of a valid marker expands to the
+            same retained block at submission time. Deleting every occurrence means that block is not sent. A marker with
+            no matching retained block stays literal.
           </p>
           <Note>
             Manually typing a marker that refers to a block still retained by the current editor can expand that block.
@@ -175,7 +180,7 @@ export default function ClipboardPasting() {
             accessibility channel; terminal readers may announce only changed cells.
           </p>
           <ul className="capabilities">
-            <li><b>Inline threshold:</b> 60 counted string units; line count alone does not force a marker.</li>
+            <li><b>Inline threshold:</b> 60 counted string units and at most 3 normalized lines; exceeding either limit forces a marker.</li>
             <li><b>Inline multiline paste:</b> line breaks become spaces and cannot be preserved in a short paste.</li>
             <li><b>Large paste:</b> normalized LF line breaks are preserved when the marker expands.</li>
             <li><b>Clipboard helper:</b> Linux command-line readers only, with silent failure after two seconds.</li>

@@ -16,8 +16,8 @@ const PROVIDERS = [
   ["DeepSeek", "Streaming", "Text deltas, reasoning deltas, tool-call fragments and a usage event may arrive separately."],
   ["Local", "Streaming", "Uses the OpenAI-compatible streaming path; actual chunk behavior depends on the endpoint."],
   ["Bedrock V3.x without R1 in the model ID", "Streaming", "Uses the Chat Completions path with native tool calls."],
-  ["Bedrock R1 and other non-V3 IDs", "Non-streaming", "One response at a time; prompt-encoded tool calls are parsed after receipt."],
-  ["Vertex", "Non-streaming", "One response at a time even though callbacks expose the same surface."],
+  ["Bedrock R1 and other non-V3 IDs", "Streaming", "The binary AWS event stream is bridged to SSE internally; prompt-encoded tool calls are parsed at end of stream, and <think> markup is filtered into reasoning callbacks."],
+  ["Vertex", "Streaming", "Uses the OpenAI-compatible SSE endpoint."],
 ];
 const EVENTS = [
   ["Assistant content delta", "Appended to the response and sent immediately to the text callback."],
@@ -53,12 +53,12 @@ export default function StreamingBehavior() {
         <section id="two-layers">
           <h2><span className="anchor">#</span>Two layers of streaming</h2>
           <p>
-            Provider streaming and CLI output streaming are separate decisions. The agent may request a live
-            provider stream or a complete response depending on provider and model. Pipe mode then either writes
-            each assistant-text callback to stdout immediately, or buffers all callbacks until completion when
-            <code className="inline">--json</code> is active.
+            Provider streaming and CLI output streaming are separate decisions. All providers stream by default, and
+            <code className="inline">DEEPSEEK_NO_STREAM=1</code> selects the aggregated response path instead. Pipe mode
+            then either writes each assistant-text callback to stdout immediately, or buffers all callbacks until
+            completion when <code className="inline">--json</code> is active.
           </p>
-          <CodeBlock lang="bash">{"# Incremental assistant text when the provider supports it\ndeepseek --pipe \"explain the build graph\"\n\n# Same agent behavior, but stdout waits for the final envelope\ndeepseek --pipe --json \"explain the build graph\""}</CodeBlock>
+          <CodeBlock lang="bash">{"# All providers stream by default\ndeepseek --pipe \"explain the build graph\"\n\n# DEEPSEEK_NO_STREAM=1 selects the aggregated provider path\nDEEPSEEK_NO_STREAM=1 deepseek --pipe \"explain the build graph\""}</CodeBlock>
           <Note>
             JSON mode does not make the provider non-streaming. It only changes how pipe mode exposes the
             assistant-text callbacks on stdout.
@@ -74,14 +74,16 @@ export default function StreamingBehavior() {
             </table>
           </div>
           <p>
-            The distinction is capability-driven, not controlled by a CLI flag. A non-streaming response still
-            calls the same text callback, so plain pipe mode remains compatible; it simply receives larger
-            chunks with longer time-to-first-text.
+            All providers now stream by default. Bedrock model selection still matters for <em>how</em> they
+            stream: identifiers containing <code className="inline">v3</code> but not
+            <code className="inline">r1</code> use the Chat Completions endpoint with native tool calls, while
+            Bedrock R1 and every other Bedrock identifier without <code className="inline">v3</code> use native
+            InvokeModel with an internal event-stream-to-SSE bridge and prompt-encoded tool calls.
           </p>
           <p>
-            Bedrock selection is based on the configured model identifier: an identifier containing
-            <code className="inline">v3</code> but not <code className="inline">r1</code> takes the streaming
-            Chat Completions path. Other Bedrock identifiers use the non-streaming path.
+            Setting <code className="inline">DEEPSEEK_NO_STREAM=1</code> switches every provider back to the
+            aggregated (one response at a time) path. The same callbacks fire either way; the aggregated path
+            simply delivers larger chunks with longer time-to-first-text.
           </p>
         </section>
 

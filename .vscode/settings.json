@@ -1,3 +1,6 @@
 {
-    "search.useGlobalIgnoreFiles": true
+  "search.useGlobalIgnoreFiles": true,
+  "files.associations": {
+    ".deepseekignore": "ignore"
+  }
 }

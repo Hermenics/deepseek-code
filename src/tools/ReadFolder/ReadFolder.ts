@@ -1,15 +1,17 @@
 import { Tool } from '../types.js'
 import * as fs from 'fs/promises'
 import * as path from 'path'
-import { assertSafeDir, BLOCKED_DIRS } from '../shared/pathSafety.js'
+import { assertSafeDir } from '../shared/pathSafety.js'
+import { isPathIgnored } from '../shared/deepseekignore.js'
 
-const EXCLUDE = new Set([...BLOCKED_DIRS, '.cache'])
 const MAX_ENTRIES = 1000
 const DEFAULT_MAX_DEPTH = 5
 
 interface ListDirState {
   results: string[]
   truncated: boolean
+  /** Workspace root whose .deepseekignore governs this listing. */
+  ignoreRoot: string
 }
 
 async function listDir(
@@ -36,7 +38,7 @@ async function listDir(
 
   for (const e of entries) {
     if (state.truncated) return
-    if (EXCLUDE.has(e.name)) continue
+    if (isPathIgnored(path.join(dir, e.name), state.ignoreRoot)) continue
 
     const rel = prefix ? `${prefix}/${e.name}` : e.name
     state.results.push(e.isDirectory() ? `${rel}/` : rel)
@@ -65,8 +67,9 @@ export const ReadFolder: Tool = {
   },
   async execute(args, context) {
     const dirPath = await assertSafeDir(args.path as string, context)
+    const ignoreRoot = path.resolve(context?.workspacePath ?? process.cwd())
 
-    const state: ListDirState = { results: [], truncated: false }
+    const state: ListDirState = { results: [], truncated: false, ignoreRoot }
     await listDir(dirPath, !!args.recursive, '', DEFAULT_MAX_DEPTH, state)
 
     if (state.truncated) {

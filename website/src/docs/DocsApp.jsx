@@ -93,6 +93,7 @@ import Testing from "./pages/Testing";
 import TodoList from "./pages/TodoList";
 import WebFetchGuide from "./pages/WebFetchGuide";
 import ClipboardPasting from "./pages/ClipboardPasting";
+import DeepseekIgnore from "./pages/DeepseekIgnore";
 import CommandPalette from "./pages/CommandPalette";
 import ExternalPaths from "./pages/ExternalPaths";
 import ModelAndEffort from "./pages/ModelAndEffort";
@@ -223,6 +224,7 @@ export default function DocsApp() {
         <Route path="model-and-effort" element={<ModelAndEffort />} />
         <Route path="vim-mode" element={<VimMode />} />
         <Route path="clipboard-pasting" element={<ClipboardPasting />} />
+        <Route path="deepseekignore" element={<DeepseekIgnore />} />
         <Route path="command-palette" element={<CommandPalette />} />
         <Route path="terminal-rendering" element={<TerminalRendering />} />
         <Route path="reasoning-display" element={<ReasoningDisplay />} />
