@@ -19,7 +19,7 @@ export function usePasteHandler(props: UsePasteHandlerProps): UsePasteHandlerRes
       pasting = true
       const normalized = text.replace(/\r\n/g, '\n')
       const lineCount = normalized.length === 0 ? 1 : normalized.split('\n').length
-      const isBlock = lineCount > 3 || normalized.length > 200
+      const isBlock = lineCount > 3 || normalized.length > 60
 
       if (isBlock) {
         props.onPasteBlock?.(text)

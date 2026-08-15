@@ -1,10 +1,7 @@
 import { describe, it, expect, mock } from 'bun:test'
 
-// Este import testa o contrato do hook usePasteHandler.
-// O hook não existe ainda — o comportamento de paste está embutido
-// diretamente no InputBox.tsx (função applyInlinePaste + usePaste).
-// O teste vai falhar (RED) porque usePasteHandler como módulo separado
-// com a assinatura UsePasteHandlerResult não existe ainda.
+// Contrato do hook usePasteHandler, usado pelo InputBox para decidir entre
+// paste inline (texto direto) e paste em bloco (placeholder [Text #n]).
 import { usePasteHandler } from '../../../src/ui/input/hooks/usePasteHandler.js'
 
 // ---------------------------------------------------------------------------
@@ -23,15 +20,18 @@ function createHandler(overrides: {
   })
 }
 
-// Texto curto: <= 3 linhas E <= 200 chars
+// Limiar de bloco: > 3 linhas OU > 60 chars
+const MAX_INLINE_CHARS = 60
+
+// Texto curto: <= 3 linhas E <= 60 chars
 const SHORT_TEXT = 'hello world'
 const SHORT_MULTILINE = 'line one\nline two\nline three'  // exactly 3 lines
 
 // Texto longo por número de linhas: > 3 linhas
 const LONG_BY_LINES = 'a\nb\nc\nd'  // 4 linhas
 
-// Texto longo por tamanho: > 200 chars, 1 linha
-const LONG_BY_SIZE = 'x'.repeat(201)
+// Texto longo por tamanho: > 60 chars, 1 linha
+const LONG_BY_SIZE = 'x'.repeat(MAX_INLINE_CHARS + 1)
 
 // ---------------------------------------------------------------------------
 // Suite
@@ -39,7 +39,7 @@ const LONG_BY_SIZE = 'x'.repeat(201)
 
 describe('usePasteHandler', () => {
   describe('inline paste — short text', () => {
-    it('should call onPasteInline when text has 1 line and <= 200 chars', () => {
+    it(`should call onPasteInline when text has 1 line and <= ${MAX_INLINE_CHARS} chars`, () => {
       const onPasteInline = mock(() => {})
       const onPasteBlock = mock(() => {})
       const handler = createHandler({ onPasteInline, onPasteBlock })
@@ -50,7 +50,7 @@ describe('usePasteHandler', () => {
       expect(onPasteBlock).not.toHaveBeenCalled()
     })
 
-    it('should call onPasteInline when text has exactly 3 lines and <= 200 chars', () => {
+    it(`should call onPasteInline when text has exactly 3 lines and <= ${MAX_INLINE_CHARS} chars`, () => {
       const onPasteInline = mock(() => {})
       const onPasteBlock = mock(() => {})
       const handler = createHandler({ onPasteInline, onPasteBlock })
@@ -74,7 +74,7 @@ describe('usePasteHandler', () => {
       expect(onPasteInline).not.toHaveBeenCalled()
     })
 
-    it('should call onPasteBlock when text has > 200 chars (single line)', () => {
+    it(`should call onPasteBlock when text has > ${MAX_INLINE_CHARS} chars (single line)`, () => {
       const onPasteInline = mock(() => {})
       const onPasteBlock = mock(() => {})
       const handler = createHandler({ onPasteInline, onPasteBlock })
@@ -85,7 +85,29 @@ describe('usePasteHandler', () => {
       expect(onPasteInline).not.toHaveBeenCalled()
     })
 
-    it('should call onPasteBlock when text has 4 lines even if total chars <= 200', () => {
+    it(`should keep text of exactly ${MAX_INLINE_CHARS} chars inline`, () => {
+      const onPasteInline = mock(() => {})
+      const onPasteBlock = mock(() => {})
+      const handler = createHandler({ onPasteInline, onPasteBlock })
+
+      handler.handlePaste('x'.repeat(MAX_INLINE_CHARS))
+
+      expect(onPasteInline).toHaveBeenCalled()
+      expect(onPasteBlock).not.toHaveBeenCalled()
+    })
+
+    it(`should switch to block at ${MAX_INLINE_CHARS + 1} chars`, () => {
+      const onPasteInline = mock(() => {})
+      const onPasteBlock = mock(() => {})
+      const handler = createHandler({ onPasteInline, onPasteBlock })
+
+      handler.handlePaste('x'.repeat(MAX_INLINE_CHARS + 1))
+
+      expect(onPasteBlock).toHaveBeenCalled()
+      expect(onPasteInline).not.toHaveBeenCalled()
+    })
+
+    it('should call onPasteBlock when text has 4 lines even if total chars <= 60', () => {
       const onPasteInline = mock(() => {})
       const onPasteBlock = mock(() => {})
       const handler = createHandler({ onPasteInline, onPasteBlock })
