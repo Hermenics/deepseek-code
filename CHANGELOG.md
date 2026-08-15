@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.14
+
+- Added: Gitignore-style `.deepseekignore` enforcement across file access, listings, Grep, Glob, Shell and subagents, with built-in defaults, a non-negotiable `.git`/`.deepseek` safety core, symlink-aware path checks, and explicit blocked-path errors
+- Added: Startup setup prompt for materializing `.deepseekignore` defaults, plus global `files.associations` setup for detected VS Code-compatible editors on Linux, macOS and Windows while preserving existing JSONC settings
+- Added: Live streaming tool-call status with partial argument previews, per-tool loading messages, and race-safe tool card updates
+- Added: Streaming support for Bedrock R1 and Vertex, including the Bedrock AWS event-stream-to-SSE bridge, usage conversion, prompt-based tool-call parsing, and `DEEPSEEK_NO_STREAM=1` fallback to aggregated responses
+- Added: Incremental Bedrock R1 markup filtering so `<think>`, `<tool_call>` and related tags never leak to terminal output while thinking remains available through the reasoning callback
+- Changed: Clipboard paste handling now centralizes the 60-character/three-line boundary and treats `[Text #n]` placeholders as atomic units during deletion
+- Fixed: Grep filtering now preserves colons in filenames, Shell path checks handle quoted paths and command segments, and ignore-file matcher safety rules cannot be negated
+- Tests: Add coverage for streaming bridges and markup filtering, live tool status, atomic paste deletion, `.deepseekignore` matching and cache reloads, colon filenames, quoted shell paths, JSONC settings and cross-platform editor settings paths
+
 ## 0.6.13
 
 - Added: Expanded lifecycle hooks for session start/end, setup, instruction loading, compaction, permission requests, tool failures and batches, task events, notifications, working-directory changes, worktrees, and MCP elicitation
