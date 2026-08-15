@@ -1,26 +1,16 @@
 import { Tool } from '../types.js'
 import fg from 'fast-glob'
+import * as path from 'node:path'
 import { GLOB_MAX_FILES } from '../../constants.js'
-import { assertSafeDir, BLOCKED_GLOB_PATTERNS } from '../shared/pathSafety.js'
+import { assertSafeDir } from '../shared/pathSafety.js'
+import { ignoreDirNames, isPathIgnored } from '../shared/deepseekignore.js'
 
-// ── Glob ignore patterns — separated by category for clarity ──
-
-/** Heavy directories not already covered by BLOCKED_GLOB_PATTERNS */
-const GLOB_IGNORE_DIRS: string[] = [
-  '**/target/**',
-  '**/out/**',
-  '**/.cache/**',
-  '**/__pycache__/**',
-  '**/.ipynb_checkpoints/**',
-  '**/.vscode/**',
-  '**/.idea/**',
-  '**/.next/**',
-  '**/.nuxt/**',
-  '**/.svelte-kit/**',
-]
+// Directory ignores come from .deepseekignore (or its defaults). What stays
+// here is search-tuning only: files that clutter results but remain readable
+// by ReadFile — putting these in .deepseekignore would block access entirely.
 
 /** Lockfiles, binaries, media, and other non-source files */
-const GLOB_IGNORE_FILES: string[] = [
+export const GLOB_IGNORE_FILES: string[] = [
   '**/*.map',
   '**/*.min.*',
   '**/package-lock.json',
@@ -36,15 +26,6 @@ const GLOB_IGNORE_FILES: string[] = [
   '**/.DS_Store',
 ]
 
-/** All glob ignore patterns, deduplicated via Set */
-export const GLOB_IGNORE_PATTERNS: string[] = [
-  ...new Set([
-    ...BLOCKED_GLOB_PATTERNS,
-    ...GLOB_IGNORE_DIRS,
-    ...GLOB_IGNORE_FILES,
-  ]),
-]
-
 export const Glob: Tool = {
   name: 'glob',
   description: 'Find files matching a glob pattern.',
@@ -58,12 +39,16 @@ export const Glob: Tool = {
   },
   async execute(args, context) {
     const cwd = await assertSafeDir((args.cwd as string) || '.', context)
+    const workspaceRoot = path.resolve(context?.workspacePath ?? process.cwd())
 
-    const files = await fg(args.pattern as string, {
+    // Fast path: simple dir names from .deepseekignore as glob excludes;
+    // the post-filter below covers complex patterns.
+    const dirIgnores = ignoreDirNames(workspaceRoot).map((d) => `**/${d}/**`)
+    const files = (await fg(args.pattern as string, {
       cwd,
-      ignore: GLOB_IGNORE_PATTERNS,
+      ignore: [...dirIgnores, ...GLOB_IGNORE_FILES],
       dot: true,
-    })
+    })).filter((f) => !isPathIgnored(path.resolve(cwd, f), workspaceRoot))
     if (!files.length) return 'No matches'
     const truncated = files.length > GLOB_MAX_FILES
     const result = files.slice(0, GLOB_MAX_FILES).join('\n')

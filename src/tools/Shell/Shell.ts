@@ -1,8 +1,77 @@
-import { dirname } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { homedir } from 'node:os'
+import { existsSync } from 'node:fs'
 import { execa } from 'execa'
 import type { Tool } from '../types.js'
 import { SHELL_OUTPUT_MAX_CHARS, SHELL_TIMEOUT_MS } from '../../constants.js'
+import { isPathIgnored, IGNORE_FILE_NAME } from '../shared/deepseekignore.js'
+
+function tokenizeShellSegments(command: string): string[][] {
+  const segments: string[][] = [[]]
+  let token = ''
+  let quote: '\'' | '"' | null = null
+  let escaped = false
+
+  const flush = () => {
+    if (token) segments[segments.length - 1]!.push(token)
+    token = ''
+  }
+
+  for (let i = 0; i < command.length; i++) {
+    const char = command[i]!
+    if (escaped) {
+      token += char
+      escaped = false
+      continue
+    }
+    if (quote === '\'') {
+      if (char === '\'') quote = null
+      else token += char
+      continue
+    }
+    if (quote === '"') {
+      if (char === '"') quote = null
+      else if (char === '\\') escaped = true
+      else token += char
+      continue
+    }
+    if (char === '\\') { escaped = true; continue }
+    if (char === '\'' || char === '"') { quote = char; continue }
+    if (/\s/.test(char)) { flush(); continue }
+    if (char === '<' || char === '>') {
+      flush()
+      if (command[i + 1] === char) i++
+      continue
+    }
+    if (char === ';' || char === '|' || char === '&' || char === '\n') {
+      flush()
+      if (segments[segments.length - 1]!.length > 0) segments.push([])
+      if ((char === '|' || char === '&') && command[i + 1] === char) i++
+      continue
+    }
+    token += char
+  }
+  flush()
+  return segments.filter(segment => segment.length > 0)
+}
+
+/**
+ * Best-effort .deepseekignore guard for shell commands. A shell can't be
+ * fully policed, but the common case — the model naming an ignored path as
+ * an argument — is caught here. Only tokens that resolve to an existing
+ * path count, which keeps regex patterns and URLs from false-positiving.
+ * ponytail: token heuristic; pipes/subshells building paths dynamically slip through.
+ */
+export function findIgnoredShellPath(command: string, cwd: string): string | null {
+  for (const segment of tokenizeShellSegments(command)) {
+    for (const token of segment.slice(1)) {
+      if (!token || token.startsWith('-')) continue
+      const resolved = resolve(cwd, token)
+      if (existsSync(resolved) && isPathIgnored(resolved, cwd)) return token
+    }
+  }
+  return null
+}
 
 const DESTRUCTIVE_PATTERNS = [
   /\brm\s+(-[a-z]*f[a-z]*|-[a-z]*r[a-z]*f[a-z]*|--force|--recursive)\b/i,
@@ -67,8 +136,15 @@ export const Shell: Tool = {
       if (!context && (!legacyConfirmHandler || !await legacyConfirmHandler(warning))) return 'Command cancelled by user.'
     }
 
+    const workspaceCwd = context?.workspacePath ?? process.cwd()
+    const ignoredPath = findIgnoredShellPath(command, workspaceCwd)
+    if (ignoredPath) {
+      return `Command blocked — '${ignoredPath}' is excluded by ${IGNORE_FILE_NAME} (or DeepSeek Code's defaults when the file is absent). ` +
+        `This is intentional and user-controlled. If access is genuinely needed, ask the user to edit ${IGNORE_FILE_NAME} at the project root.`
+    }
+
     try {
-      const cwd = context?.workspacePath ?? process.cwd()
+      const cwd = workspaceCwd
       const result = context && context.permissionProfile !== 'coordinator-integrator'
         ? await runSandboxed(command, cwd, timeout, context.permissionProfile === 'tester', context.signal)
         : await execa(command, { shell: true, cwd, timeout, cancelSignal: context?.signal })

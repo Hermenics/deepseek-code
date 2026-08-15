@@ -4,8 +4,14 @@ import { randomUUID } from 'node:crypto'
 import type { ToolExecutionContext } from '../../orchestration/types.js'
 import { acquireFileLease } from '../../orchestration/fileLease.js'
 import { parseWorkflowSource } from '../../workflows/parser.js'
+import { isPathIgnored, ignoredPathError } from './deepseekignore.js'
 
-export const BLOCKED_DIRS = ['.agent', '.claude', '.kiro', '.github', '.deepseek', 'node_modules', 'dist', 'build', '.git']
+/**
+ * Non-negotiable safety core: always blocked even if .deepseekignore says
+ * otherwise. Everything else that used to live here (node_modules, dist,
+ * .claude, …) migrated to .deepseekignore — see deepseekignore.ts.
+ */
+export const BLOCKED_DIRS = ['.deepseek', '.git']
 
 const SENSITIVE_FILE_PATTERNS: RegExp[] = [
   /^\.env(\..+)?$/i, /.*\.pem$/i, /.*\.key$/i, /.*\.p12$/i, /.*\.pfx$/i,
@@ -106,6 +112,14 @@ export async function resolveSafePath(filePath: string, context?: ToolExecutionC
   const workspaceTopDir = workspaceRelative.split(path.sep)[0]
   if (workspacePath && workspaceTopDir && BLOCKED_DIRS.includes(workspaceTopDir) && !workflowFile) throw new Error(`Directory '${workspaceTopDir}/' is off-limits`)
   if (isSensitiveWorkspacePath(relative)) throw new Error(`File '${path.basename(filePath)}' is sensitive and cannot be accessed by an agent`)
+  // .deepseekignore (or built-in defaults when absent) — checked on the
+  // requested path AND its canonical form so symlinks can't dodge it
+  if (workspacePath && !workflowFile) {
+    if (isPathIgnored(target, workspaceRoot)) throw ignoredPathError(filePath, workspaceRoot)
+    if (allowedRoot.root === workspaceRoot && isPathIgnored(path.resolve(workspaceRoot, canonicalRelative), workspaceRoot)) {
+      throw ignoredPathError(filePath, workspaceRoot)
+    }
+  }
   return target
 }
 

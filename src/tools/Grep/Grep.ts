@@ -1,37 +1,9 @@
 import { Tool } from '../types.js'
 import { execa } from 'execa'
+import * as path from 'node:path'
 import { GREP_MAX_LINES } from '../../constants.js'
-import { assertSafeDir, BLOCKED_DIRS } from '../shared/pathSafety.js'
-
-/** Directories to exclude from grep searches (BLOCKED_DIRS + common heavy dirs) */
-const GREP_EXCLUDE_DIRS = [...new Set([
-  ...BLOCKED_DIRS,
-  'coverage',
-  '.next',
-  '.nuxt',
-  '.svelte-kit',
-  '.angular',
-  '.cache',
-  '.turbo',
-  '.parcel-cache',
-  '.yarn',
-  '.pnpm-store',
-  'bower_components',
-  '.eslintcache',
-  '.venv',
-  'venv',
-  '__pycache__',
-  '.mypy_cache',
-  '.pytest_cache',
-  'out',
-  'tmp',
-  '.tmp',
-  'logs',
-  'vendor',
-  '.vscode',
-  '.idea',
-  '.DS_Store',
-])]
+import { assertSafeDir } from '../shared/pathSafety.js'
+import { ignoreDirNames, isPathIgnored } from '../shared/deepseekignore.js'
 
 export const Grep: Tool = {
   name: 'grep',
@@ -49,17 +21,27 @@ export const Grep: Tool = {
     const dir = await assertSafeDir((args.path as string) || '.', context)
     const pattern = args.pattern as string
     const include = args.include as string | undefined
+    const workspaceRoot = path.resolve(context?.workspacePath ?? process.cwd())
 
-    const grepArgs = ['-rn']
+    const grepArgs = ['-rnzZ']
     if (include) grepArgs.push(`--include=${include}`)
 
-    for (const d of GREP_EXCLUDE_DIRS) grepArgs.push(`--exclude-dir=${d}`)
+    // Fast path: plain directory names from .deepseekignore (or defaults)
+    // become --exclude-dir. Complex patterns are handled by the post-filter.
+    for (const d of [...ignoreDirNames(workspaceRoot), '.DS_Store']) grepArgs.push(`--exclude-dir=${d}`)
 
     grepArgs.push('--', pattern, dir)
 
     try {
       const { stdout } = await execa('grep', grepArgs, { timeout: 15000, cancelSignal: context?.signal })
-      const lines = stdout.split('\n').filter(Boolean)
+      const lines = stdout.split('\0').flatMap((part, index, parts) => {
+        if (index % 2 !== 1) return []
+        const file = parts[index - 1]!
+        return part.split('\n').filter(Boolean)
+          // Post-filter: drop matches in files .deepseekignore excludes.
+          .filter(() => !isPathIgnored(path.resolve(file), workspaceRoot))
+          .map((match) => `${file}:${match}`)
+      })
       const truncated = lines.length > GREP_MAX_LINES
       const result = lines.slice(0, GREP_MAX_LINES).join('\n')
       return truncated

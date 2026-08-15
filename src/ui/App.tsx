@@ -9,6 +9,7 @@ import { DiffDialog, type DiffLine } from './messages/DiffDialog.js'
 import { TodoPanel } from './messages/TodoPanel.js'
 import { ToolUseDisplay } from './messages/ToolUseDisplay.js'
 import { previewStreamingArgs } from './messages/toolDisplay.js'
+import { ignoreFileStatus, writeIgnoreDefaults, hasEditorAssociation, writeEditorAssociation, shouldOfferEditorAssociation, getEditorSettingsPath, IGNORE_FILE_NAME } from '../tools/shared/deepseekignore.js'
 import { useSubagents } from './subagent/index.js'
 import { useWorkflowRuns } from './workflows/WorkflowList.js'
 import { WorkflowMonitor } from './workflows/WorkflowMonitor.js'
@@ -340,6 +341,61 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     })
     return () => agent.setConfirmHandler(null)
   }, [agent, interactionMode])
+
+  // One-time setup offer: materialize the built-in ignore defaults into the
+  // project's .deepseekignore so the user can see and edit them. Editor
+  // association is a second, separate ask — writing to global editor settings
+  // touches the user's editor config, so it never rides on the first yes.
+  useEffect(() => {
+    let cancelled = false
+    const note = (content: string) => setMessages((m) => [...m, { role: 'assistant', content }])
+
+    const offerEditorAssociation = (root: string) => {
+      const settingsPath = getEditorSettingsPath()
+      if (cancelled || !settingsPath || !shouldOfferEditorAssociation(root) || hasEditorAssociation(root)) return
+      setConfirmState({
+        message: `Also map ${IGNORE_FILE_NAME} to the "ignore" language in your global editor settings (${settingsPath})? It gives the file your theme's ignore-file icon and syntax highlighting.`,
+        resolve: (yes) => {
+          if (cancelled || !yes) return
+          try {
+            writeEditorAssociation(root)
+            note(`✓ Added files.associations for ${IGNORE_FILE_NAME} in global editor settings.`)
+          } catch (e) {
+            note(`⚠ Could not update global editor settings: ${e instanceof Error ? e.message : String(e)}`)
+          }
+        },
+      })
+    }
+
+    try {
+      const root = agent.getWorkingDirectory()
+      const status = ignoreFileStatus(root)
+      if (status.missingDefaults.length === 0) {
+        offerEditorAssociation(root)
+        return
+      }
+      const verb = status.exists ? 'update' : 'create'
+      setConfirmState({
+        message: `${verb === 'create' ? 'Create' : 'Update'} ${IGNORE_FILE_NAME} with DeepSeek Code's default ignore list (${status.missingDefaults.length} entries: node_modules, dist, caches…)? Until then, the defaults apply in memory.`,
+        resolve: (yes) => {
+          if (cancelled) return
+          if (yes) {
+            try {
+              writeIgnoreDefaults(root)
+              note(`✓ ${IGNORE_FILE_NAME} ${verb}d with the default ignore entries.`)
+            } catch (e) {
+              note(`⚠ Could not write ${IGNORE_FILE_NAME}: ${e instanceof Error ? e.message : String(e)}`)
+              return
+            }
+          }
+          // Queue after the current prompt clears, so both don't render at once
+          setTimeout(() => offerEditorAssociation(root), 0)
+        },
+      })
+    } catch { /* never block startup over the setup offer */ }
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   useEffect(() => {
     agent.setToolPermissionHandler((request) => {
