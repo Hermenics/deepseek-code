@@ -1,5 +1,17 @@
 [
   {
+    "version": "0.6.15",
+    "changes": [
+      "Added: Interactive `ask_user_questions` tool for agent-user dialogue, supporting choice, free-form text, yes/no questions, numeric selection shortcuts, and up to four questions per interaction",
+      "Added: Multi-select answers serialized as JSON array strings so labels containing commas retain unambiguous boundaries while preserving the string-only answer contract",
+      "Enhanced: Tool-call previews now show human-readable arguments for every tool instead of raw JSON, including concise AskUser question summaries and useful path, command, pattern, or scalar previews",
+      "Enhanced: Completed structured tool results are summarized as paths, field/item counts, cancellation states, or concise errors instead of leaking JSON into the TUI",
+      "Fixed: AskUser runtime validation now rejects empty or oversized question lists, and yes/no prompts no longer expose an unsupported `Other` option",
+      "Fixed: Long AskUser previews truncate only the question text while preserving the complete question-count suffix",
+      "Tests: Add coverage for numeric question selection, multi-select JSON serialization, runtime question-list limits, raw-JSON-free tool previews, structured result summaries, and long-question suffix preservation"
+    ]
+  },
+  {
     "version": "0.6.14",
     "changes": [
       "Added: Gitignore-style `.deepseekignore` enforcement across file access, listings, Grep, Glob, Shell and subagents, with built-in defaults, a non-negotiable `.git`/`.deepseek` safety core, symlink-aware path checks, and explicit blocked-path errors",
