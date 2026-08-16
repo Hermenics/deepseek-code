@@ -16,3 +16,4 @@ CLAUDE.md
 .claude/settings.local.json
 AGENTS.md
 .agents/
+.vscode/
