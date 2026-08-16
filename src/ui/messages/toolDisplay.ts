@@ -13,6 +13,82 @@ export const TOOL_DISPLAY: Record<string, string> = {
   introspect:       'Introspect',
   update_knowledge: 'UpdateKnowledge',
   todo:             'TodoWrite',
+  ask_user_questions: 'AskUser',
+}
+
+const TOOL_PREVIEW_MAX_CHARS = 60
+
+function truncatePreview(value: string, max = TOOL_PREVIEW_MAX_CHARS): string {
+  if (value.length <= max) return value
+  if (max <= 1) return '…'.slice(0, max)
+  return value.slice(0, max - 1) + '…'
+}
+
+function summarizeAskUserQuestions(questions: unknown[]): string {
+  const firstQuestion = questions.find((item): item is Record<string, unknown> => (
+    !!item && typeof item === 'object' && typeof (item as Record<string, unknown>).question === 'string'
+  ))
+  const question = typeof firstQuestion?.question === 'string' ? firstQuestion.question : ''
+  if (!question) return `${questions.length} question${questions.length === 1 ? '' : 's'}`
+  const suffix = questions.length > 1 ? ` · ${questions.length} questions` : ''
+  const questionBudget = Math.max(0, TOOL_PREVIEW_MAX_CHARS - suffix.length)
+  return truncatePreview(question, questionBudget) + suffix
+}
+
+/** Converts AskUserQuestions payloads into a short human-readable TUI summary. */
+export function summarizeAskUserPayload(payload: string): string {
+  try {
+    const parsed: unknown = JSON.parse(payload)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return truncatePreview(payload)
+    const record = parsed as Record<string, unknown>
+    if (Array.isArray(record.questions)) return summarizeAskUserQuestions(record.questions)
+    if (record.cancelled === true) return 'cancelled'
+    if (record.answers && typeof record.answers === 'object' && !Array.isArray(record.answers)) {
+      const count = Object.keys(record.answers).length
+      return `${count} answer${count === 1 ? '' : 's'}`
+    }
+  } catch {
+    // Keep non-JSON errors readable below.
+  }
+  return truncatePreview(payload)
+}
+
+/** Keeps structured tool results compact without exposing raw JSON in the TUI. */
+export function summarizeStructuredPayload(payload: string): string {
+  try {
+    const parsed = JSON.parse(payload) as unknown
+    if (Array.isArray(parsed)) return `${parsed.length} item${parsed.length === 1 ? '' : 's'}`
+    if (parsed && typeof parsed === 'object') {
+      const record = parsed as Record<string, unknown>
+      if (typeof record.error === 'string') return truncatePreview(`Error: ${record.error}`)
+      if (typeof record.path === 'string') return truncatePreview(record.path)
+      const fieldCount = Object.keys(record).length
+      return `${fieldCount} field${fieldCount === 1 ? '' : 's'}`
+    }
+  } catch {
+    // Plain-text tool output remains readable below.
+  }
+  return truncatePreview(payload)
+}
+
+export function summarizeToolPayload(toolName: string, payload: string): string {
+  return toolName === 'ask_user_questions' ? summarizeAskUserPayload(payload) : summarizeStructuredPayload(payload)
+}
+
+/** Builds the active tool preview without leaking AskUserQuestions JSON. */
+export function previewToolCallArgs(toolName: string, args: Record<string, unknown>): string {
+  if (toolName === 'ask_user_questions') return summarizeAskUserPayload(JSON.stringify(args))
+  const serialized = JSON.stringify(args)
+  const fieldPreview = previewStreamingArgs(serialized)
+  if (fieldPreview) return fieldPreview
+  const stringValue = Object.values(args).find((value): value is string => typeof value === 'string' && value.trim().length > 0)
+  if (stringValue) return truncatePreview(stringValue)
+  const argumentCount = Object.keys(args).length
+  return argumentCount > 0 ? `${argumentCount} argument${argumentCount === 1 ? '' : 's'}` : ''
+}
+
+export function summarizeToolResult(toolName: string, result: string): string {
+  return summarizeToolPayload(toolName, result)
 }
 
 /**

@@ -47,6 +47,21 @@ describe('formatToolLine', () => {
     const full = formatToolLine('my_tool', rawDetail, true)
     expect(full.arg).toBe(rawDetail)
   })
+
+  it('summarizes AskUserQuestions arguments instead of rendering JSON', () => {
+    const result = formatToolLine('ask_user_questions', JSON.stringify({
+      questions: [{ question: 'O que você quer atacar hoje no DeepSeek Code?' }],
+    }))
+    expect(result.display).toBe('AskUser')
+    expect(result.arg).toBe('O que você quer atacar hoje no DeepSeek Code?')
+    expect(result.arg).not.toContain('{')
+  })
+
+  it('summarizes structured tool results instead of rendering JSON', () => {
+    const result = formatToolLine('get_goal', JSON.stringify({ status: 'active', objective: 'Fix the TUI' }))
+    expect(result.arg).toBe('2 fields')
+    expect(result.arg).not.toContain('{')
+  })
 })
 
 class FakeTerminal extends PassThrough {

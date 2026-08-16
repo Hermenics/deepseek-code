@@ -3,7 +3,7 @@ import type { Message } from '../App.js'
 import { DiffView } from './DiffView.js'
 import { DiffFileList, type DiffFileSummary } from './DiffFileList.js'
 import type { DiffLine } from './DiffDialog.js'
-import { TOOL_DISPLAY, TOOL_STYLE } from './toolDisplay.js'
+import { summarizeAskUserPayload, summarizeToolPayload, TOOL_DISPLAY, TOOL_STYLE } from './toolDisplay.js'
 import { MarkdownText } from './MarkdownText.js'
 import { DIVIDER_CHAR, getThemeColors, STATUS_ICONS } from '../theme.js'
 import type { ThemeName } from '../theme.js'
@@ -14,6 +14,9 @@ import { useClock } from '../clock.js'
 
 export function formatToolLine(rawName: string, detail: string, full = false): { display: string; arg: string; output: string } {
   const display = TOOL_DISPLAY[rawName] ?? rawName
+  if (rawName === 'ask_user_questions') {
+    return { display, arg: summarizeAskUserPayload(detail), output: '' }
+  }
   let arg = ''
   let output = ''
   const truncate = (value: string) => (!full && value.length > 60) ? value.slice(0, 60) + '...' : value
@@ -22,6 +25,8 @@ export function formatToolLine(rawName: string, detail: string, full = false): {
     if (parsed && typeof parsed === 'object' && 'arg' in parsed) {
       arg = truncate(String(parsed.arg ?? ''))
       output = String(parsed.output ?? '')
+    } else if (parsed && typeof parsed === 'object') {
+      arg = summarizeToolPayload(rawName, detail)
     } else {
       arg = truncate(detail)
     }
