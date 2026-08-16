@@ -23,7 +23,8 @@ import { GetGoal } from './GetGoal/GetGoal.js'
 import { CreateGoal } from './CreateGoal/CreateGoal.js'
 import { UpdateGoal } from './UpdateGoal/UpdateGoal.js'
 import { Workflow } from './Workflow/Workflow.js'
+import { AskUserQuestions } from './AskUserQuestions/AskUserQuestions.js'
 
-export const allTools: Tool[] = [WriteFile, EditFile, PatchFile, ReadFile, ReadFolder, Grep, Glob, Lsp, Shell, Introspect, WebFetch, SubAgent, AskAgent, Workflow, UpdateKnowledge, Todo, Git, MemoryTool, MoATool, SubmitPlan, WritePlan, GetGoal, CreateGoal, UpdateGoal]
+export const allTools: Tool[] = [WriteFile, EditFile, PatchFile, ReadFile, ReadFolder, Grep, Glob, Lsp, Shell, Introspect, WebFetch, SubAgent, AskAgent, Workflow, UpdateKnowledge, Todo, Git, MemoryTool, MoATool, SubmitPlan, WritePlan, GetGoal, CreateGoal, UpdateGoal, AskUserQuestions]
 
 export const toolMap = new Map<string, Tool>(allTools.map((t) => [t.name, t]))

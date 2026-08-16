@@ -113,7 +113,7 @@ Skills package task-specific instructions and assets; plugins can contribute ski
 Use \`/catalog [mcp|plugin|skill]\` (or \`/marketplace\`) for curated recommendations. \`/features\` (or \`/experimental\`) lists the current experimental flags; name a flag to toggle it or pass \`on\`/\`off\` explicitly. The current built-in flags are word-level diffs, micro-compaction of short tool results, and fuzzy file search.
 
 ## Available Tools
-DeepSeek Code registers 24 native tools. Tool schemas are the authority for parameters and result formats; the descriptions below explain their intended operating role.
+DeepSeek Code registers 25 native tools. Tool schemas are the authority for parameters and result formats; the descriptions below explain their intended operating role.
 
 ### Locate and inspect
 
@@ -146,6 +146,7 @@ DeepSeek Code registers 24 native tools. Tool schemas are the authority for para
 
 - \`subagent\` — Start a bounded specialist task. Foreground mode waits for a typed result; background mode returns a controllable task handle. It accepts a focused task, role or configured agent, context mode, dependencies, timeout, and optional verification.
 - \`ask_agent\` — Ask configured specialists a non-blocking question and receive cancellable task handles immediately. Use it for independent advice that does not block the next safe action.
+- \`ask_user_questions\` — Ask the user one to four focused questions with choice, text, or yes/no answers. Use it when an implementation decision cannot be safely inferred.
 - \`workflow\` — Execute a bounded Dynamic Workflow JavaScript program. It supports metadata, \`agent\`, \`parallel\`, \`pipeline\`, approved child workflows, logs, phases, budgets, top-level await, and a top-level return. A workflow has a 17-agent ceiling; writers use Git worktree isolation.
 - \`moa\` — Run a bounded multi-model consultation and synthesis. Use it for consequential design, diagnosis, or review questions; model agreement is advice, not authority over source or runtime evidence.
 
@@ -157,10 +158,10 @@ DeepSeek Code registers 24 native tools. Tool schemas are the authority for para
 ### Tool Permissions by Mode
 | Mode | Permitted native tools |
 | --- | --- |
-| Review | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\` |
-| Plan | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`write_plan\`, \`submit_plan\` |
-| Build | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`shell\`, \`write_file\`, \`edit_file\`, \`patch_file\`, \`update_knowledge\`, \`subagent\`, \`ask_agent\`, \`moa\`, \`update_goal\` |
-| Auto | All 24 native tools and dynamically discovered MCP tools |
+| Review | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`ask_user_questions\` |
+| Plan | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`ask_user_questions\`, \`write_plan\`, \`submit_plan\` |
+| Build | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`ask_user_questions\`, \`shell\`, \`write_file\`, \`edit_file\`, \`patch_file\`, \`update_knowledge\`, \`subagent\`, \`ask_agent\`, \`moa\`, \`update_goal\` |
+| Auto | All 25 native tools and dynamically discovered MCP tools |
 
 In Review and Plan, \`git\` is limited to status/diff/log, and \`todo\` and \`memory\` are limited to list. Plan may write only through \`write_plan\`; after \`submit_plan\`, it waits for the user's decision. MCP tools follow the shell rule: Build and Auto only.
 

@@ -18,6 +18,7 @@ import type {
   TaskRunnerResolver,
   ToolExecutionContext,
 } from './types.js'
+import type { AskUserHandler } from '../tools/AskUserQuestions/types.js'
 
 export interface OrchestratorCallbacks {
   onStart?(id: string, task: string, agentName?: string): void
@@ -196,7 +197,7 @@ export class OrchestratorSession {
     return cleaned
   }
 
-  toolContext(input: { taskId?: string; workspacePath?: string; workspaceIsolation?: ToolExecutionContext['workspaceIsolation']; signal?: AbortSignal; permissionProfile?: PermissionProfile; allowedTools?: string[] | '*'; maxTokens?: number; maxCostUsd?: number; dangerousOperationApproved?: boolean; approvedExternalPaths?: string[]; workflowManager?: ToolExecutionContext['workflowManager']; interactionMode?: ToolExecutionContext['interactionMode'] } = {}): ToolExecutionContext {
+  toolContext(input: { taskId?: string; workspacePath?: string; workspaceIsolation?: ToolExecutionContext['workspaceIsolation']; signal?: AbortSignal; permissionProfile?: PermissionProfile; allowedTools?: string[] | '*'; maxTokens?: number; maxCostUsd?: number; dangerousOperationApproved?: boolean; approvedExternalPaths?: string[]; workflowManager?: ToolExecutionContext['workflowManager']; interactionMode?: ToolExecutionContext['interactionMode']; askUser?: AskUserHandler } = {}): ToolExecutionContext {
     return {
       sessionId: this.sessionId,
       taskId: input.taskId,
@@ -213,6 +214,7 @@ export class OrchestratorSession {
       approvedExternalPaths: input.approvedExternalPaths,
       workflowManager: input.workflowManager,
       interactionMode: input.interactionMode,
+      askUser: input.askUser,
       session: this,
       emit: (type, payload) => this.events.emit(type, payload, input.taskId),
     }

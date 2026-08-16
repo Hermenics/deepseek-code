@@ -57,7 +57,7 @@ describe('Tool Registry', () => {
 describe('Tool Interface Contract', () => {
   const expectedTools = [
     'write_file', 'patch_file', 'read_file', 'read_folder',
-    'grep', 'glob', 'shell', 'introspect', 'web_fetch',
+    'grep', 'glob', 'shell', 'introspect', 'web_fetch', 'ask_user_questions',
     'subagent', 'update_knowledge', 'todo', 'git'
   ]
 

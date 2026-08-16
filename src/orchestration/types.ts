@@ -1,4 +1,5 @@
 import type { ProviderConfig } from '../types/provider.js'
+import type { AskUserHandler } from '../tools/AskUserQuestions/types.js'
 
 export const TASK_STATES = ['queued', 'running', 'blocked', 'done', 'failed', 'cancelled', 'timed_out'] as const
 export type TaskState = typeof TASK_STATES[number]
@@ -223,6 +224,7 @@ export interface ToolExecutionContext {
   session?: import('./OrchestratorSession.js').OrchestratorSession
   workflowManager?: import('../workflows/manager.js').WorkflowManager
   interactionMode?: import('../ui/interactionMode.js').InteractionMode
+  askUser?: AskUserHandler
   emit?(type: TaskEventType, payload: Record<string, unknown>): void
 }
 

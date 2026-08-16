@@ -41,6 +41,8 @@ import { ThemeProvider } from './design-system/index.js'
 import { PlanApprovalPrompt, type PlanApprovalResult } from './plan/PlanApprovalPrompt.js'
 import { newPlanPath, buildPlanModeInjection } from '../agent/planMode.js'
 import { readSavedWorkflow, refreshWorkflowCommands, resolveWorkflowCommand } from '../workflows/commands.js'
+import { AskUserQuestionsPrompt } from './questions/AskUserQuestions.js'
+import type { AskUserAnswers, AskUserQuestion } from '../tools/AskUserQuestions/types.js'
 
 export type AgentPhase = 'idle' | 'refining' | 'executing'
 
@@ -84,6 +86,11 @@ interface ConfirmState {
 interface ToolPermissionState {
   request: ToolPermissionRequest
   resolve: (result: ToolPermissionResult) => void
+}
+
+interface AskUserState {
+  questions: AskUserQuestion[]
+  resolve: (answers: AskUserAnswers | null) => void
 }
 
 interface PlanApprovalState {
@@ -154,6 +161,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [showEffortSelector, setShowEffortSelector] = useState(false)
   const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
   const [toolPermissionState, setToolPermissionState] = useState<ToolPermissionState | null>(null)
+  const [askUserState, setAskUserState] = useState<AskUserState | null>(null)
   const [planApprovalState, setPlanApprovalState] = useState<PlanApprovalState | null>(null)
   const [vimEnabled, setVimEnabled] = useState(initialSettings?.interface?.vim ?? false)
   const [interfaceSettings, setInterfaceSettings] = useState<InterfaceSettings>(initialSettings?.interface ?? {})
@@ -165,6 +173,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [focusedSubagent, setFocusedSubagent] = useState<{ id: string; agentName: string | null } | null>(null)
   const [fullMode, setFullMode] = useState(false)
   const thinkingStartedAtRef = useRef<number | null>(null)
+  const askUserResolverRef = useRef<((answers: AskUserAnswers | null) => void) | null>(null)
 
   const showCompactBadge = useCallback((type: 'micro' | 'full') => {
     if (compactBadgeTimerRef.current) clearTimeout(compactBadgeTimerRef.current)
@@ -404,6 +413,31 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       })
     })
     return () => agent.setToolPermissionHandler(null)
+  }, [agent])
+
+  useEffect(() => {
+    agent.setAskUserHandler((questions, signal) => new Promise<AskUserAnswers | null>((resolve) => {
+      askUserResolverRef.current?.(null)
+      let settled = false
+      const finish = (answers: AskUserAnswers | null) => {
+        if (settled) return
+        settled = true
+        signal?.removeEventListener('abort', onAbort)
+        if (askUserResolverRef.current === finish) askUserResolverRef.current = null
+        setAskUserState(null)
+        resolve(answers)
+      }
+      const onAbort = () => finish(null)
+      askUserResolverRef.current = finish
+      if (signal?.aborted) { finish(null); return }
+      signal?.addEventListener('abort', onAbort, { once: true })
+      setAskUserState({ questions, resolve: finish })
+    }))
+    return () => {
+      agent.setAskUserHandler(null)
+      askUserResolverRef.current?.(null)
+      askUserResolverRef.current = null
+    }
   }, [agent])
 
   useEffect(() => {
@@ -1985,6 +2019,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             }}
             onCancel={() => setShowEffortSelector(false)}
           />
+        ) : askUserState ? (
+          <AskUserQuestionsPrompt
+            questions={askUserState.questions}
+            onSubmit={(answers) => askUserState.resolve(answers)}
+            onCancel={() => askUserState.resolve(null)}
+          />
         ) : toolPermissionState ? (
           <ToolPermissionPrompt
             request={toolPermissionState.request}
@@ -2028,7 +2068,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           />
         )}
         <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} theme={theme} items={interfaceSettings.statusBar} narrowPriority={interfaceSettings.narrowPriority} compactBadge={compactBadge} activityCount={activityCount} />
-        {!btw && !showModelSelector && !showEffortSelector && !toolPermissionState && !planApprovalState && !confirmState && (
+        {!btw && !showModelSelector && !showEffortSelector && !askUserState && !toolPermissionState && !planApprovalState && !confirmState && (
           <ActivityFooter
             agents={subagentsRef.current.agents}
             workflows={workflowRuns}
