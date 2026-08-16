@@ -59,6 +59,7 @@ import { isSafeMemoryEntry, normalizeMemoryEntry } from './memory.js'
 import { WorkflowManager, type StartWorkflowInput, type WorkflowHandle } from '../workflows/manager.js'
 import { WorkflowApprovalStore, hashWorkflowValue } from '../workflows/storage.js'
 import { loadSkillPrompt } from '../skills/native.js'
+import type { AskUserHandler } from '../tools/AskUserQuestions/types.js'
 
 /** Workaround: OpenAI SDK has not typed reasoning_content yet (exclusive field of deepseek-reasoner) */
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & { reasoning_content?: string }
@@ -357,6 +358,7 @@ export class Agent {
 
   public planFilePath: string | null = null
   private planSubmitHandler: ((planPath: string, summary?: string) => Promise<string>) | null = null
+  private askUserHandler: AskUserHandler | null = null
 
   setConfirmHandler(handler: ((message: string) => Promise<boolean>) | null) {
     this.confirmHandler = handler
@@ -381,6 +383,10 @@ export class Agent {
 
   setToolPermissionHandler(handler: ToolPermissionHandler | null) {
     this.toolPermissionHandler = handler
+  }
+
+  setAskUserHandler(handler: AskUserHandler | null): void {
+    this.askUserHandler = handler
   }
 
   private async permissionHookDecision(toolName: string, args: Record<string, unknown>): Promise<{ decision: 'pass' | 'block'; approved?: boolean; reason?: string }> {
@@ -2185,7 +2191,7 @@ export class Agent {
     try {
       return await tool.execute(args, this.orchestrator.toolContext({
         workspacePath: this.workspacePath, signal: this.abortController?.signal, dangerousOperationApproved, approvedExternalPaths,
-        workflowManager: this.workflows, interactionMode: this.interactionMode,
+        workflowManager: this.workflows, interactionMode: this.interactionMode, askUser: this.askUserHandler ?? undefined,
       }))
     } catch (e: unknown) {
       return `Error: ${(e as Error).message}`

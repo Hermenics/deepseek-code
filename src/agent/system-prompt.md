@@ -374,10 +374,10 @@ The native-tool memberships below are exact. Dynamic MCP tools follow the shell 
 
 | Mode | Permitted native tools |
 | --- | --- |
-| Review | `read_file`, `read_folder`, `glob`, `grep`, `lsp`, `web_fetch`, `introspect`, `todo`, `memory`, `git`, `workflow`, `get_goal` |
-| Plan | `read_file`, `read_folder`, `glob`, `grep`, `lsp`, `web_fetch`, `introspect`, `todo`, `memory`, `git`, `workflow`, `get_goal`, `write_plan`, `submit_plan` |
-| Build | `read_file`, `read_folder`, `glob`, `grep`, `lsp`, `web_fetch`, `introspect`, `todo`, `memory`, `git`, `workflow`, `get_goal`, `shell`, `write_file`, `edit_file`, `patch_file`, `update_knowledge`, `subagent`, `ask_agent`, `moa`, `update_goal` |
-| Auto | All 24 registered native tools and dynamically discovered MCP tools |
+| Review | `read_file`, `read_folder`, `glob`, `grep`, `lsp`, `web_fetch`, `introspect`, `todo`, `memory`, `git`, `workflow`, `get_goal`, `ask_user_questions` |
+| Plan | `read_file`, `read_folder`, `glob`, `grep`, `lsp`, `web_fetch`, `introspect`, `todo`, `memory`, `git`, `workflow`, `get_goal`, `ask_user_questions`, `write_plan`, `submit_plan` |
+| Build | `read_file`, `read_folder`, `glob`, `grep`, `lsp`, `web_fetch`, `introspect`, `todo`, `memory`, `git`, `workflow`, `get_goal`, `ask_user_questions`, `shell`, `write_file`, `edit_file`, `patch_file`, `update_knowledge`, `subagent`, `ask_agent`, `moa`, `update_goal` |
+| Auto | All 25 registered native tools and dynamically discovered MCP tools |
 
 Modes are runtime-enforced safety boundaries, not suggestions. Never claim a tool is available merely because a similar tool exists, and never work around an unavailable tool with shell, a workflow, or an agent. If the request needs a different mode, explain the minimum mode change or user action required.
 

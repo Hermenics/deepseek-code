@@ -20,9 +20,9 @@ import {
 type RestrictedMode = Exclude<InteractionMode, 'auto'>
 
 const DOCUMENTED_MODE_TOOLS: Record<RestrictedMode, string[]> = {
-  review: ['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'memory', 'git', 'workflow', 'get_goal'],
-  plan: ['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'memory', 'git', 'workflow', 'get_goal', 'write_plan', 'submit_plan'],
-  build: ['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'memory', 'git', 'workflow', 'get_goal', 'shell', 'write_file', 'edit_file', 'patch_file', 'update_knowledge', 'subagent', 'ask_agent', 'moa', 'update_goal'],
+  review: ['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions'],
+  plan: ['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'write_plan', 'submit_plan'],
+  build: ['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'shell', 'write_file', 'edit_file', 'patch_file', 'update_knowledge', 'subagent', 'ask_agent', 'moa', 'update_goal'],
 }
 
 function documentedTools(content: string, mode: RestrictedMode): string[] {
@@ -312,7 +312,7 @@ describe('interactionMode', () => {
       }
 
       const nativeTools = allTools.map((tool) => tool.name).sort()
-      expect(nativeTools).toHaveLength(24)
+      expect(nativeTools).toHaveLength(25)
       expect(getToolsForMode('auto').sort()).toEqual(nativeTools)
       expect(nativeTools.every((tool) => canUseTool('auto', tool))).toBe(true)
       for (const tool of nativeTools) {
@@ -320,8 +320,8 @@ describe('interactionMode', () => {
         expect(docs).toContain(`\`${tool}\``)
       }
       expect(nativeTools.filter((tool) => !Object.values(DOCUMENTED_MODE_TOOLS).flat().includes(tool))).toEqual(['create_goal'])
-      expect(systemPrompt).toContain('| Auto | All 24 registered native tools and dynamically discovered MCP tools |')
-      expect(docs).toContain('| Auto | All 24 native tools and dynamically discovered MCP tools |')
+      expect(systemPrompt).toContain('| Auto | All 25 registered native tools and dynamically discovered MCP tools |')
+      expect(docs).toContain('| Auto | All 25 native tools and dynamically discovered MCP tools |')
     })
   })
 
