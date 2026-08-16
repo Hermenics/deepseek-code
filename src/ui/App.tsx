@@ -8,7 +8,7 @@ import { MessageList, getDiffPayload } from './messages/MessageList.js'
 import { DiffDialog, type DiffLine } from './messages/DiffDialog.js'
 import { TodoPanel } from './messages/TodoPanel.js'
 import { ToolUseDisplay } from './messages/ToolUseDisplay.js'
-import { previewStreamingArgs } from './messages/toolDisplay.js'
+import { previewStreamingArgs, previewToolCallArgs, summarizeToolResult } from './messages/toolDisplay.js'
 import { ignoreFileStatus, writeIgnoreDefaults, hasEditorAssociation, writeEditorAssociation, shouldOfferEditorAssociation, getEditorSettingsPath, IGNORE_FILE_NAME } from '../tools/shared/deepseekignore.js'
 import { useSubagents } from './subagent/index.js'
 import { useWorkflowRuns } from './workflows/WorkflowList.js'
@@ -728,7 +728,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
                 const firstLine = task.split('\n').map(l => l.replace(/^#+\s*/, '').trim()).find(l => l.length > 0) ?? task
                 return firstLine.length > 80 ? firstLine.slice(0, 80) + '…' : firstLine
               })()
-            : JSON.stringify(args).slice(0, 100)
+            : previewToolCallArgs(name, args as Record<string, unknown>)
           showActiveTool({ name, args: argsPreview, done: false })
         },
         onToolResult(name, result, args) {
@@ -750,6 +750,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           } else if (name === 'read_file' || name === 'read_folder' || name === 'glob' || name === 'grep') {
             const argPreview = args?.path ?? args?.pattern ?? ''
             setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${String(argPreview)}` }])
+          } else if (name === 'ask_user_questions') {
+            setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${summarizeToolResult(name, result)}` }])
           } else if (!name.includes('__')) {
             // Show other built-in tools too
             setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${result.slice(0, 100)}` }])

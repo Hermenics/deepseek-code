@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import type { ToolStatus } from '../App.js'
-import { TOOL_DISPLAY, TOOL_STYLE } from './toolDisplay.js'
+import { previewToolCallArgs, summarizeToolPayload, TOOL_DISPLAY, TOOL_STYLE } from './toolDisplay.js'
 import { getThemeColors, STATUS_ICONS } from '../theme.js'
 import type { ThemeName } from '../theme.js'
 import { useClock } from '../clock.js'
@@ -31,6 +31,18 @@ export function ToolUseDisplay({ tool, theme = 'dark' }: { tool: ToolStatus; the
     }
   } else {
     arg = rawArg.length > 60 ? rawArg.slice(0, 60) + '…' : rawArg
+    if (tool.done && tool.result) {
+      arg = summarizeToolPayload(tool.name, tool.result)
+    } else if (!tool.done && tool.args) {
+      try {
+        const parsed = JSON.parse(tool.args) as Record<string, unknown>
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          arg = previewToolCallArgs(tool.name, parsed)
+        }
+      } catch {
+        // The active preview may already be a human-readable string.
+      }
+    }
   }
 
   const tick = useClock()
