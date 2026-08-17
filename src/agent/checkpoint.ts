@@ -6,6 +6,8 @@ import { readJson, writeJson } from '../utils/fs.js'
 import type { MessageOrBoundary } from './compactBoundary.js'
 import { CHECKPOINT_MAX } from '../constants.js'
 
+const CHECKPOINT_ID = /^\d+-[a-f0-9]{6}$/i
+
 function getDir(): string {
   return join(process.env.HOME || homedir(), '.deepseek', 'checkpoints')
 }
@@ -53,6 +55,7 @@ export async function listCheckpoints(): Promise<Checkpoint[]> {
 }
 
 export async function loadCheckpoint(id: string): Promise<Checkpoint | null> {
+  if (!CHECKPOINT_ID.test(id)) return null
   try { return await readJson<Checkpoint>(join(getDir(), `${id}.json`)) } catch { return null }
 }
 
