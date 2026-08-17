@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
-import { mkdtemp, rm } from 'fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -26,7 +26,7 @@ describe('checkpoint', () => {
       const messages = [{ role: 'system' as const, content: 'test' }]
       const id = await saveCheckpoint(messages, [])
       expect(typeof id).toBe('string')
-      expect(id.length).toBeGreaterThan(0)
+      expect(id).toMatch(/^\d+-[a-f0-9]{6}$/)
     })
 
     it('should return unique IDs for consecutive saves', async () => {
@@ -76,6 +76,13 @@ describe('checkpoint', () => {
       expect(loaded).not.toBeNull()
       expect(loaded!.id).toBe(id)
       expect(loaded!.messages).toEqual(messages)
+    })
+
+    it('should reject checkpoint IDs that escape the checkpoint directory', async () => {
+      const { loadCheckpoint } = await getModule()
+      await mkdir(join(testDir, '.deepseek'), { recursive: true })
+      await writeFile(join(testDir, '.deepseek', 'outside.json'), JSON.stringify({ id: 'outside' }))
+      expect(await loadCheckpoint('../outside')).toBeNull()
     })
   })
 

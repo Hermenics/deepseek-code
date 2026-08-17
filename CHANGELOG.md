@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.16
+
+- Fixed: Session exports now resolve the requested workspace before loading a session, preventing cross-project exports when session IDs collide or legacy storage contains duplicates
+- Fixed: Checkpoint restore rejects path-traversal IDs and only loads generated checkpoint identifiers from the checkpoint directory
+- Tests: Add regression coverage for workspace-scoped session exports and checkpoint path traversal
+
 ## 0.6.15
 
 - Added: Interactive `ask_user_questions` tool for agent-user dialogue, supporting choice, free-form text, yes/no questions, numeric selection shortcuts, and up to four questions per interaction

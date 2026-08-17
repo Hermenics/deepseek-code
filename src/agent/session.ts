@@ -178,7 +178,7 @@ export function formatSessionExport(session: SessionData, format: SessionExportF
 
 export async function exportSession(id: string, format: SessionExportFormat, cwd = process.cwd()): Promise<string> {
   if (!SESSION_ID.test(id)) throw new Error('Invalid session ID.')
-  const session = await loadSession(id)
+  const session = await loadSession(id, cwd)
   if (!session) throw new Error(`Session ${id} not found.`)
   const dir = join(cwd, '.deepseek')
   const path = join(dir, `session-${id}.sanitized.${format}`)

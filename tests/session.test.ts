@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
-import { mkdtemp, readdir, rm } from 'fs/promises'
+import { mkdtemp, readFile, readdir, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, join } from 'path'
 import { createHash } from 'crypto'
@@ -261,6 +261,21 @@ describe('session', () => {
       const sessions = await listSessions()
       const found = sessions.find(s => s.id === id)
       expect(found).toBeDefined()
+    })
+
+    it('exporta a sessão do workspace solicitado', async () => {
+      const { saveSession, exportSession } = await getModule()
+      const projectA = await mkdtemp(join(testDir, 'project-a-'))
+      const projectB = await mkdtemp(join(testDir, 'project-b-'))
+      const id = '0123456789ab'
+      const base = { createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), model: 'deepseek-chat', provider: 'deepseek', language: null, activeAgent: null, agentMessages: [], filesModified: [] }
+      await saveSession({ ...base, id, cwd: projectA, uiMessages: [{ role: 'user' as const, content: 'A' }] })
+      await saveSession({ ...base, id, cwd: projectB, uiMessages: [{ role: 'user' as const, content: 'B' }] })
+
+      const path = await exportSession(id, 'json', projectA)
+      const exported = JSON.parse(await readFile(path, 'utf8')) as { cwd: string; uiMessages: Array<{ content: string }> }
+      expect(exported.cwd).toBe(projectA)
+      expect(exported.uiMessages[0]?.content).toBe('A')
     })
   })
 })
