@@ -51,6 +51,7 @@ describe('new CLI features', () => {
     expect(parseSessionsCommand(['export']).type).toBe('unknown')
     expect(parseCommand('/doctor')).toEqual({ type: 'doctor' })
     expect(parseCommand('/verify')).toEqual({ type: 'verify' })
+    expect(parseCommand('/gui')).toEqual({ type: 'gui' })
     expect(parseCatalogCommand(['mcp'])).toEqual({ type: 'catalog', kind: 'MCP' })
   })
 

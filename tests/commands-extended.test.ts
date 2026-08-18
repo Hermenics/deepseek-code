@@ -42,6 +42,10 @@ describe('parseCommand — extended coverage', () => {
     it('should parse /sessions', () => {
       expect(parseCommand('/sessions')).toEqual({ type: 'sessions' })
     })
+
+    it('should parse /gui', () => {
+      expect(parseCommand('/gui')).toEqual({ type: 'gui' })
+    })
   })
 
   describe('checkpoint commands', () => {
