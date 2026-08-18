@@ -57,11 +57,15 @@ describe('MCP config', () => {
 describe('MCP security', () => {
   it('starts MCP processes with a minimal environment', async () => {
     const { createMcpEnvironment } = await import('../src/agent/mcp.js')
-    expect(createMcpEnvironment({ PATH: '/custom/bin', LANG: 'pt_BR.UTF-8', DEEPSEEK_API_KEY: 'secret', AWS_SECRET_ACCESS_KEY: 'secret' })).toEqual({
-      PATH: '/custom/bin',
-      TMPDIR: '/tmp',
-      LANG: 'pt_BR.UTF-8',
-    })
+    const env = createMcpEnvironment({ PATH: '/custom/bin', LANG: 'pt_BR.UTF-8', DEEPSEEK_API_KEY: 'secret', AWS_SECRET_ACCESS_KEY: 'secret' })
+    expect(env.PATH).toBe('/custom/bin')
+    expect(env.LANG).toBe('pt_BR.UTF-8')
+    // Secrets never reach an MCP server, on any platform
+    expect(env.DEEPSEEK_API_KEY).toBeUndefined()
+    expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined()
+    // Temp dir uses each platform's own convention
+    if (process.platform === 'win32') expect(env.TEMP).toBeTruthy()
+    else expect(env.TMPDIR).toBe('/tmp')
   })
 
   // ---------------------------------------------------------------------------

@@ -22,34 +22,41 @@ if (!result.success) {
 
 chmodSync('dist/cli.mjs', 0o755)
 
-// Shell wrapper that exec's bun with process name "deepseek" (Linux + macOS)
-const wrapper = `#!/bin/bash
-SELF="$0"
-while [ -L "$SELF" ]; do
-  DIR="$(cd "$(dirname "$SELF")" && pwd -P)"
-  SELF="$(readlink "$SELF")"
-  [[ "$SELF" != /* ]] && SELF="$DIR/$SELF"
-done
-DIR="$(cd "$(dirname "$SELF")" && pwd -P)"
-# Restore terminal on exit (handles SIGKILL where Node cleanup can't run)
-_restore_terminal() { { [ -t 0 ] || [ -t 1 ] || [ -t 2 ]; } && printf '\\033[?1000l\\033[?1002l\\033[?1003l\\033[?25h' > /dev/tty 2>/dev/null; }
-trap _restore_terminal EXIT
-if ! command -v bun >/dev/null 2>&1; then
-  echo "DeepSeek Code requires Bun 1.1+ at runtime. Install Bun: https://bun.sh" >&2
-  exit 1
-fi
-BUN_VERSION="$(bun --version)"
-if [[ ! "$BUN_VERSION" =~ ^([0-9]+)\.([0-9]+) ]]; then
-  echo "Could not determine the installed Bun version." >&2
-  exit 1
-fi
-if (( BASH_REMATCH[1] < 1 || (BASH_REMATCH[1] == 1 && BASH_REMATCH[2] < 1) )); then
-  echo "DeepSeek Code requires Bun 1.1+ (found $BUN_VERSION)." >&2
-  exit 1
-fi
-bun "$DIR/cli.mjs" "$@"
+// Cross-platform launcher. `bin` must point at a JS entry with a `bun`
+// shebang: npm reads that shebang to generate working .cmd/.ps1 shims on
+// Windows, which a `#!/bin/bash` wrapper could never produce.
+const launcher = `#!/usr/bin/env bun
+// DeepSeek Code launcher — runs on Linux, macOS and Windows.
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+
+const MIN_BUN = [1, 1]
+const version = typeof Bun !== 'undefined' ? Bun.version : undefined
+if (!version) {
+  console.error('DeepSeek Code requires Bun 1.1+ at runtime. Install Bun: https://bun.sh')
+  process.exit(1)
+}
+const [major = 0, minor = 0] = version.split('.').map(Number)
+if (major < MIN_BUN[0] || (major === MIN_BUN[0] && minor < MIN_BUN[1])) {
+  console.error(\`DeepSeek Code requires Bun 1.1+ (found \${version}).\`)
+  process.exit(1)
+}
+
+// Restore the terminal even when the app dies without running its own cleanup.
+// (SIGKILL cannot be intercepted on any platform — bash traps could not either.)
+const restore = () => {
+  if (process.stdout.isTTY) process.stdout.write('\\u001b[?1000l\\u001b[?1002l\\u001b[?1003l\\u001b[?25h')
+}
+process.on('exit', restore)
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+  // Windows raises SIGINT/SIGTERM only in limited cases; registering is harmless.
+  try { process.on(signal, restore) } catch {}
+}
+
+await import(join(dirname(fileURLToPath(import.meta.url)), 'cli.mjs'))
 `
-writeFileSync('dist/deepseek', wrapper)
-chmodSync('dist/deepseek', 0o755)
+
+writeFileSync('dist/deepseek.mjs', launcher)
+chmodSync('dist/deepseek.mjs', 0o755)
 
 console.log('Build concluído com sucesso!')

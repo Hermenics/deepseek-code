@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { join } from 'path'
+import { tmpdir } from 'node:os'
 import type { Tool } from '../tools/types.js'
 import { readJson } from '../utils/fs.js'
 import { auditLog, type AuditEvent } from './auditLog.js'
@@ -32,13 +33,35 @@ export interface McpLoadOptions {
   environment?: Record<string, string | undefined>
 }
 
-/** The only inherited process values MCP stdio servers need by default. */
+/**
+ * The only inherited process values MCP stdio servers need by default.
+ *
+ * Windows servers additionally need SystemRoot/COMSPEC/PATHEXT — without them
+ * most executables fail to start — and use TEMP/TMP rather than TMPDIR.
+ */
 export function createMcpEnvironment(environment: Record<string, string | undefined> = process.env): Record<string, string> {
-  return {
-    PATH: environment.PATH || '/usr/local/bin:/usr/bin:/bin',
-    TMPDIR: environment.TMPDIR || '/tmp',
+  const base: Record<string, string> = {
+    PATH: environment.PATH || defaultBinPath(),
     ...(environment.LANG ? { LANG: environment.LANG } : {}),
   }
+  if (process.platform === 'win32') {
+    const temp = environment.TEMP || environment.TMP || tmpdir()
+    return {
+      ...base,
+      TEMP: temp,
+      TMP: temp,
+      ...(environment.SystemRoot ? { SystemRoot: environment.SystemRoot } : {}),
+      ...(environment.COMSPEC ? { COMSPEC: environment.COMSPEC } : {}),
+      ...(environment.PATHEXT ? { PATHEXT: environment.PATHEXT } : {}),
+    }
+  }
+  return { ...base, TMPDIR: environment.TMPDIR || '/tmp' }
+}
+
+function defaultBinPath(): string {
+  return process.platform === 'win32'
+    ? `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32`
+    : '/usr/local/bin:/usr/bin:/bin'
 }
 
 /**

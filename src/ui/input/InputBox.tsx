@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import useInput from '../../ink/hooks/use-input.js'
 import type { Key } from '../../ink/events/input-event.js'
-import { execSync } from 'child_process'
 import { loadInputHistory } from '../../agent/inputHistory.js'
 import type { AgentPhase } from '../App.js'
 import { MODE_LABELS, MODE_COLORS, type InteractionMode } from '../interactionMode.js'
@@ -24,6 +23,7 @@ import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 import { getAtMention, searchFiles } from './fileMatcher.js'
 import { isFullscreenActive } from '../../utils/fullscreen.js'
+import { readClipboardSync } from '../../utils/platform.js'
 
 // Convert Ink's Key (boolean flags) to KeyEvent (name-based) used by processTextInputKey/processVimKey
 export function inkKeyToKeyEvent(key: Key, input: string): KeyEvent {
@@ -252,7 +252,7 @@ export function InputBox({
 
     if (key.ctrl && input === 'v') {
       try {
-        const text = execSync('xclip -selection clipboard -o 2>/dev/null || xsel --clipboard --output 2>/dev/null || wl-paste 2>/dev/null', { encoding: 'utf-8', timeout: 2000 })
+        const text = readClipboardSync()
         if (text) handlePaste(text)
       } catch {}
       return

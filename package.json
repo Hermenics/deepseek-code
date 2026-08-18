@@ -13,7 +13,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "bin": {
-    "deepseek": "dist/deepseek"
+    "deepseek": "dist/deepseek.mjs"
   },
   "files": [
     "dist/",

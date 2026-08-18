@@ -11,8 +11,12 @@ permissions:
 
 jobs:
   cli:
-    name: CLI
-    runs-on: ubuntu-latest
+    name: CLI (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@v5
         with:
@@ -28,16 +32,37 @@ jobs:
       - name: Type check
         run: bun run typecheck
 
+      - name: Test
+        if: matrix.os != 'ubuntu-latest'
+        run: bun test tests
+
       - name: Test with coverage
+        if: matrix.os == 'ubuntu-latest'
         run: bun run test:coverage
 
       - name: Build CLI
         run: bun run build
 
       - name: Smoke test npm package
+        if: matrix.os == 'ubuntu-latest'
         run: bun run pack:check
 
+      - name: Smoke test launcher
+        if: matrix.os != 'windows-latest'
+        run: bun dist/deepseek.mjs --version
+
+      - name: Smoke test installed package entry point
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $packageFile = (npm pack --ignore-scripts --pack-destination $env:RUNNER_TEMP | Select-Object -Last 1).Trim()
+          $packagePath = Join-Path $env:RUNNER_TEMP $packageFile
+          $installDir = Join-Path $env:RUNNER_TEMP 'deepseek-package-install'
+          npm install --ignore-scripts --no-package-lock --prefix $installDir $packagePath
+          & (Join-Path $installDir 'node_modules/.bin/deepseek.cmd') --version
+
       - name: Upload coverage report
+        if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
         with:
           name: cli-coverage
