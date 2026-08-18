@@ -5,6 +5,7 @@ import { execa } from 'execa'
 import type { Tool } from '../types.js'
 import { SHELL_OUTPUT_MAX_CHARS, SHELL_TIMEOUT_MS } from '../../constants.js'
 import { isPathIgnored, IGNORE_FILE_NAME } from '../shared/deepseekignore.js'
+import { sandboxAvailable, scrubbedEnv, defaultShell, isWindows } from '../../utils/platform.js'
 
 function tokenizeShellSegments(command: string): string[][] {
   const segments: string[][] = [[]]
@@ -84,6 +85,10 @@ function destructiveWarning(command: string): string | null {
   return DESTRUCTIVE_PATTERNS.find(pattern => pattern.test(command)) ? `Destructive command detected: ${command}` : null
 }
 
+/** Prepended to worker output when OS-level sandboxing could not be applied. */
+const SANDBOX_UNAVAILABLE_NOTICE =
+  '[sandbox unavailable on this platform — command ran confined to the workspace with a scrubbed environment, but with network access]'
+
 export type ConfirmHandler = (message: string) => Promise<boolean>
 let legacyConfirmHandler: ConfirmHandler | null = null
 
@@ -107,6 +112,26 @@ async function runSandboxed(command: string, cwd: string, timeout: number, readO
   )
   args.push('/bin/sh', '-lc', command)
   const result = await execa('bwrap', args, { timeout, cancelSignal: signal })
+  return { stdout: result.stdout, stderr: result.stderr }
+}
+
+/**
+ * Fallback for platforms without bubblewrap (macOS, Windows). The OS-level
+ * isolation cannot be reproduced, so this keeps what it still can: the command
+ * is confined to the workspace cwd and inherits a scrubbed environment, so
+ * provider keys and other secrets are not exposed. Network access IS reachable
+ * here — unlike the bwrap path — which is why the caller labels the output.
+ */
+async function runUnsandboxed(command: string, cwd: string, timeout: number, signal?: AbortSignal): Promise<{ stdout: string; stderr: string }> {
+  const result = await execa(command, {
+    shell: isWindows ? true : defaultShell(),
+    cwd,
+    timeout,
+    cancelSignal: signal,
+    env: scrubbedEnv(),
+    extendEnv: false,
+    windowsHide: true,
+  })
   return { stdout: result.stdout, stderr: result.stderr }
 }
 
@@ -145,14 +170,27 @@ export const Shell: Tool = {
 
     try {
       const cwd = workspaceCwd
-      const result = context && context.permissionProfile !== 'coordinator-integrator'
-        ? await runSandboxed(command, cwd, timeout, context.permissionProfile === 'tester', context.signal)
+      const needsSandbox = !!context && context.permissionProfile !== 'coordinator-integrator'
+      const degraded = needsSandbox && !sandboxAvailable()
+      if (degraded && !context?.dangerousOperationApproved) {
+        return `Error: ${SANDBOX_UNAVAILABLE_NOTICE}`
+      }
+      const result = needsSandbox
+        ? (degraded
+            ? await runUnsandboxed(command, cwd, timeout, context!.signal)
+            : await runSandboxed(command, cwd, timeout, context!.permissionProfile === 'tester', context!.signal))
         : await execa(command, { shell: true, cwd, timeout, cancelSignal: context?.signal })
-      return [result.stdout, result.stderr].filter(Boolean).join('\n').slice(0, SHELL_OUTPUT_MAX_CHARS) || '(no output)'
+      const output = [result.stdout, result.stderr].filter(Boolean).join('\n') || '(no output)'
+      // Be explicit rather than silently weakening the tool's stated contract.
+      const notice = degraded ? `${SANDBOX_UNAVAILABLE_NOTICE}\n` : ''
+      return (notice + output).slice(0, SHELL_OUTPUT_MAX_CHARS)
     } catch (error) {
       const failure = error as { stdout?: string; stderr?: string; message?: string; code?: string }
       const prefix = context?.signal?.aborted ? 'Cancelled' : 'Error'
-      return `${prefix}: ${failure.stderr || failure.message || 'Command failed'}\n${failure.stdout || ''}`.slice(0, SHELL_OUTPUT_MAX_CHARS)
+      const notice = context && context.permissionProfile !== 'coordinator-integrator' && !sandboxAvailable()
+        ? `${SANDBOX_UNAVAILABLE_NOTICE}\n`
+        : ''
+      return `${prefix}: ${notice}${failure.stderr || failure.message || 'Command failed'}\n${failure.stdout || ''}`.slice(0, SHELL_OUTPUT_MAX_CHARS)
     }
   },
 }

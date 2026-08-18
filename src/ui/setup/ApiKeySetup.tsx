@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import useInput from '../../ink/hooks/use-input.js'
 import type { Key } from '../../ink/events/input-event.js'
-import { execSync } from 'child_process'
 import { homedir } from 'os'
 import { join } from 'path'
 import { mkdir } from 'fs/promises'
@@ -14,6 +13,7 @@ import Text from '../../ink/components/Text.js'
 
 export type { ThemeName, ProviderName, ProviderConfig } from '../../types/provider.js'
 import type { ThemeName, ProviderName, ProviderConfig } from '../../types/provider.js'
+import { readClipboardSync } from '../../utils/platform.js'
 
 export const PROVIDERS: { label: string; value: ProviderName; hint: string }[] = [
   { value: 'deepseek', label: 'DeepSeek API',          hint: 'platform.deepseek.com/api_keys' },
@@ -201,7 +201,7 @@ export function ApiKeySetup({ onDone }: Props) {
       // Ctrl+Shift+V: paste from clipboard
       if (key.ctrl && key.shift && input === 'v') {
         try {
-          const text = execSync('xclip -selection clipboard -o 2>/dev/null || xsel --clipboard --output 2>/dev/null || wl-paste 2>/dev/null', { encoding: 'utf-8', timeout: 2000 }).trim()
+          const text = readClipboardSync().trim()
           if (text) { setCurrentInput((s) => s + text); setError('') }
         } catch { /* clipboard not available */ }
         return
