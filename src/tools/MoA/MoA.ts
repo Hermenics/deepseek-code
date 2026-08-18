@@ -6,24 +6,24 @@ import type { MoAConfig, MoAReferenceModel } from './types.js'
 export const MoATool: Tool = {
   name: 'moa',
   description:
-    'Mixture of Agents: envia o mesmo prompt para múltiplos modelos em paralelo, depois sintetiza as respostas com um modelo agregador. Use para decisões críticas que se beneficiam de perspectivas diversas.',
+    'Mixture of Agents: sends the same prompt to multiple models in parallel, then synthesizes their responses with an aggregator model. Use it for critical decisions that benefit from diverse perspectives.',
   parameters: {
     type: 'object',
     additionalProperties: false,
     properties: {
       prompt: {
         type: 'string',
-        description: 'O prompt a ser enviado para todos os modelos.',
+        description: 'The prompt to send to every model.',
       },
       systemPrompt: {
         type: 'string',
-        description: 'System prompt compartilhado (opcional).',
+        description: 'Shared system prompt (optional).',
       },
       referenceModels: {
         type: 'array',
         minItems: 1,
         maxItems: 5,
-        description: 'Override dos modelos de referência.',
+        description: 'Override the reference models.',
         items: {
           type: 'object',
           additionalProperties: false,
@@ -36,7 +36,7 @@ export const MoATool: Tool = {
       },
       aggregatorModel: {
         type: 'string',
-        description: 'Override do modelo agregador.',
+        description: 'Override the aggregator model.',
       },
     },
     required: ['prompt'],

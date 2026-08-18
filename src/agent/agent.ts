@@ -633,6 +633,11 @@ export class Agent {
     return this.tools.map((t) => t.name)
   }
 
+  /** Runtime tool inventory, including project-configured MCP tools. */
+  getToolInfo(): Array<{ name: string; description: string }> {
+    return this.tools.map((tool) => ({ name: tool.name, description: tool.description }))
+  }
+
   getWorkingDirectory(): string { return this.workspacePath }
 
   async setWorkingDirectory(path: string, _changeProjectRoot = true): Promise<void> {
@@ -827,6 +832,21 @@ export class Agent {
       `  completion: ${this.tokenUsage.completionTokens.toLocaleString()}`,
       `Estimated cost: ${formatCost(cost)}`,
     ].join('\n')
+  }
+
+  /** Structured live telemetry for UIs; shape-matches web/protocol.ts SessionStats. */
+  getSessionStats() {
+    return {
+      tokenCount: this.tokenCount,
+      promptTokens: this.tokenUsage.promptTokens,
+      completionTokens: this.tokenUsage.completionTokens,
+      cachedTokens: this.tokenUsage.cachedTokens,
+      contextUsage: this.contextStale ? 0 : this.contextUsage,
+      contextLimit: this.contextLimit,
+      toolCalls: this.toolCallTotal,
+      filesModified: this.filesModified.size,
+      costUsd: estimateCost(this.model, this.tokenUsage),
+    }
   }
 
   getStats(): string {

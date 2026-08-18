@@ -54,6 +54,7 @@
     "@smithy/protocol-http": "^5.3.14",
     "@smithy/signature-v4": "^5.3.14",
     "@types/semver": "^7.7.1",
+    "@xterm/xterm": "^6.0.0",
     "ajv": "^8.20.0",
     "auto-bind": "^5.0.1",
     "bidi-js": "^1.0.3",
