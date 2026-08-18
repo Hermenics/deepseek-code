@@ -103,6 +103,7 @@ ${HELP_TEXT}
 - **Workflows:** \`/workflows\` opens the workflow monitor. \`/workflow run <name> [args-json]\`, \`pause|resume|stop|restart <run-id>\`, and \`save <run-id> <name>\` run or manage dynamic workflows.
 - **Worktrees:** \`/worktree\` (or \`/wt\`) creates an isolated Git worktree; use \`enter <name>\`, \`exit [keep]\`, \`list\`, or \`status\` to manage it. The feature refuses a copied-workspace fallback and refuses to remove a dirty worktree.
 - **Product configuration:** \`/config\` (or \`/settings\`) opens configuration; \`/permissions\` explains current access controls; \`/features [flag] [on|off]\` manages experimental flags; \`/model\`, \`/effort\`, \`/vim\`, \`/memory\`, \`/skill\`, \`/plugin\`, \`/catalog\`, \`/doctor\`, \`/tools\`, \`/system\`, \`/mobile\`, and \`/logout\` manage their named product surfaces.
+- **Browser GUI:** \`/gui\` starts the local browser workspace in the background, opens the system browser, and uses the current workspace directory. It launches a separate Web session; running \`/gui\` again reports that the GUI is already running. The Web process is stopped when the TUI exits. The direct equivalent is \`deepseek --web\`.
 - **Goals and side questions:** \`/goal [objective] [--turns n]\` sets or views a persistent goal; \`/goal edit|pause|resume|clear\` manages it. \`/btw <question>\` asks a side question without interrupting the current agent workflow.
 - **Exit:** \`/quit\` or \`/q\` exits the TUI.
 
@@ -281,7 +282,7 @@ MCP tools are prefixed with the server name: \`serverName__toolName\`. Calls tim
 
 The Ink/React terminal UI streams assistant output, tool activity, thoughts, diffs, todos, task status, and workflow progress. Interface settings provide six themes—\`dark\`, \`light\`, \`dark-daltonized\`, \`light-daltonized\`, \`dark-ansi\`, and \`light-ansi\`—plus density, reduced motion, visible thoughts/tool calls/diffs, Vim input, status-bar content, and narrow-terminal priority.
 
-Alternate-screen mode is an opt-in Interface setting and applies on the next session. The Settings UI adapts to narrow terminals, and the normal input supports slash-command discovery, file matching, command history, queued messages, and optional Vim normal/insert behavior. Use Shift+Tab to cycle interaction modes; use \`/mobile\` to show the QR code for the companion mobile app.
+Alternate-screen mode is an opt-in Interface setting and applies on the next session. The Settings UI adapts to narrow terminals, and the normal input supports slash-command discovery, file matching, command history, queued messages, and optional Vim normal/insert behavior. Use Shift+Tab to cycle interaction modes; use \`/mobile\` to show the QR code for the companion mobile app, or \`/gui\` to open the browser workspace.
 
 ## Dynamic Workflows and isolated worktrees
 

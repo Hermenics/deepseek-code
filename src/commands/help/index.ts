@@ -47,6 +47,7 @@ export const HELP_TEXT = `Commands:
   /cwd (or /cd) [path]   show or change directory
   /worktree (or /wt) [create|enter|exit|list|status]
   /mobile                show the mobile-app QR code
+  /gui                   open the local browser workspace
   /logout                clear stored credentials
   /quit (or /q)          exit`
 

@@ -6,6 +6,17 @@ import { loadSavedConfig } from '../ui/setup/ApiKeySetup.js'
 import { migrateConfigIfNeeded } from '../utils/credentials.js'
 import { startWebServer } from '../web/server.js'
 
+function openBrowser(url: string): void {
+  const command = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open'
+  const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url]
+  try {
+    const child = Bun.spawn([command, ...args], { stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', detached: true })
+    child.unref()
+  } catch {
+    // The URL remains printed for headless environments without a launcher.
+  }
+}
+
 function parsePort(argv = process.argv.slice(2)): number | undefined {
   const idx = argv.indexOf('--port')
   if (idx === -1) return undefined
@@ -47,6 +58,8 @@ export default async function runWeb(): Promise<void> {
   console.log('  Press Ctrl+C to stop.')
   console.log('')
 
+  openBrowser(handle.url)
+
   let shuttingDown = false
   const shutdown = () => {
     if (shuttingDown) return
@@ -65,4 +78,3 @@ export default async function runWeb(): Promise<void> {
   // Keep the process alive until a shutdown signal arrives.
   await new Promise<never>(() => {})
 }
-
