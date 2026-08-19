@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, describe, expect, it } from 'bun:test'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
 import { Agent, type AgentCallbacks, type ToolPermissionRequest } from '../src/agent/agent.js'
@@ -56,7 +56,8 @@ describe('agent external-path permissions', () => {
     expect((await executeTool(agent, 'read_file', { path: join(external, 'two.txt') })).result).toContain('two')
     expect((await executeTool(agent, 'read_file', { path: join(external, 'nested', 'three.txt') })).result).toContain('three')
     await expect(executeTool(agent, 'read_file', { path: join(sibling, 'blocked.txt') })).rejects.toThrow('deny-abort')
-    expect(requests.map(request => request.externalDirectory)).toEqual([external, sibling])
+    expect(await Promise.all(requests.map(async request => request.externalDirectory ? realpath(request.externalDirectory) : undefined)))
+      .toEqual([await realpath(external), await realpath(sibling)])
   })
 
   it('does not persist an allow-once approval', async () => {

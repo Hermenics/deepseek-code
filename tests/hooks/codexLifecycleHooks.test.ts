@@ -10,9 +10,10 @@ import {
 } from '../../src/hooks/lifecycle.js'
 import { hookAuditLog } from '../../src/hooks/executor.js'
 import type { HooksConfig } from '../../src/hooks/types.js'
+import { printOutput } from '../platform-commands.js'
 
 const sessionId = 'codex-hook-test-session'
-const command = (output: string) => ({ type: 'command' as const, command: `printf '%s' '${output}'` })
+const command = (output: string) => ({ type: 'command' as const, command: printOutput(output) })
 
 describe('Codex lifecycle hooks', () => {
   beforeEach(() => { hookAuditLog.length = 0 })
@@ -60,8 +61,8 @@ describe('Codex lifecycle hooks', () => {
     await runPostCompactHooks(config, sessionId, 'auto')
     expect(hookAuditLog.map(run => run.event)).toEqual(['PreCompact', 'PostCompact'])
     expect(hookAuditLog.map(run => run.command)).toEqual([
-      "printf '%s' 'pre-auto'",
-      "printf '%s' 'post-auto'",
+      printOutput('pre-auto'),
+      printOutput('post-auto'),
     ])
   })
 

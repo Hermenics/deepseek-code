@@ -1,9 +1,10 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
 import { runClaudeHookEvent } from '../../src/hooks/lifecycle.js'
 import { hookAuditLog } from '../../src/hooks/executor.js'
+import { printOutput } from '../platform-commands.js'
 
 const sessionId = 'claude-hook-test-session'
-const command = (output = '') => ({ type: 'command' as const, command: output ? `printf '%s' '${output}'` : 'true' })
+const command = (output = '') => ({ type: 'command' as const, command: printOutput(output) })
 
 describe('Claude Code lifecycle hooks', () => {
   beforeEach(() => { hookAuditLog.length = 0 })

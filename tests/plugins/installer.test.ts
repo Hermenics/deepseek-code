@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'bun:test'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs'
-import { join } from 'path'
+import { delimiter, join } from 'path'
 import { tmpdir } from 'os'
 import {
   addPluginToRegistry,
@@ -14,9 +14,13 @@ let originalPath: string | undefined
 function useCommand(name: string, script: string): void {
   const binDir = join(testDir, 'bin')
   mkdirSync(binDir, { recursive: true })
-  const commandPath = join(binDir, name)
-  writeFileSync(commandPath, `#!/bin/sh\n${script}`, { mode: 0o755 })
-  process.env.PATH = `${binDir}:${originalPath ?? ''}`
+  const scriptPath = join(binDir, `${name}.sh`)
+  writeFileSync(scriptPath, `#!/bin/sh\n${script}`, { mode: 0o755 })
+  const commandPath = join(binDir, process.platform === 'win32' ? `${name}.cmd` : name)
+  writeFileSync(commandPath, process.platform === 'win32'
+    ? `@echo off\r\nbash "%~dp0${name}.sh" %*\r\n`
+    : `#!/bin/sh\nexec "${scriptPath}" "$@"\n`, { mode: 0o755 })
+  process.env.PATH = [binDir, originalPath ?? ''].join(delimiter)
 }
 
 function useSuccessfulGit(version = '2.0.0'): void {

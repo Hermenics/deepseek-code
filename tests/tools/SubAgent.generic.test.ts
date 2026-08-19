@@ -38,7 +38,9 @@ const handles: Array<TaskHandle<unknown>> = []
 const roots: string[] = []
 
 afterEach(async () => {
-  for (const handle of handles.splice(0)) handle.cancel('test cleanup')
+  const activeHandles = handles.splice(0)
+  for (const handle of activeHandles) handle.cancel('test cleanup')
+  await Promise.allSettled(activeHandles.map(handle => handle.awaitResult()))
   for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 
