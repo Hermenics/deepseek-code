@@ -10,6 +10,7 @@ import { Shell } from '../src/tools/Shell/Shell.js'
 import { WriteFile } from '../src/tools/WriteFile/WriteFile.js'
 import { Git } from '../src/tools/Git/Git.js'
 import { acquireFileLease } from '../src/orchestration/fileLease.js'
+import { sandboxAvailable } from '../src/utils/platform.js'
 
 const roots: string[] = []
 
@@ -249,6 +250,10 @@ describe('task workspace isolation', () => {
     const root = await tempRoot('deepseek-mas-shell-')
     const context = { sessionId: 's', workspacePath: root, projectRoot: root, permissionProfile: 'tester' as const }
     const result = await Shell.execute({ command: 'pwd; touch local.txt; bun --version >/dev/null; test ! -e "$HOME/.ssh"; test ! -e /etc/passwd; printf ":safe"' }, context)
+    if (!sandboxAvailable()) {
+      expect(result).toContain('sandbox unavailable')
+      return
+    }
     expect(result).toContain('/mnt')
     expect(result).toContain(':safe')
     await expect(access(join(root, 'local.txt'))).rejects.toThrow()

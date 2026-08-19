@@ -74,12 +74,6 @@ function emptyStats(): SessionStats {
   return { tokenCount: 0, promptTokens: 0, completionTokens: 0, cachedTokens: 0, contextUsage: 0, contextLimit: 0, toolCalls: 0, filesModified: 0, costUsd: 0 }
 }
 
-function randomLocalPort(): number {
-  // Bun 1.3 on this Linux runtime rejects port 0 rather than assigning an
-  // ephemeral port. Pick from the unprivileged ephemeral range and retry below.
-  return 32_768 + Math.floor(Math.random() * 20_000)
-}
-
 export function startWebServer(options: WebServerOptions): WebServerHandle {
   const requestedPort = options.port ?? Number(process.env.DEEPSEEK_WEB_PORT ?? 4321)
   const port = Number.isInteger(requestedPort) && requestedPort >= 0 && requestedPort <= 65535 ? requestedPort : 4321
@@ -221,7 +215,7 @@ export function startWebServer(options: WebServerOptions): WebServerHandle {
       const url = new URL(req.url)
       // Per-process token prevents DNS-rebinding pages from operating the local agent;
       // the loopback Host check blocks the rebinding itself.
-      if (!isLocalHost(req.headers.get('host'), listenPort)) return new Response('Forbidden', { status: 403, headers: NO_STORE })
+      if (!isLocalHost(req.headers.get('host'), server.port ?? listenPort)) return new Response('Forbidden', { status: 403, headers: NO_STORE })
       if (!tokenMatches(url.searchParams.get('token'), token)) return new Response('Forbidden', { status: 403, headers: NO_STORE })
       if (url.pathname === '/ws') {
         if (server.upgrade(req)) return undefined
@@ -242,12 +236,7 @@ export function startWebServer(options: WebServerOptions): WebServerHandle {
   if (port !== 0) {
     server = createServer(port)
   } else {
-    let lastError: unknown
-    for (let attempt = 0; attempt < 100; attempt++) {
-      try { server = createServer(randomLocalPort()); lastError = undefined; break }
-      catch (error) { lastError = error }
-    }
-    if (lastError || !server) throw lastError ?? new Error('Could not allocate a localhost port')
+    server = createServer(0)
   }
 
   if (!server || server.port === undefined) throw new Error('Web server did not expose its listening port')

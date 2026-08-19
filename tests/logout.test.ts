@@ -74,6 +74,7 @@ describe('logout', () => {
 
   describe('erro de permissão', () => {
     it('should throw when file exists but cannot be deleted', async () => {
+      if (process.platform === 'win32') return
       await writeFile(configPath, '{}')
       await chmod(configDir, 0o444)
 

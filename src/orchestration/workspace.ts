@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { appendFile, mkdir, readFile, realpath } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
 import { execa } from 'execa'
 import { TaskEventSink } from './events.js'
@@ -149,13 +150,13 @@ export class TaskWorkspaceManager {
       return { integrated: false, conflict, files }
     }
 
-    const check = await execa('git', ['apply', '--check', '-'], { cwd: projectRoot, input: patch, reject: false })
+    const check = await this.runGitApply(projectRoot, patch, true)
     if (check.exitCode !== 0) {
       const conflict = check.stderr || check.stdout || 'Patch does not apply cleanly'
       this.events.emit('integration', { integrated: false, conflict, files }, taskId)
       return { integrated: false, conflict, files }
     }
-    const apply = await execa('git', ['apply', '-'], { cwd: projectRoot, input: patch, reject: false })
+    const apply = await this.runGitApply(projectRoot, patch, false)
     if (apply.exitCode !== 0) {
       const conflict = apply.stderr || apply.stdout || 'Patch application failed'
       this.events.emit('integration', { integrated: false, conflict, files }, taskId)
@@ -242,6 +243,18 @@ export class TaskWorkspaceManager {
     return paths
   }
 
+  /** Run git apply without relying on Bun's incomplete execa stdin support. */
+  private async runGitApply(projectRoot: string, patch: string, check: boolean) {
+    const directory = await mkdtemp(join(tmpdir(), 'deepseek-git-patch-'))
+    const patchPath = join(directory, 'change.patch')
+    try {
+      await writeFile(patchPath, patch, { encoding: 'utf8', mode: 0o600 })
+      return await execa('git', ['apply', ...(check ? ['--check'] : []), patchPath], { cwd: projectRoot, reject: false })
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  }
+
   private async acquireWriterLock(taskId: string, signal?: AbortSignal): Promise<() => Promise<void>> {
     return this.acquireProjectLease('writer', taskId, signal)
   }
@@ -268,7 +281,8 @@ export class TaskWorkspaceManager {
   private assertOwnedPath(path: string, projectRoot = this.projectRoot): void {
     const root = resolve(projectRoot, '.deepseek', 'worktrees')
     const target = resolve(path)
-    if (target !== root && !target.startsWith(`${root}/`)) throw new Error(`Refused workspace path outside '${root}'`)
+    const child = relative(root, target)
+    if (child.startsWith('..') || isAbsolute(child)) throw new Error(`Refused workspace path outside '${root}'`)
   }
 
   private assertRestoredWorkspace(workspace: TaskWorkspaceV1): void {

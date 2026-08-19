@@ -30,8 +30,10 @@ describe('workflow storage', () => {
 
     expect((await store.readRun('run-1'))?.result).toBe(1)
     expect(await store.readArgs('run-1')).toEqual({ answer: 42 })
-    expect((await stat(store.runDirectory('run-1'))).mode & 0o077).toBe(0)
-    expect((await stat(join(store.runDirectory('run-1'), 'run.json'))).mode & 0o077).toBe(0)
+    if (process.platform !== 'win32') {
+      expect((await stat(store.runDirectory('run-1'))).mode & 0o077).toBe(0)
+      expect((await stat(join(store.runDirectory('run-1'), 'run.json'))).mode & 0o077).toBe(0)
+    }
   })
 
   test('stores approvals by project and content hash', async () => {
@@ -44,7 +46,7 @@ describe('workflow storage', () => {
     await approvals.approve(hash)
     expect(await approvals.isApproved(hash)).toBe(true)
     expect(JSON.parse(await readFile(file, 'utf8'))).toBeTruthy()
-    expect((await stat(file)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(file)).mode & 0o777).toBe(0o600)
   })
 
   test('preserves concurrent approvals in the shared file', async () => {

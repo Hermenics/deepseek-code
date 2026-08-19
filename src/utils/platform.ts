@@ -12,6 +12,7 @@ export const isMac = process.platform === 'darwin'
 export const isLinux = process.platform === 'linux'
 
 const binaryCache = new Map<string, boolean>()
+let sandboxCapability: boolean | undefined
 
 /**
  * True when `name` is runnable from PATH. Cached — a missing binary stays
@@ -36,6 +37,7 @@ export function hasBinary(name: string): boolean {
 /** Test seam — drops the probe cache. */
 export function clearBinaryCache(): void {
   binaryCache.clear()
+  sandboxCapability = undefined
 }
 
 /**
@@ -122,5 +124,18 @@ export function scrubbedEnv(): NodeJS.ProcessEnv {
  * macOS `sandbox-exec` is deprecated and Windows has no equivalent.
  */
 export function sandboxAvailable(): boolean {
-  return isLinux && hasBinary('bwrap')
+  if (!isLinux || !hasBinary('bwrap')) return false
+  if (sandboxCapability !== undefined) return sandboxCapability
+  try {
+    execFileSync('bwrap', [
+      '--die-with-parent', '--new-session',
+      '--ro-bind', '/usr', '/usr',
+      '--ro-bind-try', '/bin', '/bin', '--ro-bind-try', '/lib', '/lib', '--ro-bind-try', '/lib64', '/lib64',
+      '--dev', '/dev', '--proc', '/proc', '--unshare-net', '--', '/usr/bin/true',
+    ], { stdio: 'ignore', timeout: 3000 })
+    sandboxCapability = true
+  } catch {
+    sandboxCapability = false
+  }
+  return sandboxCapability
 }

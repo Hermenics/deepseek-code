@@ -1,4 +1,4 @@
-import { join, resolve } from 'path'
+import { isAbsolute, join, relative, resolve } from 'path'
 import { mkdir, readFile, writeFile, readdir, realpath, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import { execa } from 'execa'
@@ -68,7 +68,8 @@ async function saveState(projectRoot: string, state: WorktreeState): Promise<voi
 export function validatePathUnderWorktrees(targetPath: string, projectRoot: string): boolean {
   const worktreesRoot = resolve(projectRoot, WORKTREES_DIR)
   const resolved = resolve(targetPath)
-  return resolved.startsWith(worktreesRoot + '/') || resolved === worktreesRoot
+  const child = relative(worktreesRoot, resolved)
+  return child === '' || (!child.startsWith('..') && !isAbsolute(child))
 }
 
 export async function createWorktree(projectRoot: string, sessionId?: string): Promise<WorktreeInfo> {
