@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
+import { realpathSync } from 'node:fs'
 import { appendFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
@@ -192,22 +193,23 @@ export class TaskWorkspaceManager {
   }
 
   private async createGitWorktree(taskId: string): Promise<ManagedWorkspace> {
-    const root = (await execa('git', ['rev-parse', '--show-toplevel'], { cwd: this.projectRoot })).stdout.trim()
-    if (resolve(root) !== resolve(this.projectRoot)) throw new Error('Session root is not the Git repository root')
-    if ((await this.changedPaths(this.projectRoot)).size > 0) throw new Error('Session checkout has uncommitted changes; writer fallback must be serialized')
-    const baseHead = (await execa('git', ['rev-parse', 'HEAD'], { cwd: this.projectRoot })).stdout.trim()
-    const path = join(this.projectRoot, '.deepseek', 'worktrees', `${this.sessionId.slice(0, 8)}-${taskId.slice(0, 8)}-${randomUUID().slice(0, 6)}`)
-    this.assertOwnedPath(path)
-    const settings = await loadMergedSettings(this.projectRoot)
+    const projectRoot = await realpath(this.projectRoot).catch(() => resolve(this.projectRoot))
+    const root = (await execa('git', ['rev-parse', '--show-toplevel'], { cwd: projectRoot })).stdout.trim()
+    if (resolve(root) !== resolve(projectRoot)) throw new Error('Session root is not the Git repository root')
+    if ((await this.changedPaths(projectRoot)).size > 0) throw new Error('Session checkout has uncommitted changes; writer fallback must be serialized')
+    const baseHead = (await execa('git', ['rev-parse', 'HEAD'], { cwd: projectRoot })).stdout.trim()
+    const path = join(projectRoot, '.deepseek', 'worktrees', `${this.sessionId.slice(0, 8)}-${taskId.slice(0, 8)}-${randomUUID().slice(0, 6)}`)
+    this.assertOwnedPath(path, projectRoot)
+    const settings = await loadMergedSettings(projectRoot)
     const worktreeName = basename(path)
     const hook = await runClaudeHookEvent(settings.hooks, 'WorktreeCreate', this.sessionId, {
-      cwd: this.projectRoot, name: worktreeName, path: worktreeName,
+      cwd: projectRoot, name: worktreeName, path: worktreeName,
     } as Record<string, unknown>)
     if (hook.decision === 'block') throw new WorktreeHookBlockedError(hook.reason ?? 'Worktree creation blocked by hook')
     await this.ensureWorktreeIgnored()
-    await mkdir(join(this.projectRoot, '.deepseek', 'worktrees'), { recursive: true })
-    await execa('git', ['worktree', 'add', '--detach', path, baseHead], { cwd: this.projectRoot })
-    return { taskId, path, projectRoot: this.projectRoot, isolation: 'git-worktree', baseHead, integrated: false, preserved: true }
+    await mkdir(join(projectRoot, '.deepseek', 'worktrees'), { recursive: true })
+    await execa('git', ['worktree', 'add', '--detach', path, baseHead], { cwd: projectRoot })
+    return { taskId, path, projectRoot, isolation: 'git-worktree', baseHead, integrated: false, preserved: true }
   }
 
   private async ensureWorktreeIgnored(): Promise<void> {
@@ -279,15 +281,21 @@ export class TaskWorkspaceManager {
   }
 
   private assertOwnedPath(path: string, projectRoot = this.projectRoot): void {
-    const root = resolve(projectRoot, '.deepseek', 'worktrees')
-    const target = resolve(path)
+    const existing = (value: string): string => {
+      try { return realpathSync(value) } catch { return resolve(value) }
+    }
+    const root = existing(resolve(projectRoot, '.deepseek', 'worktrees'))
+    const target = existing(path)
     const child = relative(root, target)
     if (child.startsWith('..') || isAbsolute(child)) throw new Error(`Refused workspace path outside '${root}'`)
   }
 
   private assertRestoredWorkspace(workspace: TaskWorkspaceV1): void {
-    if (resolve(workspace.projectRoot) !== resolve(this.projectRoot)) throw new Error('Restored workspace belongs to a different project root')
+    const existing = (path: string): string => {
+      try { return realpathSync(path) } catch { return resolve(path) }
+    }
+    if (existing(workspace.projectRoot) !== existing(this.projectRoot)) throw new Error('Restored workspace belongs to a different project root')
     if (workspace.isolation === 'git-worktree') this.assertOwnedPath(workspace.path, workspace.projectRoot)
-    else if (resolve(workspace.path) !== resolve(workspace.projectRoot)) throw new Error('Shared restored workspace must equal the project root')
+    else if (existing(workspace.path) !== existing(workspace.projectRoot)) throw new Error('Shared restored workspace must equal the project root')
   }
 }

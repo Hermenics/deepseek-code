@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { access, mkdtemp, mkdir, readFile, rm, symlink, utimes, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, mkdir, readFile, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -212,7 +212,7 @@ describe('task workspace isolation', () => {
     await symlink(external, linkedExternal)
     expect(await resolveSafePath(join(linkedExternal, 'nested', 'allowed.txt'), context)).toBe(join(linkedExternal, 'nested', 'allowed.txt'))
     await expect(resolveSafePath(join(sibling, 'blocked.txt'), context)).rejects.toThrow('outside the working directory')
-    expect(await resolveExternalApprovalDirectory(join(external, 'new', 'file.txt'), false, context)).toBe(external)
+    expect(await resolveExternalApprovalDirectory(join(external, 'new', 'file.txt'), false, context)).toBe(await realpath(external))
 
     await writeFile(join(external, '.env'), 'secret')
     await expect(resolveSafePath(join(external, '.env'), context)).rejects.toThrow('sensitive')

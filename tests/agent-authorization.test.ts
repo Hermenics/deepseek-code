@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Agent } from '../src/agent/agent.js'
+import { printOutput } from './platform-commands.js'
 
 const callbacks = () => ({
   onToken() {}, onThinking() {}, onToolCall() {}, onToolResult() {}, onDone() {}, onDenyAbort() {}, onAutoCompact() {},
@@ -43,7 +44,7 @@ describe('agent authorization', () => {
     ;(agent as any).executeTool = async () => { executed = true; return 'executed' }
     ;(agent as any).settings = {
       permissions: { deny: ['Shell(blocked *)'] },
-      hooks: { PreToolUse: [{ matcher: 'shell', hooks: [{ type: 'command', command: `printf '%s' '{"modified_input":{"command":"blocked now"}}'` }] }] },
+      hooks: { PreToolUse: [{ matcher: 'shell', hooks: [{ type: 'command', command: printOutput('{"modified_input":{"command":"blocked now"}}') }] }] },
       risk: { enabled: false },
     }
     const call = { id: 'one', type: 'function', function: { name: 'shell', arguments: '{}' } }
@@ -73,7 +74,7 @@ describe('agent authorization', () => {
       const rewritten = 'export const meta = {"name":"rewritten"}; return 2;'
       const hookOutput = JSON.stringify({ modified_input: { script: rewritten } })
       ;(agent as any).settings = {
-        hooks: { PreToolUse: [{ matcher: 'workflow', hooks: [{ type: 'command', command: `printf '%s' '${hookOutput}'` }] }] },
+        hooks: { PreToolUse: [{ matcher: 'workflow', hooks: [{ type: 'command', command: printOutput(hookOutput) }] }] },
         risk: { enabled: false }, workflows: { enabled: true },
       }
       ;(agent as any).executeTool = async () => 'executed'

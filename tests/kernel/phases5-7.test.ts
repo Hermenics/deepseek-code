@@ -5,6 +5,7 @@ import { MIGRATIONS } from '../../src/kernel/store/migrations.js'
 import { EventBus } from '../../src/kernel/events/eventBus.js'
 import { GoalEngine } from '../../src/kernel/goals/goalEngine.js'
 import { HookRuntime, type HookDefinition } from '../../src/kernel/hooks/hookRuntime.js'
+import { printOutput } from '../platform-commands.js'
 import { WorkflowEngine, REVIEW_WORKFLOW, IMPLEMENT_WORKFLOW, RESEARCH_WORKFLOW } from '../../src/kernel/workflows/workflowEngine.js'
 import { PathOwnership } from '../../src/kernel/workspace/pathOwnership.js'
 import { TaskBoard } from '../../src/kernel/tasks/taskBoard.js'
@@ -161,7 +162,7 @@ describe('HookRuntime', () => {
 
   const testHook: HookDefinition = {
     id: 'hook-1', event: 'PreToolUse', matcher: 'WriteFile',
-    handler_type: 'shell', handler_config: { command: 'echo ok' },
+    handler_type: 'shell', handler_config: { command: printOutput('ok') },
     scope: 'user', timeout_ms: 30_000, enabled: true,
   }
 
@@ -195,7 +196,7 @@ describe('HookRuntime', () => {
     runtime.register(testHook)
     runtime.trust('hook-1')
     // modify the hook
-    runtime.register({ ...testHook, handler_config: { command: 'echo changed' } })
+    runtime.register({ ...testHook, handler_config: { command: printOutput('changed') } })
     const invalid = runtime.checkTrustInvalidation()
     expect(invalid.length).toBe(1)
     expect(invalid[0]!.hook_id).toBe('hook-1')
@@ -204,7 +205,7 @@ describe('HookRuntime', () => {
   it('should execute matching hooks', async () => {
     runtime.register(testHook)
     runtime.trust('hook-1')
-    const result = await runtime.execute('PreToolUse', 'WriteFile', { path: 'test.ts' }, { session_id: 's1', cwd: '/tmp' })
+    const result = await runtime.execute('PreToolUse', 'WriteFile', { path: 'test.ts' }, { session_id: 's1', cwd: process.cwd() })
     expect(result.decision).toBe('allow')
     expect(result.runs.length).toBe(1)
     expect(result.runs[0]!.hook_id).toBe('hook-1')
@@ -213,7 +214,7 @@ describe('HookRuntime', () => {
   it('should get run history', async () => {
     runtime.register(testHook)
     runtime.trust('hook-1')
-    await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: '/tmp' })
+    await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: process.cwd() })
     const runs = runtime.getRuns({ hook_id: 'hook-1' })
     expect(runs.length).toBe(1)
   })

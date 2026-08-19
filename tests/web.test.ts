@@ -10,6 +10,7 @@ import { isLocalHost, startWebServer } from '../src/web/server.js'
 import { changeStaging, commitStaged, getSourceControl } from '../src/web/sourceControl.js'
 import { addTodo, clearTodos } from '../src/agent/todoStore.js'
 import { allTools } from '../src/tools/index.js'
+import { printLines, printOutput } from './platform-commands.js'
 
 const fakeStats = { tokenCount: 1234, promptTokens: 900, completionTokens: 334, cachedTokens: 400, contextUsage: 21_000, contextLimit: 128_000, toolCalls: 3, filesModified: 2, costUsd: 0.0042 }
 
@@ -368,7 +369,7 @@ describe('web server', () => {
         let received = ''
         socket.onopen = () => {
           socket!.send(JSON.stringify({ type: 'terminal_open', cols: 80, rows: 24 }))
-          socket!.send(JSON.stringify({ type: 'terminal_input', data: 'printf "web-terminal-ok ✓\\n"\r' }))
+          socket!.send(JSON.stringify({ type: 'terminal_input', data: `${printOutput('web-terminal-ok ✓')}\r` }))
         }
         socket.onerror = () => { clearTimeout(timeout); reject(new Error('terminal websocket error')) }
         socket.onmessage = (event) => {
@@ -396,7 +397,7 @@ describe('web server', () => {
         socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws?token=${server.token}`)
         socket.onopen = () => {
           socket!.send(JSON.stringify({ type: 'terminal_open', cols: 200, rows: 40 }))
-          socket!.send(JSON.stringify({ type: 'terminal_input', data: 'seq 1 3000; printf "COALESCE-OK\\n"\r' }))
+          socket!.send(JSON.stringify({ type: 'terminal_input', data: `${printLines("Array.from({length:3000},(_,i)=>String(i+1)+'\\n').join('')+'COALESCE-OK\\n'")}\r` }))
         }
         socket.onerror = () => { clearTimeout(timeout); reject(new Error('terminal websocket error')) }
         socket.onmessage = (event) => {
@@ -430,7 +431,7 @@ describe('web server', () => {
         first = new WebSocket(`ws://127.0.0.1:${server.port}/ws?token=${server.token}`)
         first.onopen = () => {
           first!.send(JSON.stringify({ type: 'terminal_open', cols: 80, rows: 24 }))
-          first!.send(JSON.stringify({ type: 'terminal_input', data: 'printf "reconnect-transcript-ok\\n"\r' }))
+          first!.send(JSON.stringify({ type: 'terminal_input', data: `${printOutput('reconnect-transcript-ok')}\r` }))
         }
         first.onerror = () => { clearTimeout(timeout); reject(new Error('terminal seed websocket error')) }
         first.onmessage = (event) => {

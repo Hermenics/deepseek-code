@@ -7,6 +7,7 @@ import {
   runPreToolHooks,
 } from '../../src/hooks/executor.js'
 import { HookRuntime, MAX_HOOK_RUNTIME_RUNS, type HookDefinition } from '../../src/kernel/hooks/hookRuntime.js'
+import { printOutput } from '../platform-commands.js'
 
 const ALL = MIGRATIONS
 const SID = 'test-hooks'
@@ -21,14 +22,14 @@ describe('Legacy hook executor audit', () => {
 
   it('should record allow decision on successful run', async () => {
     const input = buildInput({ event: 'SessionStart', session_id: 's1' })
-    await runHookCommand({ type: 'command', command: 'echo ok' }, input)
+    await runHookCommand({ type: 'command', command: printOutput('ok') }, input)
     const run = hookAuditLog.find(r => r.run_id === input.run_id)!
     expect(run.decision).toBe('allow')
   })
 
   it('should record block decision on nonzero exit', async () => {
     const input = buildInput({ event: 'SessionStart', session_id: 's1' })
-    await runHookCommand({ type: 'command', command: 'exit 1' }, input)
+    await runHookCommand({ type: 'command', command: process.platform === 'win32' ? 'exit /b 1' : 'exit 1' }, input)
     const run = hookAuditLog.find(r => r.run_id === input.run_id)!
     expect(run.decision).toBe('block')
   })
@@ -42,7 +43,7 @@ describe('Legacy hook executor audit', () => {
 
   it('should mark audit decision as block when a pre-tool hook blocks via JSON', async () => {
     const config = {
-      PreToolUse: [{ matcher: 'WriteFile', hooks: [{ type: 'command' as const, command: 'echo \'{"decision":"block","reason":"no"}\'' }] }],
+      PreToolUse: [{ matcher: 'WriteFile', hooks: [{ type: 'command' as const, command: printOutput('{"decision":"block","reason":"no"}') }] }],
     }
     const result = await runPreToolHooks(config, 'WriteFile', {}, 's1')
     expect(result.decision).toBe('block')
@@ -55,14 +56,14 @@ describe('Legacy hook executor audit', () => {
     // processes made it exceed the default timeout under --coverage, and the aborted
     // loop kept appending entries that corrupted the following test.
     const seedInput = buildInput({ event: 'SessionStart', session_id: 's1' })
-    await runHookCommand({ type: 'command', command: 'true' }, seedInput)
+    await runHookCommand({ type: 'command', command: printOutput('') }, seedInput)
     const template = hookAuditLog[0]!
     while (hookAuditLog.length < MAX_HOOK_AUDIT_ENTRIES) {
       hookAuditLog.push({ ...template, run_id: `filler-${hookAuditLog.length}` })
     }
 
     const input = buildInput({ event: 'SessionStart', session_id: 's1' })
-    await runHookCommand({ type: 'command', command: 'true' }, input)
+    await runHookCommand({ type: 'command', command: printOutput('') }, input)
 
     expect(hookAuditLog.length).toBe(MAX_HOOK_AUDIT_ENTRIES)
     // Retention is FIFO: the newest run survives and the oldest is evicted.
@@ -74,8 +75,8 @@ describe('Legacy hook executor audit', () => {
     const config = {
       PreToolUse: [
         { matcher: 'WriteFile', hooks: [
-          { type: 'command' as const, command: 'true' },
-          { type: 'command' as const, command: 'true' },
+          { type: 'command' as const, command: printOutput('') },
+          { type: 'command' as const, command: printOutput('') },
         ]},
       ],
     }
@@ -100,31 +101,31 @@ describe('HookRuntime execution', () => {
 
   const shellHook = (overrides: Partial<HookDefinition> = {}): HookDefinition => ({
     id: 'h-shell', event: 'PreToolUse', matcher: 'WriteFile', handler_type: 'shell',
-    handler_config: { command: "echo '{\"decision\":\"allow\"}'" }, scope: 'user',
+    handler_config: { command: printOutput('{"decision":"allow"}') }, scope: 'user',
     timeout_ms: 10_000, enabled: true, ...overrides,
   })
 
   it('should execute a shell handler and apply its decision', async () => {
     runtime.register(shellHook())
     runtime.trust('h-shell')
-    const result = await runtime.execute('PreToolUse', 'WriteFile', { path: 'a.ts' }, { session_id: 's1', cwd: '/tmp' })
+    const result = await runtime.execute('PreToolUse', 'WriteFile', { path: 'a.ts' }, { session_id: 's1', cwd: process.cwd() })
     expect(result.decision).toBe('allow')
     expect(result.runs.length).toBe(1)
     expect(result.runs[0]!.hook_id).toBe('h-shell')
   })
 
   it('should apply a block decision from a shell handler', async () => {
-    runtime.register(shellHook({ id: 'h-block', handler_config: { command: "echo '{\"decision\":\"block\",\"reason\":\"nope\"}'" } }))
+    runtime.register(shellHook({ id: 'h-block', handler_config: { command: printOutput('{"decision":"block","reason":"nope"}') } }))
     runtime.trust('h-block')
-    const result = await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: '/tmp' })
+    const result = await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: process.cwd() })
     expect(result.decision).toBe('block')
     expect(result.runs[0]!.decision).toBe('block')
   })
 
   it('should apply modified_input from a handler', async () => {
-    runtime.register(shellHook({ id: 'h-mod', handler_config: { command: "echo '{\"decision\":\"allow\",\"modified_input\":{\"path\":\"changed.ts\"}}'" } }))
+    runtime.register(shellHook({ id: 'h-mod', handler_config: { command: printOutput('{"decision":"allow","modified_input":{"path":"changed.ts"}}') } }))
     runtime.trust('h-mod')
-    const result = await runtime.execute('PreToolUse', 'WriteFile', { path: 'orig.ts' }, { session_id: 's1', cwd: '/tmp' })
+    const result = await runtime.execute('PreToolUse', 'WriteFile', { path: 'orig.ts' }, { session_id: 's1', cwd: process.cwd() })
     expect(result.modifiedInput).toEqual({ path: 'changed.ts' })
   })
 
@@ -132,7 +133,7 @@ describe('HookRuntime execution', () => {
     runtime.registerHandler('agent', async () => { throw new Error('boom') })
     runtime.register(shellHook({ id: 'h-fail', handler_type: 'agent', handler_config: {} }))
     runtime.trust('h-fail')
-    const result = await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: '/tmp' })
+    const result = await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: process.cwd() })
     expect(result.decision).toBe('block')
     expect(result.runs[0]!.error).toContain('boom')
   })
@@ -140,7 +141,7 @@ describe('HookRuntime execution', () => {
   it('should persist hook runs to the store', async () => {
     runtime.register(shellHook())
     runtime.trust('h-shell')
-    await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: '/tmp' })
+    await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: process.cwd() })
     const persisted = store.query<{ run_id: string }>('SELECT run_id FROM hook_runs')
     expect(persisted.length).toBe(1)
   })
@@ -152,7 +153,7 @@ describe('HookRuntime execution', () => {
     runtime.register(shellHook({ id: 'h-fast', handler_type: 'agent', handler_config: {} }))
     runtime.trust('h-fast')
     for (let i = 0; i < MAX_HOOK_RUNTIME_RUNS + 20; i++) {
-      await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: '/tmp' })
+      await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: process.cwd() })
     }
     const runs = runtime.getRuns({ limit: 10_000 })
     expect(runs.length).toBe(MAX_HOOK_RUNTIME_RUNS)
@@ -167,14 +168,14 @@ describe('HookRuntime execution', () => {
       scope: 'user', timeout_ms: 10_000, enabled: true,
     })
     runtime.trust('h-cmd')
-    const result = await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: '/tmp' })
+    const result = await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: process.cwd() })
     expect(result.decision).toBe('allow')
   })
 
   it('should block when no handler is registered for a type', async () => {
     runtime.register(shellHook({ id: 'h-noh', handler_type: 'prompt', handler_config: {} }))
     runtime.trust('h-noh')
-    const result = await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: '/tmp' })
+    const result = await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: process.cwd() })
     expect(result.decision).toBe('block')
     expect(result.runs[0]!.error).toContain('No handler registered')
   })
@@ -188,7 +189,7 @@ describe('HookRuntime execution', () => {
     runtime.register({ id: 'h2', event: 'PreToolUse', handler_type: 'command', handler_config: {}, scope: 'user', timeout_ms: 5000, enabled: true })
     runtime.trust('h1'); runtime.trust('h2')
 
-    const result = await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: '/tmp' })
+    const result = await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: process.cwd() })
     expect(result.decision).toBe('allow')
     expect(result.modifiedInput).toEqual({ path: 'first.ts.second' })
     expect(result.runs.length).toBe(2)
@@ -199,7 +200,7 @@ describe('HookRuntime execution', () => {
     const hook = { id: 'h-fast', event: 'PreToolUse', handler_type: 'command' as const, handler_config: {}, scope: 'user' as const, timeout_ms: 5000, enabled: true }
     runtime.register(hook); runtime.trust('h-fast')
     for (let i = 0; i < MAX_HOOK_RUNTIME_RUNS + 20; i++) {
-      await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: '/tmp' })
+      await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: process.cwd() })
     }
     expect(runtime.getRuns({ limit: 10000 }).length).toBe(MAX_HOOK_RUNTIME_RUNS)
   })

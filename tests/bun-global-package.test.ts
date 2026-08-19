@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { getGlobalPackageManagers, isBunGlobalPackage, isNpmGlobalPackage } from '../src/utils/bun-global-package.js'
+import { hasBinary } from '../src/utils/platform.js'
 
 describe('isBunGlobalPackage', () => {
   it('returns false when the package is not installed globally with Bun', async () => {
@@ -27,6 +28,7 @@ describe('isBunGlobalPackage', () => {
   })
 
   it('detects global npm and Bun installations together', async () => {
+    if (!hasBinary('npm')) return
     const bunInstall = await mkdtemp(join(tmpdir(), 'deepseek-bun-global-'))
     const npmPrefix = await mkdtemp(join(tmpdir(), 'deepseek-npm-global-'))
     const env = { ...process.env, BUN_INSTALL: bunInstall, npm_config_prefix: npmPrefix }

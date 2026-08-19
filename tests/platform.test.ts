@@ -21,7 +21,7 @@ beforeEach(() => {
 
 describe('hasBinary', () => {
   it('finds a binary that certainly exists on this platform', () => {
-    expect(hasBinary(isWindows ? 'cmd' : 'sh')).toBe(true)
+    expect(hasBinary(isWindows ? 'cmd.exe' : 'sh')).toBe(true)
   })
 
   it('reports a missing binary as absent', () => {

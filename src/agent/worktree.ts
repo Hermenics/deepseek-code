@@ -1,6 +1,6 @@
 import { isAbsolute, join, relative, resolve } from 'path'
 import { mkdir, readFile, writeFile, readdir, realpath, stat } from 'fs/promises'
-import { existsSync } from 'fs'
+import { existsSync, realpathSync } from 'fs'
 import { execa } from 'execa'
 import { randomBytes, randomUUID } from 'crypto'
 import { loadMergedSettings } from '../settings/loader.js'
@@ -66,8 +66,11 @@ async function saveState(projectRoot: string, state: WorktreeState): Promise<voi
 }
 
 export function validatePathUnderWorktrees(targetPath: string, projectRoot: string): boolean {
-  const worktreesRoot = resolve(projectRoot, WORKTREES_DIR)
-  const resolved = resolve(targetPath)
+  const existing = (path: string): string => {
+    try { return realpathSync(path) } catch { return resolve(path) }
+  }
+  const worktreesRoot = existing(resolve(projectRoot, WORKTREES_DIR))
+  const resolved = existing(targetPath)
   const child = relative(worktreesRoot, resolved)
   return child === '' || (!child.startsWith('..') && !isAbsolute(child))
 }
