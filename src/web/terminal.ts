@@ -1,4 +1,5 @@
 import type { ServerEvent } from './protocol.js'
+import { isWindows } from '../utils/platform.js'
 
 type EventSink = (event: ServerEvent) => void
 
@@ -34,13 +35,14 @@ export class WebTerminal {
       data: (_terminal, data) => this.emit(this.decoder.decode(data, { stream: true })),
     })
     const terminal = this.terminal
-    const shell = process.env.SHELL || '/bin/bash'
-    this.process = Bun.spawn([shell, '--noprofile', '--norc'], {
+    const shell = isWindows ? (process.env.COMSPEC || 'cmd.exe') : (process.env.SHELL || '/bin/bash')
+    const shellArgs = isWindows ? [] : ['--noprofile', '--norc']
+    this.process = Bun.spawn([shell, ...shellArgs], {
       cwd: this.cwd,
       env: {
         ...process.env,
         TERM: 'xterm-256color',
-        PS1: '\\[\\e[38;5;80m\\]deepseek\\[\\e[0m\\]:\\[\\e[38;5;110m\\]\\W\\[\\e[0m\\] \\$ ',
+        ...(isWindows ? {} : { PS1: '\\[\\e[38;5;80m\\]deepseek\\[\\e[0m\\]:\\[\\e[38;5;110m\\]\\W\\[\\e[0m\\] \\$ ' }),
       },
       terminal,
     })

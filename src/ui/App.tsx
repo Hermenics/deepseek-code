@@ -31,6 +31,7 @@ import { appendInputHistory } from '../agent/inputHistory.js'
 import type { ThemeName, ProviderConfig } from '../types/provider.js'
 import type { DeepSeekSettings, InterfaceSettings } from '../settings/types.js'
 import { formatChatError } from '../utils/chatError.js'
+import { defaultShell, isWindows } from '../utils/platform.js'
 import { saveSession, updateSessionTitle, type SessionData } from '../agent/session.js'
 import { getGoal, getElapsedSeconds, resumeGoal, updateGoal, buildContinuationPrompt, GOAL_MAX_CONTINUATIONS } from '../agent/goal.js'
 import { DEFAULT_MODE, nextMode, isBuildMode, isAutoMode, type InteractionMode } from './interactionMode.js'
@@ -1858,7 +1859,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       setStreamText('')
       let output = ''
       try {
-        const proc = execa('sh', ['-c', shellCmd], { cwd: agent.getWorkingDirectory(), reject: false })
+        const proc = execa(defaultShell(), isWindows ? ['/d', '/s', '/c', shellCmd] : ['-c', shellCmd], { cwd: agent.getWorkingDirectory(), reject: false })
         shellProcRef.current = proc
         const flush = (chunk: string) => {
           output += chunk

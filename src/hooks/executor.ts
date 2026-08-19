@@ -2,6 +2,7 @@ import { spawn } from 'child_process'
 import { randomUUID } from 'node:crypto'
 import type { HooksConfig, HookCommand, HookInput, HookRun, PreToolHookOutput } from './types.js'
 import { matchesHookPattern } from './matcher.js'
+import { defaultShell, isWindows } from '../utils/platform.js'
 
 const MAX_OUTPUT_BYTES = 100_000
 /** Bounded in-memory retention for hook audit entries. */
@@ -64,7 +65,7 @@ export async function runHookCommand(cmd: HookCommand, input: HookInput): Promis
   }
 
   return new Promise<string>((resolve) => {
-    const proc = spawn('sh', ['-c', cmd.command], {
+    const proc = spawn(defaultShell(), isWindows ? ['/d', '/s', '/c', cmd.command] : ['-c', cmd.command], {
       stdio: ['pipe', 'pipe', 'pipe'],
       timeout: timeoutMs,
     })

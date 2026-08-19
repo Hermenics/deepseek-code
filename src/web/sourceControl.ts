@@ -1,6 +1,7 @@
 import { isAbsolute, relative, resolve } from 'node:path'
 import { execa } from 'execa'
 import type { SourceControlFile, SourceControlSnapshot } from './protocol.js'
+import { isWindows } from '../utils/platform.js'
 
 const MAX_DIFF_CHARS = 300_000
 
@@ -52,7 +53,7 @@ async function fileDiff(cwd: string, path: string, staged: boolean): Promise<str
   const result = await git(cwd, args)
   if (result.stdout || staged) return result.stdout
   // Git does not include untracked files in `git diff`; render those as new files.
-  const untracked = await git(cwd, ['diff', '--no-index', '--unified=3', '--', '/dev/null', path])
+  const untracked = await git(cwd, ['diff', '--no-index', '--unified=3', '--', isWindows ? 'NUL' : '/dev/null', path])
   return untracked.exitCode === 1 ? untracked.stdout : ''
 }
 

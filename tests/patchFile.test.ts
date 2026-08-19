@@ -65,8 +65,9 @@ describe('PatchFile tool', () => {
 
   it('path fora do cwd lança erro de segurança', async () => {
     const { PatchFile } = await import('../src/tools/PatchFile/PatchFile.js')
+    const outsidePath = path.join(path.dirname(process.cwd()), 'deepseek-outside-hosts')
     await expect(
-      PatchFile.execute({ path: '/etc/hosts', old_content: 'x', new_content: 'y' })
+      PatchFile.execute({ path: outsidePath, old_content: 'x', new_content: 'y' })
     ).rejects.toThrow('outside the working directory')
   })
 })

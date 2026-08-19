@@ -80,6 +80,7 @@ describe('writeJson', () => {
   })
 
   it('restricts permissions when overwriting an existing file', async () => {
+    if (process.platform === 'win32') return
     const path = join(testDir, 'existing.json')
     await writeFile(path, '{}')
     await chmod(path, 0o666)
@@ -122,6 +123,7 @@ describe('writeRaw', () => {
   })
 
   it('restricts permissions when overwriting an existing file', async () => {
+    if (process.platform === 'win32') return
     const path = join(testDir, 'existing.txt')
     await writeFile(path, 'old')
     await chmod(path, 0o666)

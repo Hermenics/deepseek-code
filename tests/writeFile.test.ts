@@ -61,8 +61,9 @@ describe('WriteFile tool', () => {
 
   it('path fora do cwd lança erro de segurança', async () => {
     const { WriteFile } = await import('../src/tools/WriteFile/WriteFile.js')
+    const outsidePath = path.join(path.dirname(process.cwd()), 'deepseek-outside-passwd')
     await expect(
-      WriteFile.execute({ path: '/etc/passwd', content: 'hack' })
+      WriteFile.execute({ path: outsidePath, content: 'hack' })
     ).rejects.toThrow('outside the working directory')
   })
 

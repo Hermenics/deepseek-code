@@ -1,7 +1,7 @@
 import { afterEach, beforeAll, describe, expect, it } from 'bun:test'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { isAbsolute, join, relative } from 'node:path'
 import { Agent, type AgentCallbacks, type ToolPermissionRequest } from '../src/agent/agent.js'
 
 const roots: string[] = []
@@ -42,9 +42,14 @@ describe('agent external-path permissions', () => {
     const agent = new Agent(undefined, { projectRoot: workspace, snapshotFile: null })
     await (agent as any).readyPromise
     const requests: ToolPermissionRequest[] = []
+    const samePath = (left: string | undefined, right: string): boolean => {
+      if (!left) return false
+      const pathRelative = relative(left, right)
+      return pathRelative === '' || (!pathRelative.startsWith('..') && !isAbsolute(pathRelative))
+    }
     agent.setToolPermissionHandler(async request => {
       requests.push(request)
-      return request.externalDirectory === external ? 'directory' : 'deny'
+      return samePath(request.externalDirectory, external) ? 'directory' : 'deny'
     })
 
     expect((await executeTool(agent, 'read_file', { path: join(external, 'one.txt') })).result).toContain('one')
