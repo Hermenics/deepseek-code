@@ -81,12 +81,13 @@ process.title = 'deepseek'
 if (process.stdout.isTTY) process.stdout.write('\x1b]0;DeepSeek\x07')
 
 import { useState, useEffect } from 'react'
+import { writeSync } from 'fs'
 import { createRoot } from '../ink/root.js'
 import { App } from '../ui/App.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
 import { AlternateScreen } from '../ink/components/AlternateScreen.js'
-import { isFullscreenActive, resolveFullscreen, setFullscreenActive } from '../utils/fullscreen.js'
+import { resolveFullscreen, setFullscreenActive } from '../utils/fullscreen.js'
 import { ApiKeySetup, loadSavedConfig } from '../ui/setup/ApiKeySetup.js'
 import { ResumePicker } from '../ui/setup/ResumePicker.js'
 import type { ThemeName, ProviderConfig } from '../types/provider.js'
@@ -96,6 +97,7 @@ import { loadAgentConfig, type LoadedAgent } from '../agent/config.js'
 import { getLastProjectSession, listSessions, loadSession, newSessionId, type SessionData } from '../agent/session.js'
 import { loadMergedSettings } from '../settings/loader.js'
 import type { DeepSeekSettings } from '../settings/types.js'
+import { formatExitScreen } from '../utils/exitScreen.js'
 import pkg from '../../package.json' with { type: 'json' }
 
 function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; resumePicker: boolean; update: boolean; logout: boolean; doctor: boolean; help: boolean; version: boolean } {
@@ -404,11 +406,16 @@ const root = await createRoot({
 })
 root.render(<Root />)
 
-function cleanExit(code = 0): never {
-  // Disable mouse tracking and restore cursor before exit
-  const exitAlternateScreen = isFullscreenActive() ? '\x1b[?1049l' : ''
-  process.stdout.write(`\x1b[?1000l\x1b[?1002l\x1b[?1003l${exitAlternateScreen}\x1b[?25h`)
-  process.stdout.write(`\n  To continue this session, run:\n  deepseek --resume ${SESSION_ID}\n\n`)
+let exiting = false
+
+function cleanExit(code = 0): void {
+  if (exiting) return
+  exiting = true
+  root.unmount()
+  // Sync write is intentional: process.exit must not interrupt the banner.
+  // Ink already restored the alternate screen during unmount; sending a
+  // second ?1049l would restore the shell's old cursor position on top.
+  writeSync(1, formatExitScreen(SESSION_ID, false))
   process.exit(code)
 }
 
