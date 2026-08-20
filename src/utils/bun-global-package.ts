@@ -10,7 +10,7 @@ export function isBunGlobalPackage(packageName: string, env: NodeJS.ProcessEnv =
 
 export async function isNpmGlobalPackage(packageName: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
   try {
-    const proc = Bun.spawnSync(['npm', 'root', '-g'], { stdout: 'pipe', stderr: 'ignore', env })
+    const proc = Bun.spawnSync([process.platform === 'win32' ? 'npm.cmd' : 'npm', 'root', '-g'], { stdout: 'pipe', stderr: 'ignore', env })
     return proc.exitCode === 0 && Bun.file(join(proc.stdout.toString().trim(), packageName, 'package.json')).exists()
   } catch {
     return false

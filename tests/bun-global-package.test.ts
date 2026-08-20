@@ -28,13 +28,14 @@ describe('isBunGlobalPackage', () => {
   })
 
   it('detects global npm and Bun installations together', async () => {
-    if (!hasBinary('npm')) return
+    const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm'
+    if (!hasBinary(npmCommand)) return
     const bunInstall = await mkdtemp(join(tmpdir(), 'deepseek-bun-global-'))
     const npmPrefix = await mkdtemp(join(tmpdir(), 'deepseek-npm-global-'))
     const env = { ...process.env, BUN_INSTALL: bunInstall, npm_config_prefix: npmPrefix }
     const bunPackageDir = join(bunInstall, 'install', 'global', 'node_modules', '@hermenics', 'deepseek-code')
     try {
-      const npmRoot = Bun.spawnSync(['npm', 'root', '-g'], { stdout: 'pipe', stderr: 'ignore', env })
+      const npmRoot = Bun.spawnSync([npmCommand, 'root', '-g'], { stdout: 'pipe', stderr: 'ignore', env })
       const npmModules = npmRoot.exitCode === 0 ? npmRoot.stdout.toString().trim() : ''
       const npmPackageDir = join(npmModules || (process.platform === 'win32' ? join(npmPrefix, 'node_modules') : join(npmPrefix, 'lib', 'node_modules')), '@hermenics', 'deepseek-code')
       await Promise.all([mkdir(bunPackageDir, { recursive: true }), mkdir(npmPackageDir, { recursive: true })])

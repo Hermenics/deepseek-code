@@ -23,6 +23,7 @@ async function tempRoot(prefix: string): Promise<string> {
 async function gitRepo(): Promise<string> {
   const root = await tempRoot('deepseek-mas-git-')
   await execa('git', ['init', '-q'], { cwd: root })
+  await execa('git', ['config', 'core.autocrlf', 'false'], { cwd: root })
   await execa('git', ['config', 'user.email', 'test@example.com'], { cwd: root })
   await execa('git', ['config', 'user.name', 'Test'], { cwd: root })
   await writeFile(join(root, 'file.txt'), 'base\n')

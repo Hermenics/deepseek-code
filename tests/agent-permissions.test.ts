@@ -39,6 +39,8 @@ describe('agent external-path permissions', () => {
     await mkdir(join(external, 'nested'))
     await writeFile(join(external, 'nested', 'three.txt'), 'three')
     await writeFile(join(sibling, 'blocked.txt'), 'blocked')
+    const canonicalExternal = await realpath(external)
+    const canonicalSibling = await realpath(sibling)
     const agent = new Agent(undefined, { projectRoot: workspace, snapshotFile: null })
     await (agent as any).readyPromise
     const requests: ToolPermissionRequest[] = []
@@ -49,7 +51,7 @@ describe('agent external-path permissions', () => {
     }
     agent.setToolPermissionHandler(async request => {
       requests.push(request)
-      return samePath(request.externalDirectory, external) ? 'directory' : 'deny'
+      return samePath(request.externalDirectory, canonicalExternal) ? 'directory' : 'deny'
     })
 
     expect((await executeTool(agent, 'read_file', { path: join(external, 'one.txt') })).result).toContain('one')
@@ -57,7 +59,7 @@ describe('agent external-path permissions', () => {
     expect((await executeTool(agent, 'read_file', { path: join(external, 'nested', 'three.txt') })).result).toContain('three')
     await expect(executeTool(agent, 'read_file', { path: join(sibling, 'blocked.txt') })).rejects.toThrow('deny-abort')
     expect(await Promise.all(requests.map(async request => request.externalDirectory ? realpath(request.externalDirectory) : undefined)))
-      .toEqual([await realpath(external), await realpath(sibling)])
+      .toEqual([canonicalExternal, canonicalSibling])
   })
 
   it('does not persist an allow-once approval', async () => {
