@@ -57,8 +57,8 @@ const LIMITS = [
 
 const PROVIDERS = [
   ["deepseek", "api.deepseek.com", "Streaming", "Native tool calling; reasoning_content preserved and passed back"],
-  ["bedrock", "bedrock-mantle Chat Completions (V3.2/V3.1) or native InvokeModel (R1)", "DeepSeek streaming; R1 non-streaming", "Native for V3.x; R1 has no tool support — calls emulated via XML in the system prompt"],
-  ["vertex", "Vertex AI OpenAI-compatible endpoint", "Non-streaming", "Emulated; GoogleAuth bearer token with a 1-hour cache (refreshed 5 min before expiry)"],
+  ["bedrock", "bedrock-mantle Chat Completions (V3.2/V3.1) or native InvokeModel (R1)", "Streaming", "V3.x uses native tool calls; R1 bridges the AWS event stream and parses prompt-encoded tool calls"],
+  ["vertex", "Vertex AI OpenAI-compatible endpoint", "Streaming", "OpenAI-compatible SSE; GoogleAuth bearer token with a 1-hour cache (refreshed 5 min before expiry)"],
   ["local", "Any OpenAI-compatible endpoint (default http://localhost:11434/v1)", "Streaming", "Emulated"],
 ];
 
@@ -154,7 +154,7 @@ export default function Architecture() {
             <li><b>Auto-compact</b> — when context usage is above threshold, with a circuit breaker that disables itself after repeated failures.</li>
             <li><b>Prompt refinement</b> — optional; prompts ≥ 30 characters are rewritten by a refiner model unless disabled.</li>
             <li><b>Loop</b> — up to <code className="inline">MAX_AGENT_ITERATIONS = 100</code> iterations.</li>
-            <li><b>Streaming</b> — DeepSeek and local providers stream tokens; Bedrock R1 (InvokeModel) and Vertex fall back to non-streaming responses.</li>
+            <li><b>Streaming</b> — All providers stream by default; Bedrock R1 is bridged from the AWS event stream and <code className="inline">DEEPSEEK_NO_STREAM=1</code> selects the aggregated path.</li>
             <li><b>Parallel calls</b> — a batch runs concurrently only when every tool is in the{" "}
               <code className="inline">PARALLEL_SAFE</code> set: <code className="inline">subagent</code>,{" "}
               <code className="inline">ask_agent</code>, <code className="inline">grep</code>,{" "}

@@ -227,8 +227,8 @@ export default function SessionLifecycle() {
           </p>
           <CodeBlock lang="text">{"> /sessions export a1b2c3d4e5f6 md\nSanitized session export written to /home/you/acme/.deepseek/session-a1b2c3d4e5f6.sanitized.md"}</CodeBlock>
           <p>
-            Export lookup is global by ID even though startup resume is project-scoped. Output is written into
-            the currently active workspace. See <a href="/docs/session-export">Exporting sessions</a> for the
+            Export lookup is project-scoped like startup resume. The requested ID must belong to the current workspace,
+            and output is written into the currently active workspace. See <a href="/docs/session-export">Exporting sessions</a> for the
             Markdown/JSON formats and privacy boundary.
           </p>
         </section>

@@ -2,6 +2,7 @@ import { CodeBlock, Note, Toc, Icon } from "../Layout";
 
 const TOC = [
   { id: "prereqs", label: "Prerequisites" },
+  { id: "platforms", label: "Platform support" },
   { id: "global", label: "Global install" },
   { id: "which", label: "npm or Bun?" },
   { id: "updating", label: "Updating" },
@@ -71,6 +72,36 @@ export default function Installation() {
             <code className="inline">✗</code> on ripgrep is advisory, a <code className="inline">✗</code> on
             credentials is not.
           </p>
+        </section>
+
+        <section id="platforms">
+          <h2><span className="anchor">#</span>Platform support</h2>
+          <p>
+            The packaged CLI now uses a Bun-based launcher instead of a POSIX-only Bash wrapper. Linux, macOS and
+            Windows share the same <code className="inline">deepseek</code> entry point, while platform helpers select
+            the correct shell, clipboard reader, user-state path and search fallback.
+          </p>
+          <div className="doc-table-wrap">
+            <table className="doc-table">
+              <thead><tr><th style={{ width: "20%" }}>Platform</th><th style={{ width: "28%" }}>Install/update</th><th>Platform-specific notes</th></tr></thead>
+              <tbody>
+                <tr><td><b>Linux</b></td><td><code className="inline">npm install -g</code> or <code className="inline">bun add -g</code></td><td>Uses <code className="inline">$SHELL</code>; Ctrl+V can use xclip, xsel or wl-paste.</td></tr>
+                <tr><td><b>macOS</b></td><td><code className="inline">npm install -g</code> or <code className="inline">bun add -g</code></td><td>Clipboard reads use <code className="inline">pbpaste</code>; browser launch uses <code className="inline">open</code>.</td></tr>
+                <tr><td><b>Windows</b></td><td>PowerShell installer, npm or Bun</td><td>Commands use <code className="inline">COMSPEC</code>; clipboard reads use PowerShell; browser launch uses <code className="inline">start</code>.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            On Windows, download the repository&apos;s <code className="inline">install.ps1</code> and run it from
+            PowerShell. It validates the requested version, prefers npm when available, can be forced to Bun with
+            <code className="inline">DEEPSEEK_INSTALL_PACKAGE_MANAGER=bun</code>, and refuses a Bun install below 1.1.
+          </p>
+          <CodeBlock lang="powershell">{'.\\install.ps1 latest\n.\\install.ps1 0.6.18\n$env:DEEPSEEK_INSTALL_PACKAGE_MANAGER = "bun"\n.\\install.ps1 stable'}</CodeBlock>
+          <Note>
+            Windows support does not make the browser workspace remote or multi-user. The{" "}
+            <a href="/docs/browser-workspace">Browser Workspace</a> still binds to localhost and inherits the
+            permissions of the local process.
+          </Note>
         </section>
 
         <section id="global">

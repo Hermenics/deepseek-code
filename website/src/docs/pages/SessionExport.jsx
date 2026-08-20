@@ -95,8 +95,9 @@ export default function SessionExport() {
             hexadecimal characters.
           </p>
           <p>
-            Export lookup is global by ID, so you may export a session saved under another workspace. The output
-            still goes to the <em>currently active</em> working directory, not the session's original directory.
+            Export lookup is scoped to the active workspace. The same ID in another project is not eligible for export
+            from here, even if it exists in the global session store. The output goes to the current workspace&apos;s
+            <code className="inline">.deepseek/</code> directory.
           </p>
         </section>
 
@@ -214,9 +215,9 @@ export default function SessionExport() {
             original session, and there is no session-import command.
           </p>
           <p>
-            Resume choices are filtered to the current working directory. Run the picker from the same project
-            root used by the saved session. A direct ID resume also verifies the current project, while export can
-            locate that ID globally.
+            Resume choices and export lookup are filtered to the current working directory. Run the picker or export
+            command from the same project root used by the saved session. A direct ID from another workspace is
+            rejected rather than copied into the current project&apos;s export path.
           </p>
         </section>
 

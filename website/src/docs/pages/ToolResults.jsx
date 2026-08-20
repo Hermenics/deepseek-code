@@ -26,6 +26,7 @@ const DISPLAY = [
   ["read_file / read_folder", "Path only after completion; file contents stay out of the visible transcript."],
   ["glob / grep", "Pattern or path preview only; matches remain in model history."],
   ["subagent", "A compact working/done line rather than the worker's raw result."],
+  ["ask_user_questions", "Question text and count while active; answer count or cancelled after completion instead of raw JSON."],
   ["other built-ins", "A persisted completion detail capped to the first 100 characters."],
   ["MCP tools", "Calls whose names contain a double underscore are not added to the normal transcript."],
 ];
@@ -96,10 +97,12 @@ export default function ToolResults() {
         <section id="display">
           <h2><span className="anchor">#</span>Interactive display</h2>
           <p>
-            While a tool runs, the status row shows a spinner, human display name, a preview of its primary
-            argument capped near 60 characters, and elapsed seconds. When it finishes, the callback retains the
-            first 200 result characters in transient state, while the row renders roughly the first 60 with a
-            success marker before clearing.
+            While a tool runs, the status row shows a spinner, human display name, a human-readable preview of its
+            primary argument capped near 60 characters, and elapsed seconds. The preview is assembled even while
+            streamed JSON arguments are incomplete, so paths, commands and patterns can appear before the call ends.
+            Loading text also becomes tool-specific while a known tool is active. When it finishes, the callback
+            retains the first 200 result characters in transient state, while the row renders roughly the first 60
+            with a success marker before clearing.
           </p>
           <p>The persisted transcript applies tool-specific rendering:</p>
           <div className="doc-table-wrap"><table className="doc-table">
@@ -110,6 +113,12 @@ export default function ToolResults() {
             <code className="inline">interface.showToolCalls: false</code> hides persisted tool rows and the
             live status. It does not disable tools, remove their results from model context, reduce provider cost,
             or stop file changes.
+          </p>
+          <p>
+            Structured results are summarized rather than dumped as JSON: arrays become item counts, objects become
+            field counts, path-shaped objects show their path, and error-shaped objects keep a concise error. The
+            <code className="inline">ask_user_questions</code> tool receives a dedicated summary so question text,
+            answer counts and cancellation remain readable without exposing the raw payload.
           </p>
         </section>
 

@@ -6,14 +6,14 @@ const TOC = [
   { id: "large", label: "Large-paste markers" },
   { id: "submit", label: "Submission & queueing" },
   { id: "vim", label: "Vim interaction" },
-  { id: "terminal", label: "Terminal fallbacks" },
+  { id: "terminal", label: "Terminal and platform fallbacks" },
   { id: "privacy", label: "Privacy & safety" },
   { id: "limits", label: "Limits & accessibility" },
 ];
 
 const PASTE_PATHS = [
   ["Terminal paste", "Usually Ctrl+Shift+V on Linux/Windows or Cmd+V on macOS. The terminal should send one bracketed-paste event."],
-  ["Ctrl+V in DeepSeek Code", "On Linux, read the clipboard through xclip, then xsel, then wl-paste, stopping at the first success."],
+  ["Ctrl+V in DeepSeek Code", "Read the clipboard through the platform helper: pbpaste on macOS, PowerShell Get-Clipboard on Windows, or xclip/xsel/wl-paste on Linux."],
   ["Middle-click / menu paste", "Owned by the terminal emulator. It works when the emulator delivers bracketed paste or ordinary text input."],
 ];
 
@@ -28,7 +28,7 @@ export default function ClipboardPasting() {
         <div className="hero">
           <h1>Clipboard and pasting</h1>
           <p className="tagline">
-            Understand terminal-native paste, the Linux clipboard helper, multiline normalization and compact markers for large blocks.
+            Understand terminal-native paste, platform clipboard readers, multiline normalization and compact markers for large blocks.
           </p>
         </div>
 
@@ -49,7 +49,8 @@ export default function ClipboardPasting() {
           </div>
           <Note>
             Ctrl+Shift+V is normally a terminal-emulator shortcut; it is not the same path as pressing Ctrl+V inside the
-            editor. The editor&apos;s Ctrl+V helper is Linux-specific and fails silently if no supported clipboard command works.
+            editor. The editor&apos;s direct clipboard helper is platform-specific and fails silently if no supported
+            command works or the platform clipboard is unavailable.
           </Note>
         </section>
 
@@ -136,12 +137,14 @@ export default function ClipboardPasting() {
         </section>
 
         <section id="terminal">
-          <h2><span className="anchor">#</span>Terminal and Linux fallbacks</h2>
+          <h2><span className="anchor">#</span>Terminal and platform fallbacks</h2>
           <p>
-            The in-editor Ctrl+V path launches a clipboard reader with a two-second timeout. The probe order is
+            The in-editor Ctrl+V path launches a platform clipboard reader. Linux probes
             <code className="inline">xclip</code>, <code className="inline">xsel</code>, then
-            <code className="inline">wl-paste</code>. Missing commands, an unavailable display and a timeout all leave the
-            draft unchanged without an error message or availability indicator.
+            <code className="inline">wl-paste</code> with a two-second timeout; macOS uses{" "}
+            <code className="inline">pbpaste</code>, and Windows uses non-interactive PowerShell with a five-second
+            timeout. Missing commands, an unavailable display and a timeout all leave the draft unchanged without an
+            error message or availability indicator.
           </p>
           <CodeBlock lang="bash">{"# Check which helper is available in your shell\ncommand -v xclip\ncommand -v xsel\ncommand -v wl-paste"}</CodeBlock>
           <p>
@@ -183,7 +186,7 @@ export default function ClipboardPasting() {
             <li><b>Inline threshold:</b> 60 counted string units and at most 3 normalized lines; exceeding either limit forces a marker.</li>
             <li><b>Inline multiline paste:</b> line breaks become spaces and cannot be preserved in a short paste.</li>
             <li><b>Large paste:</b> normalized LF line breaks are preserved when the marker expands.</li>
-            <li><b>Clipboard helper:</b> Linux command-line readers only, with silent failure after two seconds.</li>
+            <li><b>Platform clipboard helper:</b> platform reader with silent failure; Linux uses a two-second probe, Windows PowerShell allows five seconds.</li>
             <li><b>Selection and copying:</b> primarily controlled by the terminal emulator, especially in the main screen buffer.</li>
           </ul>
           <p>

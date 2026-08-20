@@ -7,6 +7,7 @@ const TOC = [
   { id: "shell", label: "Shell & git" },
   { id: "nav", label: "Code navigation" },
   { id: "delegation", label: "Delegation" },
+  { id: "interaction", label: "User interaction" },
   { id: "state", label: "Memory, goals & plans" },
   { id: "terminal", label: "Terminal-only tools" },
   { id: "risk", label: "Which tools trigger prompts" },
@@ -42,6 +43,10 @@ const DELEGATION = [
   ["ask_agent", "question", "agent, broadcast", "Ask configured specialists in the background. Returns handles immediately."],
   ["moa", "prompt", "systemPrompt, referenceModels, aggregatorModel", "Several models answer independently; one synthesizes."],
   ["workflow", "script", "name", "Run a dynamic workflow script."],
+];
+
+const INTERACTION = [
+  ["ask_user_questions", "questions", "1-4 question objects", "Pause the main session for structured user input: choice, text or yes/no."],
 ];
 
 const STATE = [
@@ -254,6 +259,25 @@ export default function Tools() {
             <a href="/docs/parallel-tasks">Parallel tasks</a> and{" "}
             <a href="/docs/workflows">Workflows</a>.
           </p>
+        </section>
+
+        <section id="interaction">
+          <h2><span className="anchor">#</span>User interaction</h2>
+          <ToolTable rows={INTERACTION} />
+          <p>
+            <code className="inline">ask_user_questions</code> is available only in an interactive main session. It
+            presents one to four questions together and supports <code className="inline">choice</code>,
+            <code className="inline">text</code> and <code className="inline">yesno</code> types. Choice questions
+            accept two to four options; a choice can be multi-select, and a free-form “Other” option is available
+            where the interface supports it.
+          </p>
+          <p>
+            Answers are returned as strings keyed by question index. Multi-select values are JSON-encoded arrays
+            inside that string contract, so labels containing commas remain unambiguous. Esc or Ctrl+C returns a
+            cancellation result; pipe mode and non-interactive workers receive an unavailable error instead of a
+            hidden prompt.
+          </p>
+          <CodeBlock lang="json">{'{\n  "questions": [\n    {\n      "header": "Runtime",\n      "question": "Which runtime should this use?",\n      "type": "choice",\n      "options": [\n        { "label": "Bun", "description": "Fast JavaScript runtime." },\n        { "label": "Node", "description": "Broad ecosystem compatibility." }\n      ]\n    }\n  ]\n}'}</CodeBlock>
         </section>
 
         <section id="state">

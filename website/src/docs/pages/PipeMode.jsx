@@ -181,8 +181,9 @@ DEEPSEEK_BASE_URL=http://gateway.internal/v1 deepseek --pipe "list likely regres
           <CodeBlock lang="bash">{`deepseek --pipe "inspect the build" > answer.txt 2> progress.log
 deepseek --pipe --json "inspect the build" 2>/dev/null | jq -r .output`}</CodeBlock>
           <p>
-            Plain assistant text is written as callbacks arrive. Non-streaming providers still use the same
-            stdout contract, but typically deliver a response as one larger write. Tool arguments and results
+            Plain assistant text is written as callbacks arrive. The aggregated path selected by
+            <code className="inline">DEEPSEEK_NO_STREAM=1</code> still uses the same stdout contract, but typically
+            delivers a response as one larger write. Tool arguments and results
             are not printed; stderr receives only the tool name.
           </p>
           <Note>

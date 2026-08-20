@@ -136,6 +136,7 @@ const NAV = [
       { label: "Keyboard shortcuts", href: "/docs/keybindings" },
       { label: "Status bar", href: "/docs/status-bar" },
       { label: "Activity panel", href: "/docs/activity-panel" },
+      { label: "Browser workspace", href: "/docs/browser-workspace" },
       { label: "Reasoning display", href: "/docs/reasoning-display" },
       { label: "Terminal rendering", href: "/docs/terminal-rendering" },
       { label: "Themes", href: "/docs/themes" },

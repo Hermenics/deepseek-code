@@ -1,5 +1,33 @@
 [
   {
+    "version": "0.6.18",
+    "changes": [
+      "Fixed: `/gui` now resolves the CLI entrypoint and launches the browser workspace from the agent's active working directory",
+      "Fixed: GUI subprocess failures and non-zero exits are reported in the TUI instead of leaving a false \"Opening\" state",
+      "Fixed: Explicit `/quit` and TUI cleanup terminate the detached GUI process through one shared lifecycle helper",
+      "Docs: Document `/gui`, its separate Web session, browser launch behavior, and lifecycle in Introspect",
+      "Tests: Add regression coverage for `/gui` command parsing and command registry exposure"
+    ]
+  },
+  {
+    "version": "0.6.17",
+    "changes": [
+      "Added: Local browser workspace with WebSocket agent bridge, streaming responses, thinking/tool activity, telemetry, todos, source control, terminal PTY, and session replay",
+      "Added: Web UI support for Conversation, Source Control, Terminal, available tools, live trace, approvals, questions, plans, and responsive light/dark themes",
+      "Added: Browser-side command autocomplete, streamed response formatting, fixed-bottom composer, stop-agent control, and local session restoration",
+      "Added: Web server entrypoint through `deepseek --web` with authenticated loopback access and persistent terminal support",
+      "Tests: Add comprehensive WebSocket, terminal replay, source-control, bridge interaction, and security regression coverage"
+    ]
+  },
+  {
+    "version": "0.6.16",
+    "changes": [
+      "Fixed: Session exports now resolve the requested workspace before loading a session, preventing cross-project exports when session IDs collide or legacy storage contains duplicates",
+      "Fixed: Checkpoint restore rejects path-traversal IDs and only loads generated checkpoint identifiers from the checkpoint directory",
+      "Tests: Add regression coverage for workspace-scoped session exports and checkpoint path traversal"
+    ]
+  },
+  {
     "version": "0.6.15",
     "changes": [
       "Added: Interactive `ask_user_questions` tool for agent-user dialogue, supporting choice, free-form text, yes/no questions, numeric selection shortcuts, and up to four questions per interaction",

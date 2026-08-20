@@ -241,8 +241,8 @@ assistant "done"`}</CodeBlock>
           <p>
             <b>After a streaming response,</b> a second check currently uses a fixed 85% threshold and the
             circuit breaker. It does not consult <code className="inline">compaction.enabled</code> or the
-            configured threshold. Bedrock models on the non-streaming path and Vertex do not take this
-            post-stream branch.
+            configured threshold. The post-stream branch applies to the default streaming path; setting
+            <code className="inline">DEEPSEEK_NO_STREAM=1</code> selects the aggregated path instead.
           </p>
           <p>
             This mismatch is a current runtime limitation worth knowing when tuning or disabling automatic
