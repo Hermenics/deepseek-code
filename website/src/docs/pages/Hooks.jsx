@@ -2,64 +2,39 @@ import { CodeBlock, Note, Toc } from "../Layout";
 
 const TOC = [
   { id: "what", label: "What hooks are" },
-  { id: "events", label: "The three events" },
+  { id: "events", label: "Supported event families" },
   { id: "config", label: "Configuration shape" },
-  { id: "matching", label: "Matcher patterns" },
-  { id: "input", label: "The JSON input" },
-  { id: "output", label: "PreToolUse output" },
-  { id: "failclosed", label: "Every failure is a block" },
-  { id: "timeout", label: "Timeouts & output limits" },
-  { id: "audit", label: "The hook audit log" },
+  { id: "matching", label: "Matchers and scopes" },
+  { id: "decisions", label: "Decisions and effects" },
+  { id: "input", label: "Input and output" },
+  { id: "runtime", label: "Runtime behavior" },
+  { id: "security", label: "Security boundaries" },
   { id: "examples", label: "Examples" },
-  { id: "practices", label: "Practices" },
 ];
 
 const EVENTS = [
-  ["PreToolUse", "Before a tool runs", "approve, block, or rewrite the input", "Matcher list"],
-  ["PostToolUse", "After a tool produces a result", "observe — formatting, linting, notification", "Matcher list"],
-  ["SessionStart", "Once, when a session begins", "observe — warm caches, print context", "Command list"],
+  ["Tool gate", "PreToolUse", "Matcher", "Can block or replace the complete tool input before authorization."],
+  ["Permission gate", "PermissionRequest", "Matcher", "Can allow or deny a pending permission decision."],
+  ["Prompt gate", "UserPromptSubmit", "Command list", "Can block a prompt or add context before the model sees it."],
+  ["Stop gate", "Stop", "Command list", "Can return feedback that makes the agent continue instead of completing."],
+  ["Compaction", "PreCompact / PostCompact", "Matcher", "Pre can block manual or automatic compaction; Post observes a completed compaction."],
+  ["Sub-agents", "TaskCreated / SubagentStart / TaskCompleted / SubagentStop", "Mixed", "Can block task creation or sub-agent start; completion events are observational."],
+  ["Session", "Setup / InstructionsLoaded / SessionStart / SessionEnd", "Matcher", "Observe initialization, loaded project instructions and shutdown."],
+  ["Tools", "PostToolUse / PostToolUseFailure / PostToolBatch / FileChanged", "Mixed", "Observe successful tools, failures, batches and changed paths."],
+  ["Other lifecycle", "PermissionDenied / StopFailure / MessageDisplay / CwdChanged / WorktreeCreate / WorktreeRemove", "Mixed", "Observe or guard the corresponding runtime boundary."],
 ];
 
-const INPUT_FIELDS = [
-  ["schema_version", "1", "Always 1. Lets a hook detect a future format change."],
-  ["event", "HookEvent", "PreToolUse, PostToolUse or SessionStart."],
-  ["session_id", "string", "The session this belongs to."],
-  ["correlation_id", "string", "Shared by every hook run for one tool call."],
-  ["run_id", "string", "Unique to this single hook execution."],
-  ["cwd", "string", "The working directory at execution time."],
-  ["tool_name", "string?", "The tool being called. Absent for SessionStart."],
-  ["tool_input", "object?", "The tool's arguments. Absent for SessionStart."],
-  ["tool_result", "string?", "The result. PostToolUse only."],
+const DECLARED_NOT_WIRED = [
+  "UserPromptExpansion",
+  "Notification",
+  "ConfigChange",
+  "DirectoryAdded",
+  "Elicitation",
+  "ElicitationResult",
+  "TeammateIdle",
 ];
 
-const OUTPUT_FIELDS = [
-  ["decision", "'approve' | 'block'", "Omit to pass through without an opinion."],
-  ["reason", "string", "Shown when blocking. Write it for whoever reads the refusal."],
-  ["modified_input", "object", "Replaces the tool arguments for this call."],
-];
-
-const FAILURES = [
-  ["Non-zero exit", "block", "stderr if present, otherwise \"exited with code N\"."],
-  ["Timeout", "block", "\"Hook timed out\"."],
-  ["Spawn error", "block", "The spawn error message."],
-  ["stdin error", "block", "\"stdin error: …\"."],
-  ["Exit 0, empty stdout", "pass", "No opinion. The call proceeds."],
-  ["Exit 0, JSON stdout", "as stated", "approve or block per the payload."],
-];
-
-const LIMITS = [
-  ["timeout", "30 seconds", "Per hook command. Configurable per hook."],
-  ["MAX_OUTPUT_BYTES", "100,000", "Cap on captured stdout and stderr each."],
-  ["MAX_HOOK_AUDIT_ENTRIES", "500", "In-memory audit entries retained per session."],
-];
-
-const PRACTICES = [
-  ["Make hooks fast", "A 30-second cap is a ceiling, not a budget. Every hook runs on every matching call."],
-  ["Match narrowly", "\"*\" runs your hook on reads and searches too. Name the tools you mean."],
-  ["Exit 0 unless you mean to block", "A crashing hook does not fail open — it blocks the tool."],
-  ["Give a reason when blocking", "The reason is the only explanation anyone gets."],
-  ["Prefer PostToolUse for side effects", "Formatting and linting belong after the edit, not before it."],
-];
+const HOOK_CONFIG = '{\n  "hooks": {\n    "PreToolUse": [\n      {\n        "matcher": "write_file|edit_file|patch_file",\n        "hooks": [\n          {\n            "id": "protect-generated",\n            "type": "command",\n            "command": "node scripts/check-write.js",\n            "timeout": 5\n          }\n        ]\n      }\n    ],\n    "UserPromptSubmit": [\n      { "type": "command", "command": "bun scripts/add-context.ts" }\n    ],\n    "PreCompact": [\n      {\n        "matcher": "manual|auto",\n        "hooks": [{ "type": "command", "command": "bun scripts/compact-policy.ts" }]\n      }\n    ]\n  }\n}';
 
 export default function Hooks() {
   return (
@@ -72,382 +47,186 @@ export default function Hooks() {
         <div className="hero">
           <h1>Hooks</h1>
           <p className="tagline">
-            Shell commands that run around tool calls — able to approve, block, or rewrite what the agent
-            was about to do. Every failure path fails closed.
+            Executable shell commands that observe or control the agent lifecycle, from prompt submission to
+            tool authorization, compaction, sub-agents and shutdown.
           </p>
         </div>
 
         <section id="what">
           <h2><span className="anchor">#</span>What hooks are</h2>
           <p>
-            A hook is a shell command. It receives a JSON payload on <b>stdin</b>, and what it writes to{" "}
-            <b>stdout</b> can change what happens next. There is no plugin API, no SDK, and no language
-            requirement — anything that reads stdin and writes stdout works.
+            A hook is a command that receives one JSON object on <b>stdin</b>. Its exit status and optional JSON
+            written to <b>stdout</b> become a lifecycle result. There is no language-specific SDK: a shell script,
+            Bun program, Node program or compiled executable can participate as long as it follows the process
+            contract described in <a href="/docs/hook-input-output">Hook input & output</a>.
           </p>
           <p>
-            That choice has a consequence worth stating plainly: hooks run{" "}
-            <code className="inline">sh -c &lt;your command&gt;</code> with your permissions. They are the most
-            powerful extension point in the product and the one to be most careful installing from someone
-            else.
+            Hooks run as the operating-system user that launched DeepSeek Code. On POSIX systems the configured
+            command runs through the default shell; on Windows it runs through <code className="inline">COMSPEC</code>
+            (normally <code className="inline">cmd.exe</code>). A hook is therefore executable policy, not harmless
+            metadata.
           </p>
-          <p>
-            Hooks sit alongside the <a href="/docs/how-it-works#gates">three permission gates</a> rather than
-            inside them. A <code className="inline">PreToolUse</code> hook can veto a call that workspace
-            containment, risk assessment and permission resolution all approved.
-          </p>
+          <Note>
+            Active executable hooks are loaded from User settings only:
+            <code className="inline">~/.deepseek/settings.json</code>. Project and local hook blocks are ignored
+            before effective settings are built so a repository cannot silently execute a command on a new machine.
+          </Note>
         </section>
 
         <section id="events">
-          <h2><span className="anchor">#</span>The three events</h2>
+          <h2><span className="anchor">#</span>Supported event families</h2>
+          <p>
+            The hook configuration now accepts the expanded lifecycle vocabulary below. “Matcher” events use an
+            array of matcher groups; “command list” events use a flat array. The event name is included in every
+            stdin payload as both <code className="inline">event</code> and{" "}
+            <code className="inline">hook_event_name</code>.
+          </p>
           <div className="doc-table-wrap">
             <table className="doc-table">
-              <thead>
-                <tr>
-                  <th style={{ width: "18%" }}>Event</th>
-                  <th style={{ width: "24%" }}>Fires</th>
-                  <th style={{ width: "32%" }}>Can</th>
-                  <th>Config shape</th>
-                </tr>
-              </thead>
-              <tbody>
-                {EVENTS.map(([e, f, c, s]) => (
-                  <tr key={e}>
-                    <td><code className="inline">{e}</code></td>
-                    <td>{f}</td>
-                    <td>{c}</td>
-                    <td>{s}</td>
-                  </tr>
-                ))}
-              </tbody>
+              <thead><tr><th style={{ width: "18%" }}>Family</th><th style={{ width: "31%" }}>Events</th><th style={{ width: "15%" }}>Shape</th><th>Effect</th></tr></thead>
+              <tbody>{EVENTS.map(([family, events, shape, effect]) => <tr key={family}><td><b>{family}</b></td><td><code className="inline">{events}</code></td><td>{shape}</td><td>{effect}</td></tr>)}</tbody>
             </table>
           </div>
           <p>
-            Only <code className="inline">PreToolUse</code> can influence the outcome. The other two observe —
-            which is why they take a flat command list rather than matchers with decisions.
-          </p>
-          <p>
-            <code className="inline">SessionStart</code> is the odd one structurally: it is a bare{" "}
-            <code className="inline">HookCommand[]</code> with no matcher, because there is no tool to match
-            against.
+            The type contract also reserves several event names for future integrations:
+            {DECLARED_NOT_WIRED.map((event) => <span key={event}> <code className="inline">{event}</code></span>)}.
+            They are normalized as valid settings keys, but the current agent has no call site that emits them.
+            Configuring a reserved event is consequently a no-op until a producer is wired.
           </p>
           <Note>
-            Three events is the complete set. There is no PreCompact, no PreSubmit, no PostSession.
+            A valid key in <code className="inline">settings.json</code> means the schema accepts it; it does not
+            promise that every runtime subsystem already emits that event.
           </Note>
         </section>
 
         <section id="config">
           <h2><span className="anchor">#</span>Configuration shape</h2>
-          <CodeBlock lang="json">{`// .deepseek/settings.json
-{
-  "hooks": {
-    "PreToolUse": [
-      {
-        "id": "guard-generated",
-        "matcher": "write_file|edit_file|patch_file",
-        "enabled": true,
-        "hooks": [
-          { "id": "check-generated", "type": "command",
-            "command": "node scripts/refuse-generated.js", "timeout": 5 }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "edit_file|write_file",
-        "hooks": [{ "type": "command", "command": "bunx tsc --noEmit" }]
-      }
-    ],
-    "SessionStart": [
-      { "type": "command", "command": "git fetch --quiet || true" }
-    ]
-  }
-}`}</CodeBlock>
           <p>
-            Two levels of grouping, and both matter. A <b>matcher</b> pairs a tool pattern with a list of
-            commands; a <b>command</b> carries the shell string, an optional timeout, an optional id and an
-            optional <code className="inline">enabled</code> flag.
+            Matcher events group one or more commands behind a value. Direct command events have no matcher because
+            there is no value to select. Both a matcher and an individual command can be disabled without deleting
+            the configuration.
+          </p>
+          <CodeBlock lang="json">{HOOK_CONFIG}</CodeBlock>
+          <p>
+            Each command supports <code className="inline">type: "command"</code>, a required{" "}
+            <code className="inline">command</code>, an optional positive finite <code className="inline">timeout</code>
+            in seconds (30 by default), an optional stable <code className="inline">id</code> and{" "}
+            <code className="inline">enabled</code>. Missing ids are normalized when settings load.
           </p>
           <p>
-            <code className="inline">enabled: false</code> exists at both levels because disabling is the common
-            debugging move. Commenting out JSON is not possible, and deleting a block you want back is worse
-            than a flag.
-          </p>
-          <p>
-            The <code className="inline">id</code> fields are optional and worth setting — they appear in the{" "}
-            <a href="#audit">audit log</a>, which is how you tell two hooks apart when one is misbehaving.
+            The settings center's Hook library writes compatible entries to User scope, lets you edit event, matcher,
+            command and timeout, runs a confirmed simulated test, and toggles enabled state. Leaving the library
+            reloads the active settings; it does not replay a fresh SessionStart event.
           </p>
         </section>
 
         <section id="matching">
-          <h2><span className="anchor">#</span>Matcher patterns</h2>
+          <h2><span className="anchor">#</span>Matchers and scopes</h2>
           <p>
-            A matcher is a tool-name pattern with exactly three forms:
+            Tool matchers compare case-insensitively against the actual tool name. Use one exact name, a pipe-separated
+            list, an empty matcher or <code className="inline">*</code>. Partial globs and regular expressions are not
+            supported.
           </p>
-          <CodeBlock lang="text">{`"*"                             every tool
-"shell"                         exactly shell
-"write_file|edit_file"          any of the listed tools`}</CodeBlock>
+          <CodeBlock lang="text">{'matches:     shell\nmatches:     write_file | edit_file | patch_file\nmatches:     *\nnot a glob:  write_*\nnot an alias: WriteFile when the tool is write_file'}</CodeBlock>
           <p>
-            Matching is case-insensitive and, notably, <b>not glob</b>. The pattern is split on{" "}
-            <code className="inline">|</code>, each part is trimmed and lowercased, and membership is tested.
-            There is no wildcard beyond the bare <code className="inline">*</code> — you cannot write{" "}
-            <code className="inline">write_*</code>.
-          </p>
-          <p>
-            That is a deliberate simplification. A hook matcher answers "which tools", a small closed set you
-            can enumerate, and enumerating three names is clearer than a pattern that might quietly start
-            matching a tool added later.
+            Other matcher events use their event-specific value: <code className="inline">PreCompact</code> and{" "}
+            <code className="inline">PostCompact</code> use <code className="inline">manual</code> or{" "}
+            <code className="inline">auto</code>; <code className="inline">SessionStart</code> uses its source;
+            <code className="inline">SubagentStart</code> and <code className="inline">SubagentStop</code> use the
+            agent type; permission and tool events use the tool name; worktree and file events use the relevant path
+            or name when the integration supplies one.
           </p>
           <p>
-            An empty pattern is treated as <code className="inline">*</code>, so a misconfigured matcher runs on
-            everything rather than silently on nothing — visible over-application instead of invisible
-            absence.
+            A project can contain hook-looking settings for documentation or portability, but the executable hook
+            loader removes them from the active User resolution. Keep commands reviewed and explicit in the owner
+            settings file.
           </p>
+        </section>
+
+        <section id="decisions">
+          <h2><span className="anchor">#</span>Decisions and effects</h2>
           <p>
-            Multiple matchers can match one call. All of them run, in configuration order.
+            A hook result is folded across all matching commands. The first blocking decision wins; additional
+            context is joined; system messages, retries, output suppression and updated input are retained according
+            to the lifecycle integration. A hook approval is never a blanket bypass of later authorization.
+          </p>
+          <div className="doc-table-wrap">
+            <table className="doc-table">
+              <thead><tr><th style={{ width: "28%" }}>Output</th><th>Current effect</th></tr></thead>
+              <tbody>
+                <tr><td><code className="inline">decision: "block"</code></td><td>Blocks a control-capable event; the returned reason is shown at the boundary.</td></tr>
+                <tr><td><code className="inline">continue: false</code></td><td>Equivalent blocking signal for lifecycle events.</td></tr>
+                <tr><td><code className="inline">hookSpecificOutput.additionalContext</code></td><td>Appends context for prompt submission and sub-agent start integrations.</td></tr>
+                <tr><td><code className="inline">decision.behavior: "allow" | "deny"</code></td><td>Allows or denies a permission request; deny blocks the pending request.</td></tr>
+                <tr><td><code className="inline">modified_input</code></td><td>PreToolUse replaces the complete argument object before authorization.</td></tr>
+                <tr><td>Empty or unrecognized JSON</td><td>No opinion; the event continues unless the process itself failed.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            A failed command, timeout, spawn failure or stdin failure is converted into a block-shaped result. That
+            result blocks a gate such as PreToolUse, PermissionRequest, UserPromptSubmit, Stop, PreCompact or
+            SubagentStart; observational events record the failure without undoing work that already completed.
           </p>
         </section>
 
         <section id="input">
-          <h2><span className="anchor">#</span>The JSON input</h2>
+          <h2><span className="anchor">#</span>Input and output</h2>
           <p>
-            Every hook receives one JSON object on stdin:
+            Every payload includes <code className="inline">schema_version: 1</code>, session, correlation and run
+            identifiers, the event name and the current working directory. Optional fields describe the boundary:
+            prompt text, tool input/result, model, compaction trigger, permission mode, task identity, changed path,
+            error details, loaded instruction file or shutdown reason.
           </p>
-          <div className="doc-table-wrap">
-            <table className="doc-table">
-              <thead>
-                <tr><th style={{ width: "22%" }}>Field</th><th style={{ width: "22%" }}>Type</th><th>Meaning</th></tr>
-              </thead>
-              <tbody>
-                {INPUT_FIELDS.map(([f, t, m]) => (
-                  <tr key={f}>
-                    <td><code className="inline">{f}</code></td>
-                    <td><code className="inline">{t}</code></td>
-                    <td>{m}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <CodeBlock lang="json">{`{
-  "schema_version": 1,
-  "event": "PreToolUse",
-  "session_id": "9f2a1c4b",
-  "correlation_id": "7c31a9de-…",
-  "run_id": "b2f04e11-…",
-  "cwd": "/home/you/proj",
-  "tool_name": "write_file",
-  "tool_input": { "path": "src/generated/api.ts", "content": "…" }
-}`}</CodeBlock>
+          <CodeBlock lang="json">{'{\n  "schema_version": 1,\n  "event": "PermissionRequest",\n  "hook_event_name": "PermissionRequest",\n  "session_id": "…",\n  "correlation_id": "…",\n  "run_id": "…",\n  "cwd": "/workspace",\n  "tool_name": "shell",\n  "tool_input": { "command": "bun test" }\n}'}</CodeBlock>
           <p>
-            The <code className="inline">correlation_id</code> / <code className="inline">run_id</code> pair is the
-            part people miss. One tool call may trigger several hooks; they all share a{" "}
-            <code className="inline">correlation_id</code> and each gets its own{" "}
-            <code className="inline">run_id</code>. That is what makes "these four hook runs were about the same
-            call" recoverable from the audit log.
-          </p>
-          <p>
-            <code className="inline">schema_version</code> is present from the first version rather than added
-            when it first changes — which is the only time adding it is free.
+            Use stdout for one JSON response only. Send diagnostics to stderr. The full field table, event-specific
+            payload examples and parser rules live on <a href="/docs/hook-input-output">Hook input & output</a>.
           </p>
         </section>
 
-        <section id="output">
-          <h2><span className="anchor">#</span>PreToolUse output</h2>
+        <section id="runtime">
+          <h2><span className="anchor">#</span>Runtime behavior</h2>
+          <ul className="capabilities">
+            <li><b>PreToolUse:</b> matching commands run in configuration order and can chain complete input replacements; authorization sees the final object.</li>
+            <li><b>PostToolUse:</b> matching commands are fire-and-forget after a successful tool, with up to 10,000 result characters.</li>
+            <li><b>Lifecycle matcher events:</b> matching commands are dispatched as one event group; duplicate command/timeout pairs are de-duplicated.</li>
+            <li><b>Timeout:</b> each command has its own 30-second default and captured stdout/stderr are capped at 100,000 bytes each.</li>
+            <li><b>Audit:</b> the process retains the newest 500 hook runs in memory, including ids, decisions and truncation state.</li>
+          </ul>
           <p>
-            A <code className="inline">PreToolUse</code> hook may print JSON to stdout:
-          </p>
-          <div className="doc-table-wrap">
-            <table className="doc-table">
-              <thead>
-                <tr><th style={{ width: "24%" }}>Field</th><th style={{ width: "26%" }}>Type</th><th>Effect</th></tr>
-              </thead>
-              <tbody>
-                {OUTPUT_FIELDS.map(([f, t, e]) => (
-                  <tr key={f}>
-                    <td><code className="inline">{f}</code></td>
-                    <td><code className="inline">{t}</code></td>
-                    <td>{e}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <CodeBlock lang="bash">{`#!/usr/bin/env bash
-input=$(cat)
-path=$(echo "$input" | jq -r '.tool_input.path // ""')
-
-case "$path" in
-  */generated/*|*.gen.ts)
-    echo '{"decision":"block","reason":"generated file — edit the template instead"}'
-    ;;
-  *)
-    ;;   # no output = no opinion
-esac`}</CodeBlock>
-          <p>
-            <b>Printing nothing is the common case.</b> A hook with no opinion exits 0 silently and the call
-            proceeds — which means a hook that only cares about one path does not need an "approve" branch.
-          </p>
-          <p>
-            <code className="inline">modified_input</code> is the powerful one: it <b>replaces</b> the tool's
-            arguments. Values are validated before use — strings must be strings, the replacement input must
-            be a non-array object — so a malformed rewrite is rejected rather than passed to the tool.
-          </p>
-          <p>
-            When several hooks match, the modified input <b>chains</b>: each hook receives what the previous
-            one produced, so two hooks can each adjust one field.
+            For exact ordering around startup, tools, compaction, tasks and shutdown, use{" "}
+            <a href="/docs/hook-lifecycle">Hook lifecycle</a>. For failure diagnosis, use{" "}
+            <a href="/docs/hook-troubleshooting">Hook troubleshooting</a>.
           </p>
         </section>
 
-        <section id="failclosed">
-          <h2><span className="anchor">#</span>Every failure is a block</h2>
+        <section id="security">
+          <h2><span className="anchor">#</span>Security boundaries</h2>
           <p>
-            This is the single most important thing to understand about hooks. Every abnormal exit path
-            resolves to <code className="inline">block</code>:
-          </p>
-          <div className="doc-table-wrap">
-            <table className="doc-table">
-              <thead>
-                <tr><th style={{ width: "26%" }}>Situation</th><th style={{ width: "16%" }}>Decision</th><th>Reason given</th></tr>
-              </thead>
-              <tbody>
-                {FAILURES.map(([s, d, r]) => (
-                  <tr key={s}>
-                    <td>{s}</td>
-                    <td><code className="inline">{d}</code></td>
-                    <td>{r}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p>
-            A hook that crashes, times out, cannot be spawned, or exits non-zero <b>stops the tool call</b>.
-            It does not fail open.
+            Hooks are deliberately User-only because a checked-out repository must not gain automatic command
+            execution merely by adding a settings file. This protects activation, not execution: once you enable a
+            command, it runs with your account and can read environment variables, modify files or start processes.
           </p>
           <p>
-            The reasoning is that hooks exist to enforce policy. A security hook that silently stops working
-            when a dependency is missing provides <em>negative</em> value: the policy is gone and nothing
-            says so. Failing closed makes a broken hook immediately visible — the agent stops being able to
-            work, and you fix it.
-          </p>
-          <p>
-            The practical consequence: <b>a hook that is not carefully written will block your session</b>.
-            Test it standalone before enabling it:
-          </p>
-          <CodeBlock lang="bash">{`echo '{"schema_version":1,"event":"PreToolUse","tool_name":"write_file",
-"tool_input":{"path":"src/a.ts"}}' | ./my-hook.sh; echo "exit=$?"`}</CodeBlock>
-          <p>
-            Blocking failures are also logged to the terminal as{" "}
-            <code className="inline">[hooks] Hook "&lt;command&gt;" failed: &lt;reason&gt;</code>, so a
-            mysteriously refused tool call names its cause.
-          </p>
-        </section>
-
-        <section id="timeout">
-          <h2><span className="anchor">#</span>Timeouts & output limits</h2>
-          <div className="doc-table-wrap">
-            <table className="doc-table">
-              <thead>
-                <tr><th style={{ width: "32%" }}>Limit</th><th style={{ width: "18%" }}>Default</th><th>Applies to</th></tr>
-              </thead>
-              <tbody>
-                {LIMITS.map(([l, d, a]) => (
-                  <tr key={l}>
-                    <td><code className="inline">{l}</code></td>
-                    <td><code className="inline">{d}</code></td>
-                    <td>{a}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p>
-            The timeout is enforced twice — once through the spawn option and once by an explicit timer that{" "}
-            <code className="inline">SIGKILL</code>s the process. The belt-and-braces matters because a hook
-            that ignores the first mechanism would otherwise hang the loop indefinitely.
-          </p>
-          <p>
-            Output is capped at 100,000 bytes for stdout and stderr each, and truncation is recorded as{" "}
-            <code className="inline">output_truncated</code> in the audit entry rather than silently discarded.
-            A hook that dumps a large file cannot exhaust memory.
-          </p>
-          <p>
-            Cap your own timeout tightly. A validation hook should take milliseconds; if it takes seconds,
-            every matching tool call pays that cost.
-          </p>
-        </section>
-
-        <section id="audit">
-          <h2><span className="anchor">#</span>The hook audit log</h2>
-          <p>
-            Every execution produces a <code className="inline">HookRun</code> record: run and hook ids, event,
-            command, correlation and session ids, start and finish timestamps, exit code, decision, error
-            and whether output was truncated.
-          </p>
-          <p>
-            The log is in memory, bounded at 500 entries, and trimmed from the front when it overflows —
-            recent history is what diagnoses a live problem, and an unbounded array in a long session is a
-            leak.
-          </p>
-          <p>
-            One implementation detail is visible in behavior: a{" "}
-            <code className="inline">finalized</code> guard ensures the error and close handlers cannot both
-            write an entry for the same run. Without it, a hook that errors and then closes would appear
-            twice, and the duplicate would be the one with the misleading exit code.
+            Hooks also do not replace the normal permission pipeline. A rewritten tool input is rechecked for workspace
+            containment, risk, external paths, permissions and interaction mode. A hook that allows a permission
+            request grants only that pending decision, not every future call.
           </p>
         </section>
 
         <section id="examples">
           <h2><span className="anchor">#</span>Examples</h2>
-          <p><b>Typecheck after every edit.</b> The most useful hook there is:</p>
-          <CodeBlock lang="json">{`{ "matcher": "edit_file|write_file|patch_file",
-  "hooks": [{ "type": "command", "command": "bunx tsc --noEmit" }] }`}</CodeBlock>
-          <p><b>Format after writes.</b> Post-hoc, so the agent's content is not rewritten mid-flight:</p>
-          <CodeBlock lang="json">{`{ "matcher": "write_file|edit_file",
-  "hooks": [{ "type": "command", "command": "bunx prettier --write .", "timeout": 20 }] }`}</CodeBlock>
-          <p><b>Refuse edits to vendored code.</b> A block with a reason:</p>
-          <CodeBlock lang="bash">{`#!/usr/bin/env bash
-path=$(jq -r '.tool_input.path // ""')
-case "$path" in
-  vendor/*|node_modules/*)
-    echo '{"decision":"block","reason":"vendored — change the upstream dependency"}' ;;
-esac`}</CodeBlock>
-          <p><b>Normalize a path.</b> Rewriting input rather than refusing it:</p>
-          <CodeBlock lang="bash">{`#!/usr/bin/env bash
-input=$(cat)
-echo "$input" | jq -c '{modified_input: (.tool_input | .path |= sub("^\\\\./"; ""))}'`}</CodeBlock>
-        </section>
-
-        <section id="practices">
-          <h2><span className="anchor">#</span>Practices</h2>
-          <div className="doc-table-wrap">
-            <table className="doc-table">
-              <thead>
-                <tr><th style={{ width: "34%" }}>Practice</th><th>Why</th></tr>
-              </thead>
-              <tbody>
-                {PRACTICES.map(([p, w]) => (
-                  <tr key={p}>
-                    <td><b style={{ color: "var(--text-strong)" }}>{p}</b></td>
-                    <td>{w}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p>
-            The third is the one that bites. In most systems a broken extension is ignored; here it blocks.
-            If you are writing a hook in a language with an unhandled-exception exit code, make sure the
-            happy path exits 0 explicitly.
-          </p>
-          <p>
-            Hooks can also ship inside a plugin, which is the clean way to distribute one to a team — see{" "}
-            <a href="/docs/plugin-authoring">Plugin authoring</a>. For whole-suite checks rather than
-            per-edit ones, see <a href="/docs/verification">Verification</a>.
-          </p>
+          <p>Block writes outside a generated directory:</p>
+          <CodeBlock lang="javascript">{'const input = JSON.parse(await Bun.stdin.text());\nconst path = String(input.tool_input?.path ?? "");\nif (!path.startsWith("generated/")) {\n  console.log(JSON.stringify({\n    decision: "block",\n    reason: "Generated files must stay under generated/."\n  }));\n}'}</CodeBlock>
+          <p>Add project context before a prompt reaches the model:</p>
+          <CodeBlock lang="javascript">{'const branch = Bun.spawnSync(["git", "branch", "--show-current"]).stdout.toString().trim();\nconsole.log(JSON.stringify({\n  hookSpecificOutput: {\n    additionalContext: "Current branch: " + branch\n  }\n}));'}</CodeBlock>
+          <Note>
+            Keep examples small and fail closed when the policy cannot be evaluated. Test commands from the Hook
+            library with a simulated payload before enabling them for every real tool call.
+          </Note>
         </section>
       </main>
-
       <Toc items={TOC} />
     </>
   );

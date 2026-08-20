@@ -16,12 +16,12 @@ const TOC = [
 const SYMPTOMS = [
   ["Tool is blocked with Hook timed out", "The matching PreToolUse command exceeded its timeout.", "Disable it, run it directly with a saved payload, then raise the timeout only if the work is expected."],
   ["Tool is blocked with Hook failed: …", "The command exited non-zero; stderr is used as the reason.", "Run the exact command from the same working directory and fix its dependency or exit path."],
-  ["Hook prints JSON but nothing changes", "It may be PostToolUse/SessionStart, non-JSON around the object, or an invalid field type.", "Use PreToolUse, emit exactly one JSON object on stdout, and send diagnostics to stderr."],
+  ["Hook prints JSON but nothing changes", "The event may be observational, the output field may not be consumed by that boundary, or the response may use the wrong contract.", "Confirm the event, use top-level PreToolUse fields for rewrites, and use hookSpecificOutput for lifecycle decisions."],
   ["Hook never runs", "Wrong scope, disabled matcher/command, unmatched tool name, or the mode gate rejected first.", "Verify User scope, toggle both levels on, use an exact /tools name, and switch to a mode that permits the tool."],
   ["Post hook is intermittent", "PostToolUse is launched without awaiting and commands may overlap.", "Make the side effect atomic/idempotent or serialize in the hook command."],
   ["Permission prompt changed after a hook", "modified_input is authorized after the hook chain.", "Inspect the complete replacement object; it may target a different path or command."],
   ["Project hook is listed but ignored", "Executable hooks are User-only.", "Review it, then recreate the approved command in User settings."],
-  ["Settings test passes, real call does not", "The test uses a simulated read_file payload and does not exercise matcher selection.", "Replay the real event shape and confirm the matcher names the real tool."],
+  ["Settings test passes, real call does not", "The test uses a simulated read_file payload and does not exercise the real lifecycle producer.", "Replay the real event shape and confirm the matcher names the real tool, event value, agent type or compaction trigger."],
 ];
 
 const DIAGNOSTICS = [
@@ -102,13 +102,14 @@ Test output: {"decision":"approve"} · 21ms`}</CodeBlock>
             The command runner converts a timeout, spawn/stdin error, or non-zero exit into a block-shaped JSON
             response. What that means depends on who called it:
           </p>
-          <CodeBlock lang="text">{`PreToolUse   → parses the response and blocks the pending tool
-SessionStart → records the blocked run, ignores the response, continues startup
-PostToolUse  → records the blocked run after the tool; the original result is unchanged`}</CodeBlock>
+          <CodeBlock lang="text">{`Gate event       → parses the response and can block the pending operation
+Observation event → records the run; completed work is not undone
+PostToolUse      → fire-and-forget after success; failures cannot delay delivery`}</CodeBlock>
           <p>
-            Exit-zero malformed stdout is different: PreToolUse logs a parsing/type diagnostic and continues.
-            A command that intends to enforce policy should therefore exit non-zero when it cannot evaluate the
-            input; printing an error sentence to stdout while exiting zero fails open.
+            Exit-zero malformed stdout is different from a process failure. The legacy PreToolUse parser logs a
+            parsing/type diagnostic and continues; the expanded lifecycle parser treats an unrecognized object as no
+            opinion. A command that intends to enforce policy should therefore exit non-zero when it cannot evaluate
+            the input; printing an error sentence to stdout while exiting zero fails open.
           </p>
           <div className="doc-table-wrap">
             <table className="doc-table">

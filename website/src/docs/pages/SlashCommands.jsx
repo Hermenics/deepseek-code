@@ -94,6 +94,7 @@ const INSPECT = [
 
 const MISC = [
   ["/mobile", "—", "QR code to download the DeepSeek mobile app."],
+  ["/gui", "—", "Open the local browser workspace; the TUI owns and cleans up the child process."],
 ];
 
 function CmdTable({ rows }) {
@@ -132,7 +133,7 @@ export default function SlashCommands() {
         <div className="hero">
           <h1>Slash commands</h1>
           <p className="tagline">
-            Forty commands that act on the session rather than prompting the model — with their arguments,
+            41 commands that act on the session rather than prompting the model — with their arguments,
             subcommands and aliases.
           </p>
         </div>

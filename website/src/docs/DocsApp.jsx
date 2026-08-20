@@ -121,6 +121,7 @@ import JsonOutput from "./pages/JsonOutput";
 import ExitCodes from "./pages/ExitCodes";
 import StreamingBehavior from "./pages/StreamingBehavior";
 import CostAccounting from "./pages/CostAccounting";
+import BrowserWorkspace from "./pages/BrowserWorkspace";
 
 export default function DocsApp() {
   return (
@@ -206,6 +207,7 @@ export default function DocsApp() {
         <Route path="todos" element={<TodoList />} />
         <Route path="catalog" element={<CatalogGuide />} />
         <Route path="mobile" element={<MobileAccess />} />
+        <Route path="browser-workspace" element={<BrowserWorkspace />} />
         <Route path="terminal-setup" element={<TerminalSetup />} />
         <Route path="input-editor" element={<InputEditor />} />
         <Route path="file-references" element={<FileReferences />} />

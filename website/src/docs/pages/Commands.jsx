@@ -42,6 +42,7 @@ const GROUPS = [
     title: "Customize",
     items: [
       ["/config · /settings", "Open the fullscreen settings center"],
+      ["/gui", "Launch the local browser workspace in a separate web process and open it in the system browser"],
       ["/vim", "Toggle vim keybindings in the TUI"],
       ["/features · /experimental [flag] [on|off]", "List, toggle, or set experimental feature flags"],
       ["/mobile · /ios · /android", "Show a QR code to download the DeepSeek mobile app"],
@@ -119,7 +120,7 @@ export default function Commands() {
         <section id="reference">
           <h2><span className="anchor">#</span>Reference</h2>
           <p>
-            All 40 commands, grouped by intent. Aliases are shown after the <code className="inline">·</code>.
+            All 41 commands, grouped by intent. Aliases are shown after the <code className="inline">·</code>.
           </p>
           {GROUPS.map((g) => (
             <div key={g.title}>

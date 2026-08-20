@@ -225,6 +225,11 @@ export default function Checkpointing() {
             newest first. A missing manifest is not an error — it returns an empty one, so the first edit of a
             session works exactly like the hundredth.
           </p>
+          <p>
+            Restore also validates the checkpoint id before joining it to the checkpoint directory. Only the generated
+            timestamp-plus-six-hex-character shape is accepted; traversal strings such as
+            <code className="inline">../other</code> return “not found” without reading outside the checkpoint store.
+          </p>
         </section>
 
         <section id="empty">

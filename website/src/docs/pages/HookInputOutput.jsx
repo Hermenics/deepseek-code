@@ -2,33 +2,49 @@ import { CodeBlock, Note, Toc } from "../Layout";
 
 const TOC = [
   { id: "transport", label: "Process contract" },
-  { id: "fields", label: "Input fields" },
-  { id: "event-shapes", label: "Payload by event" },
-  { id: "pre-output", label: "PreToolUse stdout" },
-  { id: "parsing", label: "Parsing and validation" },
-  { id: "rewrite", label: "Replacement and chaining" },
-  { id: "exit", label: "Exit and stderr behavior" },
+  { id: "identity", label: "Identity fields" },
+  { id: "context", label: "Context fields" },
+  { id: "events", label: "Event payloads" },
+  { id: "legacy", label: "PreToolUse response" },
+  { id: "lifecycle", label: "Lifecycle response" },
+  { id: "failure", label: "Parsing and failure" },
   { id: "limits", label: "Limits and identifiers" },
 ];
 
-const FIELDS = [
-  ["schema_version", "number", "Always 1."],
-  ["event", "string", "SessionStart, PreToolUse or PostToolUse."],
-  ["session_id", "string", "Agent hook-session identifier."],
-  ["correlation_id", "string", "Shared by all commands in one event group."],
+const IDENTITY = [
+  ["schema_version", "1", "Versioned payload format. The current CLI emits number 1."],
+  ["event", "HookEvent", "Canonical event name."],
+  ["hook_event_name", "HookEvent", "Duplicate event name retained for Claude-compatible consumers."],
+  ["session_id", "string", "Hook session identity shared by the agent lifetime."],
+  ["correlation_id", "string", "Shared by commands in one event phase."],
   ["run_id", "string", "Unique to one command execution."],
-  ["cwd", "string", "CLI process working directory when the payload is built."],
-  ["tool_name", "string, optional", "Present for pre- and post-tool events."],
-  ["tool_input", "object, optional", "Current effective arguments; absent on SessionStart."],
-  ["tool_result", "string, optional", "PostToolUse only, truncated to 10,000 characters."],
+  ["cwd", "string", "Working directory used to build the event."],
 ];
 
-const OUTPUTS = [
-  ["Empty stdout", "No opinion; continue."],
-  ["{}", "Valid JSON with no recognized action; continue."],
-  ["decision: approve", "Continue. It does not bypass later authorization."],
-  ["decision: block", "Stop PreToolUse and return reason, or the default block reason."],
-  ["modified_input", "Replace the entire tool argument object and continue."],
+const CONTEXT = [
+  ["tool_name / tool_input", "Tool name and current complete arguments."],
+  ["tool_result", "PostToolUse result, capped to the first 10,000 characters."],
+  ["prompt", "Original user prompt for UserPromptSubmit."],
+  ["model / permission_mode", "Active model and permission context when supplied."],
+  ["trigger", "manual, auto, init or maintenance; compaction uses manual/auto."],
+  ["last_assistant_message", "Last assistant text for Stop and SubagentStop."],
+  ["stop_hook_active", "Whether a stop continuation is already active."],
+  ["agent_id / agent_type", "Sub-agent identity and type."],
+  ["task_id / task_subject / task_description", "Task metadata for task lifecycle events."],
+  ["source / reason", "Session source or lifecycle reason."],
+  ["file_path / file_change_type", "Changed file and change/add/unlink classification."],
+  ["old_cwd / new_cwd", "Directory transition values for CwdChanged."],
+  ["error / error_details", "Failure text and additional diagnostic detail."],
+  ["file_path / memory_type / load_reason", "Instruction file metadata for InstructionsLoaded."],
+];
+
+const FAILURE_ROWS = [
+  ["Exit 0 + empty stdout", "No opinion; continue."],
+  ["Exit 0 + valid JSON", "Parse the recognized control fields."],
+  ["Exit 0 + non-JSON", "Log a diagnostic and treat it as no opinion."],
+  ["Non-zero exit", "Synthesize a block result using stderr or the exit code."],
+  ["Timeout", "Synthesize a block result with Hook timed out."],
+  ["Spawn/stdin error", "Synthesize a block result with the process error."],
 ];
 
 export default function HookInputOutput() {
@@ -42,172 +58,150 @@ export default function HookInputOutput() {
         <div className="hero">
           <h1>Hook input & output</h1>
           <p className="tagline">
-            The versioned stdin payload, the PreToolUse stdout contract, and exact failure semantics.
+            The versioned stdin payload, the two response contracts, and the exact difference between a hook failure and a malformed successful response.
           </p>
         </div>
 
         <section id="transport">
           <h2><span className="anchor">#</span>Process contract</h2>
           <p>
-            Every configured hook command is launched as <code className="inline">sh -c "&lt;command&gt;"</code>.
-            The CLI writes one compact JSON object to standard input, closes stdin, captures stdout and stderr,
-            and waits according to the command timeout. No newline is appended to stdin.
+            DeepSeek Code launches each enabled command through the platform shell, writes one compact JSON object
+            to stdin, closes stdin, captures stdout and stderr, and waits up to the command timeout. On POSIX the
+            shell is <code className="inline">$SHELL</code> or <code className="inline">/bin/sh</code>; on Windows it
+            is <code className="inline">COMSPEC</code> or <code className="inline">cmd.exe</code>.
           </p>
           <p>
-            The command inherits the CLI process environment. Treat command text as executable shell, quote it
-            accordingly, and never put an unreviewed repository value into User hook settings.
+            Stdout is a control channel. Emit either nothing or one JSON value. Human diagnostics belong on stderr,
+            especially because non-zero stderr becomes the failure reason for a blocking hook.
           </p>
-          <CodeBlock lang="bash">{`# Inspect the exact payload shape your command receives
-printf '%s' '{"schema_version":1,"event":"PreToolUse","session_id":"demo","correlation_id":"group-1","run_id":"run-1","cwd":"/workspace","tool_name":"write_file","tool_input":{"path":"README.md","content":"hello"}}' \
-  | ./scripts/check-write`}</CodeBlock>
+          <CodeBlock lang="bash">{"printf '%s' '{\"schema_version\":1,\"event\":\"PreToolUse\",\"session_id\":\"demo\",\"correlation_id\":\"group-1\",\"run_id\":\"run-1\",\"cwd\":\"/workspace\",\"tool_name\":\"write_file\",\"tool_input\":{\"path\":\"README.md\"}}' | ./scripts/check-write"}</CodeBlock>
         </section>
 
-        <section id="fields">
-          <h2><span className="anchor">#</span>Input fields</h2>
+        <section id="identity">
+          <h2><span className="anchor">#</span>Identity fields</h2>
           <div className="doc-table-wrap">
             <table className="doc-table">
-              <thead><tr><th style={{ width: "22%" }}>Field</th><th style={{ width: "20%" }}>Type</th><th>Meaning</th></tr></thead>
-              <tbody>{FIELDS.map(([field, type, meaning]) => <tr key={field}><td><code className="inline">{field}</code></td><td>{type}</td><td>{meaning}</td></tr>)}</tbody>
+              <thead><tr><th style={{ width: "25%" }}>Field</th><th style={{ width: "22%" }}>Value</th><th>Meaning</th></tr></thead>
+              <tbody>{IDENTITY.map(([field, value, meaning]) => <tr key={field}><td><code className="inline">{field}</code></td><td>{value}</td><td>{meaning}</td></tr>)}</tbody>
             </table>
           </div>
           <Note>
-            Consumers should check <code className="inline">schema_version</code> before relying on fields.
-            Version 1 is the only format the current CLI emits.
+            Use <code className="inline">schema_version</code> and <code className="inline">hook_event_name</code>
+            instead of inferring a version from optional fields. Correlation ids are not durable across phases.
           </Note>
         </section>
 
-        <section id="event-shapes">
-          <h2><span className="anchor">#</span>Payload by event</h2>
-          <p><b>SessionStart</b> has lifecycle and identity fields only:</p>
-          <CodeBlock lang="json">{`{
-  "schema_version": 1,
-  "event": "SessionStart",
-  "session_id": "4dc7067e-…",
-  "correlation_id": "e1b745fb-…",
-  "run_id": "60ec66fa-…",
-  "cwd": "/home/you/project"
-}`}</CodeBlock>
-          <p><b>PreToolUse</b> adds the tool name and current input:</p>
-          <CodeBlock lang="json">{`{
-  "schema_version": 1,
-  "event": "PreToolUse",
-  "session_id": "4dc7067e-…",
-  "correlation_id": "a5d4abcc-…",
-  "run_id": "c101ce47-…",
-  "cwd": "/home/you/project",
-  "tool_name": "shell",
-  "tool_input": { "command": "bun test" }
-}`}</CodeBlock>
-          <p><b>PostToolUse</b> adds the result and uses the arguments that actually executed:</p>
-          <CodeBlock lang="json">{`{
-  "schema_version": 1,
-  "event": "PostToolUse",
-  "session_id": "4dc7067e-…",
-  "correlation_id": "1599bb89-…",
-  "run_id": "483a1603-…",
-  "cwd": "/home/you/project",
-  "tool_name": "shell",
-  "tool_input": { "command": "bun test" },
-  "tool_result": "12 pass\n0 fail"
-}`}</CodeBlock>
+        <section id="context">
+          <h2><span className="anchor">#</span>Context fields</h2>
           <p>
-            Pre and post phases generate different correlation ids. Correlation groups commands within one
-            phase; it is not a durable identifier joining both sides of a tool call.
-          </p>
-        </section>
-
-        <section id="pre-output">
-          <h2><span className="anchor">#</span>PreToolUse stdout</h2>
-          <p>
-            Only PreToolUse interprets successful stdout as a control response. Whitespace is trimmed before
-            parsing. Supported fields are <code className="inline">decision</code>,
-            <code className="inline"> reason</code> and <code className="inline">modified_input</code>.
+            The payload is sparse. Only fields relevant to the current boundary are added; a missing optional field
+            means “not supplied for this event”, not an empty string.
           </p>
           <div className="doc-table-wrap">
             <table className="doc-table">
-              <thead><tr><th style={{ width: "30%" }}>Stdout</th><th>Effect</th></tr></thead>
-              <tbody>{OUTPUTS.map(([value, effect]) => <tr key={value}><td><code className="inline">{value}</code></td><td>{effect}</td></tr>)}</tbody>
+              <thead><tr><th style={{ width: "37%" }}>Fields</th><th>Used for</th></tr></thead>
+              <tbody>{CONTEXT.map(([fields, meaning]) => <tr key={fields}><td><code className="inline">{fields}</code></td><td>{meaning}</td></tr>)}</tbody>
             </table>
           </div>
-          <CodeBlock lang="json">{`{ "decision": "block", "reason": "Generated files must be changed through their template." }`}</CodeBlock>
-          <CodeBlock lang="json">{`{ "modified_input": { "command": "bun test tests/auth.test.ts" } }`}</CodeBlock>
-          <Note>
-            PostToolUse and SessionStart discard stdout for lifecycle purposes. Printing a block response from
-            either event does not undo a completed tool or stop initialization.
-          </Note>
         </section>
 
-        <section id="parsing">
-          <h2><span className="anchor">#</span>Parsing and validation</h2>
+        <section id="events">
+          <h2><span className="anchor">#</span>Event payloads</h2>
+          <p>A permission request includes the tool and the complete arguments about to be authorized:</p>
+          <CodeBlock lang="json">{'{\n  "schema_version": 1,\n  "event": "PermissionRequest",\n  "hook_event_name": "PermissionRequest",\n  "session_id": "…",\n  "correlation_id": "…",\n  "run_id": "…",\n  "cwd": "/workspace",\n  "tool_name": "shell",\n  "tool_input": { "command": "bun test" }\n}'}</CodeBlock>
+          <p>A compaction event carries its trigger and active model:</p>
+          <CodeBlock lang="json">{'{\n  "schema_version": 1,\n  "event": "PreCompact",\n  "hook_event_name": "PreCompact",\n  "session_id": "…",\n  "correlation_id": "…",\n  "run_id": "…",\n  "cwd": "/workspace",\n  "model": "deepseek-chat",\n  "trigger": "auto"\n}'}</CodeBlock>
+          <p>Instruction loading identifies the file and why it was loaded:</p>
+          <CodeBlock lang="json">{'{\n  "event": "InstructionsLoaded",\n  "hook_event_name": "InstructionsLoaded",\n  "cwd": "/workspace",\n  "file_path": "/workspace/AGENTS.md",\n  "memory_type": "Project",\n  "load_reason": "session_start"\n}'}</CodeBlock>
           <p>
-            Exit-zero, non-empty PreToolUse stdout is parsed as one JSON value. A non-JSON value logs a
-            diagnostic and is otherwise ignored. The response fields are validated before use:
-            <code className="inline"> decision</code> and <code className="inline">reason</code> must be strings,
-            and <code className="inline">modified_input</code> must be a non-null, non-array object.
-          </p>
-          <p>
-            If any present field has the wrong type, that response is ignored as a whole and the chain
-            continues. The current parser acts only on the exact decision string
-            <code className="inline"> block</code>; an unknown string is not treated as a block.
-          </p>
-          <CodeBlock lang="text">{`[hooks] PreToolUse hook "./scripts/check-write" returned non-JSON output (run <id>)
-[hooks] PreToolUse hook "./scripts/check-write" returned non-object modified_input (run <id>)`}</CodeBlock>
-        </section>
-
-        <section id="rewrite">
-          <h2><span className="anchor">#</span>Replacement and chaining</h2>
-          <p>
-            <code className="inline">modified_input</code> replaces the complete arguments object; it is not a
-            patch or shallow merge. Include every field the target tool still needs. The next matching hook
-            receives the replacement, and another replacement supersedes it.
-          </p>
-          <CodeBlock lang="text">{`original input:   { "path": "a.ts", "content": "old" }
-hook A output:    { "modified_input": { "path": "b.ts", "content": "old" } }
-hook B receives:  { "path": "b.ts", "content": "old" }
-hook B output:    { "modified_input": { "path": "b.ts", "content": "new" } }
-tool receives:    { "path": "b.ts", "content": "new" }`}</CodeBlock>
-          <p>
-            After the chain, normal authorization inspects the final object. This is why a rewrite can cause an
-            external-path prompt, a risk confirmation or a permission denial. See
-            <a href="/docs/hook-lifecycle#authorization"> lifecycle ordering</a>.
+            <code className="inline">PostToolUse</code> uses the effective arguments that executed and includes a
+            bounded result. <code className="inline">Stop</code> and <code className="inline">SubagentStop</code>
+            include the latest assistant text when one exists.
           </p>
         </section>
 
-        <section id="exit">
-          <h2><span className="anchor">#</span>Exit and stderr behavior</h2>
+        <section id="legacy">
+          <h2><span className="anchor">#</span>PreToolUse response</h2>
+          <p>
+            PreToolUse retains its sequential, rewrite-aware compatibility runner. Its exit-zero stdout recognizes
+            these top-level fields:
+          </p>
+          <h3 id="rewrite">Replacement and chaining</h3>
           <div className="doc-table-wrap">
             <table className="doc-table">
-              <thead><tr><th>Process outcome</th><th>Executor response</th><th>PreToolUse effect</th></tr></thead>
+              <thead><tr><th style={{ width: "30%" }}>Field</th><th>Effect</th></tr></thead>
               <tbody>
-                <tr><td>Exit 0</td><td>Trimmed stdout</td><td>Parse it if non-empty</td></tr>
-                <tr><td>Non-zero exit</td><td>Block JSON using stderr or “exited with code N”</td><td>Blocks</td></tr>
-                <tr><td>Timeout / SIGKILL</td><td>Block JSON with “Hook timed out”</td><td>Blocks</td></tr>
-                <tr><td>Spawn or stdin error</td><td>Block JSON with the error message</td><td>Blocks</td></tr>
+                <tr><td><code className="inline">decision: "block"</code></td><td>Stops the chain and prevents the tool from running.</td></tr>
+                <tr><td><code className="inline">decision: "approve"</code></td><td>Records an approval opinion; later authorization still runs.</td></tr>
+                <tr><td><code className="inline">reason</code></td><td>Explanation returned with a block.</td></tr>
+                <tr><td><code className="inline">modified_input</code></td><td>Replaces the complete argument object for the next hook and final tool authorization.</td></tr>
               </tbody>
             </table>
           </div>
+          <CodeBlock lang="json">{'{ "decision": "block", "reason": "Writes must stay under src/." }'}</CodeBlock>
+          <CodeBlock lang="json">{'{ "modified_input": { "path": "src/generated.ts", "content": "..." } }'}</CodeBlock>
+          <Note>
+            <code className="inline">modified_input</code> is a replacement, not a patch. Include every required
+            field. A rewritten path is rechecked by normal authorization.
+          </Note>
+        </section>
+
+        <section id="lifecycle">
+          <h2><span className="anchor">#</span>Lifecycle response</h2>
           <p>
-            On an exit-zero command, stderr does not become the response and is not printed by the executor.
-            On a non-zero command, trimmed stderr becomes the failure reason and a terminal diagnostic names
-            the failed command. SessionStart ignores the returned block response; PostToolUse has already
-            completed the original tool path.
+            The expanded lifecycle runner accepts top-level and nested control fields. The integration consuming the
+            event decides which fields have an effect; observation hooks cannot retroactively undo completed work.
+          </p>
+          <div className="doc-table-wrap">
+            <table className="doc-table">
+              <thead><tr><th style={{ width: "40%" }}>Field</th><th>Effect</th></tr></thead>
+              <tbody>
+                <tr><td><code className="inline">decision: "approve" | "block"</code></td><td>Pass or block a gate-capable lifecycle event.</td></tr>
+                <tr><td><code className="inline">continue: false</code></td><td>Blocks the current lifecycle operation.</td></tr>
+                <tr><td><code className="inline">reason / stopReason</code></td><td>Human-readable block or continuation reason.</td></tr>
+                <tr><td><code className="inline">additionalContext</code></td><td>Context returned to prompt and sub-agent integrations.</td></tr>
+                <tr><td><code className="inline">systemMessage</code></td><td>System-facing message retained by the lifecycle result.</td></tr>
+                <tr><td><code className="inline">hookSpecificOutput.retry</code></td><td>Requests a retry where the consuming integration honors it.</td></tr>
+                <tr><td><code className="inline">hookSpecificOutput.suppressOutput</code></td><td>Requests output suppression where the consuming integration honors it.</td></tr>
+                <tr><td><code className="inline">hookSpecificOutput.updatedInput</code></td><td>Updated input metadata for integrations that support it.</td></tr>
+                <tr><td><code className="inline">hookSpecificOutput.decision</code></td><td><code className="inline">behavior: allow|deny</code> for permission-style decisions.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <CodeBlock lang="json">{'{ "hookSpecificOutput": { "decision": { "behavior": "deny", "message": "Policy refused this command." } } }'}</CodeBlock>
+        </section>
+
+        <section id="failure">
+          <h2><span className="anchor">#</span>Parsing and failure semantics</h2>
+          <div className="doc-table-wrap">
+            <table className="doc-table">
+              <thead><tr><th style={{ width: "29%" }}>Process outcome</th><th>Hook executor result</th></tr></thead>
+              <tbody>{FAILURE_ROWS.map(([outcome, result]) => <tr key={outcome}><td>{outcome}</td><td>{result}</td></tr>)}</tbody>
+            </table>
+          </div>
+          <p>
+            Exit-zero JSON is parsed as an object. Invalid field types are ignored for that response and logged as a
+            diagnostic. A non-zero command is different: it is a process failure and becomes a block-shaped result.
+            For PreToolUse, malformed JSON therefore fails open while a non-zero exit fails closed.
+          </p>
+          <p>
+            PostToolUse and other observational events may execute after the work they describe. Their block-shaped
+            failure is audited, but it cannot un-write a file or withdraw a result already sent to the model.
           </p>
         </section>
 
         <section id="limits">
           <h2><span className="anchor">#</span>Limits and identifiers</h2>
           <ul className="capabilities">
-            <li>Default timeout: 30 seconds per command; any positive finite number of seconds can be configured.</li>
-            <li>Captured stdout and stderr: capped independently at 100,000 bytes.</li>
+            <li>Default timeout: 30 seconds per command; configured values must be positive and finite.</li>
+            <li>Captured stdout and stderr: 100,000 bytes each.</li>
             <li>PostToolUse result in stdin: first 10,000 characters.</li>
-            <li>In-memory hook audit retention: newest 500 command runs.</li>
-            <li>Each command gets a unique run id; commands in one event phase share a correlation id.</li>
+            <li>In-memory hook audit: newest 500 command runs per process.</li>
+            <li>One run id per command; one correlation id per event phase.</li>
           </ul>
           <p>
-            Output truncation is recorded on the in-memory audit entry, but there is currently no slash command
-            that displays or exports that hook-specific buffer. Continue with
-            <a href="/docs/hook-troubleshooting"> Hook troubleshooting</a> for observable diagnostics and test
-            steps.
+            Hook output is not a durable archive. If a policy needs complete evidence, write an explicitly authorized
+            report from the hook and keep that artifact under the normal project and secret-handling rules.
           </p>
         </section>
       </main>

@@ -293,7 +293,7 @@ $ npm view @hermenics/deepseek-code version`}</CodeBlock>
             <li><b>No clean-dist step:</b> the build writes into the existing directory, so release hygiene must remove stale artifacts first.</li>
             <li><b>No tarball allowlist assertion:</b> <code className="inline">pack:check</code> verifies installation and version, not the exact set of files.</li>
             <li><b>No minimum-Bun matrix:</b> CI pins one Bun version even though the published contract supports Bun 1.1+.</li>
-            <li><b>No native Windows launcher:</b> the shipped bin is a Bash script.</li>
+            <li><b>Launcher platform support:</b> the shipped Bash launcher resolves the Bun entry point on Linux and macOS; Windows requires a Unix-shell environment such as WSL with Bun, and the generated npm shim does not make this Bash launcher native to Windows.</li>
             <li><b>No provider smoke in packaging:</b> the release check is deliberately credential-free and does not prove external model access.</li>
           </ul>
           <p>
