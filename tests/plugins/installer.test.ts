@@ -11,6 +11,7 @@ import {
 let testDir: string
 let originalPath: string | undefined
 let originalWindowsPath: string | undefined
+const fakeGitTest = process.platform === 'win32' ? it.skip : it
 
 function useCommand(name: string, script: string): void {
   const binDir = join(testDir, 'bin')
@@ -125,7 +126,7 @@ describe('updatePlugin', () => {
     expect(result.error).toMatch(/invalid/i)
   })
 
-  it('updates a plugin cloned through local fake git', async () => {
+  fakeGitTest('updates a plugin cloned through local fake git', async () => {
     useSuccessfulGit('2.0.0')
     addInstalledPlugin()
     const { updatePlugin } = await import('../../src/plugins/installer.js')
@@ -141,7 +142,7 @@ describe('updatePlugin', () => {
     })
   })
 
-  it('restores the original plugin when moving the update fails', async () => {
+  fakeGitTest('restores the original plugin when moving the update fails', async () => {
     useSuccessfulGit('2.0.0')
     useCommand('mv', `
 count_file="${testDir}/mv-count"
@@ -180,7 +181,7 @@ describe('installPlugin', () => {
     expect(result.error).toMatch(/invalid repo/i)
   })
 
-  it('installs through local fake git and records the resolved commit', async () => {
+  fakeGitTest('installs through local fake git and records the resolved commit', async () => {
     useSuccessfulGit('2.0.0')
     const { installPlugin } = await import('../../src/plugins/installer.js')
 
@@ -192,7 +193,7 @@ describe('installPlugin', () => {
     })
   })
 
-  it('reports a clone timeout and leaves no registry entry', async () => {
+  fakeGitTest('reports a clone timeout and leaves no registry entry', async () => {
     useCommand('git', `
     if [ "$1" = "clone" ]; then exec /bin/sleep 60; fi
 exit 1
