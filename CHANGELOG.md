@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.19
+
+- Fixed: TUI exit now clears the terminal, prints the blue DEEPSEEK CODE resume banner in full, and leaves the shell prompt below it without alternate-screen or stdout ordering artifacts
+- Tests: Add regression coverage for Unicode banner rendering, terminal cleanup sequences, and session-resume output ordering
+
 ## 0.6.18
 
 - Fixed: `/gui` now resolves the CLI entrypoint and launches the browser workspace from the agent's active working directory
