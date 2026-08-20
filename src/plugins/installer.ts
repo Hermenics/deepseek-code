@@ -1,4 +1,4 @@
-import { rm, mkdir } from 'fs/promises'
+import { rm, mkdir, rename } from 'fs/promises'
 import { existsSync, readdirSync } from 'fs'
 import { join, resolve, relative, isAbsolute } from 'path'
 import { tmpdir } from 'os'
@@ -85,6 +85,14 @@ async function resolveCommitHash(cwd: string): Promise<string | null> {
 
 /** Await a `mv` spawn and return its exit code. */
 async function awaitedMv(src: string, dest: string): Promise<number> {
+  if (process.platform === 'win32') {
+    try {
+      await rename(src, dest)
+      return 0
+    } catch {
+      return 1
+    }
+  }
   const proc = Bun.spawn(['mv', src, dest], {
     env: process.env, stdout: 'pipe', stderr: 'pipe',
   })
