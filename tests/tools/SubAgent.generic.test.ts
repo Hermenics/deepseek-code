@@ -93,8 +93,7 @@ describe('SubAgent generic spawn fallback', () => {
   })
 
   it('preserves the fixed agent name and does not advance the generic counter', async () => {
-    const root = await createGitRepo()
-    const session = createSession(root)
+    const session = createSession()
     const fixed = await spawnSubAgentTask({ task: 'Fix the bug in file.txt', agent: 'coder' }, context(session))
     handles.push(fixed.handle)
 

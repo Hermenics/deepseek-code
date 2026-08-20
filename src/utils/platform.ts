@@ -23,6 +23,12 @@ export function hasBinary(name: string): boolean {
   if (cached !== undefined) return cached
   let found = false
   try {
+    if (isWindows && (name === 'cmd' || name.toLowerCase() === 'cmd.exe')) {
+      execFileSync(process.env.ComSpec || process.env.COMSPEC || 'cmd.exe', ['/d', '/c', 'exit 0'], { stdio: 'ignore', timeout: 3000 })
+      found = true
+      binaryCache.set(name, found)
+      return found
+    }
     // `where` on Windows, `which` elsewhere: both exit non-zero when absent.
     if (isWindows) execFileSync('where', [name], { stdio: 'ignore', timeout: 3000 })
     else execFileSync('which', [name], { stdio: 'ignore', timeout: 3000 })

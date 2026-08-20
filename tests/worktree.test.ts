@@ -13,6 +13,7 @@ let root = ''
 
 async function initializeGit(): Promise<void> {
   await execa('git', ['init', '-q'], { cwd: root })
+  await execa('git', ['config', 'core.autocrlf', 'false'], { cwd: root })
   await execa('git', ['config', 'user.email', 'test@example.com'], { cwd: root })
   await execa('git', ['config', 'user.name', 'Test'], { cwd: root })
   await writeFile(join(root, 'tracked.txt'), 'base\n')

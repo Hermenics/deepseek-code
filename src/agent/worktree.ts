@@ -67,7 +67,7 @@ async function saveState(projectRoot: string, state: WorktreeState): Promise<voi
 
 export function validatePathUnderWorktrees(targetPath: string, projectRoot: string): boolean {
   const existing = (path: string): string => {
-    try { return realpathSync(path) } catch { return resolve(path) }
+    try { return realpathSync.native(path) } catch { return resolve(path) }
   }
   const worktreesRoot = existing(resolve(projectRoot, WORKTREES_DIR))
   const resolved = existing(targetPath)

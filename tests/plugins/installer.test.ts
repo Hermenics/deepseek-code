@@ -10,6 +10,7 @@ import {
 
 let testDir: string
 let originalPath: string | undefined
+let originalWindowsPath: string | undefined
 
 function useCommand(name: string, script: string): void {
   const binDir = join(testDir, 'bin')
@@ -20,7 +21,9 @@ function useCommand(name: string, script: string): void {
   writeFileSync(commandPath, process.platform === 'win32'
     ? `@echo off\r\nbash "%~dp0${name}.sh" %*\r\n`
     : `#!/bin/sh\nexec "${scriptPath}" "$@"\n`, { mode: 0o755 })
-  process.env.PATH = [binDir, originalPath ?? ''].join(delimiter)
+  const pathValue = [binDir, originalPath ?? originalWindowsPath ?? ''].join(delimiter)
+  process.env.PATH = pathValue
+  if (process.platform === 'win32') process.env.Path = pathValue
 }
 
 function useSuccessfulGit(version = '2.0.0'): void {
@@ -56,12 +59,14 @@ function addInstalledPlugin(version = '1.0.0'): void {
 beforeEach(() => {
   testDir = mkdtempSync(join(tmpdir(), 'dsk-plugin-install-'))
   originalPath = process.env.PATH
+  originalWindowsPath = process.env.Path
   process.env.DEEPSEEK_PLUGINS_DIR = testDir
 })
 
 afterEach(() => {
   delete process.env.DEEPSEEK_PLUGINS_DIR
   process.env.PATH = originalPath
+  if (process.platform === 'win32') process.env.Path = originalWindowsPath
   rmSync(testDir, { recursive: true, force: true })
   vi.restoreAllMocks()
 })

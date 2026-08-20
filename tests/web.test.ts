@@ -12,6 +12,8 @@ import { addTodo, clearTodos } from '../src/agent/todoStore.js'
 import { allTools } from '../src/tools/index.js'
 import { printLines, printOutput } from './platform-commands.js'
 
+const ptyTest = process.platform === 'win32' ? test.skip : test
+
 const fakeStats = { tokenCount: 1234, promptTokens: 900, completionTokens: 334, cachedTokens: 400, contextUsage: 21_000, contextLimit: 128_000, toolCalls: 3, filesModified: 2, costUsd: 0.0042 }
 
 const fakeAgent: WebAgent = {
@@ -359,7 +361,7 @@ describe('web server', () => {
     }
   })
 
-  test('runs a persistent terminal PTY through the socket', async () => {
+  ptyTest('runs a persistent terminal PTY through the socket', async () => {
     const server = startTestServer()
     let socket: WebSocket | undefined
     try {
@@ -386,7 +388,7 @@ describe('web server', () => {
     }
   })
 
-  test('coalesces bursts of pty output into fewer websocket frames', async () => {
+  ptyTest('coalesces bursts of pty output into fewer websocket frames', async () => {
     const server = startTestServer()
     let socket: WebSocket | undefined
     try {
@@ -421,7 +423,7 @@ describe('web server', () => {
     }
   })
 
-  test('replays the persistent terminal transcript after websocket reconnect', async () => {
+  ptyTest('replays the persistent terminal transcript after websocket reconnect', async () => {
     const server = startTestServer()
     let first: WebSocket | undefined
     let second: WebSocket | undefined
