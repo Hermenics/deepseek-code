@@ -1,5 +1,6 @@
 import { describe, expect, it, afterEach } from 'bun:test'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { discoverCustomCommands, resolveCustomCommand } from '../src/commands/custom.js'
 import { resolveCommand } from '../src/commands/index.js'
@@ -12,7 +13,7 @@ afterEach(async () => {
 
 describe('custom commands', () => {
   it('discovers project markdown commands and expands arguments', async () => {
-    const directory = await mkdtemp(join('/tmp', 'deepseek-custom-'))
+    const directory = await mkdtemp(join(tmpdir(), 'deepseek-custom-'))
     temporaryDirectories.push(directory)
     await mkdir(join(directory, '.git'))
     await mkdir(join(directory, '.deepseek', 'commands'), { recursive: true })
@@ -29,7 +30,7 @@ describe('custom commands', () => {
   })
 
   it('ignores malformed and oversized command files', async () => {
-    const directory = await mkdtemp(join('/tmp', 'deepseek-custom-'))
+    const directory = await mkdtemp(join(tmpdir(), 'deepseek-custom-'))
     temporaryDirectories.push(directory)
     await mkdir(join(directory, '.git'))
     const commandsDirectory = join(directory, '.deepseek', 'commands')
@@ -42,7 +43,7 @@ describe('custom commands', () => {
   })
 
   it('keeps built-in precedence when a custom command collides', async () => {
-    const directory = await mkdtemp(join('/tmp', 'deepseek-custom-'))
+    const directory = await mkdtemp(join(tmpdir(), 'deepseek-custom-'))
     temporaryDirectories.push(directory)
     await mkdir(join(directory, '.git'))
     await mkdir(join(directory, '.deepseek', 'commands'), { recursive: true })
