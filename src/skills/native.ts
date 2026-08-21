@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'fs/promises'
 import { join } from 'path'
 import GENERATE_IMAGES_PNG_SKILL from './native/generate-png-images/SKILL.md' with { type: 'text' }
+import SKILL_CREATOR_SKILL from './native/skill-creator/SKILL.md' with { type: 'text' }
 import { parseSkillManifest } from './validate.js'
 
 interface SkillContent {
@@ -11,10 +12,15 @@ interface SkillContent {
 
 const nativeManifest = parseSkillManifest(GENERATE_IMAGES_PNG_SKILL)
 if ('error' in nativeManifest) throw new Error(`Invalid native skill: ${nativeManifest.error}`)
+const skillCreatorManifest = parseSkillManifest(SKILL_CREATOR_SKILL)
+if ('error' in skillCreatorManifest) throw new Error(`Invalid native skill: ${skillCreatorManifest.error}`)
 
 const NATIVE_SKILLS: SkillContent[] = [{
   ...nativeManifest,
   content: GENERATE_IMAGES_PNG_SKILL.trim(),
+}, {
+  ...skillCreatorManifest,
+  content: SKILL_CREATOR_SKILL.trim(),
 }]
 
 /** Loads native and project skills so the model can select them by description. */

@@ -10,7 +10,7 @@ import { DiffDialog, type DiffLine } from './messages/DiffDialog.js'
 import { TodoPanel } from './messages/TodoPanel.js'
 import { ToolUseDisplay } from './messages/ToolUseDisplay.js'
 import { previewStreamingArgs, previewToolCallArgs, summarizeToolResult } from './messages/toolDisplay.js'
-import { ignoreFileStatus, writeIgnoreDefaults, hasEditorAssociation, writeEditorAssociation, shouldOfferEditorAssociation, getEditorSettingsPath, IGNORE_FILE_NAME } from '../tools/shared/deepseekignore.js'
+import { ignoreFileStatus, writeIgnoreDefaults, hasEditorAssociation, writeEditorAssociation, shouldOfferEditorAssociation, getEditorSettingsPath, IGNORE_FILE_NAME, shouldOfferIgnoreDefaults, markIgnoreDefaultsPrompted } from '../tools/shared/deepseekignore.js'
 import { useSubagents } from './subagent/index.js'
 import { useWorkflowRuns } from './workflows/WorkflowList.js'
 import { WorkflowMonitor } from './workflows/WorkflowMonitor.js'
@@ -24,7 +24,7 @@ import { ModelSelector } from './setup/ModelSelector.js'
 import { EffortSelector } from './setup/EffortSelector.js'
 import ConfigMenu from './setup/ConfigMenu.js'
 import MobileQRCode from './MobileQRCode.js'
-import { parseCommand, HELP_TEXT, REVIEW_PROMPT } from '../commands.js'
+import { resolveCommand, HELP_TEXT, REVIEW_PROMPT } from '../commands.js'
 import { FEATURES, loadFeatures, saveFeatures, type FeatureName } from '../features.js'
 import { loadAgentConfig, listAgents, type LoadedAgent } from '../agent/config.js'
 import { appendInputHistory } from '../agent/inputHistory.js'
@@ -42,7 +42,8 @@ import { Scrollbar } from './layout/Scrollbar.js'
 import { ThemeProvider } from './design-system/index.js'
 import { PlanApprovalPrompt, type PlanApprovalResult } from './plan/PlanApprovalPrompt.js'
 import { newPlanPath, buildPlanModeInjection } from '../agent/planMode.js'
-import { readSavedWorkflow, refreshWorkflowCommands, resolveWorkflowCommand } from '../workflows/commands.js'
+import { readSavedWorkflow, refreshWorkflowCommands } from '../workflows/commands.js'
+import { refreshCustomCommands } from '../commands/custom.js'
 import { AskUserQuestionsPrompt } from './questions/AskUserQuestions.js'
 import type { AskUserAnswers, AskUserQuestion } from '../tools/AskUserQuestions/types.js'
 
@@ -71,6 +72,7 @@ export interface Message {
   role: 'user' | 'assistant' | 'tool' | 'terminal' | 'thinking'
   content: string
   thinkingMs?: number
+  workedMs?: number
 }
 
 export interface ToolStatus {
@@ -181,6 +183,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [focusedSubagent, setFocusedSubagent] = useState<{ id: string; agentName: string | null } | null>(null)
   const [fullMode, setFullMode] = useState(false)
   const thinkingStartedAtRef = useRef<number | null>(null)
+  const turnStartedAtRef = useRef<number | null>(null)
   const askUserResolverRef = useRef<((answers: AskUserAnswers | null) => void) | null>(null)
 
   const showCompactBadge = useCallback((type: 'micro' | 'full') => {
@@ -244,7 +247,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [agent, interactionMode])
 
   useEffect(() => {
-    void agent.readyPromise.then(() => refreshWorkflowCommands(agent.getWorkingDirectory()))
+    void agent.readyPromise.then(async () => {
+      await refreshWorkflowCommands(agent.getWorkingDirectory())
+      await refreshCustomCommands(agent.getWorkingDirectory())
+    })
   }, [agent])
 
   useEffect(() => () => {
@@ -388,7 +394,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     try {
       const root = agent.getWorkingDirectory()
       const status = ignoreFileStatus(root)
-      if (status.missingDefaults.length === 0) {
+      if (status.missingDefaults.length === 0 || !shouldOfferIgnoreDefaults(root)) {
         offerEditorAssociation(root)
         return
       }
@@ -397,6 +403,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         message: `${verb === 'create' ? 'Create' : 'Update'} ${IGNORE_FILE_NAME} with DeepSeek Code's default ignore list (${status.missingDefaults.length} entries: node_modules, dist, caches…)? Until then, the defaults apply in memory.`,
         resolve: (yes) => {
           if (cancelled) return
+          markIgnoreDefaultsPrompted(root)
           if (yes) {
             try {
               writeIgnoreDefaults(root)
@@ -632,6 +639,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [planApprovalState, agent])
 
   const runAgent = useCallback(async (prompt: string) => {
+    turnStartedAtRef.current = Date.now()
     subagentsRef.current.clearResolved()
     setSubagentTick((tick) => tick + 1)
     lastTurnTokenCountRef.current = agent.tokenCount
@@ -768,6 +776,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         },
         onDone() {
           clearInterval(flushInterval)
+          const workedMs = turnStartedAtRef.current == null ? undefined : Date.now() - turnStartedAtRef.current
+          turnStartedAtRef.current = null
           const pending = (streamTextAccum + tokenBuffer).trim()
           tokenBuffer = ''
           streamTextAccum = ''
@@ -779,7 +789,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             if (thinking) mergeThinking(thinking)
             flushThinkingMessage()
             setThinkingText('')
-            if (content) setMessages((m) => [...m, { role: 'assistant', content }])
+            if (content) setMessages((m) => [...m, { role: 'assistant', content, workedMs }])
           } else {
             flushThinkingMessage()
             setThinkingText('')
@@ -788,6 +798,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setAgentPhase('idle')
           setTokenCount(agent.tokenCount)
           setSubagentTick((t) => t + 1)
+          void refreshCustomCommands(agent.getWorkingDirectory())
           setQueuedMessages((q) => {
             if (q.length === 0) return q
             const [first, ...rest] = q
@@ -880,7 +891,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           })
         },
         onDenyAbort() {
-          setMessages((m) => [...m, { role: 'assistant', content: '⛔ Execution aborted by user.' }])
+          const workedMs = turnStartedAtRef.current == null ? undefined : Date.now() - turnStartedAtRef.current
+          turnStartedAtRef.current = null
+          setMessages((m) => [...m, { role: 'assistant', content: '⛔ Execution aborted by user.', workedMs }])
         },
         onMicroCompact() {
           showCompactBadge('micro')
@@ -892,6 +905,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       })
     } catch (e: unknown) {
       clearInterval(flushInterval)
+      const workedMs = turnStartedAtRef.current == null ? undefined : Date.now() - turnStartedAtRef.current
+      turnStartedAtRef.current = null
       setStreamText('')
       setThinkingText('')
       setToolStatus(null)
@@ -902,7 +917,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       const message = e instanceof Error
         ? formatChatError(e, provider)
         : String(e)
-      setMessages((m) => [...m, { role: 'assistant', content: `⚠ Error: ${message}` }])
+      setMessages((m) => [...m, { role: 'assistant', content: `⚠ Error: ${message}`, workedMs }])
     }
   }, [agent, sessionId, language, initialSession, providerConfig, showCompactBadge])
 
@@ -942,6 +957,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         const active = await getActiveWorktree(projectRoot)
         if (active && active.sessionId != null && active.sessionId === sessionId && existsSync(active.path) && !isInsideWorktree(projectRoot, agent.getWorkingDirectory())) {
           await agent.setWorkingDirectory(active.path)
+          await refreshCustomCommands(active.path)
         }
         let isolate = worktreePolicy === 'auto'
         if (!active && worktreePolicy === 'ask') {
@@ -952,6 +968,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         if (!active && isolate) {
           const info = await createWorktree(projectRoot, sessionId)
           await agent.setWorkingDirectory(info.path)
+          await refreshCustomCommands(info.path)
           setMessages((m) => [...m, { role: 'assistant', content: `Worktree "${info.name}" created on ${info.branch ?? 'an isolated copy'} at ${info.path}.` }])
         }
       } catch (error) {
@@ -987,8 +1004,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       setActivityOpen(false)
     }
 
-    let cmd = parseCommand(text)
-    if (cmd?.type === 'unknown') cmd = await resolveWorkflowCommand(text, agent.getWorkingDirectory()) ?? cmd
+    const cmd = await resolveCommand(text, agent.getWorkingDirectory())
     const liveWorkflowControl = cmd?.type === 'workflows' || (cmd?.type === 'workflow' && ['pause', 'resume', 'stop'].includes(cmd.action))
     if (isLoading && !liveWorkflowControl) return
     if (cmd) {
@@ -1732,6 +1748,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           }
           return
         }
+        case 'custom':
+          await runWithPrompt(text, cmd.prompt, interactionMode)
+          return
         case 'task': {
           const result = await agent.controlTask(cmd.id, cmd.action, 'message' in cmd ? cmd.message : undefined)
           setMessages(m => [...m, { role: 'assistant', content: result }])
@@ -1758,6 +1777,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           try {
             await agent.setWorkingDirectory(target, true)
             await refreshWorkflowCommands(target)
+            await refreshCustomCommands(target)
             projectRootRef.current = target
           } catch (error) {
             setMessages(m => [...m, { role: 'assistant', content: `✗ Cannot change directory: ${(error as Error).message}` }])
@@ -1775,6 +1795,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               const info = await createWorktree(projectRoot, sessionId)
               await agent.setWorkingDirectory(info.path)
               await refreshWorkflowCommands(info.path)
+              await refreshCustomCommands(info.path)
               setMessages(m => [...m, { role: 'assistant', content: `Worktree "${info.name}" created at ${info.path}\nTool workspace changed to the worktree.` }])
             } catch (e) {
               setMessages(m => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
@@ -1791,6 +1812,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               const info = await enterWorktree(projectRoot, cmd.name, sessionId)
               await agent.setWorkingDirectory(info.path)
               await refreshWorkflowCommands(info.path)
+              await refreshCustomCommands(info.path)
               setMessages(m => [...m, { role: 'assistant', content: `Entered worktree "${info.name}" at ${info.path}` }])
             } catch (e) {
               setMessages(m => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
@@ -1803,6 +1825,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               const result = await exitWorktree(projectRoot, cmd.keep)
               await agent.setWorkingDirectory(projectRoot)
               await refreshWorkflowCommands(projectRoot)
+              await refreshCustomCommands(projectRoot)
               setMessages(m => [...m, { role: 'assistant', content: result }])
             } catch (e) {
               setMessages(m => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])

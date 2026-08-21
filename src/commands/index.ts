@@ -38,6 +38,8 @@ import mobile from './mobile/index.js'
 import gui from './gui/index.js'
 import logout from './logout/index.js'
 import features from './features/index.js'
+import { resolveCustomCommand } from './custom.js'
+import { resolveWorkflowCommand } from '../workflows/commands.js'
 import goal from './goal/index.js'
 import workflow from './workflow/index.js'
 import workflows from './workflows/index.js'
@@ -98,6 +100,20 @@ export function parseCommand(input: string): CommandResult | null {
   }
 
   return { type: 'unknown', input: `Unknown command: /${cmd}. Use /help to see available commands.` }
+}
+
+/** Resolves interactive slash commands with one stable precedence policy. */
+export async function resolveCommand(input: string, cwd: string): Promise<CommandResult | null> {
+  const parsed = parseCommand(input)
+  if (parsed?.type !== 'unknown') return parsed
+
+  const name = input.trim().slice(1).split(/\s+/, 1)[0]
+  if (COMMAND_SUGGESTIONS.includes(`/${name}`)) return parsed
+
+  // Built-ins win first, then saved workflows, then user/project commands.
+  return await resolveWorkflowCommand(input, cwd)
+    ?? await resolveCustomCommand(input, cwd)
+    ?? parsed
 }
 
 export const COMMAND_SUGGESTIONS = commands.flatMap(c => [`/${c.name}`, ...c.aliases.map(a => `/${a}`)])

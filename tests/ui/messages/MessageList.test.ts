@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
 import React from 'react'
 import { PassThrough } from 'stream'
 import { renderSync, invalidateInkFrame } from '../../../src/ink/root.js'
-import { MessageList, formatToolLine, shouldShowWorkDivider } from '../../../src/ui/messages/MessageList.js'
+import { MessageList, formatToolLine, shouldShowWorkDivider, getNormalMessageItems, dividerLine, formatWorkedDuration, workedLine, WORK_TRUNCATED_LABEL } from '../../../src/ui/messages/MessageList.js'
 import type { Message } from '../../../src/ui/App.js'
 
 describe('shouldShowWorkDivider', () => {
@@ -20,6 +20,47 @@ describe('shouldShowWorkDivider', () => {
 
     expect(shouldShowWorkDivider(worked, 3)).toBe(true)
     expect(shouldShowWorkDivider(conversation, 1)).toBe(false)
+  })
+})
+
+describe('normal transcript truncation', () => {
+  it('keeps the request and final reply while replacing work with one marker', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'fix it' },
+      { role: 'tool', content: '✓ shell → output' },
+      { role: 'thinking', content: 'private reasoning' },
+      { role: 'assistant', content: 'done', workedMs: 2100 },
+    ]
+    const items = getNormalMessageItems(messages)
+    expect(items.map(item => item.kind)).toEqual(['message', 'truncated', 'message'])
+    expect(items[2]).toMatchObject({ kind: 'message', index: 3 })
+  })
+
+  it('fits the divider one column inside the terminal width', () => {
+    const line = dividerLine(WORK_TRUNCATED_LABEL, 120)
+    expect(line).toHaveLength(119)
+    expect(line).toContain(WORK_TRUNCATED_LABEL)
+  })
+
+  it('truncates an oversized divider label to the available width', () => {
+    const line = dividerLine('x'.repeat(40), 12)
+    expect(line).toHaveLength(11)
+    expect(line).toBe('x'.repeat(11))
+  })
+
+  it('does not truncate an intermediate reply before the turn finishes', () => {
+    const items = getNormalMessageItems([
+      { role: 'user', content: 'continue working' },
+      { role: 'tool', content: '✓ shell → output' },
+      { role: 'assistant', content: 'I need another tool call' },
+    ])
+    expect(items.map(item => item.kind)).toEqual(['message', 'message', 'message'])
+  })
+
+  it('formats the finished duration like the Codex ghost line', () => {
+    expect(formatWorkedDuration(16 * 60_000 + 32_000)).toBe('16m 32s')
+    expect(workedLine(16 * 60_000 + 32_000, 120)).toHaveLength(119)
+    expect(workedLine(16 * 60_000 + 32_000, 120)).toContain('─ Worked for 16m 32s ')
   })
 })
 
@@ -276,6 +317,24 @@ describe('MessageList render', () => {
       const matches = [...read().matchAll(/Thinking for (\d+) seconds/g)]
       const lastSeconds = Number(matches[matches.length - 1]![1]!)
       expect(lastSeconds).toBeGreaterThan(firstSeconds)
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('renders the work marker and duration after the final reply', async () => {
+    const { text, cleanup } = await renderMessageList({
+      messages: [
+        { role: 'user', content: 'fix it' },
+        { role: 'tool', content: '✓ shell → output' },
+        { role: 'assistant', content: 'done', workedMs: 2100 },
+      ],
+    })
+    try {
+      expect(text).toContain(WORK_TRUNCATED_LABEL)
+      expect(text).toContain('done')
+      expect(text).toContain('─ Worked for 2s ')
+      expect(text).not.toContain('shell')
     } finally {
       cleanup()
     }

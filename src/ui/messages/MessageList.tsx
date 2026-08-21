@@ -47,10 +47,69 @@ export function shouldShowWorkDivider(messages: Message[], index: number): boole
   return false
 }
 
+export const WORK_TRUNCATED_LABEL = 'Work truncated (ctrl+o to expand)'
+
+export function formatWorkedDuration(workedMs: number): string {
+  const totalSeconds = Math.max(0, Math.round(workedMs / 1000))
+  const hours = Math.floor(totalSeconds / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  const seconds = totalSeconds % 60
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`
+  if (minutes > 0) return `${minutes}m ${seconds}s`
+  return `${seconds}s`
+}
+
+export function workedLine(workedMs: number, width = process.stdout.columns ?? 80): string {
+  const targetWidth = Math.max(1, width - 1)
+  const prefix = `
+  ─ Worked for ${formatWorkedDuration(workedMs)} `
+  return prefix + '─'.repeat(Math.max(1, targetWidth - prefix.length))
+}
+
+export function dividerLine(label = '', width = process.stdout.columns ?? 80): string {
+  const targetWidth = Math.max(1, width - 1)
+  const visibleLabel = label.slice(0, targetWidth)
+  if (!visibleLabel) return DIVIDER_CHAR.repeat(targetWidth)
+  const dashes = Math.max(0, targetWidth - visibleLabel.length)
+  const left = Math.ceil(dashes / 2)
+  return `${DIVIDER_CHAR.repeat(left)}${visibleLabel}${DIVIDER_CHAR.repeat(dashes - left)}`
+}
+
+type DisplayMessage = { kind: 'message'; message: Message; index: number } | { kind: 'truncated'; index: number }
+
+function isWorkMessage(message: Message): boolean {
+  return message.role === 'tool' || message.role === 'terminal' || message.role === 'thinking'
+}
+
+/** Keeps the user's request and final reply visible while Ctrl+O expands the work transcript. */
+export function getNormalMessageItems(messages: Message[]): DisplayMessage[] {
+  const result: DisplayMessage[] = []
+  let cursor = 0
+  while (cursor < messages.length) {
+    if (messages[cursor]!.role !== 'user') {
+      result.push({ kind: 'message', message: messages[cursor]!, index: cursor++ })
+      continue
+    }
+    const nextUser = messages.findIndex((message, index) => index > cursor && message.role === 'user')
+    const end = nextUser < 0 ? messages.length : nextUser
+    const lastAssistant = messages.slice(cursor + 1, end).reduce((last, message, offset) => message.role === 'assistant' ? cursor + 1 + offset : last, -1)
+    const hasWork = messages.slice(cursor + 1, end).some(isWorkMessage)
+    result.push({ kind: 'message', message: messages[cursor]!, index: cursor })
+    if (hasWork && lastAssistant > cursor && messages[lastAssistant]!.workedMs != null) {
+      result.push({ kind: 'truncated', index: lastAssistant })
+      result.push({ kind: 'message', message: messages[lastAssistant]!, index: lastAssistant })
+      cursor = end
+    } else {
+      for (let index = cursor + 1; index < end; index++) result.push({ kind: 'message', message: messages[index]!, index })
+      cursor = end
+    }
+  }
+  return result
+}
+
 function WorkDivider({ theme }: { theme: ThemeName }) {
   const colors = getThemeColors(theme)
-  const width = Math.max(1, process.stdout.columns ?? 80)
-  return <Box marginTop={1}><Text color={colors.textSubtle}>{DIVIDER_CHAR.repeat(width)}</Text></Box>
+  return <Box marginTop={1}><Text color={colors.textSubtle}>{dividerLine()}</Text></Box>
 }
 
 export interface DiffPayload {
@@ -297,17 +356,27 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
     current.removed += diff.removed
     diffFiles.set(diff.path, current)
   }
+  const displayMessages = fullMode
+    ? messages.map((message, index): DisplayMessage => ({ kind: 'message', message, index }))
+    : getNormalMessageItems(messages)
 
   return (
     <Box flexDirection="column" marginBottom={density === 'compact' ? 0 : 1}>
       <Header provider={headerProvider ?? 'deepseek'} agentName={headerAgent ?? null} theme={theme} />
-      {messages.map((message, index) => {
+      {displayMessages.map((item) => {
+        if (item.kind === 'truncated') {
+          return <Box key={`truncated-${item.index}`} marginTop={1}><Text color={colors.textSubtle}>{dividerLine(WORK_TRUNCATED_LABEL)}</Text></Box>
+        }
+        const { message, index } = item
         if (message.role === 'tool' && !showToolCalls) return null
-        const showDivider = showToolCalls && shouldShowWorkDivider(messages, index)
+        const showDivider = fullMode && showToolCalls && shouldShowWorkDivider(messages, index)
         return (
           <Box key={`${message.role}-${index}`} flexDirection="column">
             {showDivider && <WorkDivider theme={theme} />}
             <MessageItem message={message} theme={theme} agentLabel={agentLabel} showDiffs={showDiffs} showWordDiff={showWordDiff} compact={showDivider || density === 'compact'} fullMode={fullMode} onOpenDiff={onOpenDiff} />
+            {message.role === 'assistant' && message.workedMs != null && (
+              <Text color={colors.textSubtle}>{workedLine(message.workedMs)}</Text>
+            )}
           </Box>
         )
       })}
@@ -342,7 +411,7 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
       ) : null}
       {fullMode && (
         <Box flexDirection="column" marginTop={1}>
-          <Text color={colors.textSubtle}>{DIVIDER_CHAR.repeat(Math.max(1, process.stdout.columns ?? 80))}</Text>
+          <Text color={colors.textSubtle}>{dividerLine()}</Text>
           <Box flexDirection="row" justifyContent="space-between" paddingLeft={1} paddingRight={1}>
             <Text color={colors.textSubtle}>{'Full mode · ctrl+o to toggle'}</Text>
             <Text color={colors.textSubtle}>{'verbose'}</Text>

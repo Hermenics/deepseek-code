@@ -14,6 +14,7 @@ import Text from '../../ink/components/Text.js'
 export type { ThemeName, ProviderName, ProviderConfig } from '../../types/provider.js'
 import type { ThemeName, ProviderName, ProviderConfig } from '../../types/provider.js'
 import { readClipboardSync } from '../../utils/platform.js'
+import { checkOfficialDeepSeekApi } from './deepseekHealth.js'
 
 export const PROVIDERS: { label: string; value: ProviderName; hint: string }[] = [
   { value: 'deepseek', label: 'DeepSeek API',          hint: 'platform.deepseek.com/api_keys' },
@@ -110,12 +111,57 @@ export function ApiKeySetup({ onDone }: Props) {
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({})
   const [currentInput, setCurrentInput] = useState('')
   const [error, setError] = useState('')
+  const [checkingHealth, setCheckingHealth] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [showCustomBaseUrl, setShowCustomBaseUrl] = useState(false)
   const [donePayload, setDonePayload] = useState<{ theme: ThemeName; config: ProviderConfig } | null>(null)
 
   const selectedTheme = THEMES[themeIdx]!.value
   const selectedProvider = PROVIDERS[providerIdx]!.value
-  const fields = PROVIDER_FIELDS[selectedProvider]
+  const fields = selectedProvider === 'deepseek' && !showCustomBaseUrl
+    ? PROVIDER_FIELDS.deepseek.slice(0, 1)
+    : PROVIDER_FIELDS[selectedProvider]
   const currentField = fields[fieldIdx]
+
+  const completeSetup = (updated: Record<string, string>) => {
+    if (saving) return
+    setSaving(true)
+    Promise.all([
+      saveConfig(Object.fromEntries(Object.entries(updated).filter(([key]) => key === 'DEEPSEEK_API_KEY' || key === 'GCP_CREDENTIALS'))),
+      saveUserSettings({
+        provider: {
+          name: selectedProvider,
+          endpoint: updated['DEEPSEEK_BASE_URL'] || updated['LOCAL_BASE_URL'] || undefined,
+          region: updated['AWS_REGION'] || undefined,
+          profile: updated['AWS_PROFILE'] || undefined,
+          projectId: updated['GCP_PROJECT'] || undefined,
+          location: updated['GCP_LOCATION'] || undefined,
+        },
+        interface: { theme: selectedTheme },
+      }),
+    ])
+      .then(() => {
+        for (const [k, v] of Object.entries(updated)) if (v) process.env[k] = v
+        setStep('done')
+        setDonePayload({
+          theme: selectedTheme,
+          config: {
+            provider: selectedProvider,
+            apiKey: updated['DEEPSEEK_API_KEY'],
+            baseURL: updated['DEEPSEEK_BASE_URL'] || undefined,
+            awsRegion: updated['AWS_REGION'],
+            awsProfile: updated['AWS_PROFILE'],
+            gcpProject: updated['GCP_PROJECT'],
+            gcpLocation: updated['GCP_LOCATION'],
+            gcpCredentials: updated['GCP_CREDENTIALS'],
+            localBaseUrl: updated['LOCAL_BASE_URL'],
+            localModel: updated['LOCAL_MODEL'],
+          },
+        })
+      })
+      .catch((e: unknown) => setError(`Failed to save: ${(e as Error).message}`))
+      .finally(() => setSaving(false))
+  }
 
   useEffect(() => {
     if (donePayload) {
@@ -126,6 +172,7 @@ export function ApiKeySetup({ onDone }: Props) {
 
   useInput((input: string, key: Key) => {
     if (key.ctrl && input === 'c') process.exit(0)
+    if (saving) return
 
     if (step === 'theme') {
       if (key.upArrow) { setThemeIdx((i) => (i - 1 + THEMES.length) % THEMES.length); return }
@@ -139,7 +186,7 @@ export function ApiKeySetup({ onDone }: Props) {
       if (key.upArrow) { setProviderIdx((i) => (i - 1 + PROVIDERS.length) % PROVIDERS.length); return }
       if (key.downArrow) { setProviderIdx((i) => (i + 1) % PROVIDERS.length); return }
       if (key.return) {
-        setFieldIdx(0); setCurrentInput(''); setStep('fields')
+        setFieldIdx(0); setFieldValues({}); setCurrentInput(''); setShowCustomBaseUrl(false); setStep('fields')
         return
       }
       if (key.escape) { setStep('theme'); return }
@@ -147,49 +194,38 @@ export function ApiKeySetup({ onDone }: Props) {
     }
 
     if (step === 'fields') {
+      if (checkingHealth || saving) return
       if (key.return) {
         const trimmed = currentInput.trim()
         if (!trimmed && !currentField!.optional) { setError(`${currentField!.label} cannot be empty.`); return }
         const updated = { ...fieldValues, [currentField!.key]: trimmed }
         setFieldValues(updated)
         setError('')
+        if (selectedProvider === 'deepseek' && currentField!.key === 'DEEPSEEK_API_KEY') {
+          setCheckingHealth(true)
+          void checkOfficialDeepSeekApi(trimmed).then((health) => {
+            if (health === 'auth-error') {
+              setError('The DeepSeek API rejected this key.')
+              return
+            }
+            if (health === 'unreachable') {
+              setShowCustomBaseUrl(true)
+              setFieldIdx(1)
+              setCurrentInput(fieldValues.DEEPSEEK_BASE_URL ?? '')
+              return
+            }
+            if (health === 'service-error') {
+              setError('The official DeepSeek API is unavailable right now. Try again later or check your account or billing.')
+              return
+            }
+            completeSetup(updated)
+          }).finally(() => setCheckingHealth(false))
+          return
+        }
         if (fieldIdx < fields.length - 1) {
           setFieldIdx((i) => i + 1)
           setCurrentInput('')
-        } else {
-          Promise.all([
-            saveConfig(Object.fromEntries(Object.entries(updated).filter(([key]) => key === 'DEEPSEEK_API_KEY' || key === 'GCP_CREDENTIALS'))),
-            saveUserSettings({
-              provider: {
-                name: selectedProvider,
-                endpoint: updated['DEEPSEEK_BASE_URL'] || updated['LOCAL_BASE_URL'] || undefined,
-                region: updated['AWS_REGION'] || undefined,
-                profile: updated['AWS_PROFILE'] || undefined,
-                projectId: updated['GCP_PROJECT'] || undefined,
-                location: updated['GCP_LOCATION'] || undefined,
-              },
-              interface: { theme: selectedTheme },
-            }),
-          ])
-            .then(() => {
-              for (const [k, v] of Object.entries(updated)) if (v) process.env[k] = v
-              const providerConfig: ProviderConfig = {
-                provider: selectedProvider,
-                apiKey: updated['DEEPSEEK_API_KEY'],
-                baseURL: updated['DEEPSEEK_BASE_URL'] || undefined,
-                awsRegion: updated['AWS_REGION'],
-                awsProfile: updated['AWS_PROFILE'],
-                gcpProject: updated['GCP_PROJECT'],
-                gcpLocation: updated['GCP_LOCATION'],
-                gcpCredentials: updated['GCP_CREDENTIALS'],
-                localBaseUrl: updated['LOCAL_BASE_URL'],
-                localModel: updated['LOCAL_MODEL'],
-              }
-              setStep('done')
-              setDonePayload({ theme: selectedTheme, config: providerConfig })
-            })
-            .catch((e: unknown) => setError(`Failed to save: ${(e as Error).message}`))
-        }
+        } else completeSetup(updated)
         return
       }
       if (key.backspace) { setCurrentInput((s) => s.slice(0, -1)); setError(''); return }
@@ -274,10 +310,10 @@ export function ApiKeySetup({ onDone }: Props) {
         {currentField!.hint ? <Text color="#888888">{currentField!.hint}</Text> : null}
         <Box marginTop={1}>
           <Text color="cyan">{'> '}</Text>
-          <Text>{currentField!.secret ? '•'.repeat(currentInput.length) || '…' : currentInput || '…'}</Text>
+          <Text>{currentField!.secret ? '•'.repeat(currentInput.length) : currentInput}</Text>
           <Text color="cyan">{'█'}</Text>
         </Box>
-        {error ? <Text color="red">{error}</Text> : <Text color="#888888">{'Enter to confirm · Esc back'}</Text>}
+        {saving ? <Text color="#888888">Saving…</Text> : checkingHealth ? <Text color="#888888">Checking the official DeepSeek API…</Text> : error ? <Text color="red">{error}</Text> : <Text color="#888888">{'Enter to confirm · Esc back'}</Text>}
       </Box>
     )
   }

@@ -55,6 +55,7 @@ export type CommandResult =
   | { type: 'workflow'; action: 'run'; name: string; args?: string }
   | { type: 'workflow'; action: 'pause' | 'resume' | 'stop' | 'restart'; id: string }
   | { type: 'workflow'; action: 'save'; id: string; name: string }
+  | { type: 'custom'; name: string; prompt: string }
   | { type: 'task'; id: string; action: 'status' | 'cancel' | 'resume' | 'result' | 'integrate' | 'cleanup' }
   | { type: 'task'; id: string; action: 'message'; message: string }
   | { type: 'worktree'; action: 'create' }

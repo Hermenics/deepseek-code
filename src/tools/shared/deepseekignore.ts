@@ -5,6 +5,7 @@ import ignore, { type Ignore } from 'ignore'
 
 /** Name of the ignore file read from the workspace root. */
 export const IGNORE_FILE_NAME = '.deepseekignore'
+const IGNORE_PROMPT_STATE_FILE = 'ignore-prompts.json'
 
 /**
  * Recommended defaults — the directories that used to be hard-coded across
@@ -66,6 +67,7 @@ interface CacheEntry {
 // Cache per workspace root. Synchronous fs on purpose: the file is tiny, read
 // once per mtime change, and sync keeps isPathIgnored usable from sync code.
 const cache = new Map<string, CacheEntry>()
+const promptedIgnoreRoots = new Set<string>()
 
 function loadMatcher(root: string): CacheEntry {
   const filePath = path.join(root, IGNORE_FILE_NAME)
@@ -178,6 +180,40 @@ export function ignoreFileStatus(root: string): IgnoreFileStatus {
     .filter((line) => !line.startsWith('#'))
     .filter((line) => !present.has(line.replace(/\/$/, '')))
   return { exists: true, missingDefaults: missing }
+}
+
+function ignorePromptStatePath(): string {
+  return path.join(homedir(), '.deepseek', IGNORE_PROMPT_STATE_FILE)
+}
+
+/** Remembers the answer to the materialization prompt once per workspace. */
+export function shouldOfferIgnoreDefaults(root: string): boolean {
+  const workspace = path.resolve(root)
+  if (promptedIgnoreRoots.has(workspace)) return false
+  try {
+    const state = JSON.parse(fs.readFileSync(ignorePromptStatePath(), 'utf8')) as Record<string, unknown>
+    const prompted = state[workspace] === true
+    if (prompted) promptedIgnoreRoots.add(workspace)
+    return !prompted
+  } catch {
+    return true
+  }
+}
+
+export function markIgnoreDefaultsPrompted(root: string): void {
+  const workspace = path.resolve(root)
+  promptedIgnoreRoots.add(workspace)
+  const filePath = ignorePromptStatePath()
+  let state: Record<string, unknown> = {}
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8')) as unknown
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) state = parsed as Record<string, unknown>
+  } catch { /* initialize the state file */ }
+  state[workspace] = true
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    fs.writeFileSync(filePath, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 })
+  } catch { /* harmless fallback: this process still will not ask again */ }
 }
 
 // ── Editor association ──────────────────────────────────────────────────────

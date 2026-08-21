@@ -1,12 +1,13 @@
 import Fuse from 'fuse.js'
 import { COMMAND_SUGGESTIONS } from '../../commands.js'
 import { getWorkflowCommandSuggestions } from '../../workflows/commands.js'
+import { getCustomCommandSuggestions } from '../../commands/custom.js'
 
 let fuseInstance: Fuse<string> | null = null
 let fuseKey = ''
 
 export function getCommandSuggestions(): string[] {
-  return [...new Set([...COMMAND_SUGGESTIONS, ...getWorkflowCommandSuggestions()])]
+  return [...new Set([...COMMAND_SUGGESTIONS, ...getWorkflowCommandSuggestions(), ...getCustomCommandSuggestions()])]
 }
 
 function getFuse(): Fuse<string> {

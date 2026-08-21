@@ -15,6 +15,7 @@ import { getCommandSuggestions, getMatches } from './commandMatches.js'
 import { computeGhostText } from './ghost/index.js'
 import { COMMAND_DESCRIPTIONS } from '../../commands.js'
 import { getWorkflowCommandDescriptions } from '../../workflows/commands.js'
+import { getCustomCommandDescriptions } from '../../commands/custom.js'
 import { InputLine } from './render/InputLine.js'
 import { CommandDropdown } from './render/CommandDropdown.js'
 import { FileDropdown } from './render/FileDropdown.js'
@@ -478,7 +479,7 @@ export function InputBox({
               matches={matches}
               selectedIdx={selectedIdx}
               columns={cols}
-              descriptions={{ ...getWorkflowCommandDescriptions(), ...COMMAND_DESCRIPTIONS }}
+              descriptions={{ ...getCustomCommandDescriptions(), ...getWorkflowCommandDescriptions(), ...COMMAND_DESCRIPTIONS }}
             />
           </Box>
         )}
