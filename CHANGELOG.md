@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.6.20
+
+- Added: Project and user custom slash commands from `.deepseek/commands/*.md`, with argument expansion and safe discovery across workspace ancestors
+- Added: Skill creator guidance and validation for portable `SKILL.md` files, including malformed frontmatter, duplicate keys, unreadable files, and placeholder checks
+- Enhanced: TUI work summaries now show a subtle `Worked for` line only after a turn finishes, while active work remains fully visible
+- Enhanced: Command resolution now uses explicit built-in → workflow → custom precedence and refreshes custom commands after `/cwd` and worktree changes
+- Fixed: `.deepseekignore` prompt state now requires an exact boolean `true` and is suppressed process-locally even when persistence fails
+- Fixed: Setup prevents duplicate saves, clears stale provider fields between attempts, and distinguishes authentication, service, and connectivity failures when checking the official DeepSeek API
+- Fixed: TUI divider labels are truncated to the available terminal width instead of overflowing
+- Tests: Add regression coverage for command collisions, HTTP service-error statuses, divider width limits, custom commands, ignore behavior, setup health checks, and skill validation
+
 ## 0.6.19
 
 - Fixed: TUI exit now clears the terminal, prints the blue DEEPSEEK CODE resume banner in full, and leaves the shell prompt below it without alternate-screen or stdout ordering artifacts
