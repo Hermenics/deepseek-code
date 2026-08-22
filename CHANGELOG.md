@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.6.22
+
+- Added: Live Dynamic Workflow progress in the Web GUI — phase, status, agent/token usage and `log()` output stream while a workflow runs instead of surfacing only the final tool result
+- Added: Blocked subagents now reach the Web GUI with their block reason, a task state the orchestrator callback layer never routed
+- Added: Web slash-command parity with the terminal for `/sessions`, `/memory`, `/goal`, `/tasks`, `/task`, `/cwd`, `/worktree`, `/doctor`, `/verify`, `/catalog`, `/permissions`, `/context`, `/features`, `/agents`, `/agent`, `/skill`, `/plugin`, `/retry`, `/logout`, `/workflow`, `/workflows`, and `/model` without arguments
+- Added: Saved workflows and project/user custom commands now resolve in the Web GUI, which previously used the base parser instead of the shared command resolver
+- Enhanced: Terminal-only commands (`/vim`, `/quit`, `/config`, `/gui`, `/mobile`) explain why they do not apply in the browser instead of returning a generic unsupported notice
+- Fixed: Web GUI live trace no longer opens a new row for every streamed tool-argument fragment, so one tool call renders as one entry
+- Fixed: `/cwd` and `/worktree` no longer report a successful workspace move when the agent cannot change directory, and worktree relocation is refused before an orphan worktree is created
+- Tests: Add regression coverage for workflow progress forwarding, blocked-subagent reporting, Web slash-command actions, and workspace-move capability guards
+
+## 0.6.21
+
+- Note: Accidental version bump. This release contains no product changes — only `package.json` and `package-lock.json` were touched.
+
 ## 0.6.20
 
 - Added: Project and user custom slash commands from `.deepseek/commands/*.md`, with argument expansion and safe discovery across workspace ancestors
