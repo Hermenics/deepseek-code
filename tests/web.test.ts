@@ -8,6 +8,7 @@ import { WebBridge } from '../src/web/bridge.js'
 import { parseClientCommand, type ServerEvent } from '../src/web/protocol.js'
 import { isLocalHost, startWebServer } from '../src/web/server.js'
 import { changeStaging, commitStaged, getSourceControl } from '../src/web/sourceControl.js'
+import type { WorkflowManagerEvent } from '../src/workflows/manager.js'
 import { addTodo, clearTodos } from '../src/agent/todoStore.js'
 import { allTools } from '../src/tools/index.js'
 import { printLines, printOutput } from './platform-commands.js'
@@ -620,6 +621,113 @@ describe('web bridge interactions', () => {
       expect(todosEvent?.type === 'todos' && todosEvent.items).toEqual([{ id: expect.any(String), title: 'Analyze the renderers', status: 'pending' }])
     } finally {
       clearTodos()
+      bridge.stop()
+    }
+  })
+
+  test('streams Dynamic Workflow progress instead of only the final tool result', () => {
+    const events: ServerEvent[] = []
+    let publish: ((event: WorkflowManagerEvent) => void) | undefined
+    const run = { runId: 'run-1', meta: { name: 'scan' }, status: 'running', phase: 'Scan', usage: { agents: 2, tokens: 512, costUsd: 0.01 } }
+    const agent: WebAgent = {
+      abort() {}, async run() {},
+      workflows: {
+        subscribe(listener: (event: WorkflowManagerEvent) => void) { publish = listener; return () => { publish = undefined } },
+      } as unknown as WebAgent['workflows'],
+    }
+    const bridge = new WebBridge(agent, { send(event) { events.push(event) } })
+    try {
+      publish!({ type: 'run', run } as WorkflowManagerEvent)
+      publish!({ type: 'runtime', run, event: { type: 'log', value: 'scanning src/', timestamp: '' } } as WorkflowManagerEvent)
+      expect(events).toContainEqual({ type: 'workflow_update', runId: 'run-1', name: 'scan', status: 'running', phase: 'Scan', usage: run.usage })
+      expect(events).toContainEqual({ type: 'workflow_log', runId: 'run-1', value: 'scanning src/' })
+    } finally {
+      bridge.stop()
+    }
+    // stop() must detach the listener so a finished session stops emitting.
+    expect(publish).toBeUndefined()
+  })
+
+  test('reports a blocked subagent, which the callback layer never routes', () => {
+    const events: ServerEvent[] = []
+    let notify: ((event: { type: string; taskId?: string }) => void) | undefined
+    const states: Record<string, { state: string; blockReason?: string }> = {
+      't1': { state: 'blocked', blockReason: 'Waiting on dependency' },
+      't2': { state: 'running' },
+    }
+    const agent: WebAgent = {
+      abort() {}, async run() {},
+      orchestrator: {
+        subscribe(listener: (event: { type: string; taskId?: string }) => void) { notify = listener; return () => { notify = undefined } },
+        registry: { getStatus: (taskId: string) => states[taskId] ?? (() => { throw new Error('unknown task') })() },
+      } as unknown as WebAgent['orchestrator'],
+    }
+    const bridge = new WebBridge(agent, { send(event) { events.push(event) } })
+    try {
+      notify!({ type: 'state_changed', taskId: 't1' })
+      notify!({ type: 'state_changed', taskId: 't2' })
+      notify!({ type: 'state_changed', taskId: 'gone' })
+      notify!({ type: 'tool_started', taskId: 't1' })
+      expect(events).toEqual([{ type: 'subagent_blocked', id: 't1', reason: 'Waiting on dependency' }])
+    } finally {
+      bridge.stop()
+    }
+  })
+
+  test('runs TUI slash commands that previously had no Web action', async () => {
+    const events: ServerEvent[] = []
+    const agent: WebAgent = {
+      abort() {}, async run() {},
+      formatTasks: () => 'No tasks in this session.',
+      getAvailableModels: async () => ['deepseek-v4-flash', 'deepseek-v4-pro'],
+      orchestrator: {
+        subscribe: () => () => {},
+        registry: { getStatus: () => { throw new Error('unused') } },
+        memory: { load: async (target: 'agent' | 'user') => [`${target} entry`], clear: async () => {} },
+      } as unknown as WebAgent['orchestrator'],
+    }
+    const bridge = new WebBridge(agent, { send(event) { events.push(event) } })
+    const resultOf = async (prompt: string) => {
+      events.length = 0
+      bridge.handleCommand({ type: 'run', prompt })
+      for (let attempt = 0; attempt < 40 && !events.some((event) => event.type === 'command_result'); attempt++) await new Promise((resolve) => setTimeout(resolve, 25))
+      const result = events.find((event) => event.type === 'command_result')
+      return result?.type === 'command_result' ? result.content : ''
+    }
+    try {
+      expect(await resultOf('/tasks')).toBe('No tasks in this session.')
+      expect(await resultOf('/model')).toContain('deepseek-v4-pro')
+      expect(await resultOf('/memory')).toContain('agent entry')
+      // Terminal-only surfaces still answer, explaining why rather than going silent.
+      expect(await resultOf('/vim')).toContain('terminal UI only')
+      expect(await resultOf('/gui')).toContain('already using')
+      // The generic fallback survives for anything genuinely unmapped.
+      expect(await resultOf('/definitely-not-a-command')).toContain('Unknown command')
+    } finally {
+      bridge.stop()
+    }
+  })
+
+  test('refuses workspace moves when the agent cannot change directory', async () => {
+    const events: ServerEvent[] = []
+    let workspaceChanges = 0
+    // This agent deliberately omits setWorkingDirectory — reporting a move here would be a lie.
+    const agent: WebAgent = { abort() {}, async run() {} }
+    const bridge = new WebBridge(agent, { send(event) { events.push(event) } }, { onWorkspaceChanged() { workspaceChanges++ } })
+    const resultOf = async (prompt: string) => {
+      events.length = 0
+      bridge.handleCommand({ type: 'run', prompt })
+      for (let attempt = 0; attempt < 40 && !events.some((event) => event.type === 'command_result'); attempt++) await new Promise((resolve) => setTimeout(resolve, 25))
+      const result = events.find((event) => event.type === 'command_result')
+      return result?.type === 'command_result' ? result.content : ''
+    }
+    try {
+      expect(await resultOf('/cwd /tmp')).toContain('unavailable')
+      expect(await resultOf('/worktree create')).toContain('unavailable')
+      expect(workspaceChanges).toBe(0)
+      // Read-only worktree actions still work without the capability.
+      expect(await resultOf('/worktree status')).not.toContain('unavailable')
+    } finally {
       bridge.stop()
     }
   })

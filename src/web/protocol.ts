@@ -88,6 +88,9 @@ type ServerEventPayload =
   | { type: 'stats'; stats: SessionStats }
   | { type: 'todos'; items: TodoItemView[] }
   | { type: 'heartbeat'; at: number }
+  | { type: 'workflow_update'; runId: string; name: string; status: string; phase?: string; usage: { agents: number; tokens: number; costUsd: number }; error?: string }
+  | { type: 'workflow_log'; runId: string; value: string }
+  | { type: 'subagent_blocked'; id: string; reason: string }
 
 export type ServerEvent = ServerEventPayload & { seq?: number }
 
