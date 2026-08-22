@@ -5,8 +5,21 @@ import { getTodos, subscribe as subscribeTodos } from '../agent/todoStore.js'
 import type { AskUserHandler } from '../tools/AskUserQuestions/types.js'
 import type { SubAgentCallbacks } from '../tools/SubAgent/SubAgent.js'
 import type { InteractionMode } from '../ui/interactionMode.js'
+import type { AgentConfig } from '../agent/config.js'
+import type { ContextBreakdown } from '../agent/contextBreakdown.js'
+import type { DeepSeekSettings } from '../settings/types.js'
+import type { WorkflowManager, WorkflowManagerEvent } from '../workflows/manager.js'
+import { readSavedWorkflow } from '../workflows/commands.js'
 import type { ClientCommand, ServerEvent, SessionStats, TodoItemView } from './protocol.js'
-import { HELP_TEXT, parseCommand } from '../commands/index.js'
+import { runWebCommand } from './commands.js'
+import { HELP_TEXT, resolveCommand } from '../commands/index.js'
+
+/** Minimal slice of OrchestratorSession the bridge needs to notice a subagent going 'blocked'. */
+interface OrchestratorView {
+  subscribe(listener: (event: { type: string; taskId?: string }) => void): () => void
+  registry: { getStatus(taskId: string): { state: string; error?: { message: string }; blockReason?: string } }
+  memory: { load(target: 'agent' | 'user'): Promise<string[]>; clear(target?: 'agent' | 'user'): Promise<void> }
+}
 
 export interface WebAgent {
   run(userMessage: string, cb: AgentCallbacks): Promise<void>
@@ -38,6 +51,19 @@ export interface WebAgent {
   askBtw?(question: string): Promise<string>
   setEffortLevel?(level: 'low' | 'high' | 'max'): void
   setSubAgentCallbacks?(callbacks: SubAgentCallbacks | null): void
+  workflows?: WorkflowManager
+  orchestrator?: OrchestratorView
+  // Consumed by ./commands.ts to mirror the TUI slash-command surface.
+  readyPromise?: Promise<void>
+  settings?: DeepSeekSettings
+  formatTasks?(): string
+  controlTask?(id: string, action: 'status' | 'cancel' | 'resume' | 'result' | 'message' | 'integrate' | 'cleanup', message?: string): Promise<string>
+  getContextBreakdown?(): ContextBreakdown
+  getPermissionsInfo?(): Parameters<typeof import('../permissions/index.js').formatPermissionsReport>[0]
+  setWorkingDirectory?(path: string, changeProjectRoot?: boolean): Promise<void>
+  applyAgentConfig?(config: AgentConfig): Promise<void>
+  getLastUserMessage?(): string | null
+  getAvailableModels?(): Promise<string[]>
 }
 
 export interface BridgeTransport {
@@ -53,6 +79,8 @@ interface PendingResponse {
 
 export interface WebBridgeOptions {
   onWorkspaceChanged?(): void
+  /** Session id shared with the CLI, used by workspace commands such as /worktree. */
+  sessionId?: string
 }
 
 /**
@@ -65,6 +93,8 @@ export class WebBridge {
   private readonly pending = new Map<string, PendingResponse>()
   private nextRequestId = 0
   private readonly unsubscribeTodos: () => void
+  private readonly unsubscribeWorkflows: () => void
+  private readonly unsubscribeOrchestrator: () => void
 
   constructor(
     private readonly agent: WebAgent,
@@ -73,6 +103,30 @@ export class WebBridge {
   ) {
     this.installInteractiveHandlers()
     this.unsubscribeTodos = subscribeTodos(() => this.sendTodos())
+    this.unsubscribeWorkflows = this.agent.workflows?.subscribe((event) => this.forwardWorkflowEvent(event)) ?? (() => {})
+    this.unsubscribeOrchestrator = this.agent.orchestrator?.subscribe((event) => this.forwardBlockedState(event)) ?? (() => {})
+  }
+
+  /** Dynamic Workflow runs stream phase()/log() progress independent of the tool call's final return value. */
+  private forwardWorkflowEvent(event: WorkflowManagerEvent): void {
+    if (event.event?.type === 'log') {
+      this.transport.send({ type: 'workflow_log', runId: event.run.runId, value: event.event.value })
+      return
+    }
+    this.transport.send({
+      type: 'workflow_update', runId: event.run.runId, name: event.run.meta.name, status: event.run.status,
+      ...(event.run.phase ? { phase: event.run.phase } : {}), usage: event.run.usage,
+      ...(event.run.error ? { error: event.run.error } : {}),
+    })
+  }
+
+  /** OrchestratorCallbacks never routes the 'blocked' task state — only a raw subscribe() sees it (mirrors src/ui/App.tsx). */
+  private forwardBlockedState(event: { type: string; taskId?: string }): void {
+    if (event.type !== 'state_changed' || !event.taskId || !this.agent.orchestrator) return
+    let record: ReturnType<OrchestratorView['registry']['getStatus']>
+    try { record = this.agent.orchestrator.registry.getStatus(event.taskId) } catch { return }
+    if (record.state !== 'blocked') return
+    this.transport.send({ type: 'subagent_blocked', id: event.taskId, reason: record.error?.message ?? record.blockReason ?? 'Blocked' })
   }
 
   /** Current agent todo list, as maintained by the `todo` tool. */
@@ -122,7 +176,9 @@ export class WebBridge {
   }
 
   private async handleSlashCommand(input: string): Promise<void> {
-    const command = parseCommand(input)
+    // resolveCommand (not parseCommand) so saved workflows and user/project
+    // custom commands resolve here exactly as they do in the terminal UI.
+    const command = await resolveCommand(input, this.agent.getWorkingDirectory?.() ?? process.cwd())
     if (!command) { void this.run(input); return }
     if (command.type === 'unknown') { this.commandResult(command.input); return }
 
@@ -176,13 +232,40 @@ export class WebBridge {
           this.transport.send({ type: 'mode', mode: 'plan' })
           await this.run(command.task)
           return
+        case 'workflows':
+          this.commandResult(this.agent.workflows ? await this.agent.workflows.formatRuns() : 'Dynamic Workflows are unavailable.')
+          return
+        case 'workflow': {
+          const workflows = this.agent.workflows
+          if (!workflows) { this.commandResult('Dynamic Workflows are unavailable.'); return }
+          if (command.action === 'pause') { const ok = await workflows.pause(command.id); this.commandResult(ok ? `Workflow ${command.id} paused.` : `Workflow ${command.id} is not running.`); return }
+          if (command.action === 'resume') { const ok = await workflows.resume(command.id); this.commandResult(ok ? `Workflow ${command.id} resumed.` : `Workflow ${command.id} is not paused.`); return }
+          if (command.action === 'stop') { const ok = await workflows.cancel(command.id); this.commandResult(ok ? `Workflow ${command.id} stopping.` : `Workflow ${command.id} is not active.`); return }
+          if (command.action === 'save') { const path = await workflows.save(command.id, command.name); this.commandResult(`Workflow saved to ${path}`); return }
+          if (command.action === 'restart') { const result = await (await workflows.restart(command.id)).result; this.commandResult(`Workflow ${result.runId} ${result.status}.\n\n${JSON.stringify(result.result, null, 2)}`); return }
+          if (command.action === 'run') {
+            const script = await readSavedWorkflow(command.name, this.agent.getWorkingDirectory?.() ?? process.cwd())
+            const result = await (await workflows.start({ script, name: command.name, args: command.args ? JSON.parse(command.args) : {} })).result
+            this.commandResult(`Workflow ${result.runId} ${result.status}.\n\n${JSON.stringify(result.result, null, 2)}`)
+          }
+          return
+        }
         case 'btw': this.commandResult(await this.agent.askBtw?.(command.question) ?? 'Side questions are unavailable.'); return
         case 'effort':
           if (command.action === 'set') { this.agent.setEffortLevel?.(command.level); this.commandResult(`Effort level set to ${command.level}.`) }
           else this.commandResult('Effort level is configured from the CLI in this Web build.')
           return
-        default:
-          this.commandResult(`/${input.trim().slice(1).split(/\s+/)[0]} is recognized, but this command has no Web action yet.`)
+        default: {
+          const handled = await runWebCommand(command, {
+            agent: this.agent,
+            sessionId: this.options.sessionId ?? 'web',
+            respond: (content) => this.commandResult(content),
+            confirm: (message) => this.requestBoolean('confirm_response', (requestId) => ({ type: 'confirm_request', requestId, message })),
+            run: (prompt) => this.run(prompt),
+            workspaceChanged: () => this.options.onWorkspaceChanged?.(),
+          })
+          if (!handled) this.commandResult(`/${input.trim().slice(1).split(/\s+/)[0]} is recognized, but this command has no Web action yet.`)
+        }
       }
     } catch (error) {
       this.commandResult('Command failed: ' + (error instanceof Error ? error.message : String(error)))
@@ -192,6 +275,8 @@ export class WebBridge {
   stop(): void {
     this.agent.abort()
     this.unsubscribeTodos()
+    this.unsubscribeWorkflows()
+    this.unsubscribeOrchestrator()
     for (const pending of this.pending.values()) pending.fallback()
     this.pending.clear()
     this.agent.setConfirmHandler?.(null)

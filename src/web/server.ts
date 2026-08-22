@@ -113,7 +113,7 @@ export function startWebServer(options: WebServerOptions): WebServerHandle {
     broadcast({ type: 'source_control', snapshot: await sourceControl() })
   }
   const terminal = new WebTerminal(options.cwd, broadcast)
-  const bridge = new WebBridge(options.agent, { send: broadcast }, { onWorkspaceChanged: () => { void broadcastSourceControl() } })
+  const bridge = new WebBridge(options.agent, { send: broadcast }, { onWorkspaceChanged: () => { void broadcastSourceControl() }, sessionId: options.sessionId })
   const heartbeat = setInterval(() => {
     broadcast({ type: 'heartbeat', at: Date.now() })
     bridge.sendStats()
