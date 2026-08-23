@@ -91,13 +91,17 @@ export function resolvePermission(
   toolName: string,
   args: Record<string, unknown>,
 ): PermissionDecision {
-  if (!permissions) return 'allow'
+  const normalizedToolName = toolName.toLowerCase()
+  const defaultDecision = (): PermissionDecision =>
+    normalizedToolName === 'shell' || normalizedToolName === 'web_fetch' ? 'ask' : 'allow'
+
+  if (!permissions) return defaultDecision()
 
   const denyRules = (permissions.deny ?? []).map(parseRule)
   const allowRules = (permissions.allow ?? []).map(parseRule)
 
-  // No rules at all = allow everything
-  if (denyRules.length === 0 && allowRules.length === 0) return 'allow'
+  // Shell and network-capable tools are approval-gated in untrusted workspaces.
+  if (denyRules.length === 0 && allowRules.length === 0) return defaultDecision()
 
   // Deny rules checked first
   for (const rule of denyRules) {
@@ -109,8 +113,9 @@ export function resolvePermission(
     if (matchesRule(rule, toolName, args)) return 'allow'
   }
 
-  // Fallback: if only deny rules exist and nothing matched, allow
-  // If allow rules exist but nothing matched, ask
+  // If allow rules exist but nothing matched, ask. Deny-only policies retain
+  // their historical allow fallback for ordinary tools, but shell/network
+  // capabilities remain approval-gated by default.
   if (allowRules.length > 0) return 'ask'
-  return 'allow'
+  return defaultDecision()
 }

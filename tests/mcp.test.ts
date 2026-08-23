@@ -41,10 +41,27 @@ describe('MCP config', () => {
     await writeFile(join(cwd, '.deepseek', 'mcp.json'), JSON.stringify({
       servers: { unsafe: { transport: 'stdio', command: 'does-not-exist' } },
     }))
-    const { loadMcpTools } = await import('../src/agent/mcp.js')
+    const { approveMcpConfig, loadMcpTools } = await import('../src/agent/mcp.js')
 
     expect(await loadMcpTools(cwd)).toEqual({ tools: [], errors: [] })
-    expect((await loadMcpTools(cwd, { enabled: true })).errors).toHaveLength(1)
+    const gated = await loadMcpTools(cwd, { enabled: true, trustFile: join(cwd, 'workspace-trust.json') })
+    expect(gated).toMatchObject({ tools: [], errors: [] })
+    expect(gated.approval?.hash).toMatch(/^[a-f0-9]{64}$/)
+    await approveMcpConfig(cwd, gated.approval!, join(cwd, 'workspace-trust.json'))
+    expect((await loadMcpTools(cwd, { enabled: true, trustFile: join(cwd, 'workspace-trust.json') })).errors).toHaveLength(1)
+  })
+
+  it('invalidates MCP approval when the exact config changes', async () => {
+    await mkdir(join(cwd, '.deepseek'), { recursive: true })
+    const path = join(cwd, '.deepseek', 'mcp.json')
+    const trustFile = join(cwd, 'workspace-trust.json')
+    await writeFile(path, JSON.stringify({ servers: {} }))
+    const { loadMcpTools, approveMcpConfig } = await import('../src/agent/mcp.js')
+    const gated = await loadMcpTools(cwd, { enabled: true, trustFile })
+    await approveMcpConfig(cwd, gated.approval!, trustFile)
+    expect((await loadMcpTools(cwd, { enabled: true, trustFile })).approval).toBeUndefined()
+    await writeFile(path, JSON.stringify({ servers: { changed: { transport: 'stdio', command: 'does-not-exist' } } }))
+    expect((await loadMcpTools(cwd, { enabled: true, trustFile })).approval).toBeDefined()
   })
 })
 
@@ -56,7 +73,7 @@ describe('MCP config', () => {
 
 describe('MCP security', () => {
   it('starts MCP processes with a minimal environment', async () => {
-    const { createMcpEnvironment } = await import('../src/agent/mcp.js')
+    const { createMcpEnvironment, createMcpProcessEnvironment } = await import('../src/agent/mcp.js')
     const env = createMcpEnvironment({ PATH: '/custom/bin', LANG: 'pt_BR.UTF-8', DEEPSEEK_API_KEY: 'secret', AWS_SECRET_ACCESS_KEY: 'secret' })
     expect(env.PATH).toBe('/custom/bin')
     expect(env.LANG).toBe('pt_BR.UTF-8')
@@ -66,6 +83,17 @@ describe('MCP security', () => {
     // Temp dir uses each platform's own convention
     if (process.platform === 'win32') expect(env.TEMP).toBeTruthy()
     else expect(env.TMPDIR).toBe('/tmp')
+
+    const processEnv = createMcpProcessEnvironment(
+      { PATH: '/custom/bin', HOME: '/home/marcelo', USER: 'marcelo', SHELL: '/bin/bash', TERM: 'xterm' },
+      { HOME: '/attacker/home', USER: 'root', SHELL: '/tmp/evil-shell', TERM: 'xterm-evil' },
+    )
+    expect(processEnv.PATH).toBe('/custom/bin')
+    expect(processEnv.HOME).toBe('/tmp')
+    expect(processEnv.USER).toBe('deepseek-mcp')
+    expect(processEnv.LOGNAME).toBe('deepseek-mcp')
+    expect(processEnv.SHELL).toBe(process.platform === 'win32' ? 'cmd.exe' : '/bin/sh')
+    expect(processEnv.TERM).toBe('dumb')
   })
 
   // ---------------------------------------------------------------------------

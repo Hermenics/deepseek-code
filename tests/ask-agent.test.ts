@@ -1,10 +1,14 @@
 import { describe, it, expect } from 'bun:test'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { AskAgent, setAgentNoteCallback } from '../src/tools/AskAgent/AskAgent.js'
 import { OrchestratorSession } from '../src/orchestration/OrchestratorSession.js'
 
 async function withBlockedScheduler<T>(run: (session: OrchestratorSession) => Promise<T>, maxTasks = 17): Promise<T> {
+  const projectRoot = await mkdtemp(join(tmpdir(), 'dsk-ask-agent-'))
   const session = new OrchestratorSession({
-    projectRoot: process.cwd(),
+    projectRoot,
     logFile: null,
     limits: { concurrency: 1, maxTasks },
     settings: { agents: { concurrency: 1, maxTasks } },
@@ -18,6 +22,7 @@ async function withBlockedScheduler<T>(run: (session: OrchestratorSession) => Pr
     return await run(session)
   } finally {
     await session.shutdown('Test cleanup')
+    await rm(projectRoot, { recursive: true, force: true })
   }
 }
 

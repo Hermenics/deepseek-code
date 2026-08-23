@@ -35,13 +35,22 @@ console.warn = (...args: unknown[]) => {
 // Dev logging: redirect stderr + uncaught errors to ~/.deepseek/logs/dev.log
 // Also filter out noisy react-reconciler dev warnings from the terminal.
 if (process.env.NODE_ENV === 'development') {
-  const { createWriteStream } = await import('fs')
-  const { mkdirSync } = await import('fs')
+  const { chmodSync, constants, createWriteStream, lstatSync, mkdirSync, openSync } = await import('fs')
   const { join } = await import('path')
   const { homedir } = await import('os')
   const logDir = join(homedir(), '.deepseek', 'logs')
-  mkdirSync(logDir, { recursive: true })
-  const logStream = createWriteStream(join(logDir, 'dev.log'), { flags: 'w' })
+  mkdirSync(logDir, { recursive: true, mode: 0o700 })
+  chmodSync(logDir, 0o700)
+  const logPath = join(logDir, 'dev.log')
+  try {
+    if (lstatSync(logPath).isSymbolicLink()) throw new Error(`Refusing symbolic-link development log: ${logPath}`)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  const safeOpenFlags = constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | (constants.O_NOFOLLOW ?? 0)
+  const logFd = openSync(logPath, safeOpenFlags, 0o600)
+  chmodSync(logPath, 0o600)
+  const logStream = createWriteStream(logPath, { fd: logFd, autoClose: true })
   const write = (data: unknown) => logStream.write(`[${new Date().toISOString()}] ${String(data)}\n`)
   const origStderr = process.stderr.write.bind(process.stderr)
   process.stderr.write = (data: unknown, ...args: unknown[]) => {
@@ -315,7 +324,6 @@ function Root() {
         setSavedEnchant(enchant)
         if (saved) {
           setProviderConfig(saved)
-          if (saved.provider === 'deepseek' && saved.apiKey) process.env.DEEPSEEK_API_KEY = saved.apiKey
           setReady(true)
         } else if (process.env.DEEPSEEK_API_KEY) {
           setProviderConfig({ provider: 'deepseek', apiKey: process.env.DEEPSEEK_API_KEY })
@@ -339,7 +347,9 @@ function Root() {
         }
         const effectiveAgentName = agentName ?? settings.agents?.default ?? null
         if (effectiveAgentName) {
-          try { setInitialAgent(await loadAgentConfig(effectiveAgentName)) } catch (e) { console.error((e as Error).message) }
+          try {
+            setInitialAgent(await loadAgentConfig(effectiveAgentName, process.cwd(), { includeUntrusted: true }))
+          } catch (e) { console.error((e as Error).message) }
         }
         if (msg) setInitialMessage(msg)
       } catch (e) {

@@ -1,11 +1,13 @@
+import { execFileSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { homedir } from 'node:os'
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync } from 'node:fs'
 import { execa } from 'execa'
 import type { Tool } from '../types.js'
 import { SHELL_OUTPUT_MAX_CHARS, SHELL_TIMEOUT_MS } from '../../constants.js'
 import { isPathIgnored, IGNORE_FILE_NAME } from '../shared/deepseekignore.js'
-import { sandboxAvailable, scrubbedEnv, defaultShell, isWindows } from '../../utils/platform.js'
+import { hasBinary, isLinux, scrubbedEnv, defaultShell, isWindows } from '../../utils/platform.js'
+import { hasNetworkCapability } from '../../permissions/risk.js'
 
 function tokenizeShellSegments(command: string): string[][] {
   const segments: string[][] = [[]]
@@ -87,7 +89,22 @@ function destructiveWarning(command: string): string | null {
 
 /** Prepended to worker output when OS-level sandboxing could not be applied. */
 const SANDBOX_UNAVAILABLE_NOTICE =
-  '[sandbox unavailable on this platform — command ran confined to the workspace with a scrubbed environment, but with network access]'
+  '[sandbox unavailable on this platform — contextual shell execution is blocked because cwd and a scrubbed environment are not filesystem containment]'
+
+function sandboxAvailableForShell(): boolean {
+  if (!isLinux || !hasBinary('bwrap')) return false
+  try {
+    execFileSync('bwrap', [
+      '--die-with-parent', '--new-session',
+      '--ro-bind', '/usr', '/usr',
+      '--ro-bind-try', '/bin', '/bin', '--ro-bind-try', '/lib', '/lib', '--ro-bind-try', '/lib64', '/lib64',
+      '--dev', '/dev', '--proc', '/proc', '--unshare-net', '--', '/usr/bin/true',
+    ], { stdio: 'ignore', timeout: 3000, env: scrubbedEnv() })
+    return true
+  } catch {
+    return false
+  }
+}
 
 export type ConfirmHandler = (message: string) => Promise<boolean>
 let legacyConfirmHandler: ConfirmHandler | null = null
@@ -95,7 +112,7 @@ let legacyConfirmHandler: ConfirmHandler | null = null
 /** @deprecated Runtime calls should supply authorization through ToolExecutionContext. */
 export function setShellConfirmHandler(handler: ConfirmHandler | null): void { legacyConfirmHandler = handler }
 
-async function runSandboxed(command: string, cwd: string, timeout: number, readOnly: boolean, signal?: AbortSignal): Promise<{ stdout: string; stderr: string }> {
+async function runSandboxed(command: string, cwd: string, timeout: number, readOnly: boolean, allowNetwork: boolean, signal?: AbortSignal): Promise<{ stdout: string; stderr: string }> {
   const bunBin = dirname(process.execPath)
   const args = [
     '--die-with-parent', '--new-session',
@@ -104,14 +121,24 @@ async function runSandboxed(command: string, cwd: string, timeout: number, readO
     readOnly ? '--ro-bind' : '--bind', cwd, '/mnt',
   ]
   if (bunBin.startsWith(`${homedir()}/`)) args.push('--ro-bind', bunBin, '/opt/bin')
+  if (allowNetwork) {
+    const resolvTarget = (() => { try { return realpathSync('/etc/resolv.conf') } catch { return null } })()
+    if (resolvTarget) args.push('--ro-bind-try', resolvTarget, resolvTarget)
+    args.push('--ro-bind-try', '/etc/resolv.conf', '/etc/resolv.conf', '--ro-bind-try', '/etc/ssl/certs', '/etc/ssl/certs')
+  }
   args.push(
     '--tmpfs', '/tmp',
-    '--dev', '/dev', '--proc', '/proc', '--unshare-net', '--unshare-pid', '--unshare-ipc', '--unshare-uts',
+    '--dev', '/dev', '--proc', '/proc', ...(allowNetwork ? [] : ['--unshare-net']), '--unshare-pid', '--unshare-ipc', '--unshare-uts',
     '--clearenv', '--setenv', 'PATH', '/opt/bin:/usr/local/bin:/usr/bin:/bin',
     '--setenv', 'HOME', '/tmp', '--setenv', 'TMPDIR', '/tmp', '--chdir', '/mnt',
   )
   args.push('/bin/sh', '-lc', command)
-  const result = await execa('bwrap', args, { timeout, cancelSignal: signal })
+  const result = await execa('bwrap', args, {
+    timeout,
+    cancelSignal: signal,
+    env: scrubbedEnv(),
+    extendEnv: false,
+  })
   return { stdout: result.stdout, stderr: result.stderr }
 }
 
@@ -137,7 +164,7 @@ async function runUnsandboxed(command: string, cwd: string, timeout: number, sig
 
 export const Shell: Tool = {
   name: 'shell',
-  description: 'Run a shell command. Worker tasks are sandboxed to their workspace without network or inherited secrets.',
+  description: 'Run a shell command in an isolated workspace with a scrubbed environment. Network access requires explicit approval.',
   parameters: {
     type: 'object', additionalProperties: false,
     properties: {
@@ -148,6 +175,7 @@ export const Shell: Tool = {
   },
   async execute(args, context) {
     const command = args.command as string
+    const networkCapability = hasNetworkCapability('shell', { command })
     const timeoutArg = args.timeout as number | undefined
     const timeout = timeoutArg != null && Number.isFinite(timeoutArg) && timeoutArg > 0 ? timeoutArg * 1000 : SHELL_TIMEOUT_MS
     const warning = destructiveWarning(command)
@@ -160,6 +188,9 @@ export const Shell: Tool = {
       }
       if (!context && (!legacyConfirmHandler || !await legacyConfirmHandler(warning))) return 'Command cancelled by user.'
     }
+    if (networkCapability && (!context || !context.dangerousOperationApproved)) {
+      return 'Command blocked — network access requires explicit approval.'
+    }
 
     const workspaceCwd = context?.workspacePath ?? process.cwd()
     const ignoredPath = findIgnoredShellPath(command, workspaceCwd)
@@ -170,24 +201,18 @@ export const Shell: Tool = {
 
     try {
       const cwd = workspaceCwd
-      const needsSandbox = !!context && context.permissionProfile !== 'coordinator-integrator'
-      const degraded = needsSandbox && !sandboxAvailable()
-      if (degraded && !context?.dangerousOperationApproved) {
-        return `Error: ${SANDBOX_UNAVAILABLE_NOTICE}`
-      }
+      const needsSandbox = !!context
+      const degraded = needsSandbox && !sandboxAvailableForShell()
+      if (degraded) return `Error: ${SANDBOX_UNAVAILABLE_NOTICE}`
       const result = needsSandbox
-        ? (degraded
-            ? await runUnsandboxed(command, cwd, timeout, context!.signal)
-            : await runSandboxed(command, cwd, timeout, context!.permissionProfile === 'tester', context!.signal))
-        : await execa(command, { shell: true, cwd, timeout, cancelSignal: context?.signal })
+        ? await runSandboxed(command, cwd, timeout, context!.permissionProfile === 'tester', networkCapability && context!.dangerousOperationApproved === true, context!.signal)
+        : await runUnsandboxed(command, cwd, timeout)
       const output = [result.stdout, result.stderr].filter(Boolean).join('\n') || '(no output)'
-      // Be explicit rather than silently weakening the tool's stated contract.
-      const notice = degraded ? `${SANDBOX_UNAVAILABLE_NOTICE}\n` : ''
-      return (notice + output).slice(0, SHELL_OUTPUT_MAX_CHARS)
+      return output.slice(0, SHELL_OUTPUT_MAX_CHARS)
     } catch (error) {
       const failure = error as { stdout?: string; stderr?: string; message?: string; code?: string }
       const prefix = context?.signal?.aborted ? 'Cancelled' : 'Error'
-      const notice = context && context.permissionProfile !== 'coordinator-integrator' && !sandboxAvailable()
+      const notice = context && !sandboxAvailableForShell()
         ? `${SANDBOX_UNAVAILABLE_NOTICE}\n`
         : ''
       return `${prefix}: ${notice}${failure.stderr || failure.message || 'Command failed'}\n${failure.stdout || ''}`.slice(0, SHELL_OUTPUT_MAX_CHARS)

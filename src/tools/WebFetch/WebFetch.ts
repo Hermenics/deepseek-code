@@ -1,66 +1,90 @@
 import { lookup } from 'dns/promises'
-import { isIP } from 'node:net'
+import { BlockList, isIP } from 'node:net'
 import { Tool } from '../types.js'
 
 const TIMEOUT_MS = 15_000
 const MAX_CHARS = 20_000
+const MAX_BODY_BYTES = MAX_CHARS * 4
 const MAX_REDIRECTS = 5
+const DNS_TIMEOUT_MS = 2000
+
+type IpFamily = 'ipv4' | 'ipv6'
+type Subnet = readonly [address: string, prefix: number]
+
+// IANA special-purpose ranges: only globally routable addresses may be fetched.
+const BLOCKED_IPV4_SUBNETS: readonly Subnet[] = [
+  ['0.0.0.0', 8],
+  ['10.0.0.0', 8],
+  ['100.64.0.0', 10],
+  ['127.0.0.0', 8],
+  ['169.254.0.0', 16],
+  ['172.16.0.0', 12],
+  ['192.0.0.0', 24],
+  ['192.0.2.0', 24],
+  ['192.31.196.0', 24],
+  ['192.52.193.0', 24],
+  ['192.88.99.0', 24],
+  ['192.168.0.0', 16],
+  ['192.175.48.0', 24],
+  ['198.18.0.0', 15],
+  ['198.51.100.0', 24],
+  ['203.0.113.0', 24],
+  ['224.0.0.0', 4],
+  ['240.0.0.0', 4],
+]
+
+const BLOCKED_IPV6_SUBNETS: readonly Subnet[] = [
+  ['::', 96],
+  ['::1', 128],
+  ['::ffff:0:0', 96],
+  ['64:ff9b::', 96],
+  ['64:ff9b:1::', 48],
+  ['100::', 64],
+  ['2001::', 23],
+  ['2001:db8::', 32],
+  ['2002::', 16],
+  ['3fff::', 20],
+  ['fc00::', 7],
+  ['fe80::', 10],
+  ['ff00::', 8],
+]
+
+function createBlockList(subnets: readonly Subnet[], family: IpFamily): BlockList {
+  const blockList = new BlockList()
+  for (const [address, prefix] of subnets) blockList.addSubnet(address, prefix, family)
+  return blockList
+}
+
+const blockedIpv4 = createBlockList(BLOCKED_IPV4_SUBNETS, 'ipv4')
+const blockedIpv6 = createBlockList(BLOCKED_IPV6_SUBNETS, 'ipv6')
+
+function isBlockedIp(ip: string): boolean {
+  const family = isIP(ip)
+  if (family === 4) return blockedIpv4.check(ip, 'ipv4')
+  if (family === 6) return blockedIpv6.check(ip, 'ipv6')
+  return true
+}
+
+function parseHttpUrl(url: string): URL | null {
+  try {
+    const parsed = new URL(url)
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed : null
+  } catch {
+    return null
+  }
+}
 
 function isValidUrl(url: string): boolean {
-  return /^https?:\/\//i.test(url)
+  return parseHttpUrl(url) !== null
 }
 
 function isBlockedUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url)
-    const host = parsed.hostname.toLowerCase()
-    // Block localhost
-    if (host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '0.0.0.0') return true
-    // Block AWS/GCP/Azure metadata
-    if (host === '169.254.169.254' || host === 'metadata.google.internal') return true
-    // Block private networks
-    if (host.startsWith('10.')) return true
-    if (host.startsWith('192.168.')) return true
-    if (host.startsWith('172.')) {
-      const second = parseInt(host.split('.')[1] || '0', 10)
-      if (second >= 16 && second <= 31) return true
-    }
-    // Block link-local
-    if (host.startsWith('169.254.')) return true
-    return false
-  } catch {
-    return true
-  }
+  const parsed = parseHttpUrl(url)
+  if (!parsed) return true
+  const host = parsed.hostname.replace(/^\[|\]$/g, '').toLowerCase()
+  const family = isIP(host)
+  return host === 'localhost' || host.endsWith('.localhost') || host === 'metadata.google.internal' || (family !== 0 && isBlockedIp(host))
 }
-
-function isPrivateIp(ip: string): boolean {
-  // IPv4 checks
-  if (ip === '127.0.0.1' || ip === '0.0.0.0') return true
-  if (ip.startsWith('10.')) return true
-  if (ip.startsWith('192.168.')) return true
-  if (ip.startsWith('169.254.')) return true
-  if (ip.startsWith('172.')) {
-    const second = parseInt(ip.split('.')[1] || '0', 10)
-    if (second >= 16 && second <= 31) return true
-  }
-
-  // IPv6 checks
-  const lower = ip.toLowerCase()
-  if (lower === '::1') return true
-  // IPv6-mapped IPv4: ::ffff:x.x.x.x
-  if (lower.startsWith('::ffff:')) {
-    const mapped = lower.slice(7) // strip "::ffff:"
-    return isPrivateIp(mapped)
-  }
-  // Link-local fe80::/10
-  if (lower.startsWith('fe8') || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb')) return true
-  // Unique local fc00::/7 (fc00:: and fd00::)
-  if (lower.startsWith('fc') || lower.startsWith('fd')) return true
-
-  return false
-}
-
-const DNS_TIMEOUT_MS = 2000
 
 interface ResolvedTarget { address: string; family: 4 | 6 }
 
@@ -71,7 +95,7 @@ async function resolvePublicTarget(url: string): Promise<ResolvedTarget | null> 
 
     // If the hostname is already an IP literal, check directly
     const family = isIP(hostname)
-    if (family) return isPrivateIp(hostname) ? null : { address: hostname, family: family as 4 | 6 }
+    if (family) return isBlockedIp(hostname) ? null : { address: hostname, family: family as 4 | 6 }
 
     let timer: ReturnType<typeof setTimeout> | undefined
     const results = await Promise.race([
@@ -80,11 +104,51 @@ async function resolvePublicTarget(url: string): Promise<ResolvedTarget | null> 
     ]).finally(() => clearTimeout(timer))
 
     // Block if ANY resolved address is private
-    if (!results.length || results.some(result => isPrivateIp(result.address))) return null
+    if (!results.length || results.some(result => isBlockedIp(result.address))) return null
     return { address: results[0]!.address, family: results[0]!.family as 4 | 6 }
   } catch {
     // Fail-closed: if DNS resolution fails, block the request
     return null
+  }
+}
+
+class ResponseTooLargeError extends Error {
+  constructor() {
+    super(`response body exceeds ${MAX_BODY_BYTES} bytes`)
+    this.name = 'ResponseTooLargeError'
+  }
+}
+
+async function readBodyWithinLimit(response: Response): Promise<string> {
+  const contentLength = Number(response.headers.get('content-length'))
+  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+    const cancel = response.body && typeof response.body.cancel === 'function' ? response.body.cancel.bind(response.body) : null
+    await cancel?.()
+    throw new ResponseTooLargeError()
+  }
+  if (!response.body) return ''
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let bytesRead = 0
+  let text = ''
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) return text + decoder.decode()
+
+      const remaining = MAX_BODY_BYTES - bytesRead
+      if (value.byteLength > remaining) {
+        if (remaining > 0) text += decoder.decode(value.subarray(0, remaining), { stream: true })
+        await reader.cancel()
+        throw new ResponseTooLargeError()
+      }
+
+      bytesRead += value.byteLength
+      text += decoder.decode(value, { stream: true })
+    }
+  } finally {
+    reader.releaseLock()
   }
 }
 
@@ -162,15 +226,16 @@ export const WebFetch: Tool = {
 
         if (!res.ok) return `Error: HTTP ${res.status} fetching ${url}`
 
-        const text = await res.text()
+        const text = await readBodyWithinLimit(res)
         const clean = stripHtml(text)
-        return clean.slice(0, MAX_CHARS)
+        return Array.from(clean).slice(0, MAX_CHARS).join('')
       }
       return `Error: too many redirects fetching ${requestedUrl}`
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'TimeoutError') {
         return `Error: timeout fetching ${requestedUrl} (limit: ${TIMEOUT_MS / 1000}s)`
       }
+      if (err instanceof ResponseTooLargeError) return `Error: ${err.message}`
       if (err instanceof TypeError) {
         // fetch throws TypeError for network failures (DNS, connection refused, etc.)
         return `Error: network failure fetching ${requestedUrl}: ${err.message}`

@@ -48,9 +48,9 @@ const CATEGORIES: Category[] = [
   {
     id: 'provider', label: 'Provider & Model', short: 'Provider', description: 'Backend, endpoints, credentials and model defaults.',
     items: [
-      { path: 'provider.name', label: 'Provider', description: 'DeepSeek API, AWS Bedrock, Google Vertex AI or a local OpenAI-compatible server.', kind: 'enum', options: ['deepseek', 'bedrock', 'vertex', 'local'], restart: true, aliases: ['backend'] },
+      { path: 'provider.name', label: 'Provider', description: 'DeepSeek API, AWS Bedrock, Google Vertex AI or a local OpenAI-compatible server. Project-scope values are ignored.', kind: 'enum', options: ['deepseek', 'bedrock', 'vertex', 'local'], restart: true, aliases: ['backend'] },
       { path: 'model.default', label: 'Default model', description: 'Model used by the primary agent. Applies immediately when compatible with this provider.', kind: 'enum', aliases: ['llm'] },
-      { path: 'provider.endpoint', label: 'Endpoint', description: 'Optional API base URL. Provider and endpoint changes take effect next session.', kind: 'text', restart: true, aliases: ['base url'] },
+      { path: 'provider.endpoint', label: 'Endpoint', description: 'Optional API base URL. Project-scope values are ignored so saved credentials cannot follow a repository endpoint.', kind: 'text', restart: true, aliases: ['base url'] },
       { path: 'provider.timeoutMs', label: 'Connection timeout', description: 'Maximum provider request time in milliseconds.', kind: 'number' },
       { path: 'provider.region', label: 'AWS region', description: 'AWS Bedrock region.', kind: 'text', restart: true },
       { path: 'provider.profile', label: 'AWS profile', description: 'Named AWS credentials profile.', kind: 'text', restart: true },
@@ -195,7 +195,7 @@ const CATEGORIES: Category[] = [
       { path: '$action.diagnostics', label: 'Diagnostics', description: 'Show scope paths, validation issues and unknown top-level keys.', kind: 'action', action: 'diagnostics' },
       { path: 'lsp.servers', label: 'Language servers', description: 'User-scoped JSON array of trusted LSP commands and file extensions.', kind: 'json' },
       { path: 'lsp.timeoutMs', label: 'LSP timeout', description: 'Maximum language-server request time in milliseconds.', kind: 'number' },
-      { path: 'mcp.enabled', label: 'Enable project MCP servers', description: 'User-scoped consent to load project .deepseek/mcp.json files. Restart required.', kind: 'boolean', restart: true },
+      { path: 'mcp.enabled', label: 'Enable project MCP servers', description: 'User opt-in only. Each workspace and exact .deepseek/mcp.json hash still requires a separate confirmation.', kind: 'boolean', restart: true },
       { path: '$action.reset-scope', label: 'Reset scope', description: 'Remove all known and unknown settings overrides from the selected scope.', kind: 'action', action: 'reset-scope' },
       { path: '$action.export', label: 'Export effective settings', description: 'Write a secret-free diagnostic export into .deepseek.', kind: 'action', action: 'export' },
     ],

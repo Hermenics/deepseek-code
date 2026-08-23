@@ -62,11 +62,10 @@
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "7.21.11",
     "@craco/craco": "7.1.0",
-    "@emergentbase/visual-edits": "https://assets.emergent.sh/npm/emergentbase-visual-edits-1.0.13.tgz",
     "autoprefixer": "10.4.20",
     "dotenv": "16.4.5",
     "eslint": "8.57.0",
-    "postcss": "8.5.10",
+    "postcss": "8.5.26",
     "tailwindcss": "3.4.17"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c3997078417bacf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"

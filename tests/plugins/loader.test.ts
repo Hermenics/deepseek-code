@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'fs'
-import { join } from 'path'
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'fs'
+import { join, relative } from 'path'
 import { tmpdir } from 'os'
 import { discoverComponents, readPluginManifest, loadInstalledPlugins } from '../../src/plugins/loader.js'
 import { writePluginRegistry } from '../../src/plugins/registry.js'
 
 let testDir: string
+const externalDirs: string[] = []
 
 beforeEach(() => {
   testDir = mkdtempSync(join(tmpdir(), 'dsk-plugin-loader-'))
@@ -13,6 +14,7 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(testDir, { recursive: true, force: true })
+  for (const dir of externalDirs.splice(0)) rmSync(dir, { recursive: true, force: true })
 })
 
 describe('discoverComponents', () => {
@@ -99,6 +101,39 @@ describe('readPluginManifest', () => {
     expect(result).not.toBeNull()
     expect(result!.name).toBe('monorepo-plugin')
     expect(result!.version).toBe('2.0.0')
+  })
+
+  it('does not discover manifest components outside the plugin root', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'dsk-plugin-manifest-outside-'))
+    externalDirs.push(outside)
+    mkdirSync(join(outside, 'commands'), { recursive: true })
+    mkdirSync(join(outside, 'agents'), { recursive: true })
+    mkdirSync(join(outside, 'skills', 'escaped'), { recursive: true })
+    mkdirSync(join(outside, 'hooks'), { recursive: true })
+    writeFileSync(join(outside, 'commands', 'escaped.md'), '# escaped')
+    writeFileSync(join(outside, 'agents', 'escaped.md'), '# escaped')
+    writeFileSync(join(outside, 'skills', 'escaped', 'SKILL.md'), '# escaped')
+    writeFileSync(join(outside, 'hooks', 'hooks.json'), '{}')
+    const pathOutside = relative(testDir, outside)
+
+    expect(discoverComponents(testDir, {
+      name: 'escape',
+      commands: join(pathOutside, 'commands'),
+      agents: join(pathOutside, 'agents'),
+      skills: join(pathOutside, 'skills'),
+      hooks: join(pathOutside, 'hooks', 'hooks.json'),
+    })).toEqual({ commands: [], agents: [], skills: [], hasHooks: false })
+  })
+
+  it('does not discover files reached through an external symlink', () => {
+    if (process.platform === 'win32') return
+    const outside = mkdtempSync(join(tmpdir(), 'dsk-plugin-symlink-outside-'))
+    externalDirs.push(outside)
+    mkdirSync(join(testDir, 'commands'), { recursive: true })
+    writeFileSync(join(outside, 'escaped.md'), '# escaped')
+    symlinkSync(join(outside, 'escaped.md'), join(testDir, 'commands', 'escaped.md'))
+
+    expect(discoverComponents(testDir)).toEqual({ commands: [], agents: [], skills: [], hasHooks: false })
   })
 })
 

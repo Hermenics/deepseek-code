@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
+import { mkdtempSync } from 'node:fs'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,8 +10,7 @@ import { SubAgent, spawnSubAgentTask } from '../../src/tools/SubAgent/SubAgent.j
 
 /**
  * Unknown agent name that can never resolve: not a builtin (coder/reviewer/tester),
- * not a user/project config (no dirs exist in CI, and a bogus name avoids any
- * machine-local ~/.deepseek/agents/*.json flakiness).
+ * not a user/project config; each default test session uses a fresh empty root.
  */
 const UNKNOWN_AGENT = 'no-such-agent-8f3a'
 
@@ -21,8 +21,10 @@ const UNKNOWN_AGENT = 'no-such-agent-8f3a'
  * terminal within milliseconds.
  */
 function createSession(projectRoot?: string): OrchestratorSession {
+  const root = projectRoot ?? mkdtempSync(join(tmpdir(), 'dsk-generic-project-'))
+  if (!projectRoot) roots.push(root)
   return new OrchestratorSession({
-    projectRoot,
+    projectRoot: root,
     providerConfig: { provider: 'local', localBaseUrl: 'http://127.0.0.1:1/v1' },
     settings: { agents: {} },
     limits: { maxRetries: 0, retryBackoffMs: 0, timeoutMs: 10_000 },
@@ -196,11 +198,10 @@ describe('SubAgent generic spawn fallback', () => {
     }))
     const session = createSession(root)
 
-    // The generic fallback is only for unresolvable names — a config that
-    // resolves (here: usage 'primary', not 'subagent'/'both') must still throw.
+    // The project config resolves, but it is untrusted until the user approves it.
     await expect(
       spawnSubAgentTask({ task: 'do work', agent: 'primary-only', role: 'reader' }, context(session)),
-    ).rejects.toThrow('not enabled for subagent use')
+    ).rejects.toThrow('requires explicit workspace trust')
   })
 
   it('surfaces a malformed agent config loudly instead of silently spawning a generic agent', async () => {

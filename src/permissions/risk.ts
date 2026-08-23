@@ -1,6 +1,25 @@
 import { globMatch } from './matcher.js'
 import type { RiskRule, RiskContext, RiskAssessment } from './types.js'
 
+/**
+ * Detect network capability, rather than relying on a blacklist of command
+ * names. Transport syntax and common client APIs are covered as well.
+ */
+export function hasNetworkCapability(toolName: string, args: Record<string, unknown>): boolean {
+  const normalizedTool = toolName.toLowerCase()
+  if (normalizedTool === 'web_fetch') return true
+  if (normalizedTool !== 'shell' || typeof args.command !== 'string') return false
+
+  const command = args.command
+  return [
+    /\b(?:https?|ftp|ssh):\/\/[^\s'"`]+/i,
+    /\/dev\/(?:tcp|udp)\//i,
+    /(?:^|[;&|\n]\s*|\$\(\s*)(?:curl|wget|aria2c|httpie|nc|netcat|ncat|socat|telnet|ftp|ssh|scp|sftp)\b/i,
+    /\b(?:fetch|axios|requests?\.(?:get|post|put|delete|request)|urllib(?:\.request)?|https?\.request|socket(?:\.create_connection)?)\s*[(.]/i,
+    /\bgit\s+(?:clone|fetch|pull|push)\b/i,
+  ].some(pattern => pattern.test(command))
+}
+
 // ── Default Risk Rules ───────────────────────────────────────────────────────
 
 export const DEFAULT_RISK_RULES: RiskRule[] = [
@@ -107,7 +126,9 @@ export function assessRisk(
   })
 
   const content = getToolContent(toolName, args)
+  const networkCapability = hasNetworkCapability(toolName, args)
 
+  let assessment: RiskAssessment | null = null
   for (const rule of sorted) {
     if (rule.tool && rule.tool !== toolName) continue
 
@@ -131,13 +152,24 @@ export function assessRisk(
 
     const requiresConfirmation = rule.level === 'high' ? true : context.isSubAgent
 
-    return {
+    assessment = {
       level: rule.level,
       matchedRule: rule.id,
       description: rule.description ?? `Matched risk rule: ${rule.id}`,
       requiresConfirmation,
     }
+    break
   }
 
-  return null
+  // Network is a mandatory high-risk capability. Preserve a more specific
+  // destructive high-risk rule, but upgrade low/medium network operations.
+  if (networkCapability && assessment?.level !== 'high') {
+    return {
+      level: 'high',
+      matchedRule: 'shell:network',
+      description: 'Network capability requires explicit approval.',
+      requiresConfirmation: true,
+    }
+  }
+  return assessment
 }
