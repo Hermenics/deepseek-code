@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.23
+
+- Added: Explicit support for the real DeepSeek API model `deepseek-v4-flash-vision-exp`, including Flash-tier local cost rates and a hardcoded one-million-token context limit
+- Fixed: `Work truncated` is no longer shown for reasoning-only turns; it requires tool or terminal work
+- Docs: Expand the website reference for current DeepSeek API models and peak/off-peak pricing, model limits, commands, workflows, providers, sessions, tools and interface behavior
+- Tests: Add regression coverage for Vision cost/context handling and reasoning-only transcript rendering
+
 ## 0.6.22
 
 - Added: Live Dynamic Workflow progress in the Web GUI — phase, status, agent/token usage and `log()` output stream while a workflow runs instead of surfacing only the final tool result
