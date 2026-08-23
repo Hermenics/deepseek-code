@@ -331,6 +331,7 @@ describe('WorkflowEngine', () => {
     expect(engine.getRun(run.run_id)!.workflow_name).toBe('implement-and-review')
   })
 
+  // File-backed SQLite setup/teardown can exceed Bun's 5s default on Windows CI.
   it('should rehydrate workflow runs across restarts', async () => {
     const { mkdtempSync, rmSync } = await import('node:fs')
     const { join } = await import('node:path')
@@ -359,7 +360,7 @@ describe('WorkflowEngine', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
-  })
+  }, 15_000)
 })
 
 // ── Benchmark Harness ───────────────────────────────────────────────
