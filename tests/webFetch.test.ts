@@ -17,9 +17,26 @@ describe('WebFetch tool', () => {
     global.fetch = originalFetch
   })
 
-  /** Helper: cria um Response mock com ok=true e status=200 */
-  function okResponse(body: string): Response {
-    return { ok: true, status: 200, text: () => Promise.resolve(body) } as Response
+  function streamResponse(
+    chunks: string[],
+    options: { status?: number; headers?: HeadersInit; onCancel?: () => void } = {},
+  ): Response {
+    let index = 0
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (index === chunks.length) controller.close()
+        else controller.enqueue(new TextEncoder().encode(chunks[index++]!))
+      },
+      cancel() {
+        options.onCancel?.()
+      },
+    })
+    const status = options.status ?? 200
+    return { ok: status >= 200 && status < 300, status, headers: new Headers(options.headers), body } as Response
+  }
+
+  function okResponse(body: string, headers?: HeadersInit): Response {
+    return streamResponse([body], { headers })
   }
 
   // --- Happy path (testes originais adaptados) ---
@@ -79,6 +96,43 @@ describe('WebFetch tool', () => {
     expect((result as string).length).toBeLessThanOrEqual(20000)
   })
 
+  it('mantém UTF-8 válido e limita caracteres sem cortar emoji', async () => {
+    const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
+    const content = '🙂'.repeat(20000)
+    global.fetch = mock(() => Promise.resolve(okResponse(content))) as any
+    const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
+    expect(result).toBe(content)
+    expect((result as string).includes('\uFFFD')).toBe(false)
+  })
+
+  it('rejeita Content-Length acima do limite antes de ler o body', async () => {
+    const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
+    let read = false
+    let cancelled = false
+    const response = {
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-length': String(20000 * 4 + 1) }),
+      body: { cancel: () => { cancelled = true }, getReader: () => { read = true; throw new Error('body should not be read') } },
+    } as unknown as Response
+    global.fetch = mock(() => Promise.resolve(response)) as any
+    const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
+    expect(result).toContain('response body exceeds')
+    expect(read).toBe(false)
+    expect(cancelled).toBe(true)
+  })
+
+  it('cancela resposta chunked ao atingir o limite de bytes', async () => {
+    const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
+    let cancelled = false
+    global.fetch = mock(() => Promise.resolve(streamResponse(['a'.repeat(10000), 'b'.repeat(80000), 'c'], {
+      onCancel: () => { cancelled = true },
+    }))) as any
+    const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
+    expect(result).toContain('response body exceeds')
+    expect(cancelled).toBe(true)
+  })
+
   it('conteúdo menor que 20.000 chars não é truncado', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     const shortContent = 'conteúdo curto'
@@ -115,6 +169,31 @@ describe('WebFetch tool', () => {
     global.fetch = mock(() => Promise.resolve(okResponse('ok'))) as any
     const result = await WebFetch.execute({ url: PUBLIC_HTTP_URL })
     expect(result).not.toContain('Error:')
+  })
+
+  it.each([
+    ['loopback IPv4', 'http://127.0.0.2/'],
+    ['loopback IPv6', 'http://[::1]/'],
+    ['IPv4-mapped IPv6', 'http://[::ffff:127.0.0.2]/'],
+  ])('bloqueia %s', async (_, url) => {
+    const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
+    const fetchMock = mock(() => Promise.resolve(okResponse('must not fetch')))
+    global.fetch = fetchMock as any
+    const result = await WebFetch.execute({ url })
+    expect(result).toContain('private/internal network')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('revalida cada redirect e bloqueia destino interno', async () => {
+    const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
+    const fetchMock = mock(() => Promise.resolve(streamResponse([], {
+      status: 302,
+      headers: { location: 'http://127.0.0.2/' },
+    })))
+    global.fetch = fetchMock as any
+    const result = await WebFetch.execute({ url: 'https://safe.example/redirect' })
+    expect(result).toContain('private/internal network')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
   // --- Status HTTP não-2xx ---

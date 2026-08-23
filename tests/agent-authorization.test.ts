@@ -67,7 +67,7 @@ describe('agent authorization', () => {
 
   it('binds workflow consent to the script after hooks rewrite it', async () => {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-consent-'))
-    const agent = new Agent({ provider: 'local', localModel: 'test-model' }, { projectRoot: root, snapshotFile: null })
+    const agent = new Agent({ provider: 'local', localModel: 'test-model' }, { projectRoot: root, logFile: null, snapshotFile: null })
     try {
       await agent.readyPromise
       agent.interactionMode = 'build'

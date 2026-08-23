@@ -94,20 +94,30 @@ describe('assessRisk', () => {
       expect(r!.level).toBe('high')
       expect(r!.requiresConfirmation).toBe(true)
     })
+
+    it('curl and wget are HIGH network capabilities', () => {
+      for (const command of ['curl https://example.invalid', 'wget https://example.invalid']) {
+        const r = assessRisk('shell', { command }, ctx({ config: { enabled: false } }))
+        expect(r?.matchedRule).toBe('shell:network')
+        expect(r?.level).toBe('high')
+        expect(r?.requiresConfirmation).toBe(true)
+      }
+    })
   })
 
   describe('MEDIUM risk', () => {
-    it('git push origin main (no --force) → MEDIUM, no confirmation for main agent', () => {
+    it('git push origin main is HIGH network risk', () => {
       const r = assessRisk('shell', { command: 'git push origin main' }, ctx())
       expect(r).not.toBeNull()
-      expect(r!.level).toBe('medium')
-      expect(r!.requiresConfirmation).toBe(false)
+      expect(r!.level).toBe('high')
+      expect(r!.matchedRule).toBe('shell:network')
+      expect(r!.requiresConfirmation).toBe(true)
     })
 
-    it('git push origin main → MEDIUM, requires confirmation if subagent', () => {
+    it('git push origin main remains HIGH for subagents', () => {
       const r = assessRisk('shell', { command: 'git push origin main' }, ctx({ isSubAgent: true }))
       expect(r).not.toBeNull()
-      expect(r!.level).toBe('medium')
+      expect(r!.level).toBe('high')
       expect(r!.requiresConfirmation).toBe(true)
     })
 
@@ -299,11 +309,11 @@ describe('assessRisk', () => {
       expect(r).toBeNull()
     })
 
-    it('git push --follow-tags is MEDIUM (not HIGH force push)', () => {
+    it('git push --follow-tags is HIGH network risk (not force push)', () => {
       const r = assessRisk('shell', { command: 'git push --follow-tags' }, ctx())
       expect(r).not.toBeNull()
-      expect(r!.level).toBe('medium')
-      expect(r!.matchedRule).toBe('shell:git-push')
+      expect(r!.level).toBe('high')
+      expect(r!.matchedRule).toBe('shell:network')
     })
 
     it('git push -f is still HIGH', () => {

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { loadAgentConfig, loadAgentRegistry, listAgents } from '../src/agent/config.js'
+import { approveAgent, loadAgentConfig, loadAgentRegistry, listAgents } from '../src/agent/config.js'
 import { OrchestratorSession } from '../src/orchestration/index.js'
 import { spawnSubAgentTask } from '../src/tools/SubAgent/SubAgent.js'
 
@@ -24,12 +24,28 @@ describe('agent configuration', () => {
       systemPrompt: 'Test agent.', permissionProfile: 'tester', timeoutMs: 5000, maxRetries: 1,
       contextMode: 'fresh', tools: ['read_file', 'shell'], outputSchema: { type: 'object' },
     }))
-    const { config, source } = await loadAgentConfig('test-agent', root)
+    const trustFile = join(root, 'workspace-trust.json')
+    await expect(loadAgentConfig('test-agent', root, { trustFile })).rejects.toThrow('requires explicit workspace trust')
+    const candidate = await loadAgentConfig('test-agent', root, { includeUntrusted: true, trustFile })
+    expect(candidate.trusted).toBe(false)
+    await approveAgent(candidate, root, trustFile)
+    const { config, source } = await loadAgentConfig('test-agent', root, { trustFile })
     expect(config.name).toBe('test-agent')
     expect(config.model).toBe('deepseek-chat')
     expect(config.permissionProfile).toBe('tester')
     expect(source).toBe('local')
     expect((await listAgents(root)).some(agent => agent.name === 'test-agent')).toBe(true)
+  })
+
+  it('invalidates project-agent approval when the file changes', async () => {
+    const path = join(directory, 'changing.json')
+    const trustFile = join(root, 'workspace-trust.json')
+    await writeFile(path, JSON.stringify({ name: 'changing', systemPrompt: 'safe' }))
+    const candidate = await loadAgentConfig('changing', root, { includeUntrusted: true, trustFile })
+    await approveAgent(candidate, root, trustFile)
+    expect((await loadAgentConfig('changing', root, { trustFile })).trusted).toBe(true)
+    await writeFile(path, JSON.stringify({ name: 'changing', systemPrompt: 'changed' }))
+    await expect(loadAgentConfig('changing', root, { trustFile })).rejects.toThrow('requires explicit workspace trust')
   })
 
   it('throws an actionable error for malformed or incomplete definitions', async () => {
@@ -66,10 +82,13 @@ describe('agent configuration', () => {
   })
 
   it('never lets a declarative subagent elevate itself to coordinator', async () => {
-    await writeFile(join(directory, 'elevated.json'), JSON.stringify({
+    const path = join(directory, 'elevated.json')
+    const trustFile = join(root, 'workspace-trust.json')
+    await writeFile(path, JSON.stringify({
       name: 'elevated', usage: 'subagent', systemPrompt: 'Run as coordinator.', permissionProfile: 'coordinator-integrator',
     }))
+    const candidate = await loadAgentConfig('elevated', root, { includeUntrusted: true, trustFile })
     const session = new OrchestratorSession({ projectRoot: root, logFile: null, snapshotFile: null })
-    await expect(spawnSubAgentTask({ task: 'do work', agent: 'elevated', mode: 'background' }, session.toolContext())).rejects.toThrow('cannot use coordinator-integrator')
+    await expect(spawnSubAgentTask({ task: 'do work', agent: 'elevated', mode: 'background' }, session.toolContext(), 'subagent', candidate)).rejects.toThrow('cannot use coordinator-integrator')
   })
 })

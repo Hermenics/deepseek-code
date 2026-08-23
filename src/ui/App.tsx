@@ -26,7 +26,7 @@ import ConfigMenu from './setup/ConfigMenu.js'
 import MobileQRCode from './MobileQRCode.js'
 import { resolveCommand, HELP_TEXT, REVIEW_PROMPT } from '../commands.js'
 import { FEATURES, loadFeatures, saveFeatures, type FeatureName } from '../features.js'
-import { loadAgentConfig, listAgents, type LoadedAgent } from '../agent/config.js'
+import { approveAgent, loadAgentConfig, listAgents, type LoadedAgent } from '../agent/config.js'
 import { appendInputHistory } from '../agent/inputHistory.js'
 import type { ThemeName, ProviderConfig } from '../types/provider.js'
 import type { DeepSeekSettings, InterfaceSettings } from '../settings/types.js'
@@ -169,7 +169,21 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [modelDescriptions, setModelDescriptions] = useState<Record<string, string>>({})
   const [showEffortSelector, setShowEffortSelector] = useState(false)
-  const [confirmState, setConfirmState] = useState<ConfirmState | null>(null)
+  const [confirmState, setConfirmStateState] = useState<ConfirmState | null>(null)
+  const confirmQueueRef = useRef<ConfirmState[]>([])
+  const confirmStateRef = useRef<ConfirmState | null>(null)
+  const setConfirmState = useCallback((next: ConfirmState | null) => {
+    if (!next) { setConfirmStateState(null); return }
+    if (confirmStateRef.current) confirmQueueRef.current.push(next)
+    else setConfirmStateState(next)
+  }, [])
+  confirmStateRef.current = confirmState
+  const cancelConfirmations = useCallback(() => {
+    confirmStateRef.current?.resolve(false)
+    for (const pending of confirmQueueRef.current.splice(0)) pending.resolve(false)
+    confirmStateRef.current = null
+    setConfirmStateState(null)
+  }, [])
   const [toolPermissionState, setToolPermissionState] = useState<ToolPermissionState | null>(null)
   const [askUserState, setAskUserState] = useState<AskUserState | null>(null)
   const [planApprovalState, setPlanApprovalState] = useState<PlanApprovalState | null>(null)
@@ -366,6 +380,34 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     return () => agent.setConfirmHandler(null)
   }, [agent, interactionMode])
 
+  useEffect(() => {
+    agent.setMcpApprovalHandler((request) => new Promise<boolean>((resolve) => {
+      setConfirmState({
+        message: `Allow this workspace to start the MCP servers declared by ${request.canonicalPath}?\nExact config hash: ${request.hash.slice(0, 16)}…`,
+        resolve,
+      })
+    }))
+    return () => agent.setMcpApprovalHandler(null)
+  }, [agent])
+
+  const trustAgent = useCallback((candidate: LoadedAgent): Promise<boolean> => {
+    if (candidate.trusted) return Promise.resolve(true)
+    return new Promise<boolean>((resolve) => {
+      setConfirmState({
+        message: `Trust project agent '${candidate.config.name}' from ${candidate.artifact?.canonicalPath ?? candidate.path ?? 'unknown path'}?\nContent hash: ${candidate.artifact?.hash ? `${candidate.artifact.hash.slice(0, 16)}…` : 'unknown'}`,
+        resolve: (yes) => {
+          if (!yes) { resolve(false); return }
+          void approveAgent(candidate, agent.getWorkingDirectory())
+            .then(() => resolve(true))
+            .catch(error => {
+              setMessages(messages => [...messages, { role: 'assistant', content: `⚠ Agent trust failed: ${(error as Error).message}` }])
+              resolve(false)
+            })
+        },
+      })
+    })
+  }, [agent])
+
   // One-time setup offer: materialize the built-in ignore defaults into the
   // project's .deepseekignore so the user can see and edit them. Editor
   // association is a second, separate ask — writing to global editor settings
@@ -528,12 +570,20 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         const errMsg = `⚠ MCP connection errors:\n${agent.mcpErrors.map((e) => `  • ${e}`).join('\n')}`
         setMessages((m) => [...m, { role: 'assistant', content: errMsg }])
       }
-      if (initialAgent) {
-        const { config, source } = initialAgent
+      let candidate = initialAgent ?? null
+      if (!candidate && initialSettings?.agents?.default) {
+        try {
+          candidate = await loadAgentConfig(initialSettings.agents.default, agent.getWorkingDirectory(), { includeUntrusted: true })
+        } catch (error) {
+          setMessages(messages => [...messages, { role: 'assistant', content: `⚠ Default agent unavailable: ${(error as Error).message}` }])
+        }
+      }
+      if (candidate && await trustAgent(candidate)) {
+        const { config, source } = candidate
         await agent.applyAgentConfig(config)
         setActiveAgent(config.name)
         setActiveAgentColor(config.color)
-        const sourceMsg = source === 'local' ? 'local (overrides global)' : 'global'
+        const sourceMsg = source === 'local' ? 'local (overrides global)' : source
         setMessages((m) => [...m, { role: 'assistant', content: `Agent '${config.name}' loaded from ${sourceMsg}.` }])
       }
       if (initialMessage) {
@@ -608,8 +658,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const handleConfirm = useCallback((yes: boolean) => {
     if (!confirmState) return
     confirmState.resolve(yes)
-    setConfirmState(null)
+    const next = confirmQueueRef.current.shift() ?? null
+    confirmStateRef.current = next
+    setConfirmStateState(next)
   }, [confirmState])
+
+  useEffect(() => cancelConfirmations, [cancelConfirmations])
 
   const handleToolPermission = useCallback((result: ToolPermissionResult) => {
     if (!toolPermissionState) return
@@ -1066,7 +1120,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         }
         case 'agent': {
           try {
-            const { config, source } = await loadAgentConfig(cmd.name, agent.getWorkingDirectory())
+            const loaded = await loadAgentConfig(cmd.name, agent.getWorkingDirectory(), { includeUntrusted: true })
+            if (!await trustAgent(loaded)) {
+              setMessages((m) => [...m, { role: 'assistant', content: `Agent '${cmd.name}' was not trusted.` }])
+              return
+            }
+            const { config, source } = loaded
             await agent.applyAgentConfig(config)
             setActiveAgent(config.name)
             setActiveAgentColor(config.color)

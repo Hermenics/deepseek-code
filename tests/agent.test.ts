@@ -224,7 +224,10 @@ describe('Agent class', () => {
       })
       const messages = agent.getMessages()
       expect(messages.length).toBe(1)
-      expect(messages[0].content).toBe('New system prompt.')
+      expect(messages[0].content).toContain('You are DeepSeek Code')
+      expect(messages[0].content).toContain('New system prompt.')
+      expect(messages[0].content).toContain('Subordinate agent specialization')
+      expect(messages[0].content).not.toBe('New system prompt.')
     })
   })
 

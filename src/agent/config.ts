@@ -9,6 +9,7 @@ import { FIXED_AGENTS } from '../tools/SubAgent/fixedAgents.js'
 import type { SubAgentRole } from '../tools/SubAgent/permissions.js'
 import { globFiles } from '../utils/fs.js'
 import { validateSchema } from '../orchestration/schema.js'
+import { canonicalPath, hashTrustedContent, WorkspaceTrustStore, type TrustedArtifact } from '../settings/trust.js'
 
 export type AgentUsage = 'primary' | 'subagent' | 'both'
 export type AgentSource = 'builtin' | 'user' | 'additional' | 'project' | 'local'
@@ -57,7 +58,14 @@ export interface LoadedAgent {
   source: 'local' | 'global' | 'builtin' | 'additional'
   origin: AgentSource
   path?: string
+  artifact?: TrustedArtifact
+  trusted: boolean
   overridden?: boolean
+}
+
+export interface AgentLoadOptions {
+  includeUntrusted?: boolean
+  trustFile?: string
 }
 
 interface AgentLayer {
@@ -148,9 +156,13 @@ function validateStored(value: unknown, path = 'agent config'): StoredAgentConfi
   return config
 }
 
-async function readStored(path: string): Promise<StoredAgentConfig | null> {
+async function readStored(path: string): Promise<{ config: StoredAgentConfig; artifact: TrustedArtifact } | null> {
   try {
-    return validateStored(JSON.parse(await readFile(path, 'utf8')) as unknown, path)
+    const content = await readFile(path, 'utf8')
+    return {
+      config: validateStored(JSON.parse(content) as unknown, path),
+      artifact: { canonicalPath: await canonicalPath(path), hash: hashTrustedContent(content) },
+    }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
     if (error instanceof SyntaxError) throw new Error(`Invalid agent config '${path}': malformed JSON (${error.message})`)
@@ -174,28 +186,29 @@ function mergeAgent(base: StoredAgentConfig | undefined, override: StoredAgentCo
  * @returns Agents sorted by configuration name, including their source, origin, and override metadata
  * @throws Error If an agent has missing or cyclic inheritance, or extends an unavailable built-in agent
  */
-export async function loadAgentRegistry(cwd = process.cwd()): Promise<LoadedAgent[]> {
+export async function loadAgentRegistry(cwd = process.cwd(), options: AgentLoadOptions = {}): Promise<LoadedAgent[]> {
   const settings = await loadMergedSettings(cwd)
   const layers = directories(settings.agents?.additionalDirectories, cwd)
   const builtinDefinitions = builtins()
-  const resolved = new Map<string, { raw: StoredAgentConfig; layer: AgentLayer; path?: string; overridden: boolean }>()
+  const trust = new WorkspaceTrustStore(cwd, options.trustFile)
+  const resolved = new Map<string, { raw: StoredAgentConfig; layer: AgentLayer; path?: string; artifact?: TrustedArtifact; artifacts?: TrustedArtifact[]; overridden: boolean }>()
 
   for (const [name, raw] of builtinDefinitions) {
     resolved.set(name, { raw, layer: layers[0]!, overridden: false })
   }
 
   for (const layer of layers.slice(1)) {
-    const pending = new Map<string, { raw: StoredAgentConfig; path: string }>()
+    const pending = new Map<string, { raw: StoredAgentConfig; path: string; artifact: TrustedArtifact }>()
     for (const file of await globFiles(/\.json$/, layer.directory!)) {
       const path = join(layer.directory!, file)
       const raw = await readStored(path)
       if (!raw) continue
-      pending.set(raw.name, { raw, path })
+      pending.set(raw.config.name, { raw: raw.config, path, artifact: raw.artifact })
     }
 
-    const layerResolved = new Map<string, { raw: StoredAgentConfig; layer: AgentLayer; path: string; overridden: boolean }>()
+    const layerResolved = new Map<string, { raw: StoredAgentConfig; layer: AgentLayer; path: string; artifact?: TrustedArtifact; artifacts: TrustedArtifact[]; overridden: boolean }>()
     const resolving = new Set<string>()
-    const resolve = (name: string): { raw: StoredAgentConfig; layer: AgentLayer; path: string; overridden: boolean } => {
+    const resolve = (name: string): { raw: StoredAgentConfig; layer: AgentLayer; path: string; artifact?: TrustedArtifact; artifacts: TrustedArtifact[]; overridden: boolean } => {
       const cached = layerResolved.get(name)
       if (cached) return cached
       const entry = pending.get(name)
@@ -215,7 +228,15 @@ export async function loadAgentRegistry(cwd = process.cwd()): Promise<LoadedAgen
         if (!base) throw new Error(`Agent '${name}' extends missing agent '${entry.raw.extends}'.`)
       }
       const merged = mergeAgent(base, entry.raw)
-      const value = { raw: validateStored(merged, entry.path), layer, path: entry.path, overridden: Boolean(previous) }
+      const inheritedArtifacts = entry.raw.extends
+        ? (entry.raw.extends.startsWith('builtin:') ? [] : (pending.get(entry.raw.extends) ? resolve(entry.raw.extends).artifacts : []))
+        : (previous?.artifacts ?? [])
+      const artifacts = [...inheritedArtifacts, entry.artifact]
+      const artifact = {
+        canonicalPath: entry.artifact.canonicalPath,
+        hash: hashTrustedContent(JSON.stringify(artifacts.map(item => [item.canonicalPath, item.hash]))),
+      }
+      const value = { raw: validateStored(merged, entry.path), layer, path: entry.path, artifact, artifacts, overridden: Boolean(previous) }
       resolving.delete(name)
       layerResolved.set(name, value)
       return value
@@ -229,6 +250,8 @@ export async function loadAgentRegistry(cwd = process.cwd()): Promise<LoadedAgen
     const raw = entry.raw
     if (entry.layer.source === 'builtin' && disabled.has(name)) raw.enabled = false
     if (typeof raw.systemPrompt !== 'string') continue
+    const artifact = entry.artifact
+    const trusted = !artifact || entry.layer.source === 'builtin' || entry.layer.source === 'user' || await trust.isAgentApproved(artifact)
     results.push({
       config: {
         ...raw,
@@ -240,6 +263,8 @@ export async function loadAgentRegistry(cwd = process.cwd()): Promise<LoadedAgen
       source: entry.layer.legacySource,
       origin: entry.layer.source,
       path: entry.path,
+      artifact,
+      trusted,
       overridden: entry.overridden,
     })
   }
@@ -259,6 +284,13 @@ export class AgentNotFoundError extends Error {
   }
 }
 
+export class AgentTrustRequiredError extends Error {
+  constructor(public readonly agent: LoadedAgent) {
+    super(`Agent '${agent.config.name}' requires explicit workspace trust for ${agent.artifact?.canonicalPath ?? agent.path ?? 'its configuration file'}.`)
+    this.name = 'AgentTrustRequiredError'
+  }
+}
+
 /**
  * Loads an enabled agent by name from the merged registry.
  *
@@ -268,11 +300,21 @@ export class AgentNotFoundError extends Error {
  * @throws AgentNotFoundError If no agent with the specified name exists
  * @throws Error If the specified agent is disabled
  */
-export async function loadAgentConfig(name: string, cwd = process.cwd()): Promise<LoadedAgent> {
-  const agent = (await loadAgentRegistry(cwd)).find(candidate => candidate.config.name === name)
+export async function loadAgentConfig(name: string, cwd = process.cwd(), options: AgentLoadOptions = {}): Promise<LoadedAgent> {
+  const agent = (await loadAgentRegistry(cwd, options)).find(candidate => candidate.config.name === name)
   if (!agent) throw new AgentNotFoundError(name)
   if (agent.config.enabled === false) throw new Error(`Agent '${name}' is disabled.`)
+  if (!agent.trusted && !options.includeUntrusted) throw new AgentTrustRequiredError(agent)
   return agent
+}
+
+export async function approveAgent(
+  agent: LoadedAgent,
+  cwd = process.cwd(),
+  trustFile?: string,
+): Promise<void> {
+  if (!agent.artifact || !agent.path) return
+  await new WorkspaceTrustStore(cwd, trustFile).approveAgent(agent.artifact)
 }
 
 /**
@@ -291,13 +333,14 @@ export function isAgentNotFoundError(error: unknown): boolean {
  * @param cwd - The working directory used to load project and local agent configurations
  * @returns Metadata for each registered agent, including its name, source, origin, usage, and enabled state
  */
-export async function listAgents(cwd = process.cwd()): Promise<Array<{ name: string; source: LoadedAgent['source']; origin: AgentSource; usage: AgentUsage; enabled: boolean }>> {
-  return (await loadAgentRegistry(cwd)).map(agent => ({
+export async function listAgents(cwd = process.cwd(), options: AgentLoadOptions = {}): Promise<Array<{ name: string; source: LoadedAgent['source']; origin: AgentSource; usage: AgentUsage; enabled: boolean; trusted: boolean }>> {
+  return (await loadAgentRegistry(cwd, options)).map(agent => ({
     name: agent.config.name,
     source: agent.source,
     origin: agent.origin,
     usage: agent.config.usage ?? 'primary',
     enabled: agent.config.enabled !== false,
+    trusted: agent.trusted,
   }))
 }
 

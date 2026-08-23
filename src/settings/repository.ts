@@ -349,6 +349,14 @@ export function validateSettings(settings: DeepSeekSettings, level?: SettingsLev
   const mcp = settings.mcp as unknown
   if (mcp !== undefined && !isObject(mcp)) add('mcp', 'Must be an object')
   if (isObject(mcp) && mcp.enabled !== undefined && typeof mcp.enabled !== 'boolean') add('mcp.enabled', 'Must be a boolean')
+  if (level === 'project') {
+    for (const field of ['name', 'endpoint', 'region', 'profile', 'projectId', 'location'] as const) {
+      if (settings.provider?.[field] !== undefined) add(`provider.${field}`, `Project provider.${field} is ignored; configure it at User or Local scope`, 'warning')
+    }
+    if (Array.isArray(settings.permissions?.allow) && settings.permissions.allow.length > 0) {
+      add('permissions.allow', 'Project allow rules are ignored; configure trusted allow rules at User or Local scope', 'warning')
+    }
+  }
   if (level !== 'user' && settings.interaction?.defaultMode === 'auto') add('interaction.defaultMode', 'Auto can only be selected at User scope')
   if (level !== 'user' && settings.hooks && Object.keys(settings.hooks).length > 0) add('hooks', 'Executable hooks are ignored outside User scope', 'warning')
   if (level !== 'user' && settings.lsp && Object.keys(settings.lsp).length > 0) add('lsp', 'Language-server commands are ignored outside User scope', 'warning')
@@ -361,16 +369,28 @@ export async function loadSettingsSnapshot(cwd?: string): Promise<SettingsSnapsh
   const loaded = await Promise.all(LEVELS.map(level => readLevel(level, cwd)))
   const levels = Object.fromEntries(loaded.map(item => [item.level, item])) as SettingsSnapshot['levels']
   const legacy = await loadLegacyPreferences()
-  const safeScopedLevel = (data: DeepSeekSettings): DeepSeekSettings => {
+  const safeScopedLevel = (data: DeepSeekSettings, level: SettingsLevel): DeepSeekSettings => {
     const safe = clone(data)
     safe.hooks = undefined
     safe.lsp = undefined
     safe.mcp = undefined
+    if (level === 'project' && safe.provider) {
+      // A checked-out project must not choose provider routing used with
+      // credentials loaded from the user's private config.
+      const timeoutMs = safe.provider.timeoutMs
+      safe.provider = timeoutMs === undefined ? undefined : { timeoutMs }
+      if (!safe.provider) delete safe.provider
+    }
+    if (level === 'project' && safe.permissions) {
+      // A checked-out project may deny capabilities, but cannot grant them.
+      delete safe.permissions.allow
+      if (Object.keys(safe.permissions).length === 0) delete safe.permissions
+    }
     if (safe.interaction?.defaultMode === 'auto') delete safe.interaction.defaultMode
     return safe
   }
-  const safeProject = safeScopedLevel(levels.project.data)
-  const safeLocal = safeScopedLevel(levels.local.data)
+  const safeProject = safeScopedLevel(levels.project.data, 'project')
+  const safeLocal = safeScopedLevel(levels.local.data, 'local')
   const mergeLevels = [legacy, levels.user.data, safeProject, safeLocal]
   const effective = legacyCompatibility(mergeSettings(DEFAULT_SETTINGS, ...mergeLevels))
   applyPermissionSuppressions(mergeLevels, effective)
@@ -451,6 +471,8 @@ export function resolveSetting(snapshot: SettingsSnapshot, path: string): Settin
     ...LEVELS.flatMap(level => {
     const value = getAtPath(snapshot.levels[level].data, path)
     if (level !== 'user' && path === 'interaction.defaultMode' && value === 'auto') return []
+    if (level === 'project' && /^provider\.(name|endpoint|region|profile|projectId|location)$/.test(path)) return []
+    if (level === 'project' && path === 'permissions.allow') return []
     if (level !== 'user' && (path.startsWith('hooks.') || path === 'lsp' || path.startsWith('lsp.') || path === 'mcp' || path.startsWith('mcp.'))) return []
     return value === undefined ? [] : [{ level, value }]
     }),

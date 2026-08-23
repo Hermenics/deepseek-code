@@ -1,5 +1,5 @@
-import { readdirSync, readFileSync, existsSync } from 'fs'
-import { join } from 'path'
+import { readdirSync, readFileSync, existsSync, realpathSync } from 'fs'
+import { isAbsolute, join, relative, resolve, sep } from 'path'
 import type { PluginManifest, LoadedPlugin, PluginComponents } from './types.js'
 import { readPluginRegistry, getPluginsDir } from './registry.js'
 
@@ -9,42 +9,63 @@ export function discoverComponents(pluginDir: string, manifest?: PluginManifest)
   const skills: string[] = []
   let hasHooks = false
 
+  const lexicalRoot = resolve(pluginDir)
+  let canonicalRoot: string
+  try {
+    canonicalRoot = realpathSync(pluginDir)
+  } catch {
+    return { commands, agents, skills, hasHooks }
+  }
+
+  function isContained(root: string, target: string): boolean {
+    const path = relative(root, target)
+    return path === '' || (!path.startsWith(`..${sep}`) && path !== '..' && !isAbsolute(path))
+  }
+
+  function resolvePluginPath(requested: string, base = pluginDir): string | null {
+    if (isAbsolute(requested) || requested === '..' || requested.startsWith(`..${sep}`)) return null
+    const candidate = resolve(base, requested)
+    if (!isContained(lexicalRoot, candidate)) return null
+    try {
+      const canonical = realpathSync(candidate)
+      return isContained(canonicalRoot, canonical) ? canonical : null
+    } catch {
+      return null
+    }
+  }
+
   // Helper: resolve a manifest path field to a directory under pluginDir
-  function resolveDir(field: string | string[] | undefined, fallback: string): string {
-    if (!field) return join(pluginDir, fallback)
+  function resolveDir(field: string | string[] | undefined, fallback: string): string | null {
     const first = Array.isArray(field) ? field[0] : field
-    // If it looks like a bare name (no slashes), treat as subdirectory
-    if (first && !first.includes('/')) return join(pluginDir, first)
-    return join(pluginDir, first ?? fallback)
+    return resolvePluginPath(first || fallback)
   }
 
-  const cmdsDir = manifest?.commands ? resolveDir(manifest.commands, 'commands') : join(pluginDir, 'commands')
-  if (existsSync(cmdsDir)) {
+  const cmdsDir = resolveDir(manifest?.commands, 'commands')
+  if (cmdsDir && existsSync(cmdsDir)) {
     for (const f of readdirSync(cmdsDir)) {
-      if (f.endsWith('.md')) commands.push(f.replace(/\.md$/, ''))
+      if (f.endsWith('.md') && resolvePluginPath(f, cmdsDir)) commands.push(f.replace(/\.md$/, ''))
     }
   }
 
-  const agentsDir = manifest?.agents ? resolveDir(manifest.agents, 'agents') : join(pluginDir, 'agents')
-  if (existsSync(agentsDir)) {
+  const agentsDir = resolveDir(manifest?.agents, 'agents')
+  if (agentsDir && existsSync(agentsDir)) {
     for (const f of readdirSync(agentsDir)) {
-      if (f.endsWith('.md')) agents.push(f.replace(/\.md$/, ''))
+      if (f.endsWith('.md') && resolvePluginPath(f, agentsDir)) agents.push(f.replace(/\.md$/, ''))
     }
   }
 
-  const skillsDir = manifest?.skills ? resolveDir(manifest.skills, 'skills') : join(pluginDir, 'skills')
-  if (existsSync(skillsDir)) {
+  const skillsDir = resolveDir(manifest?.skills, 'skills')
+  if (skillsDir && existsSync(skillsDir)) {
     for (const d of readdirSync(skillsDir, { withFileTypes: true })) {
-      if (d.isDirectory() && existsSync(join(skillsDir, d.name, 'SKILL.md'))) {
+      const skillDir = d.isDirectory() ? resolvePluginPath(d.name, skillsDir) : null
+      if (skillDir && resolvePluginPath('SKILL.md', skillDir)) {
         skills.push(d.name)
       }
     }
   }
 
-  const hooksPath = manifest?.hooks
-    ? join(pluginDir, manifest.hooks)
-    : join(pluginDir, 'hooks', 'hooks.json')
-  if (existsSync(hooksPath)) {
+  const hooksPath = resolvePluginPath(manifest?.hooks ?? join('hooks', 'hooks.json'))
+  if (hooksPath && existsSync(hooksPath)) {
     hasHooks = true
   }
 

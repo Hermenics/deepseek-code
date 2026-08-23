@@ -130,7 +130,7 @@ describe('orchestrator snapshots', () => {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-agent-snapshot-'))
     roots.push(root)
     const snapshotFile = join(root, 'agent-tasks.json')
-    const first = new Agent({ provider: 'local', localModel: 'fake' }, { sessionId: 'agent-persisted', projectRoot: root, snapshotFile })
+    const first = new Agent({ provider: 'local', localModel: 'fake' }, { sessionId: 'agent-persisted', projectRoot: root, snapshotFile, logFile: null })
     await first.readyPromise
     const task = first.orchestrator.spawn({ taskId: 'owned' }, async context => {
       const lease = await first.orchestrator.acquireWorkspace(context.taskId, 'writer-worktree', context.signal)
@@ -140,14 +140,14 @@ describe('orchestrator snapshots', () => {
     await task.awaitResult()
     await first.orchestrator.flush()
 
-    const restored = new Agent({ provider: 'local', localModel: 'fake' }, { sessionId: 'agent-persisted', projectRoot: root, snapshotFile })
+    const restored = new Agent({ provider: 'local', localModel: 'fake' }, { sessionId: 'agent-persisted', projectRoot: root, snapshotFile, logFile: null })
     await restored.readyPromise
     expect(restored.orchestrator.registry.getResult('owned')?.value).toBe('done')
     expect(restored.orchestrator.workspaces.get('owned')?.projectRoot).toBe(root)
     await Promise.all([first.shutdown(), restored.shutdown()])
   })
 
-  it('reloads project-scoped Agent context after changing roots', async () => {
+  it('does not reactivate an untrusted project agent after changing roots', async () => {
     const firstRoot = await mkdtemp(join(tmpdir(), 'deepseek-agent-root-'))
     const secondRoot = await mkdtemp(join(tmpdir(), 'deepseek-agent-root-'))
     roots.push(firstRoot, secondRoot)
@@ -159,16 +159,19 @@ describe('orchestrator snapshots', () => {
     await writeFile(join(secondRoot, '.deepseek', 'agents', 'root-agent.json'), JSON.stringify({
       name: 'root-agent', systemPrompt: 'SECOND_AGENT_PROMPT', files: ['context.md'],
     }))
-    const agent = new Agent({ provider: 'local', localModel: 'fake' }, { projectRoot: firstRoot, snapshotFile: null })
-    await agent.readyPromise
-    expect(systemMessage(agent)).toContain('FIRST_ROOT_ONLY')
-    await agent.applyAgentConfig({ name: 'root-agent', systemPrompt: 'FIRST_AGENT_PROMPT', files: ['context.md'] })
-    expect(systemMessage(agent)).toContain('FIRST_CONTEXT')
-    await agent.setWorkingDirectory(secondRoot)
-    expect(systemMessage(agent)).toContain('SECOND_AGENT_PROMPT')
-    expect(systemMessage(agent)).toContain('SECOND_CONTEXT')
-    expect(systemMessage(agent)).not.toContain('FIRST_ROOT_ONLY')
-    expect(systemMessage(agent)).not.toContain('FIRST_CONTEXT')
-    await agent.shutdown()
+    const agent = new Agent({ provider: 'local', localModel: 'fake' }, { projectRoot: firstRoot, snapshotFile: null, logFile: null })
+    try {
+      await agent.readyPromise
+      expect(systemMessage(agent)).toContain('FIRST_ROOT_ONLY')
+      await agent.applyAgentConfig({ name: 'root-agent', systemPrompt: 'FIRST_AGENT_PROMPT', files: ['context.md'] })
+      expect(systemMessage(agent)).toContain('FIRST_CONTEXT')
+      await agent.setWorkingDirectory(secondRoot)
+      expect(systemMessage(agent)).not.toContain('SECOND_AGENT_PROMPT')
+      expect(systemMessage(agent)).not.toContain('SECOND_CONTEXT')
+      expect(systemMessage(agent)).not.toContain('FIRST_ROOT_ONLY')
+      expect(systemMessage(agent)).not.toContain('FIRST_CONTEXT')
+    } finally {
+      await agent.shutdown()
+    }
   })
 })
