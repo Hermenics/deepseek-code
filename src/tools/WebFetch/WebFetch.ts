@@ -61,6 +61,11 @@ const blockedIpv6 = createBlockList(BLOCKED_IPV6_SUBNETS, 'ipv6')
 function isBlockedIp(ip: string): boolean {
   const family = isIP(ip)
   if (family === 4) return blockedIpv4.check(ip, 'ipv4')
+  // Bun on Windows 1.3.x can crash inside BlockList.check for the canonical
+  // hexadecimal form of IPv4-mapped IPv6 addresses. They are intentionally
+  // blocked as a whole range, so avoid the native call without weakening the
+  // SSRF policy.
+  if (family === 6 && /^::ffff:[0-9a-f]{1,4}:[0-9a-f]{1,4}$/i.test(ip)) return true
   if (family === 6) return blockedIpv6.check(ip, 'ipv6')
   return true
 }
