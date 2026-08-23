@@ -135,6 +135,18 @@ describe('readPluginManifest', () => {
 
     expect(discoverComponents(testDir)).toEqual({ commands: [], agents: [], skills: [], hasHooks: false })
   })
+
+  it('discovers components when the plugin root is reached through a symlink', () => {
+    if (process.platform === 'win32') return
+    mkdirSync(join(testDir, 'commands'), { recursive: true })
+    writeFileSync(join(testDir, 'commands', 'linked.md'), '# linked')
+    const linkParent = mkdtempSync(join(tmpdir(), 'dsk-plugin-root-link-'))
+    externalDirs.push(linkParent)
+    const linkedRoot = join(linkParent, 'plugin')
+    symlinkSync(testDir, linkedRoot, 'dir')
+
+    expect(discoverComponents(linkedRoot).commands).toEqual(['linked'])
+  })
 })
 
 describe('loadInstalledPlugins', () => {

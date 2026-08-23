@@ -89,7 +89,7 @@ describe('MCP security', () => {
       { HOME: '/attacker/home', USER: 'root', SHELL: '/tmp/evil-shell', TERM: 'xterm-evil' },
     )
     expect(processEnv.PATH).toBe('/custom/bin')
-    expect(processEnv.HOME).toBe('/tmp')
+    expect(processEnv.HOME).toBe(tmpdir())
     expect(processEnv.USER).toBe('deepseek-mcp')
     expect(processEnv.LOGNAME).toBe('deepseek-mcp')
     expect(processEnv.SHELL).toBe(process.platform === 'win32' ? 'cmd.exe' : '/bin/sh')
