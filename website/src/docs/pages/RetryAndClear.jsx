@@ -205,7 +205,7 @@ export default function RetryAndClear() {
           <p>Wait for the built-in retries. If the turn ultimately fails, inspect any completed tool effects before using <code className="inline">/retry</code>.</p>
           <h3>The answer is poor but no tools ran</h3>
           <p>Switch model or effort if needed, then retry. The new turn uses the new runtime selection and the original raw wording.</p>
-          <CodeBlock lang="text">{"> /model deepseek-v4-pro\nModel switched to deepseek-v4-pro\n\n> /effort max\nEffort: max — Maximum reasoning depth (best with deepseek-reasoner)\n\n> /retry"}</CodeBlock>
+          <CodeBlock lang="text">{"> /model deepseek-v4-pro\nModel switched to deepseek-v4-pro\n\n> /effort max\nEffort: max — Maximum reasoning depth (best with deepseek-v4-pro)\n\n> /retry"}</CodeBlock>
           <h3>The agent partially edited files</h3>
           <p>Review <code className="inline">/files</code> and the diff, undo unwanted writes, then give a corrective prompt that names the remaining state. Do not assume retry will start clean.</p>
           <h3>The conversation is polluted but decisions matter</h3>

@@ -23,9 +23,7 @@ const COUNTERS = [
 const PRICING = [
   ["deepseek-v4-flash", "$0.140000", "$0.002800", "$0.280000"],
   ["deepseek-v4-pro", "$0.435000", "$0.003625", "$0.870000"],
-  ["deepseek-chat", "$0.140000", "$0.002800", "$0.280000"],
-  ["deepseek-reasoner", "$0.140000", "$0.002800", "$0.280000"],
-  ["Any other model ID", "$0.140000", "$0.002800", "$0.280000"],
+  ["deepseek-v4-flash-vision-exp", "$0.140000", "$0.002800", "$0.280000"],
 ];
 const COVERAGE = [
   ["Main agent-loop responses", "Included when usage is returned", "Streaming usage events and non-streaming response usage update all primary counters."],
@@ -142,8 +140,8 @@ export default function CostAccounting() {
         <section id="pricing">
           <h2><span className="anchor">#</span>Embedded price table</h2>
           <p>
-            The implementation labels its static rates as July 2026 pricing. These are the exact values used by
-            the local estimator, regardless of later provider-side price changes.
+            The implementation embeds a static compatibility table. These are the exact fixed values currently used by
+            the local estimator; the table does not model the provider's official pricing.
           </p>
           <div className="doc-table-wrap">
             <table className="doc-table">
@@ -157,8 +155,8 @@ export default function CostAccounting() {
             also falls back to flash rates rather than returning “unavailable.”
           </p>
           <Note>
-            A plausible-looking cost for a local, Bedrock, Vertex or custom model is therefore not evidence that
-            the matching provider tariff was known. It is the estimator's fallback.
+            The table documents the named DeepSeek rates embedded in the local estimator. Unknown model IDs
+            still use the Flash fallback described above, but that fallback is not a discovered provider tariff.
           </Note>
         </section>
 

@@ -25,7 +25,7 @@ const PROVIDERS = [
 const LIMITS = [
   ["Direct DeepSeek: deepseek-v4-flash", "1,000,000"],
   ["Direct DeepSeek: deepseek-v4-pro", "1,000,000"],
-  ["Direct aliases: deepseek-chat / deepseek-reasoner", "1,000,000"],
+  ["Direct DeepSeek: deepseek-v4-flash-vision-exp", "1,000,000"],
   ["Amazon Bedrock", "128,000"],
   ["Google Vertex AI", "128,000"],
   ["Unknown or custom model ID", "128,000"],
@@ -177,6 +177,11 @@ export default function ModelAndEffort() {
             direct or local models also use a conservative 128,000 fallback. That fallback controls context
             display and compaction timing; it is not a claim about the remote model&apos;s actual maximum.
           </p>
+          <Note>
+            The DeepSeek API can expose additional real model IDs, including{" "}
+            <code className="inline">deepseek-v4-flash-vision-exp</code>. The current local resolver has
+            explicit 1M entries for Flash, Pro and Vision; other IDs use the conservative fallback here.
+          </Note>
           <p>
             Switching from a recognized one-million-token model to an unknown ID can therefore make the same
             history appear much fuller. Run <code className="inline">/context</code> after a switch and compact
@@ -192,7 +197,7 @@ export default function ModelAndEffort() {
             <code className="inline">/effort status</code> or <code className="inline">/effort current</code>
             to open the selector. Left/Right adjusts, Enter applies and Escape cancels.
           </p>
-          <CodeBlock lang="text">{"> /effort low\nEffort: low — Quick, straightforward responses\n\n> /effort max\nEffort: max — Maximum reasoning depth (best with deepseek-reasoner)\n\n> /effort auto\nEffort: high — Comprehensive responses with extensive thinking"}</CodeBlock>
+          <CodeBlock lang="text">{"> /effort low\nEffort: low — Quick, straightforward responses\n\n> /effort max\nEffort: max — Maximum reasoning depth (best with deepseek-v4-pro)\n\n> /effort auto\nEffort: high — Comprehensive responses with extensive thinking"}</CodeBlock>
           <p>
             Valid explicit levels are <code className="inline">low</code>, <code className="inline">high</code>
             and <code className="inline">max</code>. The accepted aliases

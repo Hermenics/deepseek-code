@@ -57,6 +57,15 @@ describe('normal transcript truncation', () => {
     expect(items.map(item => item.kind)).toEqual(['message', 'message', 'message'])
   })
 
+  it('does not mark reasoning-only work as truncated', () => {
+    const items = getNormalMessageItems([
+      { role: 'user', content: 'hello' },
+      { role: 'thinking', content: 'reasoning' },
+      { role: 'assistant', content: 'answer', workedMs: 1200 },
+    ])
+    expect(items.map(item => item.kind)).toEqual(['message', 'message', 'message'])
+  })
+
   it('formats the finished duration like the Codex ghost line', () => {
     expect(formatWorkedDuration(16 * 60_000 + 32_000)).toBe('16m 32s')
     expect(workedLine(16 * 60_000 + 32_000, 120)).toHaveLength(119)

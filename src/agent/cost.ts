@@ -3,6 +3,7 @@
 const PRICING: Record<string, { input: number; cachedInput: number; output: number }> = {
   'deepseek-v4-flash': { input: 0.14, cachedInput: 0.0028, output: 0.28 },
   'deepseek-v4-pro':   { input: 0.435, cachedInput: 0.003625, output: 0.87 },
+  'deepseek-v4-flash-vision-exp': { input: 0.14, cachedInput: 0.0028, output: 0.28 },
   // Aliases (deprecated 2026/07/24, map to deepseek-v4-flash)
   'deepseek-chat':     { input: 0.14, cachedInput: 0.0028, output: 0.28 },
   'deepseek-reasoner': { input: 0.14, cachedInput: 0.0028, output: 0.28 },
@@ -13,6 +14,7 @@ const PRICING: Record<string, { input: number; cachedInput: number; output: numb
 const MODEL_CONTEXT: Record<string, number> = {
   'deepseek-v4-flash': 1_000_000,
   'deepseek-v4-pro':   1_000_000,
+  'deepseek-v4-flash-vision-exp': 1_000_000,
   // Aliases (deprecated 2026/07/24, map to deepseek-v4-flash)
   'deepseek-chat':     1_000_000,
   'deepseek-reasoner': 1_000_000,

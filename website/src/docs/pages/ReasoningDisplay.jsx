@@ -125,7 +125,7 @@ export default function ReasoningDisplay() {
               </tbody>
             </table>
           </div>
-          <CodeBlock lang="text">{"/effort low\nEffort: low — Quick, straightforward responses\n\n/effort max\nEffort: max — Maximum reasoning depth (best with deepseek-reasoner)"}</CodeBlock>
+          <CodeBlock lang="text">{"/effort low\nEffort: low — Quick, straightforward responses\n\n/effort max\nEffort: max — Maximum reasoning depth (best with deepseek-v4-pro)"}</CodeBlock>
           <p>
             <code className="inline">/effort status</code> and <code className="inline">/effort current</code> open the same
             selector as a command with no argument. The effort level is runtime agent state rather than an

@@ -135,9 +135,10 @@ $ deepseek --resume a1b2c3d4e5f6`}</CodeBlock>
         <section id="context">
           <h2><span className="anchor">#</span>Understanding context usage</h2>
           <p>
-            DeepSeek models get a <b>1,000,000-token</b> context window (<code className="inline">deepseek-v4-flash</code>,{" "}
-            <code className="inline">deepseek-v4-pro</code>, <code className="inline">deepseek-chat</code>,{" "}
-            <code className="inline">deepseek-reasoner</code>). Other providers/models are limited by their
+            The direct DeepSeek API models get a <b>1,000,000-token</b> context window
+            (<code className="inline">deepseek-v4-flash</code>, <code className="inline">deepseek-v4-pro</code> and{" "}
+            <code className="inline">deepseek-v4-flash-vision-exp</code>).
+            Other providers/models are limited by their
             window (for example 128K on Bedrock and Vertex).
           </p>
           <p>

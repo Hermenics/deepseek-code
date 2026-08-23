@@ -169,8 +169,8 @@ export default function Interface() {
           <ul className="capabilities">
             <li>
               <b><code className="inline">/</code> command dropdown</b> — prefix-first search over
-              built-in commands, aliases, and cached workflow commands. A bare slash and prefix matches
-              can return more than eight candidates; only the Fuse.js fuzzy fallback is capped at eight.
+              built-in commands, aliases, saved workflows and custom commands. A bare slash and prefix matches can
+              return more than eight candidates; only the Fuse.js fuzzy fallback is capped at eight.
               The dropdown shows a moving window of six rows with descriptions truncated to fit the
               terminal. <code className="inline">↑/↓</code> moves, while <code className="inline">Tab</code> or{" "}
               <code className="inline">Enter</code> immediately submits the selection.

@@ -12,7 +12,7 @@ const TOC = [
 ];
 
 const KEYS = [
-  ["/", "At the beginning of an otherwise empty draft, list every registered command, alias and cached workflow command."],
+  ["/", "At the beginning of an otherwise empty draft, list every registered command, alias, saved workflow and custom command."],
   ["Up / Down", "Move through matches and wrap from the first row to the last or the last to the first."],
   ["Tab", "Execute the selected row immediately while the dropdown is open."],
   ["Enter", "Execute the selected row immediately; with no matches, submit the typed text normally."],
@@ -43,9 +43,11 @@ export default function CommandPalette() {
           </p>
           <CodeBlock lang="text">{"/           all available command names and aliases\n/chec       prefix matches such as /checkpoint\n/chk        fuzzy fallback when no command starts with /chk\n/model      an exact command remains selectable\n/model d    dropdown closed; edit the argument normally"}</CodeBlock>
           <p>
-            Suggestions are assembled from the live command registry, aliases and saved workflow commands discovered for
-            the current workspace. The exact list can therefore differ between installations, projects and sessions. Use
-            <code className="inline">/help</code> for the authoritative command reference after selection.
+            Suggestions are assembled from the live command registry, aliases, saved workflows and custom commands
+            discovered for the current workspace. Project commands come from <code className="inline">.deepseek/commands</code>;
+            user commands come from <code className="inline">~/.deepseek/commands</code>. The exact list can therefore
+            differ between installations, projects and sessions. Use <code className="inline">/help</code> for the
+            authoritative built-in command reference after selection.
           </p>
         </section>
 
@@ -115,7 +117,7 @@ export default function CommandPalette() {
             arguments may return usage guidance. To supply an argument, type or accept the command name, add a space, enter
             the argument and then submit.
           </p>
-          <CodeBlock lang="text">{"/model\n/model deepseek-reasoner\n/checkpoint save before-refactor\n/effort max\n/btw what changed in the last tool call?"}</CodeBlock>
+          <CodeBlock lang="text">{"/model\n/model deepseek-v4-pro\n/checkpoint save before-refactor\n/effort max\n/btw what changed in the last tool call?"}</CodeBlock>
           <p>
             Slash-command parsing happens only after submission. A command-looking string pasted into the editor is still
             just a draft until Enter, but large-paste markers expand before dispatch. Review pasted content that can begin
@@ -130,9 +132,11 @@ export default function CommandPalette() {
         <section id="workflows">
           <h2><span className="anchor">#</span>Saved workflow commands</h2>
           <p>
-            Saved workflows can expose direct slash commands alongside built-ins. Their suggestions come from the workflow
-            discovery cache for the current working directory and become available after startup discovery refreshes it.
-            A workflow description is shown when metadata supplies one; otherwise a generic run description is used.
+            Saved workflows can expose direct slash commands alongside built-ins and custom commands. Their suggestions
+            come from the workflow discovery cache for the current working directory and become available after startup
+            discovery refreshes it. A workflow description is shown when metadata supplies one; otherwise a generic run
+            description is used. Custom command descriptions come from optional <code className="inline">description</code>
+            frontmatter.
           </p>
           <CodeBlock lang="text">{"/<workflow-name>\n/workflow list\n/workflow status <run-id>"}</CodeBlock>
           <p>
@@ -165,7 +169,7 @@ export default function CommandPalette() {
             <li><b>Viewport:</b> six visible rows; fuzzy fallback returns eight at most, while prefix sets can be longer.</li>
             <li><b>Execution:</b> Tab or Enter on a selected row dispatches immediately rather than inserting for review.</li>
             <li><b>Arguments:</b> the dropdown closes at whitespace and does not validate arguments while you type.</li>
-            <li><b>Discovery:</b> workflow suggestions depend on the current workspace cache and may appear after initialization.</li>
+            <li><b>Discovery:</b> workflow and custom-command suggestions depend on the current workspace and refresh after initialization or a directory/worktree change.</li>
           </ul>
           <p>
             Command names and descriptions are textual, but the selected row is distinguished primarily by color. Screen

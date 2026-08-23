@@ -86,6 +86,7 @@ const GROUPS = [
 
 const TOC = [
   { id: "palette", label: "Command palette" },
+  { id: "custom", label: "Saved & custom commands" },
   { id: "reference", label: "Reference" },
   { id: "next", label: "Next steps" },
 ];
@@ -101,26 +102,42 @@ export default function Commands() {
         <div className="hero">
           <h1>Commands</h1>
           <p className="tagline">
-            Everything you can do from inside the DeepSeek Code TUI, grouped by intent.
+            Everything you can do from inside the DeepSeek Code TUI or Browser Workspace, grouped by intent.
           </p>
         </div>
 
         <section id="palette">
           <h2><span className="anchor">#</span>Command palette</h2>
           <p>
-            Type <code className="inline">/</code> in the TUI to open the command palette and
-            browse available commands. Commands are matched as you type, so you can jump to
-            what you need without remembering the exact name — every command and alias is
-            suggested.
+            Type <code className="inline">/</code> in the TUI or Browser Workspace composer to open the command palette
+            and browse available commands. Commands are matched as you type, so you can jump to what you need without
+            remembering the exact name.
           </p>
           <CodeBlock lang="bash">$ deepseek
 ❯ /</CodeBlock>
         </section>
 
+        <section id="custom">
+          <h2><span className="anchor">#</span>Saved and custom commands</h2>
+          <p>
+            In addition to the built-in set below, saved workflows and Markdown prompts in{" "}
+            <code className="inline">.deepseek/commands/</code> or{" "}
+            <code className="inline">~/.deepseek/commands/</code> can add slash-command suggestions. The Browser
+            Workspace and TUI use the same resolver, so a discovered command has the same name and argument expansion
+            in both interfaces.
+          </p>
+          <p>
+            Built-ins win name collisions, followed by saved workflows and then custom commands. Custom command files
+            support <code className="inline">$ARGUMENTS</code> and positional{" "}
+            <code className="inline">$1</code>–<code className="inline">$9</code>; malformed or unsafe files are
+            ignored. See <a href="/docs/slash-commands#custom">Custom commands</a> for limits and the file format.
+          </p>
+        </section>
+
         <section id="reference">
           <h2><span className="anchor">#</span>Reference</h2>
           <p>
-            All 41 commands, grouped by intent. Aliases are shown after the <code className="inline">·</code>.
+            All 41 built-in commands, grouped by intent. Aliases are shown after the <code className="inline">·</code>.
           </p>
           {GROUPS.map((g) => (
             <div key={g.title}>

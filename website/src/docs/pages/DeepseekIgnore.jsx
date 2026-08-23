@@ -86,8 +86,11 @@ export default function DeepseekIgnore() {
           <p>
             On startup in a project whose <code className="inline">.deepseekignore</code> is missing or lacks the default
             entries, DeepSeek Code shows a confirmation prompt offering to create the file (or append the missing
-            entries). Declining changes nothing: the defaults keep applying in memory and the prompt returns on the next
-            session.
+            entries). The answer is remembered per absolute workspace in{" "}
+            <code className="inline">~/.deepseek/ignore-prompts.json</code>, with owner-only file permissions, so the
+            same workspace is not asked again on the next session. The defaults still apply in memory until a real{" "}
+            <code className="inline">.deepseekignore</code> exists. If the state file cannot be written, the current
+            process suppresses duplicate prompts but a later process may ask again.
           </p>
         </section>
 

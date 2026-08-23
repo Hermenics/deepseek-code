@@ -494,6 +494,51 @@
 .doc-table td:last-child, .doc-table th:last-child { padding-right: 16px; }
 .doc-table code.inline { white-space: nowrap; }
 
+/* Dense reference tables become readable cards instead of clipped horizontal lists. */
+.doc-table-wrap--stacked {
+  border: 0;
+  background: transparent;
+  overflow: visible;
+}
+.doc-table--stacked,
+.doc-table--stacked tbody,
+.doc-table--stacked tr,
+.doc-table--stacked td {
+  display: block;
+  width: 100%;
+}
+.doc-table--stacked thead { display: none; }
+.doc-table--stacked tbody { display: grid; gap: 12px; }
+.doc-table--stacked tr {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-elev);
+}
+.doc-table--stacked td {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, 30%) minmax(0, 1fr);
+  gap: 12px;
+  min-width: 0;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.doc-table--stacked td::before {
+  content: attr(data-label);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.doc-table--stacked td:last-child { border-bottom: 0; }
+.doc-table--stacked td:first-child,
+.doc-table--stacked td:last-child { padding-left: 14px; padding-right: 14px; }
+.doc-table--stacked code.inline {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 /* Release list (changelog) */
 .release-list {
   list-style: none;

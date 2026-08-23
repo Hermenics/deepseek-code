@@ -30,6 +30,11 @@ describe('estimateCost', () => {
     expect(cost).toBeCloseTo(0.056 + 0.00028 + 0.056, 4)
   })
 
+  it('should calculate cost for deepseek-v4-flash-vision-exp', () => {
+    const usage: TokenUsage = { promptTokens: 1_000_000, completionTokens: 1_000_000, cachedTokens: 0 }
+    expect(estimateCost('deepseek-v4-flash-vision-exp', usage)).toBeCloseTo(0.14 + 0.28, 4)
+  })
+
   it('should fallback to deepseek-v4-flash pricing for unknown model', () => {
     const usage: TokenUsage = { promptTokens: 1_000_000, completionTokens: 1_000_000, cachedTokens: 0 }
     const cost = estimateCost('unknown-model', usage)
@@ -82,6 +87,10 @@ describe('getContextLimit', () => {
 
   it('should return 1M for deepseek-reasoner', () => {
     expect(getContextLimit('deepseek', 'deepseek-reasoner')).toBe(1_000_000)
+  })
+
+  it('should return 1M for deepseek-v4-flash-vision-exp', () => {
+    expect(getContextLimit('deepseek', 'deepseek-v4-flash-vision-exp')).toBe(1_000_000)
   })
 
   it('should return 128K as conservative default for unknown model', () => {

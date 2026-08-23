@@ -80,7 +80,9 @@ export default function PluginsSkills() {
             Installation does not execute a standalone skill immediately. On the next agent initialization,
             valid project skill descriptions and instructions are loaded into the prompt, and the model uses
             the descriptions to select applicable skills. Built-in native skills are loaded the same way
-            without appearing in the install registry.
+            without appearing in the install registry. DeepSeek Code also ships a native{" "}
+            <code className="inline">skill-creator</code> skill for creating portable skills and validating them
+            with the bundled <code className="inline">scripts/validate_skill.py</code> check.
           </Note>
         </section>
 
