@@ -11,14 +11,17 @@ const TOC = [
 ];
 
 const TRANSPORTS = [
-  ["stdio", "Spawns a local process. The server receives a minimal environment — only PATH, TMPDIR, and LANG are inherited. Add any server-specific value explicitly in its env."],
+  ["stdio", "Spawns a local process. The base environment is minimal (PATH, TMPDIR and optional LANG), then the runtime forces a temporary HOME, neutral USER/LOGNAME/SHELL and TERM. Add only server-specific non-critical values explicitly in env."],
   ["http", "Connects to a remote server over Streamable HTTP."],
 ];
 
 const GUARDS = [
+  ["Workspace trust", "Project MCP requires User-scope enablement plus approval of the canonical config path and exact SHA-256 content hash"],
   ["validateMcpCommand", "Rejects empty commands, ../ path traversal, and shell-injection characters (;, `, <, >, &&, ||, $(, >>, <<)"],
   ["sanitizeMcpEnv", "Strips server-supplied overrides of critical env vars (PATH, HOME, SHELL, LD_*, PYTHONPATH, NODE_OPTIONS, …)"],
-  ["30s timeout", "callTool races a 30-second timer, so an unresponsive server can't hang the agent"],
+  ["Connection timeout", "Bounds the initial transport connection to 10 seconds by default"],
+  ["30s tool timeout", "callTool races a 30-second timer, so an unresponsive server can't hang the agent"],
+  ["Client cleanup", "Closes loaded clients when the agent is reinitialized, changes workspace or shuts down"],
   ["Audit log", "Successful loads are written as mcp_server_load events"],
 ];
 

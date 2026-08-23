@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.24
+
+- Added: Workspace trust for project, local and additional agents plus project MCP configuration, bound to canonical paths and exact SHA-256 content hashes
+- Fixed: Project settings can no longer choose saved provider routing or grant permission allow rules; subordinate prompts and reference files remain untrusted guidance
+- Fixed: Contextual shell execution now fails closed without a working Bubblewrap sandbox, while MCP processes use scrubbed environments, bounded connection/call timeouts and lifecycle cleanup
+- Fixed: WebFetch rejects private destinations across DNS and redirects and bounds streamed response bodies; path, glob, plugin and log boundaries reject unsafe symlink or permission escapes
+- Security: The website no longer loads mutable remote scripts or uses remote install bootstrap code, and now ships a restrictive CSP and deployment security headers
+- Tests: Add regression coverage for workspace trust, settings boundaries, shell sandboxing, MCP lifecycle, SSRF, path safety and security headers
+
 ## 0.6.23
 
 - Added: Explicit support for the real DeepSeek API model `deepseek-v4-flash-vision-exp`, including Flash-tier local cost rates and a hardcoded one-million-token context limit

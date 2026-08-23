@@ -4,6 +4,7 @@ const TOC = [
   { id: "what", label: "What an agent is" },
   { id: "builtins", label: "The built-in agents" },
   { id: "layers", label: "The five layers" },
+  { id: "trust", label: "Workspace trust" },
   { id: "schema", label: "The config schema" },
   { id: "roles", label: "Roles" },
   { id: "usage", label: "usage: primary, subagent, both" },
@@ -165,6 +166,28 @@ export default function Agents() {
             <code className="inline">agents.additionalDirectories</code>, it is how a shared team library outside
             the repository gets loaded without pretending to be either personal or project-local.
           </p>
+        </section>
+
+        <section id="trust">
+          <h2><span className="anchor">#</span>Workspace trust</h2>
+          <p>
+            Built-in and User-scope agents are trusted by their source. Project, Local and additional agents
+            are treated as untrusted executable guidance until you approve them for the current workspace.
+            Loading an unapproved agent fails closed and asks for an explicit decision in the UI.
+          </p>
+          <CodeBlock lang="text">{`agent definition       .deepseek/agents/reviewer.json
+trust record            ~/.deepseek/workspace-trust.json
+approval binding        canonical path + SHA-256 content hash`}</CodeBlock>
+          <p>
+            Editing the JSON, changing an inherited definition, or moving the file changes the artifact and
+            requires a new approval. The runtime tracks the source and current trust state so a project agent
+            is not confused with a User-scope override; <code className="inline">/agents</code> shows the source
+            layer in its compact listing.
+          </p>
+          <Note>
+            An agent's system prompt and referenced files are still untrusted task guidance. They can specialize
+            the agent, but cannot grant tools, permissions, policy exceptions or authority over the user's request.
+          </Note>
         </section>
 
         <section id="schema">
@@ -375,8 +398,9 @@ $ deepseek agent reviewer "check src/auth for injection risks"
 > /agents           # list what is registered, with source and usage
 > /agent reviewer   # load one mid-session`}</CodeBlock>
           <p>
-            <code className="inline">/agents</code> reports each agent's name, source, origin layer, usage and
-            enabled state — which is how you tell a project agent from a local override with the same name.
+            <code className="inline">/agents</code> reports each agent's name and source layer, which is how
+            you tell a project agent from a local override with the same name. Trust is checked again when the
+            agent is loaded.
           </p>
           <CodeBlock lang="json">{`{ "name": "subagent", "arguments": {
     "task": "audit src/agent/session.ts for null dereferences",

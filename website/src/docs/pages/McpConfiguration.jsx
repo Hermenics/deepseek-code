@@ -1,7 +1,7 @@
 import { CodeBlock, Note, Toc } from "../Layout";
 
 const TOC = [
-  { id: "two-controls", label: "Definition and consent" },
+  { id: "two-controls", label: "Definition, consent and trust" },
   { id: "config", label: "mcp.json format" },
   { id: "enable", label: "Enable project MCP" },
   { id: "startup", label: "Discovery at startup" },
@@ -45,20 +45,23 @@ export default function McpConfiguration() {
         </div>
 
         <section id="two-controls">
-          <h2><span className="anchor">#</span>Definition and consent are separate</h2>
+          <h2><span className="anchor">#</span>Definition, consent and trust are separate</h2>
           <p>
-            MCP uses two files with different trust roles. The project defines servers in
+            MCP has three separate controls. The project defines servers in
             <code className="inline"> &lt;project&gt;/.deepseek/mcp.json</code>. Your User settings decide whether
             any project definition may load through <code className="inline">mcp.enabled</code> in
-            <code className="inline"> ~/.deepseek/settings.json</code>.
+            <code className="inline"> ~/.deepseek/settings.json</code>, and a workspace approval authorizes
+            the exact canonical path and content hash of the current configuration.
           </p>
           <CodeBlock lang="text">{`project declaration   .deepseek/mcp.json
 user consent          ~/.deepseek/settings.json → mcp.enabled
-default               disabled
-activation            next agent initialization`}</CodeBlock>
+workspace trust       ~/.deepseek/workspace-trust.json → path + SHA-256 hash
+defaults              disabled and unapproved
+activation            next agent initialization after both approvals`}</CodeBlock>
           <Note>
             Project and Local settings cannot grant MCP consent. Their <code className="inline">mcp</code> blocks
             are reported as ignored so a cloned repository cannot turn on its own executable integrations.
+            Editing <code className="inline">mcp.json</code> invalidates its previous trust decision.
           </Note>
         </section>
 
@@ -100,6 +103,7 @@ activation            next agent initialization`}</CodeBlock>
             <li>Keep the scope on <b>User</b>.</li>
             <li>Open <b>Advanced</b> and toggle <b>Enable project MCP servers</b>.</li>
             <li>Restart the session so server discovery runs again.</li>
+            <li>Review the path and content-hash approval prompt; approve it only after reviewing every server.</li>
           </ol>
           <CodeBlock lang="json">{`{
   "mcp": {
@@ -118,7 +122,8 @@ activation            next agent initialization`}</CodeBlock>
           <p>
             During agent initialization, the CLI reads effective settings, then reads the active workspace's
             <code className="inline"> .deepseek/mcp.json</code>. With consent disabled, it does neither server
-            connection nor error reporting. With consent enabled, it processes server entries in file order.
+            connection nor error reporting. With consent enabled but trust missing, it requests approval and
+            registers no MCP tools. With both controls approved, it processes server entries in file order.
           </p>
           <p>
             For each entry it creates a client, connects the selected transport, records a successful-load audit
@@ -238,9 +243,10 @@ Everything looks ready.`}</CodeBlock>
             <li>Supported transports are stdio and Streamable HTTP only.</li>
             <li>There is no complete mcp.json schema validator; /doctor checks JSON syntax and server count only.</li>
             <li>HTTP configuration accepts a URL only—no headers, OAuth settings or per-server timeout fields.</li>
-            <li>The fixed 30-second timeout applies to tool calls, not explicitly to startup connect or listTools.</li>
+            <li>Connection has a bounded 10-second default timeout; listTools has no separate startup timeout.</li>
+            <li>The fixed 30-second timeout applies to tool calls and does not cancel the underlying SDK request.</li>
             <li>The loader does not expose MCP prompts or resources as native capabilities.</li>
-            <li>The current agent shutdown path does not explicitly close stored MCP clients.</li>
+            <li>Loaded MCP clients are explicitly closed during agent reinitialization, workspace changes and shutdown.</li>
           </ul>
           <p>
             Continue to <a href="/docs/mcp-transports">MCP transports</a> for the exact stdio and HTTP behavior,

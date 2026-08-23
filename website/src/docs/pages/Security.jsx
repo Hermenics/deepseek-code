@@ -2,6 +2,7 @@ import { CodeBlock, Note, Toc } from "../Layout";
 
 const TOC = [
   { id: "overview", label: "Overview" },
+  { id: "trust", label: "Workspace trust" },
   { id: "paths", label: "Path safety" },
   { id: "shell", label: "Shell sandbox" },
   { id: "webfetch", label: "WebFetch anti-SSRF" },
@@ -9,6 +10,7 @@ const TOC = [
   { id: "risk", label: "Risk rules" },
   { id: "permissions", label: "Permissions model" },
   { id: "secrets", label: "Secrets" },
+  { id: "delivery", label: "Website delivery" },
   { id: "scope", label: "Scope: project vs user" },
 ];
 
@@ -82,6 +84,25 @@ export default function Security() {
           <Note>
             The pipeline is evaluated in order and each stage can deny the call. Plan and Review modes
             additionally block mutating git, memory, and todo actions.
+          </Note>
+        </section>
+
+        <section id="trust">
+          <h2><span className="anchor">#</span>Workspace trust</h2>
+          <p>
+            Project, local and additional agent definitions, plus <code className="inline">.deepseek/mcp.json</code>,
+            are untrusted until you approve the exact artifact for the current workspace. A valid JSON file is
+            not executable authority by itself.
+          </p>
+          <ul className="capabilities">
+            <li><b>Canonical path</b> — the approval is tied to the resolved file path and workspace identity.</li>
+            <li><b>Content hash</b> — approval stores a SHA-256 hash, so editing the file invalidates it.</li>
+            <li><b>Fail closed</b> — an unapproved agent cannot load, and an unapproved MCP config contributes no tools.</li>
+            <li><b>Untrusted guidance</b> — agent prompts and referenced files cannot change policy, permissions or user intent.</li>
+          </ul>
+          <Note>
+            MCP needs both User-scope <code className="inline">mcp.enabled</code> consent and workspace approval.
+            Trust records live outside the repository in <code className="inline">~/.deepseek/workspace-trust.json</code>.
           </Note>
         </section>
 
@@ -174,8 +195,9 @@ export default function Security() {
             </table>
           </div>
           <Note>
-            Commands default to a 30s timeout and output is capped, so a runaway or chatty process
-            cannot hang the session.
+            Contextual shell execution fails closed when Bubblewrap is unavailable or cannot initialize.
+            Commands also have a bounded timeout and capped output, so a runaway or chatty process cannot
+            hang the session.
           </Note>
         </section>
 
@@ -205,9 +227,11 @@ export default function Security() {
             environment that still works:
           </p>
           <ul className="capabilities">
-            <li><b>Minimal env</b> — stdio servers inherit only <code className="inline">PATH</code>, <code className="inline">TMPDIR</code> and <code className="inline">LANG</code>. Critical variables — <code className="inline">PATH</code>, <code className="inline">HOME</code>, <code className="inline">USER</code>, <code className="inline">SHELL</code>, <code className="inline">LD_*</code>, <code className="inline">DYLD_*</code>, <code className="inline">PYTHONPATH</code>, <code className="inline">NODE_OPTIONS</code>, <code className="inline">NODE_PATH</code>, <code className="inline">BUN_INSTALL</code> — can never be overridden by server configuration.</li>
+            <li><b>Minimal env</b> — stdio servers inherit only <code className="inline">PATH</code>, <code className="inline">TMPDIR</code> and optional <code className="inline">LANG</code>, then receive forced temporary identity values. Critical variables — <code className="inline">PATH</code>, <code className="inline">HOME</code>, <code className="inline">USER</code>, <code className="inline">SHELL</code>, <code className="inline">LD_*</code>, <code className="inline">DYLD_*</code>, <code className="inline">PYTHONPATH</code>, <code className="inline">NODE_OPTIONS</code>, <code className="inline">NODE_PATH</code>, <code className="inline">BUN_INSTALL</code> — can never be overridden by server configuration.</li>
             <li><b>Command validation</b> — <code className="inline">validateMcpCommand</code> rejects empty commands, path traversal (<code className="inline">../</code>), and shell injection characters (<code className="inline">;`&lt;&gt;&&||$(&gt;&gt;&lt;&lt;</code>) before any process is spawned.</li>
-            <li><b>Timeouts</b> — tool calls are raced against a 30s timeout so an unresponsive server cannot hang the agent.</li>
+            <li><b>Timeouts</b> — connection attempts default to 10s and tool calls are raced against a 30s timeout.</li>
+            <li><b>Lifecycle cleanup</b> — loaded clients are closed when the agent reinitializes, changes workspace or shuts down.</li>
+            <li><b>Workspace approval</b> — project MCP starts only after User consent and approval of the current path/content hash.</li>
             <li><b>Audit trail</b> — every successful server load is recorded as an <code className="inline">mcp_server_load</code> event in the session audit log.</li>
           </ul>
         </section>
@@ -309,6 +333,19 @@ export default function Security() {
           </p>
         </section>
 
+        <section id="delivery">
+          <h2><span className="anchor">#</span>Website delivery</h2>
+          <p>
+            The published website serves only its own built JavaScript. It does not load mutable remote scripts
+            or bootstrap installation through a remote shell command. Deployment headers add a restrictive
+            Content Security Policy, frame and MIME protections, referrer control and a permissions policy.
+          </p>
+          <Note>
+            The CSP permits only the documented font and npm-registry connections required by the site; it does
+            not make third-party content trusted.
+          </Note>
+        </section>
+
         <section id="scope">
           <h2><span className="anchor">#</span>Scope: project vs user</h2>
           <p>
@@ -316,6 +353,11 @@ export default function Security() {
             executable hooks, LSP server commands, and MCP servers configured in project or local
             settings are ignored (the settings validator flags them as warnings). Project MCP servers
             are off by default — enabling them is an explicit User-scope choice.
+          </p>
+          <p>
+            Project settings may express shareable preferences and denials, but cannot select the provider
+            endpoint/profile used with saved credentials or grant <code className="inline">permissions.allow</code> rules.
+            Those authority-bearing choices stay at User or Local scope.
           </p>
           <Note>
             If a project's <code className="inline">settings.json</code> declares hooks or MCP servers

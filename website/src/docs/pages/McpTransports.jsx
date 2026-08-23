@@ -17,7 +17,7 @@ const COMPARISON = [
   ["Where it runs", "A child process on your machine", "A URL reached by the MCP SDK"],
   ["Required config", "command", "url"],
   ["Optional config", "args, env", "None"],
-  ["Inherited environment", "PATH, TMPDIR, optional LANG", "Not applicable"],
+  ["Process environment", "Minimal base plus forced temporary HOME/neutral identity values", "Not applicable"],
   ["Authentication config", "Explicit non-critical env or args", "No headers/auth fields"],
   ["Command guard", "Empty/traversal/shell-token rejection", "URL parsing"],
   ["Tool timeout", "30 seconds", "30 seconds"],
@@ -143,6 +143,12 @@ PATH=/usr/local/bin:/usr/bin:/bin
 TMPDIR=/tmp
 LANG=en_US.UTF-8        # only when the parent process has LANG`}</CodeBlock>
           <p>
+            Before the SDK starts the child, the runtime also forces <code className="inline">HOME=/tmp</code>,
+            <code className="inline"> USER=deepseek-mcp</code>, <code className="inline">LOGNAME=deepseek-mcp</code>,
+            <code className="inline"> SHELL=/bin/sh</code> and <code className="inline">TERM=dumb</code> on POSIX.
+            Windows uses the platform command shell and temporary-directory variables.
+          </p>
+          <p>
             Values in the server's <code className="inline">env</code> object are then merged, except for these
             critical names:
           </p>
@@ -203,8 +209,8 @@ LANG=en_US.UTF-8        # only when the parent process has LANG`}</CodeBlock>
   → register <server>__<tool> wrappers`}</CodeBlock>
           <p>
             The loader catches an error around each complete entry. A failed server contributes no tools and
-            does not stop later entries. There is no explicit loader-level timeout around connect or tool
-            discovery, so the documented 30-second ceiling should not be interpreted as a startup ceiling.
+            does not stop later entries. Connection has a 10-second default timeout; tool discovery has no
+            separate timeout and can still delay later entries.
           </p>
         </section>
 
@@ -269,10 +275,10 @@ HTTP endpoint requiring configured headers     → unsupported by current config
           <ul className="capabilities">
             <li>No legacy SSE transport configuration.</li>
             <li>No custom HTTP headers, auth, proxy or TLS settings.</li>
-            <li>No explicit startup connection/list timeout.</li>
+            <li>Connection uses a bounded 10-second default timeout; tool discovery has no separate timeout.</li>
             <li>No cancellation of the underlying request after the 30-second wrapper timeout.</li>
             <li>No non-text content forwarding, MCP prompt import or MCP resource import.</li>
-            <li>No explicit MCP client close in the current agent shutdown method.</li>
+            <li>Loaded clients are closed on agent reinitialization, workspace changes and shutdown.</li>
           </ul>
           <p>
             For file placement, consent and tool discovery, see
