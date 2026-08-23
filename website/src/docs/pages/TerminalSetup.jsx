@@ -177,6 +177,11 @@ export default function TerminalSetup() {
             within 800 ms; while the agent is working, one Ctrl+C requests cancellation instead. The exit message prints
             the exact <code className="inline">deepseek --resume &lt;session-id&gt;</code> command for returning later.
           </p>
+          <p>
+            The exit screen clears the active display, leaves the alternate buffer when that mode is enabled, disables
+            mouse tracking and prints the blue DeepSeek Code banner before the resume command. The session id in that
+            command is the current conversation&apos;s id, so it is the reliable handoff after closing the TUI.
+          </p>
         </section>
 
         <section id="troubleshooting">

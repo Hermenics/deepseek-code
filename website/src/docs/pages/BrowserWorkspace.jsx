@@ -4,6 +4,7 @@ const TOC = [
   { id: "overview", label: "What it is" },
   { id: "start", label: "Start the workspace" },
   { id: "conversation", label: "Conversation view" },
+  { id: "commands", label: "Browser commands" },
   { id: "changes", label: "Changes & Git" },
   { id: "terminal", label: "Browser terminal" },
   { id: "live", label: "Live state" },
@@ -13,7 +14,7 @@ const TOC = [
 ];
 
 const VIEWS = [
-  ["Chat", "Run prompts, watch streamed thinking and assistant text, inspect tool cards, and answer permission, plan, diff-review, verification, or user-question requests."],
+  ["Chat", "Run prompts, watch streamed thinking, assistant text and workflow progress, inspect tool cards, and answer permission, plan, diff-review, verification, or user-question requests."],
   ["Changes", "Inspect the current Git branch, ahead/behind counts, staged and unstaged files, and a selected file's working-tree or staged diff."],
   ["Terminal", "Use an xterm-compatible terminal attached to the same workspace directory as the agent."],
 ];
@@ -22,7 +23,8 @@ const STATS = [
   ["Context", "Current context usage and configured context limit."],
   ["Tokens", "Prompt, completion, cached and total token counters."],
   ["Work", "Tool calls, modified-file count and estimated session cost."],
-  ["Tasks", "The current todo list and live sub-agent activity."],
+  ["Tasks", "The current todo list, live sub-agent activity and blocked-worker state."],
+  ["Workflows", "Live phase, status, agent count, token usage and workflow log progress."],
 ];
 
 export default function BrowserWorkspace() {
@@ -99,6 +101,45 @@ export default function BrowserWorkspace() {
           </Note>
         </section>
 
+        <section id="commands">
+          <h2><span className="anchor">#</span>Browser command surface</h2>
+          <p>
+            The browser composer uses the same command resolver as the TUI. Saved workflows and project or user custom
+            commands therefore appear as slash-command suggestions alongside built-ins; changing the working directory
+            refreshes the discovered command set. See <a href="/docs/slash-commands">Slash commands</a> for the full
+            syntax and <a href="/docs/slash-commands#custom">Custom commands</a> for the file format.
+          </p>
+          <p>
+            Browser-local controls include <code className="inline">/clear</code>,{" "}
+            <code className="inline">/help</code>, <code className="inline">/compact</code>,{" "}
+            <code className="inline">/model</code>, <code className="inline">/cost</code>,{" "}
+            <code className="inline">/stats</code>, <code className="inline">/system</code>,{" "}
+            <code className="inline">/files</code>, <code className="inline">/tools</code>,{" "}
+            <code className="inline">/undo</code>, <code className="inline">/checkpoint</code>,{" "}
+            <code className="inline">/review</code>, <code className="inline">/plan</code>,{" "}
+            <code className="inline">/btw</code> and <code className="inline">/effort</code>.
+          </p>
+          <p>
+            Shared session and task commands include <code className="inline">/sessions</code>,{" "}
+            <code className="inline">/memory</code>, <code className="inline">/goal</code>,{" "}
+            <code className="inline">/tasks</code>, <code className="inline">/task</code>,{" "}
+            <code className="inline">/cwd</code>, <code className="inline">/worktree</code>,{" "}
+            <code className="inline">/doctor</code>, <code className="inline">/verify</code>,{" "}
+            <code className="inline">/catalog</code>, <code className="inline">/permissions</code>,{" "}
+            <code className="inline">/context</code>, <code className="inline">/features</code>,{" "}
+            <code className="inline">/agents</code>, <code className="inline">/agent</code>,{" "}
+            <code className="inline">/skill</code>, <code className="inline">/plugin</code>,{" "}
+            <code className="inline">/retry</code>, <code className="inline">/logout</code>,{" "}
+            <code className="inline">/workflow</code> and <code className="inline">/workflows</code>.
+          </p>
+          <p>
+            Terminal-only commands such as <code className="inline">/vim</code>,{" "}
+            <code className="inline">/quit</code>, <code className="inline">/config</code>,{" "}
+            <code className="inline">/gui</code> and <code className="inline">/mobile</code> do not pretend to run in
+            the browser: the bridge explains that their terminal surface is unavailable.
+          </p>
+        </section>
+
         <section id="changes">
           <h2><span className="anchor">#</span>Changes and Git</h2>
           <p>
@@ -134,7 +175,9 @@ export default function BrowserWorkspace() {
           <p>
             The initial handshake sends the session id, model, working directory, active mode, tool inventory, Git
             snapshot, todos and session statistics. During work, the bridge streams tokens, thinking, tool activity,
-            sub-agent events, permission requests, source-control refreshes, terminal data and completion state.
+            sub-agent events, permission requests, source-control refreshes, terminal data and completion state. Workflow
+            runs additionally stream phase and status updates, usage counters and <code className="inline">log()</code>
+            output; blocked sub-agents expose their block reason in the activity row.
           </p>
           <div className="doc-table-wrap">
             <table className="doc-table">
@@ -194,7 +237,7 @@ export default function BrowserWorkspace() {
           <ul className="capabilities">
             <li>The workspace is localhost-only and has no remote authentication, user accounts or TLS setup.</li>
             <li>The browser session is separate from the TUI session; live conversation state is not synchronized between them.</li>
-            <li>Only the bridge actions implemented by the current client are available; unimplemented slash commands report that they have no Web action yet.</li>
+            <li>Most shared slash commands, saved workflows and custom commands are available through the bridge; terminal-only commands explain why they cannot run in the browser.</li>
             <li>Web UI persistence is bounded page-session state, not a durable transcript. Use <code className="inline">/sessions export</code> for a sanitized artifact.</li>
           </ul>
         </section>

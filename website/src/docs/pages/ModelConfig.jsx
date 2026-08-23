@@ -14,7 +14,7 @@ const TOC = [
 ];
 
 const LIMITS = [
-  ["deepseek (direct)", "1,000,000", "deepseek-v4-flash and deepseek-v4-pro, plus the deprecated aliases."],
+  ["deepseek (direct)", "1,000,000", "deepseek-v4-flash, deepseek-v4-pro and deepseek-v4-flash-vision-exp; legacy aliases map to Flash."],
   ["vertex", "128,000", "Capped by the provider, not by the model."],
   ["bedrock", "128,000", "Capped by the provider, not by the model."],
   ["unknown / custom", "128,000", "Conservative fallback so compaction is not delayed."],
@@ -98,6 +98,11 @@ export default function ModelConfig() {
           <h2><span className="anchor">#</span>Context limits</h2>
           <p>
             The limit is resolved from provider and model together, and the provider can override the model:
+          </p>
+          <p>
+            The direct-provider table lists the model IDs with explicit client-side limits, including the real
+            API model <code className="inline">deepseek-v4-flash-vision-exp</code>. Other unknown IDs follow
+            the conservative fallback rather than being treated as unsupported by the provider.
           </p>
           <div className="doc-table-wrap">
             <table className="doc-table">

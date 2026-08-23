@@ -78,7 +78,7 @@ export function dividerLine(label = '', width = process.stdout.columns ?? 80): s
 type DisplayMessage = { kind: 'message'; message: Message; index: number } | { kind: 'truncated'; index: number }
 
 function isWorkMessage(message: Message): boolean {
-  return message.role === 'tool' || message.role === 'terminal' || message.role === 'thinking'
+  return message.role === 'tool' || message.role === 'terminal'
 }
 
 /** Keeps the user's request and final reply visible while Ctrl+O expands the work transcript. */

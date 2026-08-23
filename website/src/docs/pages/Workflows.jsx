@@ -7,6 +7,7 @@ const TOC = [
   { id: "replay", label: "Journal & replay" },
   { id: "storage", label: "Saving runs & storage" },
   { id: "usage", label: "Running workflows" },
+  { id: "web", label: "Browser monitoring" },
   { id: "authoring", label: "Authoring a coordination program" },
 ];
 
@@ -189,7 +190,7 @@ export default function Workflows() {
         <section id="usage">
           <h2><span className="anchor">#</span>Running workflows</h2>
           <p>
-            The model triggers a workflow as a tool call, but you stay in control from the TUI:
+            The model triggers a workflow as a tool call, but you stay in control from the TUI or Browser Workspace:
           </p>
           <CodeBlock lang="bash">{`/workflow run code-review '{"scope":"src/agent"}'
 /workflows
@@ -205,6 +206,26 @@ export default function Workflows() {
             Workflows saved under <code className="inline">.deepseek/workflows/</code> (project) or{" "}
             <code className="inline">~/.deepseek/workflows/</code> (user) are also discoverable as their own{" "}
             <code className="inline">/name</code> commands.
+          </p>
+        </section>
+
+        <section id="web">
+          <h2><span className="anchor">#</span>Browser monitoring</h2>
+          <p>
+            The <a href="/docs/browser-workspace">Browser Workspace</a> receives workflow events while a run is active.
+            Its activity row updates with the workflow name, current phase, status, agent count and token usage instead
+            of waiting for the final <code className="inline">workflow</code> tool result.
+          </p>
+          <p>
+            Calls to <code className="inline">log(value)</code> become live progress text on that same row. A blocked
+            sub-agent remains visible with <code className="inline">BLOCKED · reason</code>, so a run that is waiting on
+            intervention is distinguishable from one that is still executing. Streamed tool-argument fragments also stay
+            grouped into one activity item.
+          </p>
+          <p>
+            Workflow commands, saved workflow suggestions and custom commands use the same resolver in the browser and
+            TUI. The two interfaces still own separate agent conversations, while both observe the same local workflow
+            storage and filesystem.
           </p>
         </section>
 

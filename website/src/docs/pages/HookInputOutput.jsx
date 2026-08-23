@@ -110,7 +110,7 @@ export default function HookInputOutput() {
           <p>A permission request includes the tool and the complete arguments about to be authorized:</p>
           <CodeBlock lang="json">{'{\n  "schema_version": 1,\n  "event": "PermissionRequest",\n  "hook_event_name": "PermissionRequest",\n  "session_id": "…",\n  "correlation_id": "…",\n  "run_id": "…",\n  "cwd": "/workspace",\n  "tool_name": "shell",\n  "tool_input": { "command": "bun test" }\n}'}</CodeBlock>
           <p>A compaction event carries its trigger and active model:</p>
-          <CodeBlock lang="json">{'{\n  "schema_version": 1,\n  "event": "PreCompact",\n  "hook_event_name": "PreCompact",\n  "session_id": "…",\n  "correlation_id": "…",\n  "run_id": "…",\n  "cwd": "/workspace",\n  "model": "deepseek-chat",\n  "trigger": "auto"\n}'}</CodeBlock>
+          <CodeBlock lang="json">{'{\n  "schema_version": 1,\n  "event": "PreCompact",\n  "hook_event_name": "PreCompact",\n  "session_id": "…",\n  "correlation_id": "…",\n  "run_id": "…",\n  "cwd": "/workspace",\n  "model": "deepseek-v4-flash",\n  "trigger": "auto"\n}'}</CodeBlock>
           <p>Instruction loading identifies the file and why it was loaded:</p>
           <CodeBlock lang="json">{'{\n  "event": "InstructionsLoaded",\n  "hook_event_name": "InstructionsLoaded",\n  "cwd": "/workspace",\n  "file_path": "/workspace/AGENTS.md",\n  "memory_type": "Project",\n  "load_reason": "session_start"\n}'}</CodeBlock>
           <p>

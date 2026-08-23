@@ -2,6 +2,7 @@ import { CodeBlock, Note, Toc } from "../Layout";
 
 const TOC = [
   { id: "how", label: "How slash commands work" },
+  { id: "custom", label: "Custom commands" },
   { id: "aliases", label: "Aliases" },
   { id: "session", label: "Session & conversation" },
   { id: "context-cmds", label: "Context & cost" },
@@ -133,7 +134,8 @@ export default function SlashCommands() {
         <div className="hero">
           <h1>Slash commands</h1>
           <p className="tagline">
-            41 commands that act on the session rather than prompting the model — with their arguments,
+            41 built-in commands that act on the session rather than prompting the model — plus saved workflows and
+            custom prompt commands — with their arguments,
             subcommands and aliases.
           </p>
         </div>
@@ -142,7 +144,8 @@ export default function SlashCommands() {
           <h2><span className="anchor">#</span>How slash commands work</h2>
           <p>
             A recognized message starting with <code className="inline">/</code> is parsed by the command
-            layer instead of being sent verbatim as an ordinary prompt. Some handlers are local and
+            layer instead of being sent verbatim as an ordinary prompt. The resolver checks built-ins first,
+            then saved workflows and custom command files. Some handlers are local and
             token-free, while commands such as <code className="inline">/btw</code>,{" "}
             <code className="inline">/plan</code>, <code className="inline">/review</code>, and workflow actions
             can deliberately invoke a model or tool and therefore consume resources.
@@ -165,6 +168,38 @@ export default function SlashCommands() {
             <a href="/docs/commands">Commands</a> for the conceptual overview and{" "}
             <a href="/docs/cli-reference">CLI reference</a> for flags you pass at launch.
           </p>
+        </section>
+
+        <section id="custom">
+          <h2><span className="anchor">#</span>Custom commands</h2>
+          <p>
+            Add a reusable prompt as a Markdown file in <code className="inline">.deepseek/commands/</code> for a
+            project command, or <code className="inline">~/.deepseek/commands/</code> for a user command. The filename
+            becomes the slash name; optional frontmatter supplies the palette description:
+          </p>
+          <CodeBlock lang="markdown">{`---
+description: Review the current diff
+---
+
+Inspect the current diff and focus on $ARGUMENTS.`}</CodeBlock>
+          <p>
+            <code className="inline">$ARGUMENTS</code> expands to all trailing arguments.{" "}
+            <code className="inline">$1</code> through <code className="inline">$9</code> expand positional arguments;
+            if the prompt has no placeholder, trailing arguments are appended as an{" "}
+            <code className="inline">Arguments:</code> block. A custom command is submitted as an ordinary agent
+            prompt, so it may use the model and tools.
+          </p>
+          <p>
+            Project directories are discovered from the current directory upward until the repository&apos;s{" "}
+            <code className="inline">.git</code>; the nearest project command wins over a parent or user command with
+            the same name. Names must be lowercase kebab-case, files must be Markdown no larger than 128&nbsp;KB, and a
+            directory contributes at most 256 entries. Unsafe paths, symlinks escaping the command root and malformed
+            files are ignored. Suggestions refresh when the working directory or worktree changes.
+          </p>
+          <Note>
+            Built-in commands take precedence over saved workflows, and saved workflows take precedence over custom
+            commands. Custom commands are available in the Browser Workspace through the shared resolver.
+          </Note>
         </section>
 
         <section id="aliases">
@@ -367,8 +402,9 @@ export default function SlashCommands() {
           <h2><span className="anchor">#</span>Everything else</h2>
           <CmdTable rows={MISC} />
           <p>
-            That is the full built-in set. The plugin installer can inventory command definitions, but the
-            current runtime does not register them into this command palette.
+            That is the full built-in set. Saved workflows and custom project/user commands may add more suggestions;
+            plugin command definitions can still be inventoried, but the current runtime does not register them into
+            this command palette.
           </p>
         </section>
       </main>

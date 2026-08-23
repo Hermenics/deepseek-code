@@ -5,6 +5,7 @@ const TOC = [
   { id: "lifecycle", label: "Result lifecycle" },
   { id: "display", label: "Interactive display" },
   { id: "full", label: "Full mode" },
+  { id: "work-summary", label: "Work summary" },
   { id: "limits", label: "Tool-level limits" },
   { id: "diffs", label: "Writes and diffs" },
   { id: "errors", label: "Errors and denials" },
@@ -144,6 +145,24 @@ Full mode · ctrl+o to toggle`}</CodeBlock>
             Full mode is a display toggle only. It does not rerun a tool, modify model history, restore
             micro-compacted content, increase a tool's hard output ceiling, or reveal read/search contents that
             were stored in the interactive transcript only as a path or pattern.
+          </p>
+        </section>
+
+        <section id="work-summary">
+          <h2><span className="anchor">#</span>Work summary</h2>
+          <p>
+            Normal mode keeps the conversation compact after concrete tool or terminal work. It hides the intermediate
+            work messages and places a divider before the final reply:
+          </p>
+          <CodeBlock lang="text">{`──── Work truncated (ctrl+o to expand) ────
+assistant final reply
+──────────── Worked for 12s ─────────────`}</CodeBlock>
+          <p>
+            The divider appears only when the turn contains a tool or terminal message. Thinking or reasoning by itself
+            is not treated as work for this marker. <code className="inline">Ctrl+O</code> shows the complete transcript,
+            including those intermediate messages. The <code className="inline">Worked for</code> line reports the
+            elapsed wall-clock duration attached to the completed assistant response; it is not a model-token or
+            reasoning-duration measurement.
           </p>
         </section>
 

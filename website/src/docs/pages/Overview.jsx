@@ -11,6 +11,7 @@ const PROVIDERS = [
 const MODELS = [
   { id: "deepseek-v4-flash", desc: "Fast, general purpose", tag: "default", ctx: "1M" },
   { id: "deepseek-v4-pro", desc: "Advanced reasoning", tag: null, ctx: "1M" },
+  { id: "deepseek-v4-flash-vision-exp", desc: "Experimental vision", tag: "experimental", ctx: "1M" },
 ];
 
 const SLASH = [
@@ -190,7 +191,7 @@ $ cat src/index.tsx | deepseek --pipe --json "summarize"`}</CodeBlock>
 
         <section id="models-sec">
           <h2><span className="anchor">#</span>Models</h2>
-          <p className="lead">Two first-class DeepSeek models ship out of the box.</p>
+          <p className="lead">Three first-class DeepSeek API models are documented below; the selector still discovers the models available to your account.</p>
           <div className="doc-table-wrap">
             <table className="doc-table">
               <thead>

@@ -61,6 +61,13 @@ export default function Authentication() {
             <code className="inline">provider.endpoint</code> takes priority over the environment override.
             Use HTTPS for remote gateways and understand their logging and retention policy.
           </p>
+          <p>
+            Interactive DeepSeek setup validates the key before saving it by requesting{" "}
+            <code className="inline">GET https://api.deepseek.com/models</code> with an eight-second timeout. A{" "}
+            <code className="inline">401</code> or <code className="inline">403</code> rejects the key; another
+            provider error is reported as a service or account problem; an unreachable official endpoint lets you
+            enter a custom base URL. This check targets the official endpoint, so verify custom gateways separately.
+          </p>
         </section>
 
         <section id="aws"><h2><span className="anchor">#</span>Amazon Bedrock</h2>

@@ -87,7 +87,7 @@ export default function Providers() {
 
         <section id="models">
           <h2><span className="anchor">#</span>Models</h2>
-          <p className="lead">Two first-class DeepSeek models ship out of the box:</p>
+          <p className="lead">Three first-class DeepSeek models ship out of the box:</p>
           <div className="doc-table-wrap">
             <table className="doc-table">
               <thead>
@@ -100,6 +100,7 @@ export default function Providers() {
               <tbody>
                 <tr><td><code className="inline">deepseek-v4-flash</code> <span className="badge" style={{ marginLeft: 8, padding: "2px 8px", fontSize: 10 }}>default</span></td><td>Fast, general purpose</td><td><code className="inline">1M</code></td></tr>
                 <tr><td><code className="inline">deepseek-v4-pro</code></td><td>Advanced reasoning</td><td><code className="inline">1M</code></td></tr>
+                <tr><td><code className="inline">deepseek-v4-flash-vision-exp</code></td><td>Experimental vision</td><td><code className="inline">1M</code></td></tr>
               </tbody>
             </table>
           </div>

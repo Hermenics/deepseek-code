@@ -23,14 +23,13 @@ const EFFORT = [
 const PRICING = [
   ["deepseek-v4-flash", "$0.14", "$0.0028", "$0.28"],
   ["deepseek-v4-pro", "$0.435", "$0.003625", "$0.87"],
-  ["deepseek-chat (alias)", "$0.14", "$0.0028", "$0.28"],
-  ["deepseek-reasoner (alias)", "$0.14", "$0.0028", "$0.28"],
+  ["deepseek-v4-flash-vision-exp", "$0.14", "$0.0028", "$0.28"],
 ];
 
 const LIMITS = [
   ["deepseek-v4-flash", "1,000,000"],
   ["deepseek-v4-pro", "1,000,000"],
-  ["deepseek-chat, deepseek-reasoner", "1,000,000"],
+  ["deepseek-v4-flash-vision-exp", "1,000,000"],
   ["Bedrock / Vertex models", "128,000"],
   ["Unknown / custom models", "128,000"],
 ];
@@ -190,9 +189,9 @@ export default function Costs() {
               <thead>
                 <tr>
                   <th style={{ width: "30%" }}>Model</th>
-                  <th style={{ width: "18%" }}>Input</th>
-                  <th style={{ width: "22%" }}>Cached input</th>
-                  <th>Output</th>
+                  <th style={{ width: "22%" }}>Cache hit / 1M</th>
+                  <th style={{ width: "22%" }}>Cache miss / 1M</th>
+                  <th>Output / 1M</th>
                 </tr>
               </thead>
               <tbody>
@@ -208,13 +207,22 @@ export default function Costs() {
             </table>
           </div>
           <p>
-            Two ratios are worth internalizing. <b>Output costs twice input</b> — a verbose answer is more
-            expensive than a long prompt. And <b>cached input costs about a fiftieth of fresh input</b>,
-            according to the bundled DeepSeek price table.
+            Two ratios are worth internalizing. <b>Output costs three times cache-miss input</b> — a verbose
+            answer is more expensive than a long prompt. Cache-hit input is about 79× cheaper than cache-miss
+            input for Flash and Vision and about 182× cheaper for Pro.
           </p>
           <p>
-            <code className="inline">deepseek-chat</code> and <code className="inline">deepseek-reasoner</code> are
-            deprecated aliases mapping to the flash tier.
+            The local estimator has explicit rates for <code className="inline">deepseek-v4-flash</code>,{" "}
+            <code className="inline">deepseek-v4-pro</code> and{" "}
+            <code className="inline">deepseek-v4-flash-vision-exp</code>. <code className="inline">deepseek-chat</code> and{" "}
+            <code className="inline">deepseek-reasoner</code> are legacy compatibility aliases for Flash, not
+            separate current model tiers. Other model IDs use the Flash fallback in the local estimator.
+          </p>
+          <p>
+            See the{" "}
+            <a href="https://api-docs.deepseek.com/quick_start/pricing/" target="_blank" rel="noreferrer">official pricing page</a>
+            {" "}for provider pricing; product prices may change. The table above documents the fixed values embedded
+            in the client, while <code className="inline">/cost</code> remains a local estimate rather than an invoice.
           </p>
         </section>
 
@@ -256,7 +264,8 @@ export default function Costs() {
           </div>
           <p>
             DeepSeek Code's context accounting assigns 128,000 tokens to Bedrock, Vertex and unrecognized
-            custom models regardless of the model's upstream limit. This is a CLI fallback used for usage
+            custom models regardless of the model's upstream limit. The three direct API models support 1M
+            context and up to 384K output. The 128K value is a CLI fallback used for usage
             percentages and compaction decisions; an early summary is still lossy, so check the configured
             model's real limit when using a custom endpoint.
           </p>
