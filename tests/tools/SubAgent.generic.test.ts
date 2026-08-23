@@ -23,13 +23,15 @@ const UNKNOWN_AGENT = 'no-such-agent-8f3a'
 function createSession(projectRoot?: string): OrchestratorSession {
   const root = projectRoot ?? mkdtempSync(join(tmpdir(), 'dsk-generic-project-'))
   if (!projectRoot) roots.push(root)
-  return new OrchestratorSession({
+  const session = new OrchestratorSession({
     projectRoot: root,
     providerConfig: { provider: 'local', localBaseUrl: 'http://127.0.0.1:1/v1' },
     settings: { agents: {} },
     limits: { maxRetries: 0, retryBackoffMs: 0, timeoutMs: 10_000 },
     logFile: null,
   })
+  sessions.push(session)
+  return session
 }
 
 function context(session: OrchestratorSession): ToolExecutionContext {
@@ -38,11 +40,13 @@ function context(session: OrchestratorSession): ToolExecutionContext {
 
 const handles: Array<TaskHandle<unknown>> = []
 const roots: string[] = []
+const sessions: OrchestratorSession[] = []
 
 afterEach(async () => {
   const activeHandles = handles.splice(0)
   for (const handle of activeHandles) handle.cancel('test cleanup')
   await Promise.allSettled(activeHandles.map(handle => handle.awaitResult()))
+  await Promise.all(sessions.splice(0).map(session => session.registry.awaitIdle()))
   for (const root of roots.splice(0)) {
     await rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
   }

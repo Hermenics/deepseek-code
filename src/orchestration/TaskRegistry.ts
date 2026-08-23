@@ -39,6 +39,9 @@ export class TaskRegistry {
   }
   updateLimits(values: Partial<TaskLimits>): void { this.limits = normalizeTaskLimits({ ...this.limits, ...values }); this.scheduleDrain() }
   getLimits(): TaskLimits { return { ...this.limits } }
+  async awaitIdle(): Promise<void> {
+    while (this.active > 0 || [...this.tasks.values()].some(slot => slot.inFlight)) await new Promise(resolve => setTimeout(resolve, 0))
+  }
   spawn<T>(input: SpawnTaskInput, runner: TaskRunner<T>): TaskHandle<T> {
     if (this.tasks.size >= this.limits.maxTasks) throw new TaskRuntimeError('TASK_LIMIT', `Task limit ${this.limits.maxTasks} reached`)
     const taskId = input.taskId ?? randomUUID()
