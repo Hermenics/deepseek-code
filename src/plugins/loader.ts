@@ -9,7 +9,6 @@ export function discoverComponents(pluginDir: string, manifest?: PluginManifest)
   const skills: string[] = []
   let hasHooks = false
 
-  const lexicalRoot = resolve(pluginDir)
   let canonicalRoot: string
   try {
     canonicalRoot = realpathSync(pluginDir)
@@ -25,7 +24,6 @@ export function discoverComponents(pluginDir: string, manifest?: PluginManifest)
   function resolvePluginPath(requested: string, base = pluginDir): string | null {
     if (isAbsolute(requested) || requested === '..' || requested.startsWith(`..${sep}`)) return null
     const candidate = resolve(base, requested)
-    if (!isContained(lexicalRoot, candidate)) return null
     try {
       const canonical = realpathSync(candidate)
       return isContained(canonicalRoot, canonical) ? canonical : null
