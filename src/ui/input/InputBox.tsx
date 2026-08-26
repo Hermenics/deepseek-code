@@ -11,7 +11,7 @@ import { InputBuffer } from './hooks/useInputBuffer.js'
 import { useDoublePress } from './hooks/useDoublePress.js'
 import { usePasteHandler } from './hooks/usePasteHandler.js'
 import { InputHistory } from './hooks/useInputHistory.js'
-import { getCommandSuggestions, getMatches } from './commandMatches.js'
+import { getMatches } from './commandMatches.js'
 import { computeGhostText } from './ghost/index.js'
 import { COMMAND_DESCRIPTIONS } from '../../commands.js'
 import { getWorkflowCommandDescriptions } from '../../workflows/commands.js'
@@ -211,7 +211,7 @@ export function InputBox({
   const matches = getMatches(cursor.text)
   const showDropdown = matches.length > 0
   const showFileDropdown = fileMatches.length > 0 && !showDropdown
-  const ghost = computeGhostText(cursor.text, cursor.offset, getCommandSuggestions(), historyRef.current.entries)
+  const ghost = computeGhostText(cursor.text, cursor.offset)
 
   const submitOrQueueWhileLoading = (value: string) => {
     const text = value.trim()
@@ -276,20 +276,8 @@ export function InputBox({
       }
     }
 
-    if (!showDropdown && ghost && ghost.insertPosition === cursor.offset) {
-      if (key.tab) {
-        updateCursor(Cursor.fromText(ghost.fullCommand, cols, ghost.fullCommand.length))
-        setSelectedIdx(0)
-        historyRef.current.reset()
-        return
-      }
-      if (key.rightArrow && cursor.isAtEnd()) {
-        updateCursor(Cursor.fromText(ghost.fullCommand, cols, ghost.fullCommand.length))
-        setSelectedIdx(0)
-        historyRef.current.reset()
-        return
-      }
-    }
+    // Argument placeholders are display-only, so they never get accepted by
+    // Tab/right-arrow or inserted into the input buffer.
 
     if (showFileDropdown && (key.upArrow || key.downArrow)) {
       setFileSelectedIdx((i) =>
