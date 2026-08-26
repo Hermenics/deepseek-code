@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.25
+
+- Fixed: After accepting an interactive update, DeepSeek Code automatically relaunches the updated TUI with the original entrypoint, arguments, working directory, environment, and terminal streams preserved
+- Fixed: InputBox no longer renders inline command or history autocomplete ghosts; the slash-command dropdown remains available
+- Enhanced: InputBox displays argument placeholders such as `/goal [<condition> | clear]` without inserting them into the input
+- Tests: Add regression coverage for update relaunch arguments and display-only input placeholders
+
 ## 0.6.24
 
 - Added: Workspace trust for project, local and additional agents plus project MCP configuration, bound to canonical paths and exact SHA-256 content hashes
