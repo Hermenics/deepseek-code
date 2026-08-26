@@ -107,6 +107,7 @@ import { getLastProjectSession, listSessions, loadSession, newSessionId, type Se
 import { loadMergedSettings } from '../settings/loader.js'
 import type { DeepSeekSettings } from '../settings/types.js'
 import { formatExitScreen } from '../utils/exitScreen.js'
+import { relaunchCurrentInvocation } from '../utils/relaunch.js'
 import pkg from '../../package.json' with { type: 'json' }
 
 function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; resumePicker: boolean; update: boolean; logout: boolean; doctor: boolean; help: boolean; version: boolean } {
@@ -275,8 +276,14 @@ if (!ARGV.update) {
         process.stderr.write('Update failed. Check the errors above.\n')
         process.exit(1)
       } else {
-        process.stdout.write(`Updated! Restart deepseek to use ${update.latest}.\n`)
-        process.exit(0)
+        process.stdout.write(`Updated! Launching DeepSeek Code ${update.latest}...\n`)
+        try {
+          const exitCode = await relaunchCurrentInvocation()
+          process.exit(exitCode)
+        } catch (error) {
+          process.stderr.write(`Could not relaunch DeepSeek Code: ${(error as Error).message}\n`)
+          process.exit(1)
+        }
       }
     } else if (choice === 'dismiss') {
       const { dismissVersion } = await import('../utils/update-notifier.js')

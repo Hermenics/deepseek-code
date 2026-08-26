@@ -12,12 +12,13 @@ const ARGUMENT_HINTS: Record<string, string> = {
   '/effort': '[low/high/max]',
   '/sessions': '',
   '/files': '',
+  '/goal': '[<condition> | clear]',
 }
 
 export function getArgumentHint(value: string): InlineGhostText | null {
   const trimmed = value.trimEnd()
   if (!trimmed.startsWith('/')) return null
-  if (!value.endsWith(' ')) return null
+  if (value !== trimmed && !value.endsWith(' ')) return null
 
   const hint = ARGUMENT_HINTS[trimmed]
   if (!hint) return null
