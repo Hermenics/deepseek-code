@@ -10,7 +10,7 @@ import { approveMcpConfig, loadMcpTools, type McpApprovalRequest } from './mcp.j
 import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
 import type { Model } from '../commands.js'
 import { loadAgentRegistry, type AgentConfig } from './config.js'
-import type { Tool } from '../tools/types.js'
+import type { Tool, ToolCallbacks } from '../tools/types.js'
 import { resolveAgentFiles } from './files.js'
 import { loadSteering, loadDeepSeekMd, loadAgentsMd } from './steering.js'
 import { setSessionRetention } from './session.js'
@@ -60,6 +60,7 @@ import { WorkflowManager, type StartWorkflowInput, type WorkflowHandle } from '.
 import { WorkflowApprovalStore, hashWorkflowValue } from '../workflows/storage.js'
 import { loadSkillPrompt } from '../skills/native.js'
 import type { AskUserHandler } from '../tools/AskUserQuestions/types.js'
+import { AdditionalDirectories } from './additionalDirectories.js'
 
 /** Workaround: OpenAI SDK has not typed reasoning_content yet (exclusive field of deepseek-reasoner) */
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & { reasoning_content?: string }
@@ -335,6 +336,7 @@ export class Agent {
   public readonly workflows: WorkflowManager
   private orchestrationCallbacks: OrchestratorCallbacks = {}
   private workspacePath: string
+  private additionalDirectories: AdditionalDirectories
 
   public tokenCount = 0
   public model: Model = 'deepseek-v4-flash'
@@ -512,6 +514,7 @@ export class Agent {
         : defaultModel(providerConfig.provider)) as Model
     }
     this.workspacePath = resolve(options.projectRoot ?? process.cwd())
+    this.additionalDirectories = new AdditionalDirectories(this.workspacePath)
     const orchestrationSessionId = options.sessionId ?? randomUUID()
     this.orchestrator = new OrchestratorSession({
       sessionId: orchestrationSessionId,
@@ -692,6 +695,25 @@ export class Agent {
 
   getWorkingDirectory(): string { return this.workspacePath }
 
+  async addAdditionalDirectory(directoryPath: string): Promise<string> {
+    await this.readyPromise
+    const canonical = await this.additionalDirectories.add(directoryPath)
+    this.sessionApprovedDirectories.add(canonical)
+    return canonical
+  }
+
+  async removeAdditionalDirectory(directoryPath: string): Promise<boolean> {
+    await this.readyPromise
+    const canonical = await this.additionalDirectories.remove(directoryPath)
+    if (!canonical) return false
+    this.sessionApprovedDirectories.delete(canonical)
+    return true
+  }
+
+  listAdditionalDirectories(): string[] {
+    return this.additionalDirectories.list()
+  }
+
   async setWorkingDirectory(path: string, _changeProjectRoot = true): Promise<void> {
     await this.readyPromise
     const target = resolve(path)
@@ -701,6 +723,8 @@ export class Agent {
     await this.orchestrator.changeProjectRoot(target)
     this.workflows.changeProjectRoot(target)
     this.workspacePath = target
+    this.additionalDirectories = new AdditionalDirectories(target)
+    this.sessionApprovedDirectories.clear()
     this.activeAgent = null
     this.allowedTools = null
     this.readyPromise = this.initialize(false)
@@ -794,6 +818,7 @@ export class Agent {
   clearSessionApprovals(): void {
     this.sessionApprovedTools.clear()
     this.sessionApprovedDirectories.clear()
+    this.additionalDirectories = new AdditionalDirectories(this.workspacePath)
   }
 
   async applySettings(settings: DeepSeekSettings): Promise<void> {
@@ -2223,7 +2248,7 @@ export class Agent {
     this.orchestrator.emit('tool_started', { tool: tc.function.name })
     auditLog({ type: 'tool_call', tool: tc.function.name, args: effectiveArgs })
     this.toolCallTotal++
-    const result = await this.executeTool(tc.function.name, effectiveArgs, riskResult?.requiresConfirmation === true, executionExternalPaths)
+    const result = await this.executeTool(tc.function.name, effectiveArgs, riskResult?.requiresConfirmation === true, executionExternalPaths, cb)
     auditLog({ type: 'tool_result', tool: tc.function.name, result: result.slice(0, 200), durationMs: Date.now() - t0 })
     this.orchestrator.emit('tool_finished', { tool: tc.function.name, durationMs: Date.now() - t0, result: result.slice(0, 200) })
 
@@ -2259,7 +2284,7 @@ export class Agent {
     return messages
   }
 
-  private async executeTool(name: string, args: Record<string, unknown>, dangerousOperationApproved = false, approvedExternalPaths: string[] = []): Promise<string> {
+  private async executeTool(name: string, args: Record<string, unknown>, dangerousOperationApproved = false, approvedExternalPaths: string[] = [], callbacks?: ToolCallbacks): Promise<string> {
     const tool = this.toolMap.get(name)
     if (!tool) return `Unknown tool: ${name}`
 
@@ -2273,7 +2298,7 @@ export class Agent {
       return await tool.execute(args, this.orchestrator.toolContext({
         workspacePath: this.workspacePath, signal: this.abortController?.signal, dangerousOperationApproved, approvedExternalPaths,
         workflowManager: this.workflows, interactionMode: this.interactionMode, askUser: this.askUserHandler ?? undefined,
-      }))
+      }), callbacks)
     } catch (e: unknown) {
       return `Error: ${(e as Error).message}`
     }

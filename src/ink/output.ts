@@ -498,6 +498,7 @@ export default class Output {
             if (softWrap) {
               const isSW = softWrap[swFrom + offsetY] === true
               swBits[lineY] = isSW ? prevContentEnd : 0
+              screen.softWrapEnd[lineY] = contentEnd
               prevContentEnd = contentEnd
             }
             offsetY++

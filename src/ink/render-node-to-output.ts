@@ -82,14 +82,12 @@ export function getScrollDrainNode(): DOMElement | null {
   return scrollDrainNode
 }
 
-// At-bottom follow scroll event this frame. When streaming content
-// triggers scrollTop = maxScroll, the ScrollBox records the delta +
-// viewport bounds here. ink.tsx consumes it post-render to translate any active
-// text selection by -delta so the highlight stays anchored to the TEXT
-// (native terminal behavior — the selection walks up the screen as content
-// scrolls, eventually clipping at the top). The frontFrame screen buffer
-// still holds the old content at that point — captureScrolledRows reads
-// from it before the front/back swap to preserve the text for copy.
+// Scroll event this frame. The ScrollBox can move because content grew, a
+// wheel event drained, or selection edge-autoscroll requested a move. Ink
+// consumes this post-render to translate any active selection by -delta so
+// the highlight stays anchored to the TEXT. The frontFrame screen buffer
+// still holds the old content at that point — captureScrolledRows reads from
+// it before the front/back swap to preserve the text for copy.
 export type FollowScroll = {
   delta: number
   viewportTop: number
@@ -753,7 +751,7 @@ function renderNodeToOutput(
         // Capture scrollTop before follow so ink.tsx can translate any
         // active text selection by the same delta (native terminal behavior:
         // view keeps scrolling, highlight walks up with the text).
-        const scrollTopBeforeFollow = node.scrollTop ?? 0
+        const scrollTopBeforeScroll = node.scrollTop ?? 0
         const sticky =
           node.stickyScroll ?? Boolean(node.attributes['stickyScroll'])
         const prevMaxScroll = Math.max(0, prevScrollHeight - prevInnerHeight)
@@ -763,7 +761,7 @@ function renderNodeToOutput(
         // because the user was at bottom.
         const grew = scrollHeight >= prevScrollHeight
         const atBottom =
-          sticky || (grew && scrollTopBeforeFollow >= prevMaxScroll)
+          sticky || (grew && scrollTopBeforeScroll >= prevMaxScroll)
         if (atBottom && (node.pendingScrollDelta ?? 0) >= 0) {
           node.scrollTop = maxScroll
           node.pendingScrollDelta = undefined
@@ -779,18 +777,9 @@ function renderNodeToOutput(
           // direct scrollTop writes (e.g. the alt-screen-perf test).
           if (
             node.stickyScroll === false &&
-            scrollTopBeforeFollow >= prevMaxScroll
+            scrollTopBeforeScroll >= prevMaxScroll
           ) {
             node.stickyScroll = true
-          }
-        }
-        const followDelta = (node.scrollTop ?? 0) - scrollTopBeforeFollow
-        if (followDelta > 0) {
-          const vpTop = node.scrollViewportTop ?? 0
-          followScroll = {
-            delta: followDelta,
-            viewportTop: vpTop,
-            viewportBottom: vpTop + innerHeight - 1,
           }
         }
         // Drain pendingScrollDelta. Native terminals (proportional burst
@@ -843,6 +832,20 @@ function renderNodeToOutput(
           ? Math.max(cMin, Math.min(scrollTop, cMax))
           : scrollTop
         node.scrollTop = scrollTop
+        // Follow the position that was actually painted. During virtual
+        // scrolling, the requested position can run ahead of the mounted
+        // range and must not move the selection until the clamp releases.
+        const paintedScrollTop = node.paintedScrollTop ?? clamped
+        const scrollDelta = clamped - paintedScrollTop
+        node.paintedScrollTop = clamped
+        if (scrollDelta !== 0) {
+          const vpTop = node.scrollViewportTop ?? 0
+          followScroll = {
+            delta: scrollDelta,
+            viewportTop: vpTop,
+            viewportBottom: vpTop + innerHeight - 1,
+          }
+        }
         // Clamp hitting top/bottom consumes any remainder. Set drainPending
         // only after clamp so a wasted no-op frame isn't scheduled.
         if (scrollTop !== cur) node.pendingScrollDelta = undefined

@@ -32,13 +32,15 @@ import type { ThemeName, ProviderConfig } from '../types/provider.js'
 import type { DeepSeekSettings, InterfaceSettings } from '../settings/types.js'
 import { formatChatError } from '../utils/chatError.js'
 import { defaultShell, isWindows } from '../utils/platform.js'
-import { saveSession, updateSessionTitle, type SessionData } from '../agent/session.js'
+import { createSessionBranch, loadSession, saveSession, updateSessionTitle, type SessionData } from '../agent/session.js'
 import { getGoal, getElapsedSeconds, resumeGoal, updateGoal, buildContinuationPrompt, GOAL_MAX_CONTINUATIONS } from '../agent/goal.js'
 import { DEFAULT_MODE, nextMode, isBuildMode, isAutoMode, type InteractionMode } from './interactionMode.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
 import ScrollBox, { type ScrollBoxHandle } from '../ink/components/ScrollBox.js'
+import { useSelection } from '../ink/hooks/use-selection.js'
 import { Scrollbar } from './layout/Scrollbar.js'
+import { getThemeColors } from './theme.js'
 import { ThemeProvider } from './design-system/index.js'
 import { PlanApprovalPrompt, type PlanApprovalResult } from './plan/PlanApprovalPrompt.js'
 import { newPlanPath, buildPlanModeInjection } from '../agent/planMode.js'
@@ -46,6 +48,8 @@ import { readSavedWorkflow, refreshWorkflowCommands } from '../workflows/command
 import { refreshCustomCommands } from '../commands/custom.js'
 import { AskUserQuestionsPrompt } from './questions/AskUserQuestions.js'
 import type { AskUserAnswers, AskUserQuestion } from '../tools/AskUserQuestions/types.js'
+import { executeBatchCommand } from '../commands/batch/index.js'
+import { BACKGROUND_WORKFLOW_SCRIPT } from '../commands/background/index.js'
 
 export type AgentPhase = 'idle' | 'refining' | 'executing'
 
@@ -123,6 +127,20 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   alternateScreen?: boolean
 }) {
   const transcriptRef = useRef<ScrollBoxHandle | null>(null)
+  const selection = useSelection()
+  useEffect(() => {
+    if (!alternateScreen) return selection.setScrollTarget(null)
+    const target = {
+      getViewportTop: () => transcriptRef.current?.getViewportTop() ?? 0,
+      getViewportBottom: () => {
+        const transcript = transcriptRef.current
+        if (!transcript) return -1
+        return transcript.getViewportTop() + Math.max(0, transcript.getViewportHeight() - 1)
+      },
+      scrollBy: (dy: number) => transcriptRef.current?.scrollBy(dy),
+    }
+    return selection.setScrollTarget(target)
+  }, [alternateScreen, selection])
   const initialSessionRef = useRef(initialSession)
   const handleSubmitRef = useRef<((text: string) => Promise<void>) | null>(null)
   const projectRootRef = useRef(initialSession?.cwd && existsSync(initialSession.cwd) ? initialSession.cwd : process.cwd())
@@ -160,6 +178,11 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [agent] = useState(() => new Agent(providerConfig ?? undefined, { sessionId, projectRoot: projectRootRef.current }))
   const workflowRuns = useWorkflowRuns(agent.workflows)
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
+  useEffect(() => {
+    selection.setSelectionBgColor(getThemeColors(theme).selectionBg)
+  }, [selection, theme])
   const [showConfigMenu, setShowConfigMenu] = useState(false)
   const [showMobileQR, setShowMobileQR] = useState(false)
   const [currentLanguage, setCurrentLanguage] = useState<string | null>(language ?? null)
@@ -1059,7 +1082,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     }
 
     const cmd = await resolveCommand(text, agent.getWorkingDirectory())
-    const liveWorkflowControl = cmd?.type === 'workflows' || (cmd?.type === 'workflow' && ['pause', 'resume', 'stop'].includes(cmd.action))
+    const liveWorkflowControl = cmd?.type === 'workflows' || cmd?.type === 'background' || (cmd?.type === 'workflow' && ['pause', 'resume', 'stop'].includes(cmd.action))
     if (isLoading && !liveWorkflowControl) return
     if (cmd) {
       switch (cmd.type) {
@@ -1307,6 +1330,88 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               return `  ${s.title ?? s.uiMessages.find(m => m.role === 'user')?.content?.split('\n')[0] ?? 'New conversation'}  ${date}  ${msgs} messages  ${s.cwd}`
             })
             setMessages((m) => [...m, { role: 'assistant', content: `Recent sessions:\n${lines.join('\n')}\n\nResume: deepseek --resume <id>\nExport: /sessions export <id> [json|md]` }])
+          }
+          return
+        }
+        case 'branch': {
+          if (!sessionId) {
+            setMessages((m) => [...m, { role: 'assistant', content: 'Cannot branch an unsaved session.' }])
+            return
+          }
+          try {
+            const saved = await loadSession(sessionId, agent.getWorkingDirectory())
+            const source: SessionData = saved ?? {
+              id: sessionId,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+              cwd: agent.getWorkingDirectory(),
+              model: agent.model,
+              provider: agent.provider,
+              language: language ?? null,
+              activeAgent: agent.activeAgent,
+              agentMessages: agent.getRawMessages(),
+              uiMessages: messagesRef.current,
+              filesModified: agent.getFilesModified(),
+            }
+            const branch = await createSessionBranch({
+              ...source,
+              agentMessages: agent.getRawMessages(),
+              uiMessages: messagesRef.current,
+              cwd: agent.getWorkingDirectory(),
+              model: agent.model,
+              provider: agent.provider,
+              language: language ?? null,
+              activeAgent: agent.activeAgent,
+              filesModified: agent.getFilesModified(),
+            }, cmd.title)
+            setMessages((m) => [...m, { role: 'assistant', content: `Derived session created: ${branch.id}\nOriginal session ${sessionId} remains unchanged. Resume with: deepseek --resume ${branch.id}` }])
+          } catch (error) {
+            setMessages((m) => [...m, { role: 'assistant', content: `✗ Could not create derived session: ${(error as Error).message}` }])
+          }
+          return
+        }
+        case 'batch': {
+          setIsLoading(true)
+          try {
+            const result = await executeBatchCommand(cmd, {
+              workflowManager: agent.workflows,
+              startWorkflow: input => agent.startWorkflow(input),
+            })
+            setMessages((m) => [...m, { role: 'assistant', content: `Batch ${result.status} (${result.runId}):\n${JSON.stringify(result.result, null, 2)}` }])
+          } catch (error) {
+            setMessages((m) => [...m, { role: 'assistant', content: `✗ Batch failed: ${(error as Error).message}` }])
+          } finally {
+            setIsLoading(false)
+          }
+          return
+        }
+        case 'background': {
+          try {
+            const handle = await agent.startWorkflow({
+              script: BACKGROUND_WORKFLOW_SCRIPT,
+              name: 'background',
+              args: { prompt: cmd.prompt },
+            })
+            setMessages((m) => [...m, { role: 'assistant', content: `Background task started: ${handle.runId}\nMonitor with /workflows.` }])
+          } catch (error) {
+            setMessages((m) => [...m, { role: 'assistant', content: `✗ Background task failed: ${(error as Error).message}` }])
+          }
+          return
+        }
+        case 'add-dir': {
+          try {
+            if (cmd.action === 'list') {
+              const directories = agent.listAdditionalDirectories()
+              setMessages((m) => [...m, { role: 'assistant', content: directories.length ? `Approved directories:\n${directories.join('\n')}` : 'No additional directories approved.' }])
+            } else if (cmd.action === 'remove') {
+              const removed = await agent.removeAdditionalDirectory(cmd.path!)
+              setMessages((m) => [...m, { role: 'assistant', content: removed ? `Removed approved directory: ${cmd.path}` : `Directory was not approved: ${cmd.path}` }])
+            } else {
+              const directory = await agent.addAdditionalDirectory(cmd.path!)
+              setMessages((m) => [...m, { role: 'assistant', content: `Approved directory for this session: ${directory}` }])
+            }
+          } catch (error) {
+            setMessages((m) => [...m, { role: 'assistant', content: `✗ Directory command failed: ${(error as Error).message}` }])
           }
           return
         }
@@ -2192,6 +2297,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             showFullscreenHint={messages.length === 0}
             onExit={onExit}
             placeholderOverride={focusedSubagent ? `Message @${focusedSubagent.agentName ?? 'subagent'}…` : undefined}
+            keybindings={interfaceSettings.keybindings ?? initialSettings?.keybindings}
           />
         )}
         <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} theme={theme} items={interfaceSettings.statusBar} narrowPriority={interfaceSettings.narrowPriority} compactBadge={compactBadge} activityCount={activityCount} />

@@ -16,6 +16,16 @@ import { CellWidth, cellAt, cellAtIndex, setCellStyleId } from './screen.js'
 
 type Point = { col: number; row: number }
 
+/**
+ * The fullscreen transcript exposes this tiny imperative surface so selection
+ * can follow the pointer without coupling the Ink core to ScrollBox.
+ */
+export type SelectionScrollTarget = {
+  getViewportTop: () => number
+  getViewportBottom: () => number
+  scrollBy: (dy: number) => void
+}
+
 export type SelectionState = {
   /** Where the mouse-down occurred. Null when no selection. */
   anchor: Point | null
@@ -641,7 +651,11 @@ export function shiftSelectionForFollow(
   const rawFocus = s.focus
     ? (s.virtualFocusRow ?? s.focus.row) + dRow
     : undefined
-  if (rawAnchor < minRow && rawFocus !== undefined && rawFocus < minRow) {
+  if (
+    rawFocus !== undefined &&
+    ((rawAnchor < minRow && rawFocus < minRow) ||
+      (rawAnchor > maxRow && rawFocus > maxRow))
+  ) {
     clearSelection(s)
     return true
   }
@@ -721,7 +735,9 @@ function extractRowText(
 ): string {
   const noSelect = screen.noSelect
   const rowOff = row * screen.width
-  const contentEnd = row + 1 < screen.height ? screen.softWrap[row + 1]! : 0
+  const contentEnd =
+    screen.softWrapEnd[row]! ||
+    (row + 1 < screen.height ? screen.softWrap[row + 1]! : 0)
   const lastCol = contentEnd > 0 ? Math.min(colEnd, contentEnd - 1) : colEnd
   let line = ''
   for (let col = colStart; col <= lastCol; col++) {

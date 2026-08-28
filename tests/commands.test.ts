@@ -146,3 +146,27 @@ describe('parseCommand — worktree', () => {
     expect(parseCommand('/worktree leave')).toEqual({ type: 'worktree', action: 'exit', keep: false })
   })
 })
+
+describe('parseCommand — branch', () => {
+  it('parses /branch without a title', () => {
+    expect(parseCommand('/branch')).toEqual({ type: 'branch' })
+  })
+
+  it('parses an optional branch title', () => {
+    expect(parseCommand('/branch investigate auth flow')).toEqual({ type: 'branch', title: 'investigate auth flow' })
+  })
+})
+
+describe('parseCommand — parallel and multi-root commands', () => {
+  it('parses batch prompts and background work', () => {
+    expect(parseCommand('/batch inspect auth -- run tests')).toEqual({ type: 'batch', prompts: ['inspect auth', 'run tests'] })
+    expect(parseCommand('/background monitor the build')).toEqual({ type: 'background', prompt: 'monitor the build' })
+    expect(parseCommand('/background')?.type).toBe('unknown')
+  })
+
+  it('parses additional directory management', () => {
+    expect(parseCommand('/add-dir')).toEqual({ type: 'add-dir', action: 'list' })
+    expect(parseCommand('/add-dir ../outside')).toEqual({ type: 'add-dir', action: 'add', path: '../outside' })
+    expect(parseCommand('/add-dir remove /tmp/work')).toEqual({ type: 'add-dir', action: 'remove', path: '/tmp/work' })
+  })
+})

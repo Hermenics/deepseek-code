@@ -44,6 +44,10 @@ export const HELP_TEXT = `Commands:
   /task <id> <action>    inspect or control a task
   /workflows             monitor Dynamic Workflow runs
   /workflow <action>     run, pause, resume, stop, restart or save a workflow
+  /branch [title]        create a derived session without changing this one
+  /batch <a> -- <b>      run independent prompts in parallel
+  /background <prompt>   run a prompt without blocking the TUI
+  /add-dir [remove] <p>  approve or remove a session directory
   /cwd (or /cd) [path]   show or change directory
   /worktree (or /wt) [create|enter|exit|list|status]
   /mobile                show the mobile-app QR code

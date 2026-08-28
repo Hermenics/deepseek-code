@@ -8,7 +8,7 @@ import type { InteractionMode } from '../ui/interactionMode.js'
 import type { AgentConfig } from '../agent/config.js'
 import type { ContextBreakdown } from '../agent/contextBreakdown.js'
 import type { DeepSeekSettings } from '../settings/types.js'
-import type { WorkflowManager, WorkflowManagerEvent } from '../workflows/manager.js'
+import type { StartWorkflowInput, WorkflowHandle, WorkflowManager, WorkflowManagerEvent } from '../workflows/manager.js'
 import { readSavedWorkflow } from '../workflows/commands.js'
 import type { ClientCommand, ServerEvent, SessionStats, TodoItemView } from './protocol.js'
 import { runWebCommand } from './commands.js'
@@ -52,6 +52,7 @@ export interface WebAgent {
   setEffortLevel?(level: 'low' | 'high' | 'max'): void
   setSubAgentCallbacks?(callbacks: SubAgentCallbacks | null): void
   workflows?: WorkflowManager
+  startWorkflow?(input: StartWorkflowInput): Promise<WorkflowHandle>
   orchestrator?: OrchestratorView
   // Consumed by ./commands.ts to mirror the TUI slash-command surface.
   readyPromise?: Promise<void>
@@ -64,6 +65,9 @@ export interface WebAgent {
   applyAgentConfig?(config: AgentConfig): Promise<void>
   getLastUserMessage?(): string | null
   getAvailableModels?(): Promise<string[]>
+  addAdditionalDirectory?(path: string): Promise<string>
+  removeAdditionalDirectory?(path: string): Promise<boolean>
+  listAdditionalDirectories?(): string[]
 }
 
 export interface BridgeTransport {

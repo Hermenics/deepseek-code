@@ -25,6 +25,8 @@ import Text from '../../ink/components/Text.js'
 import { getAtMention, searchFiles } from './fileMatcher.js'
 import { isFullscreenActive } from '../../utils/fullscreen.js'
 import { readClipboardSync } from '../../utils/platform.js'
+import type { KeybindingsSettings } from '../../settings/types.js'
+import { resolveKeybindingAction, resolveKeybindings } from './keybindings.js'
 
 // Convert Ink's Key (boolean flags) to KeyEvent (name-based) used by processTextInputKey/processVimKey
 export function inkKeyToKeyEvent(key: Key, input: string): KeyEvent {
@@ -86,6 +88,7 @@ export function InputBox({
   isActive = true,
   placeholderOverride,
   showFullscreenHint = false,
+  keybindings,
 }: {
   onSubmit: (text: string) => void
   isLoading: boolean
@@ -109,6 +112,8 @@ export function InputBox({
   isActive?: boolean
   /** Show the "switch it in /config" hint. Caller hides it once the conversation starts. */
   showFullscreenHint?: boolean
+  /** Optional resolved settings; omitted values retain the built-in defaults. */
+  keybindings?: KeybindingsSettings
 }) {
   const cols = process.stdout.columns ?? 80
   const [cursor, setCursor] = useState(() => Cursor.fromText('', cols))
@@ -212,6 +217,7 @@ export function InputBox({
   const showDropdown = matches.length > 0
   const showFileDropdown = fileMatches.length > 0 && !showDropdown
   const ghost = computeGhostText(cursor.text, cursor.offset)
+  const resolvedKeybindings = resolveKeybindings(keybindings)
 
   const submitOrQueueWhileLoading = (value: string) => {
     const text = value.trim()
@@ -226,7 +232,10 @@ export function InputBox({
       handlePaste(input)
       return
     }
-    if (input === '\x1b[Z' || (key.shift && key.tab)) {
+    const keyEvent = inkKeyToKeyEvent(key, input)
+    const action = resolveKeybindingAction(keyEvent, resolvedKeybindings)
+
+    if (action === 'cycleMode' || input === '\x1b[Z') {
       onModeChange?.()
       return
     }
@@ -237,11 +246,12 @@ export function InputBox({
     if (!(key.ctrl && input === 'c')) ctrlCDouble.reset()
     if (!key.escape) escDouble.reset()
 
+    if (action === 'abort' && isLoading) {
+      onAbort?.()
+      return
+    }
     if (key.ctrl && input === 'c') {
-      if (isLoading) {
-        onAbort?.()
-        return
-      }
+      if (isLoading) { onAbort?.(); return }
       ctrlCDouble.trigger()
       return
     }
@@ -265,7 +275,7 @@ export function InputBox({
       return
     }
 
-    if (key.escape) {
+    if (action === 'cancel' || key.escape) {
       if (isLoading) {
         onAbort?.()
         return
@@ -288,7 +298,7 @@ export function InputBox({
       return
     }
 
-    if (showFileDropdown && (key.tab || key.return)) {
+    if (showFileDropdown && (action === 'acceptCompletion' || (key.return && !key.ctrl && !key.shift))) {
       const chosen = fileMatches[fileSelectedIdx]
       if (chosen) {
         const mention = getAtMention(cursor.text, cursor.offset)
@@ -308,7 +318,7 @@ export function InputBox({
       return
     }
 
-    if (showDropdown && (key.tab || key.return)) {
+    if (showDropdown && (action === 'acceptCompletion' || (key.return && !key.ctrl && !key.shift))) {
       const chosen = matches[selectedIdx]!
       onSubmit(chosen)
       updateCursor(Cursor.fromText('', cols))
@@ -324,7 +334,7 @@ export function InputBox({
       return
     }
 
-    if (isLoading && key.return) {
+    if (isLoading && action === 'submit') {
       const queued = expandPastedTexts(cursor.text).trim()
       if (queued) {
         submitOrQueueWhileLoading(queued)
@@ -333,8 +343,6 @@ export function InputBox({
       }
       return
     }
-
-    const keyEvent = inkKeyToKeyEvent(key, input)
 
     if (vimEnabled) {
       if (input.length > 1 && !key.ctrl && !key.meta) {
@@ -394,7 +402,7 @@ export function InputBox({
       if (vim.type === 'noop' && vimState.mode === 'normal') return
     }
 
-    const result = processTextInputKey(cursor, keyEvent, { multiline: true })
+    const result = processTextInputKey(cursor, keyEvent, { multiline: true, keybindings })
     if (result.type === 'cursor') {
       updateCursor(result.cursor)
       setSelectedIdx(0)

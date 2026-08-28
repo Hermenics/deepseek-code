@@ -3,6 +3,7 @@ import StdinContext from '../components/StdinContext.js'
 import instances from '../instances.js'
 import {
   type FocusMove,
+  type SelectionScrollTarget,
   type SelectionState,
   shiftAnchor,
 } from '../selection.js'
@@ -42,6 +43,8 @@ export function useSelection(): {
    *  replaces the old SGR-7 inverse so syntax highlighting stays readable
    *  under selection). Call once on mount + whenever theme changes. */
   setSelectionBgColor: (color: string) => void
+  /** Register the fullscreen transcript used for drag-edge autoscroll. */
+  setScrollTarget: (target: SelectionScrollTarget | null) => () => void
 } {
   // Look up the Ink instance via stdout — same pattern as instances map.
   // StdinContext is available (it's always provided), and the Ink instance
@@ -65,6 +68,7 @@ export function useSelection(): {
         moveFocus: () => {},
         captureScrolledRows: () => {},
         setSelectionBgColor: () => {},
+        setScrollTarget: () => () => {},
       }
     }
     return {
@@ -82,6 +86,8 @@ export function useSelection(): {
       captureScrolledRows: (firstRow, lastRow, side) =>
         ink.captureScrolledRows(firstRow, lastRow, side),
       setSelectionBgColor: (color: string) => ink.setSelectionBgColor(color),
+      setScrollTarget: (target: SelectionScrollTarget | null) =>
+        ink.setSelectionScrollTarget(target),
     }
   }, [ink])
 }

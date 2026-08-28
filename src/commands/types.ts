@@ -29,6 +29,10 @@ export type CommandResult =
   | { type: 'sessions'; action: 'export'; id: string; format: 'json' | 'md' }
   | { type: 'plan'; task: string }
   | { type: 'review'; target: string }
+  | { type: 'branch'; title?: string }
+  | { type: 'batch'; prompts: string[] }
+  | { type: 'background'; prompt: string }
+  | { type: 'add-dir'; action: 'list' | 'add' | 'remove'; path?: string }
   | { type: 'permissions' }
   | { type: 'btw'; question: string }
   | { type: 'vim' }

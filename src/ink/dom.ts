@@ -55,6 +55,9 @@ export type DOMElement = {
   // are computed at render time and stored for imperative access. stickyScroll
   // auto-pins scrollTop to the bottom when content grows.
   scrollTop?: number
+  // Scroll position used by the most recent paint. Unlike scrollTop, this
+  // stays at the virtual-scroll clamp edge until that content is mounted.
+  paintedScrollTop?: number
   // Accumulated scroll delta not yet applied to scrollTop. The renderer
   // drains this at SCROLL_MAX_PER_FRAME rows/frame so fast flicks show
   // intermediate frames instead of one big jump. Direction reversal

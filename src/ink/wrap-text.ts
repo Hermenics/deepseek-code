@@ -46,6 +46,7 @@ export default function wrapText(
     return wrapAnsi(text, maxWidth, {
       trim: false,
       hard: true,
+      wordWrap: true,
     })
   }
 
@@ -53,6 +54,7 @@ export default function wrapText(
     return wrapAnsi(text, maxWidth, {
       trim: true,
       hard: true,
+      wordWrap: true,
     })
   }
 

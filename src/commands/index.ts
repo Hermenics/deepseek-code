@@ -43,6 +43,10 @@ import { resolveWorkflowCommand } from '../workflows/commands.js'
 import goal from './goal/index.js'
 import workflow from './workflow/index.js'
 import workflows from './workflows/index.js'
+import branch from './branch/index.js'
+import batch from './batch/index.js'
+import background from './background/index.js'
+import addDir from './add-dir/index.js'
 
 const commands: Command[] = [
   help,
@@ -85,6 +89,10 @@ const commands: Command[] = [
   goal,
   workflow,
   workflows,
+  branch,
+  batch,
+  background,
+  addDir,
   features,
 ]
 
