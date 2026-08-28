@@ -412,6 +412,14 @@ export type Screen = Size & {
    * blitRegion/shiftRows.
    */
   softWrap: Int32Array
+
+  /**
+   * Actual written end column for each tracked text row. Unlike the
+   * continuation marker above, this survives when the continuation row is
+   * just outside the viewport — selection capture needs it after the row
+   * leaves the screen. Zero means the producer did not track this row.
+   */
+  softWrapEnd: Int32Array
 }
 
 function isEmptyCellByIndex(screen: Screen, index: number): boolean {
@@ -488,6 +496,7 @@ export function createScreen(
     damage: undefined,
     noSelect: new Uint8Array(size),
     softWrap: new Int32Array(height),
+    softWrapEnd: new Int32Array(height),
   }
 }
 
@@ -527,11 +536,15 @@ export function resetScreen(
   if (screen.softWrap.length < height) {
     screen.softWrap = new Int32Array(height)
   }
+  if (screen.softWrapEnd.length < height) {
+    screen.softWrapEnd = new Int32Array(height)
+  }
 
   // Reset all cells — single fill call, no loop
   screen.cells64.fill(EMPTY_CELL_VALUE, 0, size)
   screen.noSelect.fill(0, 0, size)
   screen.softWrap.fill(0, 0, height)
+  screen.softWrapEnd.fill(0, 0, height)
 
   // Update dimensions
   screen.width = width
@@ -880,6 +893,7 @@ export function blitRegion(
   // Partial-width blits still carry the row's wrap provenance since the
   // blitted content (a cached ink-text node) is what set the bit.
   dst.softWrap.set(src.softWrap.subarray(regionY, maxY), regionY)
+  dst.softWrapEnd.set(src.softWrapEnd.subarray(regionY, maxY), regionY)
 
   // Fast path: contiguous memory when copying full-width rows at same stride
   if (regionX === 0 && maxX === src.width && src.width === dst.width) {
@@ -985,6 +999,8 @@ export function clearRegion(
       rowBase,
       rowBase + (maxY - startY) * screenWidth,
     )
+    screen.softWrap.fill(0, startY, maxY)
+    screen.softWrapEnd.fill(0, startY, maxY)
   } else {
     // Partial-width: single loop handles boundary cleanup and fill per row.
     const stride = screenWidth << 1 // 2 Int32s per cell
@@ -1065,11 +1081,13 @@ export function shiftRows(
   const cells64 = screen.cells64
   const noSel = screen.noSelect
   const sw = screen.softWrap
+  const swEnd = screen.softWrapEnd
   const absN = Math.abs(n)
   if (absN > bottom - top) {
     cells64.fill(EMPTY_CELL_VALUE, top * w, (bottom + 1) * w)
     noSel.fill(0, top * w, (bottom + 1) * w)
     sw.fill(0, top, bottom + 1)
+    swEnd.fill(0, top, bottom + 1)
     return
   }
   if (n > 0) {
@@ -1077,17 +1095,21 @@ export function shiftRows(
     cells64.copyWithin(top * w, (top + n) * w, (bottom + 1) * w)
     noSel.copyWithin(top * w, (top + n) * w, (bottom + 1) * w)
     sw.copyWithin(top, top + n, bottom + 1)
+    swEnd.copyWithin(top, top + n, bottom + 1)
     cells64.fill(EMPTY_CELL_VALUE, (bottom - n + 1) * w, (bottom + 1) * w)
     noSel.fill(0, (bottom - n + 1) * w, (bottom + 1) * w)
     sw.fill(0, bottom - n + 1, bottom + 1)
+    swEnd.fill(0, bottom - n + 1, bottom + 1)
   } else {
     // SD: row top..bottom+n → top-n..bottom; clear top..top-n-1
     cells64.copyWithin((top - n) * w, top * w, (bottom + n + 1) * w)
     noSel.copyWithin((top - n) * w, top * w, (bottom + n + 1) * w)
     sw.copyWithin(top - n, top, bottom + n + 1)
+    swEnd.copyWithin(top - n, top, bottom + n + 1)
     cells64.fill(EMPTY_CELL_VALUE, top * w, (top - n) * w)
     noSel.fill(0, top * w, (top - n) * w)
     sw.fill(0, top, top - n)
+    swEnd.fill(0, top, top - n)
   }
 }
 

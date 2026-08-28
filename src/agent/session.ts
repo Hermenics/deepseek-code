@@ -55,6 +55,8 @@ export function setSessionRetention(value: number): void {
 
 export interface SessionData {
   id: string
+  /** The source session when this transcript was created with /branch. */
+  parentSessionId?: string
   title?: string
   createdAt: string
   updatedAt: string
@@ -67,6 +69,29 @@ export interface SessionData {
   uiMessages: Message[]
   filesModified: string[]
   goal?: Goal
+}
+
+/** Persist an independent transcript copy; the source object is never mutated. */
+export async function createSessionBranch(source: SessionData, title?: string): Promise<SessionData> {
+  const now = new Date().toISOString()
+  const label = title?.trim() || source.title || source.uiMessages.find(message => message.role === 'user')?.content?.split('\n')[0] || 'session'
+  const branch: SessionData = {
+    ...structuredClone(source),
+    id: newSessionId(),
+    parentSessionId: source.id,
+    title: `Branch of ${label}`.slice(0, 120),
+    createdAt: now,
+    updatedAt: now,
+  }
+  await saveSession(branch)
+  return branch
+}
+
+/** Load and branch a persisted session, retaining the original session file. */
+export async function branchSession(id: string, cwd = process.cwd(), title?: string): Promise<SessionData> {
+  const source = await loadSession(id, cwd)
+  if (!source) throw new Error(`Session ${id} not found.`)
+  return createSessionBranch(source, title)
 }
 
 export async function updateSessionTitle(id: string, title: string, cwd = process.cwd()): Promise<void> {

@@ -2,6 +2,9 @@
 // layer stays readable while this file mirrors the TUI command surface 1:1.
 import type { CommandResult } from '../commands/index.js'
 import type { WebAgent } from './bridge.js'
+import { executeBatchCommand } from '../commands/batch/index.js'
+import { BACKGROUND_WORKFLOW_SCRIPT } from '../commands/background/index.js'
+import { REVIEW_PROMPT } from '../commands/review/index.js'
 
 export interface WebCommandContext {
   agent: WebAgent
@@ -263,6 +266,36 @@ export async function runWebCommand(command: CommandResult, context: WebCommandC
     case 'cwd': await runCwd(command, context); return true
     case 'features': await runFeatures(command, context); return true
     case 'verify': await runVerify(context); return true
+    case 'review': await context.run(REVIEW_PROMPT(command.target)); return true
+    case 'batch': {
+      if (!agent.workflows) { respond('Dynamic Workflows are unavailable.'); return true }
+      const result = await executeBatchCommand(command, {
+        workflowManager: agent.workflows,
+        ...(agent.startWorkflow ? { startWorkflow: input => agent.startWorkflow!(input) } : {}),
+      })
+      respond(`Batch ${result.status} (${result.runId}):\n${JSON.stringify(result.result, null, 2)}`)
+      return true
+    }
+    case 'background': {
+      if (!agent.startWorkflow) { respond('Background workflows are unavailable.'); return true }
+      const handle = await agent.startWorkflow({ script: BACKGROUND_WORKFLOW_SCRIPT, name: 'background', args: { prompt: command.prompt } })
+      respond(`Background task started: ${handle.runId}\nMonitor with /workflows.`)
+      return true
+    }
+    case 'add-dir': {
+      if (!agent.listAdditionalDirectories) { respond('Additional directories are unavailable.'); return true }
+      if (command.action === 'list') {
+        const directories = agent.listAdditionalDirectories()
+        respond(directories.length ? `Approved directories:\n${directories.join('\n')}` : 'No additional directories approved.')
+      } else if (command.action === 'remove') {
+        const removed = await agent.removeAdditionalDirectory?.(command.path!) ?? false
+        respond(removed ? `Removed approved directory: ${command.path}` : `Directory was not approved: ${command.path}`)
+      } else {
+        const directory = await agent.addAdditionalDirectory?.(command.path!)
+        respond(directory ? `Approved directory for this session: ${directory}` : 'Additional directories are unavailable.')
+      }
+      return true
+    }
     case 'tasks': respond(agent.formatTasks?.() ?? 'Task tracking is unavailable.'); return true
     case 'task': respond(await agent.controlTask?.(command.id, command.action, 'message' in command ? command.message : undefined) ?? 'Task control is unavailable.'); return true
     case 'context': {

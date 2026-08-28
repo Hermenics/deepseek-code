@@ -34,7 +34,7 @@ import { applyPositionedHighlight, type MatchPosition, scanPositions } from './r
 import createRenderer, { type Renderer } from './renderer.js';
 import { CellWidth, CharPool, cellAt, createScreen, HyperlinkPool, isEmptyCellAt, migrateScreenPools, StylePool } from './screen.js';
 import { applySearchHighlight } from './searchHighlight.js';
-import { applySelectionOverlay, captureScrolledRows, clearSelection, createSelectionState, extendSelection, type FocusMove, findPlainTextUrlAt, getSelectedText, hasSelection, moveFocus, type SelectionState, selectLineAt, selectWordAt, shiftAnchor, shiftSelection, shiftSelectionForFollow, startSelection, updateSelection } from './selection.js';
+import { applySelectionOverlay, captureScrolledRows, clearSelection, createSelectionState, extendSelection, type FocusMove, findPlainTextUrlAt, getSelectedText, hasSelection, moveFocus, type SelectionScrollTarget, type SelectionState, selectLineAt, selectWordAt, shiftAnchor, shiftSelection, shiftSelectionForFollow, startSelection, updateSelection } from './selection.js';
 import { SYNC_OUTPUT_SUPPORTED, supportsExtendedKeys, type Terminal, writeDiffToTerminal } from './terminal.js';
 import { CURSOR_HOME, cursorMove, cursorPosition, DISABLE_KITTY_KEYBOARD, DISABLE_MODIFY_OTHER_KEYS, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS, ERASE_SCREEN } from './termio/csi.js';
 import { DBP, DFE, DISABLE_MOUSE_TRACKING, ENABLE_MOUSE_TRACKING, ENTER_ALT_SCREEN, EXIT_ALT_SCREEN, HIDE_CURSOR, SHOW_CURSOR } from './termio/dec.js';
@@ -57,6 +57,9 @@ const ERASE_THEN_HOME_PATCH = Object.freeze({
   type: 'stdout' as const,
   content: ERASE_SCREEN + CURSOR_HOME
 });
+
+const SELECTION_AUTO_SCROLL_INTERVAL_MS = 16;
+const SELECTION_AUTO_SCROLL_MAX_ROWS = 8;
 
 // Cached per-Ink-instance, invalidated on resize. frame.cursor.y for
 // alt-screen is always terminalRows - 1 (renderer.ts).
@@ -141,6 +144,12 @@ export default class Ink {
   // Fired alongside the terminal repaint whenever the selection mutates
   // so UI (e.g. footer hints) can react to selection appearing/clearing.
   private readonly selectionListeners = new Set<() => void>();
+  // Fullscreen transcript target used while the pointer is outside the
+  // viewport during a text drag. The target is registered by App.tsx and is
+  // intentionally tiny so Ink does not depend on ScrollBox.
+  private selectionScrollTarget: SelectionScrollTarget | null = null;
+  private selectionDragPoint: { col: number; row: number } | null = null;
+  private selectionAutoScrollTimer: ReturnType<typeof setTimeout> | null = null;
   // DOM nodes currently under the pointer (mode-1003 motion). Held here
   // so App.tsx's handleMouseEvent is stateless — dispatchHover diffs
   // against this set and mutates it in place.
@@ -451,67 +460,40 @@ export default class Ink {
     });
     const rendererMs = performance.now() - renderStart;
 
-    // Sticky/auto-follow scrolled the ScrollBox this frame. Translate the
-    // selection by the same delta so the highlight stays anchored to the
-    // TEXT (native terminal behavior — the selection walks up the screen
-    // as content scrolls, eventually clipping at the top). frontFrame
-    // still holds the PREVIOUS frame's screen (swap is at ~500 below), so
-    // captureScrolledRows reads the rows that are about to scroll out
-    // before they're overwritten — the text stays copyable until the
-    // selection scrolls entirely off. During drag, focus tracks the mouse
-    // (screen-local) so only anchor shifts — selection grows toward the
-    // mouse as the anchor walks up. After release, both ends are text-
-    // anchored and move as a block.
+    // Any ScrollBox movement can happen while a selection is active: sticky
+    // follow, wheel scrolling, or edge-autoscroll during a drag. Translate
+    // the selection by the actual movement so the highlight stays anchored
+    // to the TEXT. frontFrame still holds the PREVIOUS frame's screen here,
+    // so captureScrolledRows reads outgoing rows before they are overwritten.
     const follow = consumeFollowScroll();
-    if (follow && this.selection.anchor &&
-    // Only translate if the selection is ON scrollbox content. Selections
-    // in the footer/prompt/StickyPromptHeader are on static text — the
-    // scroll doesn't move what's under them. Without this guard, a
-    // footer selection would be shifted by -delta then clamped to
-    // viewportBottom, teleporting it into the scrollbox. Mirror the
-    // bounds check the deleted check() in ScrollKeybindingHandler had.
-    this.selection.anchor.row >= follow.viewportTop && this.selection.anchor.row <= follow.viewportBottom) {
-      const {
-        delta,
-        viewportTop,
-        viewportBottom
-      } = follow;
-      // captureScrolledRows and shift* are a pair: capture grabs rows about
-      // to scroll off, shift moves the selection endpoint so the same rows
-      // won't intersect again next frame. Capturing without shifting leaves
-      // the endpoint in place, so the SAME viewport rows re-intersect every
-      // frame and scrolledOffAbove grows without bound — getSelectedText
-      // then returns ever-growing text on each re-copy. Keep capture inside
-      // each shift branch so the pairing can't be broken by a new guard.
-      if (this.selection.isDragging) {
-        if (hasSelection(this.selection)) {
-          captureScrolledRows(this.selection, this.frontFrame.screen, viewportTop, viewportTop + delta - 1, 'above');
+    if (follow && follow.delta !== 0 && this.selection.anchor) {
+      const { delta, viewportTop, viewportBottom } = follow;
+      const anchorInViewport = this.selection.anchor.row >= viewportTop && this.selection.anchor.row <= viewportBottom;
+      const focusInViewport = !this.selection.focus || this.selection.focus.row >= viewportTop && this.selection.focus.row <= viewportBottom;
+      // A selection in the footer/prompt is static while the transcript moves.
+      // During a drag, focus is clamped to the moving transcript edge.
+      if (anchorInViewport && (this.selection.isDragging || focusInViewport)) {
+        const viewportHeight = Math.max(0, viewportBottom - viewportTop + 1);
+        const rowsLeaving = Math.min(Math.abs(delta), viewportHeight);
+        const above = delta > 0;
+        const firstLeaving = above ? viewportTop : viewportBottom - rowsLeaving + 1;
+        const lastLeaving = above ? viewportTop + rowsLeaving - 1 : viewportBottom;
+        const side = above ? 'above' as const : 'below' as const;
+        // Capture and shift are a pair: each row is captured once, before the
+        // renderer overwrites it, and the endpoint then moves off that row.
+        if (this.selection.isDragging) {
+          if (hasSelection(this.selection)) {
+            captureScrolledRows(this.selection, this.frontFrame.screen, firstLeaving, lastLeaving, side);
+          }
+          shiftAnchor(this.selection, -delta, viewportTop, viewportBottom);
+        } else if (focusInViewport) {
+          if (hasSelection(this.selection)) {
+            captureScrolledRows(this.selection, this.frontFrame.screen, firstLeaving, lastLeaving, side);
+          }
+          const cleared = shiftSelectionForFollow(this.selection, -delta, viewportTop, viewportBottom);
+          // onRender cannot call notifySelectionChange() recursively.
+          if (cleared) for (const cb of this.selectionListeners) cb();
         }
-        shiftAnchor(this.selection, -delta, viewportTop, viewportBottom);
-      } else if (
-      // Flag-3 guard: the anchor check above only proves ONE endpoint is
-      // on scrollbox content. A drag from row 3 (scrollbox) into the
-      // footer at row 6, then release, leaves focus outside the viewport
-      // — shiftSelectionForFollow would clamp it to viewportBottom,
-      // teleporting the highlight from static footer into the scrollbox.
-      // Symmetric check: require BOTH ends inside to translate. A
-      // straddling selection falls through to NEITHER shift NOR capture:
-      // the footer endpoint pins the selection, text scrolls away under
-      // the highlight, and getSelectedText reads the CURRENT screen
-      // contents — no accumulation. Dragging branch doesn't need this:
-      // shiftAnchor ignores focus, and the anchor DOES shift (so capture
-      // is correct there even when focus is in the footer).
-      !this.selection.focus || this.selection.focus.row >= viewportTop && this.selection.focus.row <= viewportBottom) {
-        if (hasSelection(this.selection)) {
-          captureScrolledRows(this.selection, this.frontFrame.screen, viewportTop, viewportTop + delta - 1, 'above');
-        }
-        const cleared = shiftSelectionForFollow(this.selection, -delta, viewportTop, viewportBottom);
-        // Auto-clear (both ends overshot minRow) must notify React-land
-        // so useHasSelection re-renders and the footer copy/escape hint
-        // disappears. notifySelectionChange() would recurse into onRender;
-        // fire the listeners directly — they schedule a React update for
-        // LATER, they don't re-enter this frame.
-        if (cleared) for (const cb of this.selectionListeners) cb();
       }
     }
 
@@ -892,6 +874,10 @@ export default class Ink {
     if (this.altScreenActive === active) return;
     this.altScreenActive = active;
     this.altScreenMouseTracking = active && mouseTracking;
+    if (!active) {
+      this.selectionDragPoint = null;
+      this.stopSelectionAutoScroll();
+    }
     if (active) {
       this.resetFramesForAltScreen();
     } else {
@@ -961,6 +947,8 @@ export default class Ink {
    */
   detachForShutdown(): void {
     this.isUnmounted = true;
+    this.selectionDragPoint = null;
+    this.stopSelectionAutoScroll();
     // Cancel any pending throttled render so it doesn't fire between
     // cleanupTerminalModes() and process.exit() and write to main screen.
     this.scheduleRender.cancel?.();
@@ -1056,6 +1044,13 @@ export default class Ink {
     return text;
   }
 
+  /** Consume Ctrl+Shift+C only when a fullscreen text selection exists. */
+  copySelectionForInput(): boolean {
+    if (!this.altScreenActive || !hasSelection(this.selection)) return false;
+    this.copySelectionNoClear();
+    return true;
+  }
+
   /**
    * Copy the current text selection to the system clipboard via OSC 52
    * and clear the selection. Returns the copied text (empty if no selection).
@@ -1070,6 +1065,8 @@ export default class Ink {
 
   /** Clear the current text selection without copying. */
   clearTextSelection(): void {
+    this.selectionDragPoint = null;
+    this.stopSelectionAutoScroll();
     if (!hasSelection(this.selection)) return;
     clearSelection(this.selection);
     this.notifySelectionChange();
@@ -1275,8 +1272,53 @@ export default class Ink {
     this.selectionListeners.add(cb);
     return () => this.selectionListeners.delete(cb);
   }
+  /** Register the fullscreen transcript as the target for edge-autoscroll. */
+  setSelectionScrollTarget(target: SelectionScrollTarget | null): () => void {
+    this.selectionScrollTarget = target;
+    if (!target) this.stopSelectionAutoScroll();
+    return () => {
+      if (this.selectionScrollTarget === target) {
+        this.selectionScrollTarget = null;
+        this.stopSelectionAutoScroll();
+      }
+    };
+  }
+  private stopSelectionAutoScroll(): void {
+    if (this.selectionAutoScrollTimer !== null) {
+      clearTimeout(this.selectionAutoScrollTimer);
+      this.selectionAutoScrollTimer = null;
+    }
+  }
+  private scheduleSelectionAutoScroll(): void {
+    if (this.selectionAutoScrollTimer !== null) return;
+    this.selectionAutoScrollTimer = setTimeout(() => {
+      this.selectionAutoScrollTimer = null;
+      this.runSelectionAutoScroll();
+    }, SELECTION_AUTO_SCROLL_INTERVAL_MS);
+  }
+  private runSelectionAutoScroll(): void {
+    const target = this.selectionScrollTarget;
+    const point = this.selectionDragPoint;
+    if (!target || !point || !this.selection.isDragging || !this.altScreenActive) return;
+
+    const top = target.getViewportTop();
+    const bottom = target.getViewportBottom();
+    // A terminal cannot report a mouse row above 0. Treat the first and last
+    // transcript rows as hot edges too; otherwise upward autoscroll is
+    // impossible when the transcript starts at the top of the screen.
+    const direction = point.row <= top ? -1 : point.row >= bottom ? 1 : 0;
+    if (direction === 0) return;
+    const distance = direction < 0 ? top - point.row + 1 : point.row - bottom + 1;
+    const amount = Math.min(SELECTION_AUTO_SCROLL_MAX_ROWS, Math.max(1, Math.ceil(distance / 2)));
+    target.scrollBy(direction * amount);
+    this.scheduleSelectionAutoScroll();
+  }
   private notifySelectionChange(): void {
-    this.onRender();
+    if (!this.selection.isDragging) this.stopSelectionAutoScroll();
+    // Mouse motion can arrive much faster than a terminal frame. Reuse Ink's
+    // existing 16ms render throttle so drag updates coalesce instead of
+    // synchronously rebuilding the whole TUI for every motion event.
+    this.scheduleRender();
     for (const cb of this.selectionListeners) cb();
   }
 
@@ -1387,10 +1429,25 @@ export default class Ink {
   handleSelectionDrag(col: number, row: number): void {
     if (!this.altScreenActive) return;
     const sel = this.selection;
+    this.selectionDragPoint = { col, row };
+    const target = this.selectionScrollTarget;
+    const top = target?.getViewportTop();
+    const bottom = target?.getViewportBottom();
+    // Native terminal selection clamps the active end to the viewport edge
+    // while the viewport follows the pointer. Never include footer/prompt
+    // rows in a transcript selection just because the pointer left the box.
+    const selectionRow = top !== undefined && bottom !== undefined
+      ? Math.max(top, Math.min(bottom, row))
+      : row;
     if (sel.anchorSpan) {
-      extendSelection(sel, this.frontFrame.screen, col, row);
+      extendSelection(sel, this.frontFrame.screen, col, selectionRow);
     } else {
-      updateSelection(sel, col, row);
+      updateSelection(sel, col, selectionRow);
+    }
+    if (top !== undefined && bottom !== undefined && (row <= top || row >= bottom)) {
+      this.scheduleSelectionAutoScroll();
+    } else {
+      this.stopSelectionAutoScroll();
     }
     this.notifySelectionChange();
   }
@@ -1480,7 +1537,7 @@ export default class Ink {
   };
   render(node: ReactNode): void {
     this.currentNode = node;
-    const tree = <App stdin={this.options.stdin} stdout={this.options.stdout} stderr={this.options.stderr} exitOnCtrlC={this.options.exitOnCtrlC} onExit={this.unmount} terminalColumns={this.terminalColumns} terminalRows={this.terminalRows} selection={this.selection} onSelectionChange={this.notifySelectionChange} onClickAt={this.dispatchClick} findPointerDragTarget={this.findPointerDragTarget} onHoverAt={this.dispatchHover} getHyperlinkAt={this.getHyperlinkAt} onOpenHyperlink={this.openHyperlink} onMultiClick={this.handleMultiClick} onSelectionDrag={this.handleSelectionDrag} onStdinResume={this.reassertTerminalModes} onCursorDeclaration={this.setCursorDeclaration} dispatchKeyboardEvent={this.dispatchKeyboardEvent}>
+    const tree = <App stdin={this.options.stdin} stdout={this.options.stdout} stderr={this.options.stderr} exitOnCtrlC={this.options.exitOnCtrlC} onExit={this.unmount} terminalColumns={this.terminalColumns} terminalRows={this.terminalRows} selection={this.selection} onSelectionChange={this.notifySelectionChange} onCopySelection={this.copySelectionForInput} onClickAt={this.dispatchClick} findPointerDragTarget={this.findPointerDragTarget} onHoverAt={this.dispatchHover} getHyperlinkAt={this.getHyperlinkAt} onOpenHyperlink={this.openHyperlink} onMultiClick={this.handleMultiClick} onSelectionDrag={this.handleSelectionDrag} onStdinResume={this.reassertTerminalModes} onCursorDeclaration={this.setCursorDeclaration} dispatchKeyboardEvent={this.dispatchKeyboardEvent}>
         <TerminalWriteProvider value={this.writeRaw}>
           {node}
         </TerminalWriteProvider>
@@ -1496,6 +1553,8 @@ export default class Ink {
       return;
     }
     this.onRender();
+    this.selectionDragPoint = null;
+    this.stopSelectionAutoScroll();
     this.unsubscribeExit();
     if (typeof this.restoreConsole === 'function') {
       this.restoreConsole();

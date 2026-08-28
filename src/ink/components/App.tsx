@@ -48,6 +48,9 @@ type Props = {
   // so the handler is always wired but dormant until tracking is on.
   readonly selection: SelectionState;
   readonly onSelectionChange: () => void;
+  // Copies an active fullscreen selection and returns true when the key was
+  // consumed. No selection means Ctrl+Shift+C keeps its normal path.
+  readonly onCopySelection?: () => boolean;
   // Dispatch a click at (col, row) — hit-tests the DOM tree and bubbles
   // onClick handlers. Returns true if a DOM handler consumed the click.
   // No-op (returns false) outside fullscreen mode (Ink.dispatchClick
@@ -475,6 +478,9 @@ function processKeysInBatch(app: App, items: ParsedInput[], _unused1: undefined,
     // screen buffer. Button bit 0x20 = drag (motion while button held).
     if (item.kind === 'mouse') {
       handleMouseEvent(app, item);
+      continue;
+    }
+    if (item.kind === 'key' && item.name?.toLowerCase() === 'c' && item.ctrl && item.shift && app.props.onCopySelection?.()) {
       continue;
     }
     const sequence = item.sequence;

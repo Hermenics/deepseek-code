@@ -217,4 +217,32 @@ describe('MoA tool and callbacks', () => {
     await expect(executeMoA('q', undefined, config({ maxRetries: 0 }), { onError: error => errors.push(error) })).rejects.toBeInstanceOf(MoAExecutionError)
     expect(errors[0]?.partial.references).toHaveLength(3)
   })
+
+  it('adapts MoA lifecycle callbacks to the existing tool-call visual contract', async () => {
+    const progress: Array<{ name: string; args: Record<string, unknown> }> = []
+    await MoATool.execute({ prompt: 'question' }, undefined, {
+      onToolCall: (name, args) => progress.push({ name, args: args as Record<string, unknown> }),
+    })
+
+    expect(progress.every(item => item.name === 'moa')).toBe(true)
+    expect(progress[0]?.args.stage).toBe('start')
+    expect(progress.filter(item => item.args.stage === 'layer' && item.args.state === 'done')).toHaveLength(2)
+    expect(progress.filter(item => item.args.stage === 'aggregator' && item.args.state === 'done')).toHaveLength(1)
+    expect(progress.at(-1)?.args.stage).toBe('done')
+  })
+
+  it('reports an MoA error through the visual adapter before preserving the rejection', async () => {
+    mockChatCreate.mockImplementation(async () => { throw new Error('offline') })
+    const progress: Array<Record<string, unknown>> = []
+    let toolName: string | undefined
+
+    await expect(MoATool.execute({ prompt: 'question', referenceModels: [{ model: 'offline' }] }, undefined, {
+      onToolCall: (name, args) => {
+        toolName = name
+        progress.push(args as Record<string, unknown>)
+      },
+    })).rejects.toBeInstanceOf(MoAExecutionError)
+    expect(toolName).toBe('moa')
+    expect(progress.at(-1)).toMatchObject({ stage: 'error', code: 'INSUFFICIENT_CANDIDATES' })
+  })
 })

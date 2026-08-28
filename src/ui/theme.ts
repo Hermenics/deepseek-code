@@ -85,7 +85,7 @@ const darkTheme: ThemeColors = {
   userMessageBgHover: '',
   thinkingBg: '#111118',
   bashMessageBg: '',
-  selectionBg: '',
+  selectionBg: '#493e5b',
 
   promptBorder: '#888888',
   promptBorderShimmer: '#aaaaaa',
@@ -138,7 +138,7 @@ const lightTheme: ThemeColors = {
   userMessageBgHover: '',
   thinkingBg: '#f0f0f8',
   bashMessageBg: '',
-  selectionBg: '',
+  selectionBg: '#eeeeee',
 
   promptBorder: '#888888',
   promptBorderShimmer: '#666666',

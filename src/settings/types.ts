@@ -141,6 +141,12 @@ export interface WorkflowsSettings {
   enabled?: boolean
 }
 
+/** User-configurable input bindings. Unknown actions are ignored by the input resolver. */
+export type KeybindingValue = string | readonly string[] | null
+export interface KeybindingsSettings {
+  [action: string]: KeybindingValue
+}
+
 export interface InterfaceSettings {
   theme?: ThemeName
   language?: string
@@ -153,6 +159,7 @@ export interface InterfaceSettings {
   showDiffs?: boolean
   statusBar?: StatusBarItem[]
   narrowPriority?: StatusBarItem[]
+  keybindings?: KeybindingsSettings
 }
 
 export interface DeepSeekSettings {
@@ -175,6 +182,8 @@ export interface DeepSeekSettings {
   hooks?: HooksConfig
   goal?: GoalSettings
   workflows?: WorkflowsSettings
+  /** Compatibility location for integrations that keep keybindings top-level. */
+  keybindings?: KeybindingsSettings
 
   // Legacy settings remain readable for one compatibility cycle.
   theme?: ThemeName | string

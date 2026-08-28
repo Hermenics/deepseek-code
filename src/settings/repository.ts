@@ -53,7 +53,7 @@ export const DEFAULT_SETTINGS: DeepSeekSettings = {
 const KNOWN_TOP_LEVEL = new Set([
   'provider', 'model', 'interaction', 'compaction', 'promptRefiner',
   'permissions', 'risk', 'agents', 'memory', 'sessions', 'git', 'lsp', 'mcp', 'interface',
-  'hooks', 'goal', 'workflows', 'theme', 'language', 'autoCompact', 'autoCompactThreshold',
+  'hooks', 'goal', 'workflows', 'keybindings', 'theme', 'language', 'autoCompact', 'autoCompactThreshold',
 ])
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -271,6 +271,15 @@ function collectOrigins(
 export function validateSettings(settings: DeepSeekSettings, level?: SettingsLevel): ValidationIssue[] {
   const issues: ValidationIssue[] = []
   const add = (path: string, message: string, severity: 'error' | 'warning' = 'error') => issues.push({ path, level, message, severity })
+  const validateKeybindings = (value: unknown, path: string) => {
+    if (!isObject(value)) { add(path, 'Must be an object'); return }
+    for (const [action, binding] of Object.entries(value)) {
+      if (binding === null) continue
+      if (typeof binding === 'string' && binding.trim()) continue
+      if (Array.isArray(binding) && binding.length > 0 && binding.every(item => typeof item === 'string' && item.trim())) continue
+      add(`${path}.${action}`, 'Must be a non-empty key string, a non-empty array of key strings, or null')
+    }
+  }
   const threshold = settings.compaction?.threshold
   if (threshold !== undefined && (typeof threshold !== 'number' || threshold < 0.7 || threshold > 0.95)) add('compaction.threshold', 'Must be between 0.70 and 0.95')
   const concurrency = settings.agents?.concurrency
@@ -349,6 +358,10 @@ export function validateSettings(settings: DeepSeekSettings, level?: SettingsLev
   const mcp = settings.mcp as unknown
   if (mcp !== undefined && !isObject(mcp)) add('mcp', 'Must be an object')
   if (isObject(mcp) && mcp.enabled !== undefined && typeof mcp.enabled !== 'boolean') add('mcp.enabled', 'Must be a boolean')
+  if (settings.keybindings !== undefined) validateKeybindings(settings.keybindings, 'keybindings')
+  if (isObject(settings.interface) && settings.interface.keybindings !== undefined) {
+    validateKeybindings(settings.interface.keybindings, 'interface.keybindings')
+  }
   if (level === 'project') {
     for (const field of ['name', 'endpoint', 'region', 'profile', 'projectId', 'location'] as const) {
       if (settings.provider?.[field] !== undefined) add(`provider.${field}`, `Project provider.${field} is ignored; configure it at User or Local scope`, 'warning')
