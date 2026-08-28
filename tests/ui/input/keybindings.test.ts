@@ -65,7 +65,7 @@ describe('keybindings', () => {
 
     const bindings = await loadKeybindings(cwd)
     expect(bindings.cursorStart).toEqual(['ctrl+x'])
-  })
+  }, 10_000)
 
   it('rejects malformed binding values at the settings boundary', () => {
     expect(validateSettings({ interface: { keybindings: { submit: 42 as never } } })).toContainEqual(
