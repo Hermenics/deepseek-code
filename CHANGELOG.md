@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.26
+
+- Added: Session-scoped multi-root workspace access through explicitly approved additional directories, with canonical-path validation, path-safety checks, persistence, and the `/add-dir` command
+- Added: `/branch`, `/batch`, and `/background` command flows, plus structured `/review` targets for diffs, branches, commits, pull requests, and paths
+- Added: Configurable input keybindings shared across terminal and Web UI input handling
+- Enhanced: MoA supports multi-perspective analysis batching with progress callbacks
+- Enhanced: Ink rendering improves text wrapping, screen management, pointer selection, and drag handling
+- Tests: Add comprehensive coverage for additional directories, new commands, review targets, keybindings, MoA progress, text wrapping, selection, and session branches
+
 ## 0.6.25
 
 - Fixed: After accepting an interactive update, DeepSeek Code automatically relaunches the updated TUI with the original entrypoint, arguments, working directory, environment, and terminal streams preserved
