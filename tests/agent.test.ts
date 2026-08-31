@@ -126,6 +126,7 @@ describe('Agent class', () => {
       const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
       try {
         await agent.readyPromise
+        agent.interactionMode = 'build'
         const buildPrompt = String((agent as any).getApiSystemPrompt())
         const buildContract = buildPrompt.slice(buildPrompt.indexOf('<deepseek-runtime-contract>'))
 
