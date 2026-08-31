@@ -1,5 +1,36 @@
 [
   {
+    "version": "0.6.27",
+    "changes": [
+      "Enhanced: Replace the oversized static operator manual with a compact system core and a per-request runtime contract containing the active mode, supplied tools, allowlist, and current restrictions",
+      "Fixed: Project guidance from AGENTS.md, DEEPSEEK.md, steering files, skills, and memory is delivered as a separate lower-authority context packet and survives session restore and compaction without diluting the system core",
+      "Fixed: Tool schemas are filtered to the active interaction mode and Plan/Review schemas expose only their permitted read-only actions",
+      "Enhanced: Prompt refinement is opt-in by default and preserves the original user request as authoritative context when enabled",
+      "Docs: Keep detailed CLI, tool, workflow, and product reference available through Introspect instead of loading it into every system prompt",
+      "Tests: Add regression coverage for context separation, dynamic runtime contracts, mode-aware tool payloads, compaction, session restoration, and prompt-refinement defaults"
+    ]
+  },
+  {
+    "version": "0.6.26",
+    "changes": [
+      "Added: Session-scoped multi-root workspace access through explicitly approved additional directories, with canonical-path validation, path-safety checks, persistence, and the `/add-dir` command",
+      "Added: `/branch`, `/batch`, and `/background` command flows, plus structured `/review` targets for diffs, branches, commits, pull requests, and paths",
+      "Added: Configurable input keybindings shared across terminal and Web UI input handling",
+      "Enhanced: MoA supports multi-perspective analysis batching with progress callbacks",
+      "Enhanced: Ink rendering improves text wrapping, screen management, pointer selection, and drag handling",
+      "Tests: Add comprehensive coverage for additional directories, new commands, review targets, keybindings, MoA progress, text wrapping, selection, and session branches"
+    ]
+  },
+  {
+    "version": "0.6.25",
+    "changes": [
+      "Fixed: After accepting an interactive update, DeepSeek Code automatically relaunches the updated TUI with the original entrypoint, arguments, working directory, environment, and terminal streams preserved",
+      "Fixed: InputBox no longer renders inline command or history autocomplete ghosts; the slash-command dropdown remains available",
+      "Enhanced: InputBox displays argument placeholders such as `/goal [<condition> | clear]` without inserting them into the input",
+      "Tests: Add regression coverage for update relaunch arguments and display-only input placeholders"
+    ]
+  },
+  {
     "version": "0.6.24",
     "changes": [
       "Added: Workspace trust for project, local and additional agents plus project MCP configuration, bound to canonical paths and exact SHA-256 content hashes",

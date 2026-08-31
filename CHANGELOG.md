@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.27
+
+- Enhanced: Replace the oversized static operator manual with a compact system core and a per-request runtime contract containing the active mode, supplied tools, allowlist, and current restrictions
+- Fixed: Project guidance from AGENTS.md, DEEPSEEK.md, steering files, skills, and memory is delivered as a separate lower-authority context packet and survives session restore and compaction without diluting the system core
+- Fixed: Tool schemas are filtered to the active interaction mode and Plan/Review schemas expose only their permitted read-only actions
+- Enhanced: Prompt refinement is opt-in by default and preserves the original user request as authoritative context when enabled
+- Docs: Keep detailed CLI, tool, workflow, and product reference available through Introspect instead of loading it into every system prompt
+- Tests: Add regression coverage for context separation, dynamic runtime contracts, mode-aware tool payloads, compaction, session restoration, and prompt-refinement defaults
+
 ## 0.6.26
 
 - Added: Session-scoped multi-root workspace access through explicitly approved additional directories, with canonical-path validation, path-safety checks, persistence, and the `/add-dir` command
