@@ -303,7 +303,7 @@ function Root() {
   const [resumeNotFound, setResumeNotFound] = useState(false)
   const [resumeChoices, setResumeChoices] = useState<SessionData[] | null>(null)
   const [savedLanguage, setSavedLanguage] = useState<string | null>(null)
-  const [savedEnchant, setSavedEnchant] = useState<boolean>(true)
+  const [savedEnchant, setSavedEnchant] = useState<boolean>(false)
   const [initialSettings, setInitialSettings] = useState<DeepSeekSettings>({})
   const [alternateScreen, setAlternateScreen] = useState(false)
 

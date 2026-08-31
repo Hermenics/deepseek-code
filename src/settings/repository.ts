@@ -18,7 +18,7 @@ export const DEFAULT_SETTINGS: DeepSeekSettings = {
   provider: { name: 'deepseek', timeoutMs: 30_000 },
   interaction: { defaultMode: 'build' },
   compaction: { enabled: true, threshold: 0.9 },
-  promptRefiner: { enabled: true, minimumLength: 30, excludeTypes: ['command'] },
+  promptRefiner: { enabled: false, minimumLength: 30, excludeTypes: ['command'] },
   permissions: { autoApproveLowRisk: false },
   risk: { enabled: true, thresholds: { largeFileLines: 100, burstCount: 3 } },
   agents: { concurrency: 5, permissionPolicy: 'inherit', disabledBuiltins: [] },

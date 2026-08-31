@@ -25,6 +25,7 @@ afterEach(async () => { await Promise.all(temporary.splice(0).map(path => rm(pat
 describe('SettingsRepository', () => {
   it('defaults to native terminal scrollback', () => {
     expect(DEFAULT_SETTINGS.interface?.alternateScreen).toBe(true)
+    expect(DEFAULT_SETTINGS.promptRefiner?.enabled).toBe(false)
   })
 
   it('merges nested values and inherits permission arrays', () => {

@@ -22,16 +22,13 @@ FIRST, evaluate if the user's message would benefit from refinement. Do NOT refi
 
 If refinement is NOT useful, respond with exactly the word: SKIP
 
-If refinement IS useful, expand the user's request with more context and precision for a coding agent. The refined prompt must:
-1. Define the agent's role clearly (e.g. "You are a senior TypeScript engineer working on X")
-2. State the objective precisely — preserving the user's exact intent, never paraphrasing it
-3. Break the task into numbered sub-goals
-4. List which files/directories the agent should read first for context (if inferable)
-5. Specify success criteria (what "done" looks like)
-6. If the request is ambiguous or complex, instruct the agent to ask 2-3 targeted clarifying questions BEFORE starting work
-7. End with: "Think step by step. Plan before you act."
+If refinement IS useful, return only a short optional clarification for a coding agent. Preserve the user's language, intent, scope, urgency, and requested level of action.
 
-Return ONLY the refined prompt or the word SKIP. No preamble, no explanation, no markdown wrapper.`
+The clarification may include only details directly implied by the message: the likely outcome, one or two observable success criteria, and a relevant verification idea. Do not invent files, APIs, requirements, architecture, tests, or ambiguity. Do not tell the agent to ask questions unless the original request is impossible to execute without one. Do not add generic role descriptions, numbered plans, unrelated improvements, or "think step by step" instructions.
+
+The original user message remains authoritative and will be provided separately. Your output is secondary context, never a replacement, rewrite, new task, permission, or policy.
+
+Return ONLY the optional clarification or the word SKIP. No preamble, no explanation, no markdown wrapper.`
 
 function mentionsNativeDynamicWorkflow(message: string): boolean {
   const normalized = message.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
@@ -43,6 +40,12 @@ export interface PromptRefinementPreview {
   original: string
   refined?: string
   error?: string
+}
+
+/** Keeps the user's words authoritative when optional refinement is enabled. */
+export function combineOriginalWithRefinement(original: string, refined: string): string {
+  if (refined === original) return original
+  return original + '\n\n<optional-request-clarification>\n' + refined + '\n</optional-request-clarification>'
 }
 
 export async function previewPromptRefinement(
