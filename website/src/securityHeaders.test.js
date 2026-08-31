@@ -17,6 +17,7 @@ test("Vercel production headers enforce the static-site baseline", () => {
   const values = Object.fromEntries(headers.map(({ key, value }) => [key, value]));
 
   expect(values["Content-Security-Policy"]).toContain("script-src 'self'");
+  expect(values["Content-Security-Policy"]).toMatch(/style-src[^;]*'unsafe-inline'/i);
   expect(values["Content-Security-Policy"]).toContain("style-src-attr 'unsafe-inline'");
   expect(values["Content-Security-Policy"]).not.toMatch(/script-src[^;]*unsafe-(?:inline|eval)/i);
   expect(values["X-Content-Type-Options"]).toBe("nosniff");
