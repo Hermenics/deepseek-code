@@ -73,7 +73,7 @@ export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfi
       enchant: settings.promptRefiner?.enabled ?? cfg.ENCHANT !== 'false',
     }
   } catch {
-    return { providerConfig: null, theme: 'dark', language: null, enchant: true }
+    return { providerConfig: null, theme: 'dark', language: null, enchant: false }
   }
 }
 

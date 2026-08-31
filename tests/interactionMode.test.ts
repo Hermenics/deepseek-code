@@ -29,7 +29,7 @@ function documentedTools(content: string, mode: RestrictedMode): string[] {
   const label = `${mode[0]!.toUpperCase()}${mode.slice(1)}`
   const row = content.match(new RegExp(`^\\| ${label} \\| (.+) \\|$`, 'm'))?.[1]
   if (!row) throw new Error(`Missing ${label} tool-permissions row`)
-  return [...row.matchAll(/`([^`]+)`/g)].map((match) => match[1]!)
+  return row.split(',').map((tool) => tool.trim().replaceAll('`', '')).filter(Boolean)
 }
 
 describe('interactionMode', () => {
@@ -307,7 +307,6 @@ describe('interactionMode', () => {
       for (const [mode, expected] of Object.entries(DOCUMENTED_MODE_TOOLS) as Array<[RestrictedMode, string[]]>) {
         const sorted = [...expected].sort()
         expect(getToolsForMode(mode).sort()).toEqual(sorted)
-        expect(documentedTools(systemPrompt, mode).sort()).toEqual(sorted)
         expect(documentedTools(docs, mode).sort()).toEqual(sorted)
       }
 
@@ -315,12 +314,13 @@ describe('interactionMode', () => {
       expect(nativeTools).toHaveLength(25)
       expect(getToolsForMode('auto').sort()).toEqual(nativeTools)
       expect(nativeTools.every((tool) => canUseTool('auto', tool))).toBe(true)
-      for (const tool of nativeTools) {
-        expect(systemPrompt).toContain(`\`${tool}\``)
-        expect(docs).toContain(`\`${tool}\``)
-      }
       expect(nativeTools.filter((tool) => !Object.values(DOCUMENTED_MODE_TOOLS).flat().includes(tool))).toEqual(['create_goal'])
-      expect(systemPrompt).toContain('| Auto | All 25 registered native tools and dynamically discovered MCP tools |')
+      expect(systemPrompt).toContain('The runtime may append a dynamic runtime contract')
+      expect(systemPrompt).toContain('The live tool schemas supplied with the current request are the only source of truth')
+      expect(systemPrompt.split('\n').length).toBeGreaterThanOrEqual(250)
+      expect(systemPrompt.split('\n').length).toBeLessThanOrEqual(500)
+      expect(systemPrompt).not.toContain('## 17. Tool: write_file')
+      expect(systemPrompt).not.toContain('## 45. CLI command reference')
       expect(docs).toContain('| Auto | All 25 native tools and dynamically discovered MCP tools |')
     })
   })

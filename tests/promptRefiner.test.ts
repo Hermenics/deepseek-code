@@ -1,7 +1,16 @@
 import { describe, expect, it } from 'bun:test'
-import { previewPromptRefinement } from '../src/agent/promptRefiner.js'
+import { combineOriginalWithRefinement, previewPromptRefinement } from '../src/agent/promptRefiner.js'
 
 describe('prompt refiner errors', () => {
+  it('keeps the original request and marks the generated text as optional context', () => {
+    const original = 'Corrija o bug do parser sem alterar a API pública.'
+    const refined = combineOriginalWithRefinement(original, 'Inspect the parser and add a regression test.')
+
+    expect(refined.startsWith(original)).toBe(true)
+    expect(refined).toContain('<optional-request-clarification>')
+    expect(refined).toContain('Inspect the parser')
+  })
+
   it('keeps the original prompt for non-Error rejection values', async () => {
     const client = { chat: { completions: { create: () => Promise.reject(null) } } } as never
     const original = 'A sufficiently long prompt that reaches the refiner'

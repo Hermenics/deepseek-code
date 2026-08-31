@@ -3,7 +3,7 @@ import { Agent } from '../src/agent/agent.js'
 import type { AgentCallbacks, ToolPermissionResult } from '../src/agent/agent.js'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 
 const TEST_HISTORY_PATH = join(tmpdir(), `deepseek-code-agent-history-${process.pid}.json`)
 const ORIGINAL_HISTORY_PATH = process.env.DEEPSEEK_HISTORY_PATH
@@ -74,6 +74,106 @@ describe('Agent class', () => {
     it('should accept provider config', () => {
       const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
       expect(agent.provider).toBe('deepseek')
+    })
+
+    it('keeps prompt refinement opt-in', async () => {
+      const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
+      await agent.readyPromise
+      expect(agent.promptRefinerEnabled).toBe(false)
+    })
+  })
+
+  describe('prompt context and tool payload', () => {
+    it('keeps project guidance out of the core system message', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'deepseek-agent-context-'))
+      await writeFile(join(root, 'AGENTS.md'), 'PROJECT_CONTEXT_SENTINEL', 'utf8')
+      const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' }, { projectRoot: root })
+
+      try {
+        await agent.readyPromise
+        const messages = agent.getMessages()
+        expect(String(messages[0]?.content)).not.toContain('PROJECT_CONTEXT_SENTINEL')
+        expect(messages.some((message) => String(message.content).includes('PROJECT_CONTEXT_SENTINEL'))).toBe(true)
+
+        agent.clearHistory()
+        expect(agent.getMessages().some((message) => String(message.content).includes('PROJECT_CONTEXT_SENTINEL'))).toBe(true)
+      } finally {
+        await agent.shutdown()
+        await rm(root, { recursive: true, force: true })
+      }
+    })
+
+    it('sends only mode-available tools with read-only action schemas', async () => {
+      const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
+      try {
+        await agent.readyPromise
+        agent.interactionMode = 'plan'
+        const tools = (agent as any).getAvailableOpenAITools() as Array<{ function: { name: string; parameters: any } }>
+        const names = tools.map((tool) => tool.function.name)
+        const git = tools.find((tool) => tool.function.name === 'git')
+        const todo = tools.find((tool) => tool.function.name === 'todo')
+
+        expect(names).not.toContain('shell')
+        expect(names).not.toContain('write_file')
+        expect(git?.function.parameters.properties.action.enum).toEqual(['status', 'diff', 'log'])
+        expect(todo?.function.parameters.properties.action.enum).toEqual(['list'])
+      } finally {
+        await agent.shutdown()
+      }
+    })
+
+    it('injects the live mode and tool inventory into the API system prompt', async () => {
+      const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
+      try {
+        await agent.readyPromise
+        const buildPrompt = String((agent as any).getApiSystemPrompt())
+        const buildContract = buildPrompt.slice(buildPrompt.indexOf('<deepseek-runtime-contract>'))
+
+        expect(buildContract).toContain('Current interaction mode: build.')
+        expect(buildContract).toContain('"shell"')
+        expect(buildContract).toContain('"write_file"')
+        expect(buildContract).toContain('live schema')
+
+        agent.interactionMode = 'plan'
+        const planPrompt = String((agent as any).getApiSystemPrompt())
+        const planContract = planPrompt.slice(planPrompt.indexOf('<deepseek-runtime-contract>'))
+        expect(planContract).toContain('Current interaction mode: plan.')
+        expect(planContract).toContain('"write_plan"')
+        expect(planContract).not.toContain('"shell"')
+        expect(planContract).not.toContain('"write_file"')
+      } finally {
+        await agent.shutdown()
+      }
+    })
+
+    it('keeps project context available after compaction', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'deepseek-agent-compact-'))
+      await writeFile(join(root, 'AGENTS.md'), 'COMPACT_CONTEXT_SENTINEL', 'utf8')
+      const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' }, { projectRoot: root })
+
+      try {
+        await agent.readyPromise
+        const system = agent.getMessages()[0]
+        agent.loadSessionMessages([
+          { role: 'system', content: String(system?.content ?? '') },
+          { role: 'user', content: 'task to summarize' },
+        ])
+        injectMockClient(agent, {
+          chat: {
+            completions: {
+              create: async () => ({ choices: [{ message: { content: 'compact summary' } }] }),
+            },
+          },
+        })
+
+        await agent.compact()
+        const raw = agent.getRawMessages()
+        const boundary = raw.findIndex((message) => message.role === '__compact_boundary__')
+        expect(String((raw[boundary + 1] as any)?.content)).toContain('COMPACT_CONTEXT_SENTINEL')
+      } finally {
+        await agent.shutdown()
+        await rm(root, { recursive: true, force: true })
+      }
     })
   })
 
@@ -299,7 +399,10 @@ describe('Agent class', () => {
         { role: 'system', content: 'system' },
         { role: 'user', content: 'main task' },
       ])
-      expect((create.mock.calls[0]?.[0] as any)).toMatchObject({ tool_choice: 'none', stream: false })
+      const request = create.mock.calls[0]?.[0] as any
+      expect(request).toMatchObject({ stream: false })
+      expect(request).not.toHaveProperty('tools')
+      expect(request).not.toHaveProperty('tool_choice')
     })
 
     it('omits an unfinished tool exchange from the side-question snapshot', async () => {

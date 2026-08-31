@@ -13,6 +13,10 @@ function systemMessage(agent: Agent): string {
   return String(agent.getMessages()[0]?.content ?? '')
 }
 
+function conversationContent(agent: Agent): string {
+  return agent.getMessages().map(message => String(message.content ?? '')).join('\n')
+}
+
 async function waitFor(predicate: () => boolean): Promise<void> {
   const deadline = Date.now() + 500
   while (!predicate()) {
@@ -162,14 +166,15 @@ describe('orchestrator snapshots', () => {
     const agent = new Agent({ provider: 'local', localModel: 'fake' }, { projectRoot: firstRoot, snapshotFile: null, logFile: null })
     try {
       await agent.readyPromise
-      expect(systemMessage(agent)).toContain('FIRST_ROOT_ONLY')
+      expect(systemMessage(agent)).not.toContain('FIRST_ROOT_ONLY')
+      expect(conversationContent(agent)).toContain('FIRST_ROOT_ONLY')
       await agent.applyAgentConfig({ name: 'root-agent', systemPrompt: 'FIRST_AGENT_PROMPT', files: ['context.md'] })
       expect(systemMessage(agent)).toContain('FIRST_CONTEXT')
       await agent.setWorkingDirectory(secondRoot)
-      expect(systemMessage(agent)).not.toContain('SECOND_AGENT_PROMPT')
-      expect(systemMessage(agent)).not.toContain('SECOND_CONTEXT')
-      expect(systemMessage(agent)).not.toContain('FIRST_ROOT_ONLY')
-      expect(systemMessage(agent)).not.toContain('FIRST_CONTEXT')
+      expect(conversationContent(agent)).not.toContain('SECOND_AGENT_PROMPT')
+      expect(conversationContent(agent)).not.toContain('SECOND_CONTEXT')
+      expect(conversationContent(agent)).not.toContain('FIRST_ROOT_ONLY')
+      expect(conversationContent(agent)).not.toContain('FIRST_CONTEXT')
     } finally {
       await agent.shutdown()
     }
