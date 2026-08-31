@@ -1,0 +1,43 @@
+name: Issue triage
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+
+permissions:
+  issues: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply labels
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const issue = context.payload.issue;
+            const text = `${issue.title}\n${issue.body ?? ''}`.toLowerCase();
+            const labels = new Set();
+
+            if (/(bug|erro|error|falha|falhou|corrig|crash|quebr|não funciona|nao funciona|broken|wrong)/.test(text)) {
+              labels.add('bug');
+            } else if (/(feature|enhancement|adicionar|adicione|suporte|melhorar|melhoria|request|ideia)/.test(text)) {
+              labels.add('enhancement');
+            } else if (/(doc|documenta|readme|changelog)/.test(text)) {
+              labels.add('documentation');
+            }
+
+            if (/(tui|terminal|cli|ink|renderiza|preview|teclado|input)/.test(text)) labels.add('tui');
+            if (/(web|browser|gui|navegador)/.test(text)) labels.add('web');
+            if (/(github action|github-actions|workflow|ci|label|topic)/.test(text)) labels.add('ci');
+            if (/(seguran|security|credential|credencial|secret|token)/.test(text)) labels.add('security');
+
+            if (labels.size === 0) labels.add('needs-triage');
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              labels: [...labels],
+            });
