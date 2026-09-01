@@ -84,4 +84,16 @@ describe('appendInputHistory', () => {
     const history = await loadInputHistory()
     expect(history).toContain('explica esse código')
   })
+
+  it('aprende estatísticas simples do estilo do usuário', async () => {
+    const { appendInputHistory, loadWritingStyle, describeWritingStyle } = await import('../src/agent/inputHistory.js')
+    await appendInputHistory('sim, faca isso.')
+    const style = await loadWritingStyle()
+    expect(style.samples).toBe(1)
+    expect(style.lowercase).toBe(1)
+    expect(style.noAccents).toBe(1)
+    expect(style.comma).toBe(1)
+    expect(style.period).toBe(1)
+    expect(describeWritingStyle(style)).toContain('minúsculas')
+  })
 })

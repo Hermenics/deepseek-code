@@ -27,7 +27,7 @@ import MobileQRCode from './MobileQRCode.js'
 import { resolveCommand, HELP_TEXT, REVIEW_PROMPT } from '../commands.js'
 import { FEATURES, loadFeatures, saveFeatures, type FeatureName } from '../features.js'
 import { approveAgent, loadAgentConfig, listAgents, type LoadedAgent } from '../agent/config.js'
-import { appendInputHistory } from '../agent/inputHistory.js'
+import { appendInputHistory, describeWritingStyle, loadWritingStyle } from '../agent/inputHistory.js'
 import type { ThemeName, ProviderConfig } from '../types/provider.js'
 import type { DeepSeekSettings, InterfaceSettings } from '../settings/types.js'
 import { formatChatError } from '../utils/chatError.js'
@@ -212,6 +212,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [planApprovalState, setPlanApprovalState] = useState<PlanApprovalState | null>(null)
   const [vimEnabled, setVimEnabled] = useState(initialSettings?.interface?.vim ?? false)
   const [interfaceSettings, setInterfaceSettings] = useState<InterfaceSettings>(initialSettings?.interface ?? {})
+  const [suggestedReply, setSuggestedReply] = useState<string>()
+  const suggestedReplyGenerationRef = useRef(0)
   const [featureFlags, setFeatureFlags] = useState(() => loadFeatures())
   const [compactBadge, setCompactBadge] = useState<{ type: 'micro' | 'full'; triggeredAt: number } | null>(null)
   const [diffDialog, setDiffDialog] = useState<{ path: string; lines: DiffLine[] } | null>(null)
@@ -716,6 +718,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [planApprovalState, agent])
 
   const runAgent = useCallback(async (prompt: string) => {
+    const suggestionGeneration = ++suggestedReplyGenerationRef.current
+    setSuggestedReply(undefined)
     turnStartedAtRef.current = Date.now()
     subagentsRef.current.clearResolved()
     setSubagentTick((tick) => tick + 1)
@@ -872,6 +876,24 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             setThinkingText('')
           }
           setIsLoading(false)
+          setSuggestedReply(undefined)
+          if (loadFeatures().ghostReplies) {
+            const assistantMessage = pending
+              ? processStreamedText(pending).content.trim()
+              : ''
+            if (assistantMessage) {
+              void loadWritingStyle().then(style => agent.askBtw(
+                `A última mensagem do assistente foi:\n${assistantMessage}\n\n` +
+                `Sugira uma única resposta curta que o usuário poderia enviar agora. ` +
+                `Responda somente com essa mensagem, sem aspas, markdown ou explicação. ` +
+                `Se não houver uma próxima ação natural, responda apenas EMPTY. ` +
+                `Estilo do usuário: ${describeWritingStyle(style)}`,
+              )).then(reply => {
+                const clean = reply.trim()
+                if (clean && clean !== 'EMPTY' && !clean.startsWith('!') && !clean.startsWith('/') && suggestedReplyGenerationRef.current === suggestionGeneration) setSuggestedReply(clean)
+              }).catch(() => {})
+            }
+          }
           setAgentPhase('idle')
           setTokenCount(agent.tokenCount)
           setSubagentTick((t) => t + 1)
@@ -2298,6 +2320,11 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             onExit={onExit}
             placeholderOverride={focusedSubagent ? `Message @${focusedSubagent.agentName ?? 'subagent'}…` : undefined}
             keybindings={interfaceSettings.keybindings ?? initialSettings?.keybindings}
+            suggestedReply={suggestedReply}
+            onSuggestedReplyDismiss={() => {
+              suggestedReplyGenerationRef.current++
+              setSuggestedReply(undefined)
+            }}
           />
         )}
         <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} theme={theme} items={interfaceSettings.statusBar} narrowPriority={interfaceSettings.narrowPriority} compactBadge={compactBadge} activityCount={activityCount} />

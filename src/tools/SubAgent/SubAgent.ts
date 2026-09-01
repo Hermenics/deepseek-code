@@ -340,6 +340,14 @@ async function spawnAgentTask(
           model: modelName,
         })
       } catch {}
+      try {
+        await runClaudeHookEvent(settings.hooks, 'TeammateIdle', session.sessionId, {
+          cwd: lease.workspace.path,
+          model: modelName,
+          teammate_name: agentName ?? 'generic',
+          task_id: runContext.taskId,
+        })
+      } catch {}
     }
   })
 

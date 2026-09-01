@@ -18,6 +18,11 @@ export const FEATURES = {
     description: 'Use fuzzy matching when searching for files',
     default: true,
   },
+  ghostReplies: {
+    label: 'Suggested Replies',
+    description: 'Suggest a reply to the assistant\'s latest question',
+    default: true,
+  },
 } as const
 
 export type FeatureName = keyof typeof FEATURES

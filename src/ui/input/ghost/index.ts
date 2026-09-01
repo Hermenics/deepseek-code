@@ -16,3 +16,9 @@ export function computeGhostText(value: string, cursorOffset: number): InlineGho
 
   return getArgumentHint(value)
 }
+
+export function getSuggestedReplyGhost(value: string, suggestion: string | undefined): InlineGhostText | null {
+  if (value.length > 0 || !suggestion?.trim()) return null
+  const text = suggestion.trim()
+  return { text, fullCommand: text, insertPosition: 0 }
+}

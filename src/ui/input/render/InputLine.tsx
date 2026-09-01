@@ -61,7 +61,7 @@ export function InputLine({
       <>
         {prefix && <Text color={prefixColor}>{prefix}</Text>}
         <Text color="white" backgroundColor="white">{' '}</Text>
-        <Text color="#888888">{placeholder}</Text>
+        <Text color={ghostText ? '#555555' : '#888888'}>{ghostText ?? placeholder}</Text>
       </>
     )
   }
