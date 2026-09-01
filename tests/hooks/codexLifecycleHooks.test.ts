@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
 import {
+  runClaudeHookEvent,
   runPermissionRequestHooks,
   runPostCompactHooks,
   runPreCompactHooks,
   runStopHooks,
   runSubagentStartHooks,
   runSubagentStopHooks,
+  runUserPromptExpansionHooks,
   runUserPromptSubmitHooks,
 } from '../../src/hooks/lifecycle.js'
 import { hookAuditLog } from '../../src/hooks/executor.js'
@@ -25,6 +27,14 @@ describe('Codex lifecycle hooks', () => {
 
     expect(result).toEqual({ decision: 'pass', additionalContext: 'branch: main', approved: false })
     expect(hookAuditLog.at(-1)?.event).toBe('UserPromptSubmit')
+  })
+
+  it('allows UserPromptExpansion to rewrite the prompt', async () => {
+    const result = await runUserPromptExpansionHooks({
+      UserPromptExpansion: [{ matcher: 'prompt', hooks: [command('{"hookSpecificOutput":{"updatedInput":{"prompt":"expanded"}}}')] }],
+    }, sessionId, 'original')
+    expect(result.updatedInput).toEqual({ prompt: 'expanded' })
+    expect(hookAuditLog.at(-1)?.event).toBe('UserPromptExpansion')
   })
 
   it('lets PermissionRequest hooks allow or deny a pending tool permission', async () => {
@@ -74,5 +84,19 @@ describe('Codex lifecycle hooks', () => {
     await runSubagentStartHooks(config, sessionId, 'agent-1', 'reviewer')
     await runSubagentStopHooks(config, sessionId, 'agent-1', 'reviewer', 'done')
     expect(hookAuditLog.map(run => run.event)).toEqual(['SubagentStart', 'SubagentStop'])
+  })
+
+  it('runs command-only lifecycle events through the shared dispatcher', async () => {
+    await runClaudeHookEvent({
+      TeammateIdle: [command('idle')],
+      ConfigChange: [{ matcher: 'settings', hooks: [command('changed')] }],
+      DirectoryAdded: [{ matcher: '/tmp', hooks: [command('directory')] }],
+    }, 'TeammateIdle', sessionId, { cwd: '/tmp', teammate_name: 'worker' })
+    await runClaudeHookEvent({
+      TeammateIdle: [command('idle')],
+      ConfigChange: [{ matcher: 'settings', hooks: [command('changed')] }],
+      DirectoryAdded: [{ matcher: '/tmp', hooks: [command('directory')] }],
+    }, 'ConfigChange', sessionId, { cwd: '/tmp' }, 'settings')
+    expect(hookAuditLog.map(run => run.event)).toEqual(['TeammateIdle', 'ConfigChange'])
   })
 })

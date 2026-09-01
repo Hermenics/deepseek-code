@@ -141,6 +141,19 @@ export async function runUserPromptSubmitHooks(
   return foldControl(outputs)
 }
 
+/** Run hooks after command/prompt expansion, allowing a prompt rewrite. */
+export async function runUserPromptExpansionHooks(
+  config: HooksConfig | undefined,
+  sessionId: string,
+  prompt: string,
+  extras: Omit<HookInputExtras, 'prompt'> = {},
+): Promise<HookControlResult> {
+  if (!config?.UserPromptExpansion?.length) return { decision: 'pass' }
+  return foldControl(await runMatcherCommands('UserPromptExpansion', config.UserPromptExpansion, 'prompt', sessionId, {
+    ...extras, prompt,
+  }))
+}
+
 export async function runSessionStartHooks(
   config: HooksConfig | undefined,
   sessionId: string,

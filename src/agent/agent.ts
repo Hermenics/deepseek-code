@@ -48,6 +48,7 @@ import {
   runSessionEndHooks,
   runSessionStartHooks,
   runStopHooks,
+  runUserPromptExpansionHooks,
   runUserPromptSubmitHooks,
 } from '../hooks/index.js'
 import type { HooksConfig } from '../hooks/types.js'
@@ -768,6 +769,9 @@ export class Agent {
     await this.readyPromise
     const canonical = await this.additionalDirectories.add(directoryPath)
     this.sessionApprovedDirectories.add(canonical)
+    if (this.settings.hooks) void runClaudeHookEvent(this.settings.hooks as HooksConfig, 'DirectoryAdded', this.hookSessionId, {
+      cwd: this.workspacePath, path: canonical, name: canonical,
+    }, canonical).catch(() => {})
     return canonical
   }
 
@@ -901,6 +905,9 @@ export class Agent {
     await this.orchestrator.memory.configure(settings.memory ?? {}, this.orchestrator.projectRoot)
     const subagentModel = settings.agents?.subagentModel ?? this.model
     this.orchestrator.configure({ model: subagentModel })
+    if (settings.hooks) void runClaudeHookEvent(settings.hooks as HooksConfig, 'ConfigChange', this.hookSessionId, {
+      cwd: this.workspacePath, name: 'settings', message: 'Settings applied',
+    }, 'settings').catch(() => {})
   }
 
   // ── Available models (dynamic) ──────────────────────────────────────────────
@@ -1487,6 +1494,16 @@ export class Agent {
       cb.onPhaseChange?.('refining')
       const refinedMessage = await refinePrompt(this.client, this.settings.promptRefiner?.model ?? this.model, originalUserMessage)
       effectiveMessage = combineOriginalWithRefinement(originalUserMessage, refinedMessage)
+    }
+
+    if (this.settings.hooks) {
+      const expansionHook = await runUserPromptExpansionHooks(this.settings.hooks as HooksConfig, this.hookSessionId, effectiveMessage, {
+        cwd: this.workspacePath, model: this.model,
+      })
+      if (expansionHook.decision === 'block') throw new Error(expansionHook.reason ?? 'Prompt blocked by UserPromptExpansion hook')
+      const updatedPrompt = expansionHook.updatedInput?.prompt
+      if (typeof updatedPrompt === 'string') effectiveMessage = updatedPrompt
+      if (expansionHook.additionalContext) effectiveMessage += `\n\n[Hook context]\n${expansionHook.additionalContext}`
     }
 
     // Inject asynchronous agent responses into the next foreground turn.

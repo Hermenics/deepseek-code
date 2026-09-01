@@ -12,7 +12,7 @@ import { useDoublePress } from './hooks/useDoublePress.js'
 import { usePasteHandler } from './hooks/usePasteHandler.js'
 import { InputHistory } from './hooks/useInputHistory.js'
 import { getMatches } from './commandMatches.js'
-import { computeGhostText } from './ghost/index.js'
+import { computeGhostText, getSuggestedReplyGhost } from './ghost/index.js'
 import { COMMAND_DESCRIPTIONS } from '../../commands.js'
 import { getWorkflowCommandDescriptions } from '../../workflows/commands.js'
 import { getCustomCommandDescriptions } from '../../commands/custom.js'
@@ -89,6 +89,8 @@ export function InputBox({
   placeholderOverride,
   showFullscreenHint = false,
   keybindings,
+  suggestedReply,
+  onSuggestedReplyDismiss,
 }: {
   onSubmit: (text: string) => void
   isLoading: boolean
@@ -114,6 +116,8 @@ export function InputBox({
   showFullscreenHint?: boolean
   /** Optional resolved settings; omitted values retain the built-in defaults. */
   keybindings?: KeybindingsSettings
+  suggestedReply?: string
+  onSuggestedReplyDismiss?: () => void
 }) {
   const cols = process.stdout.columns ?? 80
   const [cursor, setCursor] = useState(() => Cursor.fromText('', cols))
@@ -137,6 +141,7 @@ export function InputBox({
     setFileMatches([])
     setFileSelectedIdx(0)
     if (next.text.length > 0) setFullscreenHintVisible(false)
+    if (next.text.length > 0) onSuggestedReplyDismiss?.()
     setCursor(next)
   }
 
@@ -216,7 +221,7 @@ export function InputBox({
   const matches = getMatches(cursor.text)
   const showDropdown = matches.length > 0
   const showFileDropdown = fileMatches.length > 0 && !showDropdown
-  const ghost = computeGhostText(cursor.text, cursor.offset)
+  const ghost = getSuggestedReplyGhost(cursor.text, suggestedReply) ?? computeGhostText(cursor.text, cursor.offset)
   const resolvedKeybindings = resolveKeybindings(keybindings)
 
   const submitOrQueueWhileLoading = (value: string) => {
@@ -295,6 +300,15 @@ export function InputBox({
           ? (i - 1 + fileMatches.length) % fileMatches.length
           : (i + 1) % fileMatches.length,
       )
+      return
+    }
+
+    if (suggestedReply && cursor.text.length === 0 && action === 'acceptCompletion') {
+      onSubmit(suggestedReply)
+      onSuggestedReplyDismiss?.()
+      updateCursor(Cursor.fromText('', cols))
+      setPastedTexts([])
+      historyRef.current.reset()
       return
     }
 

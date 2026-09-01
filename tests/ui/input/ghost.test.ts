@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { computeGhostText } from '../../../src/ui/input/ghost/index.js'
+import { computeGhostText, getSuggestedReplyGhost } from '../../../src/ui/input/ghost/index.js'
 import { getArgumentHint } from '../../../src/ui/input/ghost/argumentHints.js'
 import { getMatches } from '../../../src/ui/input/commandMatches.js'
 
@@ -36,5 +36,12 @@ describe('input ghost text', () => {
 
   it('does not hint while the cursor is inside the input', () => {
     expect(computeGhostText('/goal', 3)).toBeNull()
+  })
+
+  it('shows a complete suggested reply only for an empty input', () => {
+    expect(getSuggestedReplyGhost('', 'sim, pode commitar.')).toMatchObject({
+      text: 'sim, pode commitar.', fullCommand: 'sim, pode commitar.', insertPosition: 0,
+    })
+    expect(getSuggestedReplyGhost('não', 'sim, pode commitar.')).toBeNull()
   })
 })

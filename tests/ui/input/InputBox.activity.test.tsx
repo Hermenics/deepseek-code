@@ -90,3 +90,36 @@ test('hides the fullscreen hint after the first input character', async () => {
     instance.cleanup()
   }
 })
+
+test('renders a suggested reply while the input is empty', async () => {
+  const stdin = new FakeTerminal()
+  const stdout = new FakeTerminal()
+  const chunks: string[] = []
+  stdout.on('data', chunk => chunks.push(String(chunk)))
+  const instance = renderSync(
+    <InputBox
+      onSubmit={() => {}}
+      isLoading={false}
+      toolCallCount={0}
+      workingDirectory={process.cwd()}
+      suggestedReply="sim, pode fazer a revisão."
+    />,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stderr: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  )
+
+  try {
+    await Bun.sleep(100)
+    const normalized = chunks.join('').replace(/\x1b\[\d*C/g, ' ')
+    expect(normalized).toContain('sim, pode fazer a revisão.')
+  } finally {
+    stdout.isTTY = false
+    instance.unmount()
+    instance.cleanup()
+  }
+})

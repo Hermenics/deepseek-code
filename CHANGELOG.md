@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.28
+
+- Added: Complete lifecycle hook coverage for prompt expansion, additional directories, configuration changes and idle teammates, alongside the existing session, tool, permission, task, compaction and worktree events
+- Added: Suggested reply ghost text generated after assistant responses, with `Tab` acceptance, local writing-style adaptation and the `ghostReplies` feature flag enabled by default
+- Fixed: Suggested replies are rendered when the input is empty and disappear as soon as the user starts typing, without replacing or completing user input
+- Fixed: Shell and command-prefixed outputs such as `!` and `/` are rejected as suggested replies, while stale asynchronous generations cannot overwrite a newer turn
+- Tests: Add regression coverage for lifecycle hook expansion, local style statistics and empty-input suggested-reply rendering
+
 ## 0.6.27
 
 - Enhanced: Replace the oversized static operator manual with a compact system core and a per-request runtime contract containing the active mode, supplied tools, allowlist, and current restrictions
