@@ -12,9 +12,9 @@ import { ToolUseDisplay } from './messages/ToolUseDisplay.js'
 import { previewStreamingArgs, previewToolCallArgs, summarizeToolResult } from './messages/toolDisplay.js'
 import { ignoreFileStatus, writeIgnoreDefaults, hasEditorAssociation, writeEditorAssociation, shouldOfferEditorAssociation, getEditorSettingsPath, IGNORE_FILE_NAME, shouldOfferIgnoreDefaults, markIgnoreDefaultsPrompted } from '../tools/shared/deepseekignore.js'
 import { useSubagents } from './subagent/index.js'
-import { useWorkflowRuns } from './workflows/WorkflowList.js'
+import { useActiveWorkflowRuns, useWorkflowRuns } from './workflows/WorkflowList.js'
 import { WorkflowMonitor } from './workflows/WorkflowMonitor.js'
-import { ActivityFooter } from './activity/index.js'
+import { ActivityFooter, buildActivityItems } from './activity/index.js'
 import { InputBox, LoadingSpinner } from './input/InputBox.js'
 import { QueuedMessagesList } from './input/QueuedMessagesList.js'
 import { enqueue, getImmediateBtwQuestion } from './queueLogic.js'
@@ -29,9 +29,9 @@ import { FEATURES, loadFeatures, saveFeatures, type FeatureName } from '../featu
 import { approveAgent, loadAgentConfig, listAgents, type LoadedAgent } from '../agent/config.js'
 import { appendInputHistory, describeWritingStyle, loadWritingStyle } from '../agent/inputHistory.js'
 import type { ThemeName, ProviderConfig } from '../types/provider.js'
-import type { DeepSeekSettings, InterfaceSettings } from '../settings/types.js'
+import type { DeepSeekSettings, InterfaceSettings, SubagentStatusLineSettings } from '../settings/types.js'
 import { formatChatError } from '../utils/chatError.js'
-import { defaultShell, isWindows } from '../utils/platform.js'
+import { defaultShell, hasBinary, isWindows, scrubbedEnv } from '../utils/platform.js'
 import { createSessionBranch, loadSession, saveSession, updateSessionTitle, type SessionData } from '../agent/session.js'
 import { getGoal, getElapsedSeconds, resumeGoal, updateGoal, buildContinuationPrompt, GOAL_MAX_CONTINUATIONS } from '../agent/goal.js'
 import { DEFAULT_MODE, nextMode, isBuildMode, isAutoMode, type InteractionMode } from './interactionMode.js'
@@ -50,8 +50,367 @@ import { AskUserQuestionsPrompt } from './questions/AskUserQuestions.js'
 import type { AskUserAnswers, AskUserQuestion } from '../tools/AskUserQuestions/types.js'
 import { executeBatchCommand } from '../commands/batch/index.js'
 import { BACKGROUND_WORKFLOW_SCRIPT } from '../commands/background/index.js'
+import type { SubagentState } from './subagent/types.js'
+import type { WorkflowRun } from '../workflows/types.js'
+import type { WorkflowManager } from '../workflows/manager.js'
 
 export type AgentPhase = 'idle' | 'refining' | 'executing'
+
+const ACTIVE_SUBAGENT_STATES = new Set<SubagentState['status']>(['queued', 'running', 'blocked'])
+const ACTIVE_WORKFLOW_STATES = new Set<WorkflowRun['status']>(['queued', 'running', 'paused'])
+
+export type ActivityFocusSelection =
+  | { kind: 'main' }
+  | { kind: 'subagent'; id: string }
+
+/** Resolves the footer selection into the transcript target; main is always a clear focus. */
+export function resolveActivityFocus(
+  selection: ActivityFocusSelection,
+  agents: readonly Pick<SubagentState, 'id' | 'agentName'>[],
+): { id: string; agentName: string | null } | null {
+  if (selection.kind === 'main') return null
+  const agent = agents.find(candidate => candidate.id === selection.id)
+  return { id: selection.id, agentName: agent?.agentName ?? null }
+}
+
+/** Only a live agent executor can consume a focused chat message. */
+export function canMessageSubagent(agent: Pick<SubagentState, 'status' | 'type'> | null | undefined): boolean {
+  return Boolean(agent && (agent.type == null || agent.type === 'agent') && ACTIVE_SUBAGENT_STATES.has(agent.status))
+}
+
+/** Counts only activities that can still be managed from the footer. */
+export function countActiveActivities(
+  agents: readonly Pick<SubagentState, 'workflowRunId' | 'status'>[],
+  workflows: readonly Pick<WorkflowRun, 'status'>[],
+): number {
+  return agents.filter(agent => !agent.workflowRunId && ACTIVE_SUBAGENT_STATES.has(agent.status)).length +
+    workflows.filter(run => ACTIVE_WORKFLOW_STATES.has(run.status)).length
+}
+
+/** Navigation remains available for recently retained terminal activity rows. */
+export function hasActivityToOpen(
+  agents: readonly SubagentState[],
+  workflows: readonly WorkflowRun[],
+  now = Date.now(),
+): boolean {
+  return buildActivityItems([...agents], [...workflows], now).length > 0
+}
+
+/** A workflow action is safe only when this session owns the run's lease. */
+export function canControlWorkflowRun(
+  run: Pick<WorkflowRun, 'sessionId'>,
+  currentSessionId?: string,
+): boolean {
+  return Boolean(currentSessionId && run.sessionId === currentSessionId)
+}
+
+export type WorkflowFooterAction = 'pause' | 'resume' | 'stop'
+
+/** Keeps footer workflow controls mapped to their matching manager operation. */
+export async function runWorkflowFooterAction(
+  workflows: Pick<WorkflowManager, 'cancel' | 'pause' | 'resume'>,
+  runId: string,
+  action: WorkflowFooterAction,
+): Promise<string> {
+  if (action === 'stop') return await workflows.cancel(runId) ? `Workflow ${runId.slice(0, 8)} stopping.` : 'Workflow is not active.'
+  if (action === 'resume') return await workflows.resume(runId) ? `Workflow ${runId.slice(0, 8)} resumed.` : 'Workflow is not paused.'
+  return await workflows.pause(runId) ? `Workflow ${runId.slice(0, 8)} paused.` : 'Workflow is not running.'
+}
+
+/** Runtime alias retained at the UI boundary for the settings contract. */
+export type SubagentStatusLineConfig = SubagentStatusLineSettings
+
+export interface SubagentStatusLineTask {
+  id: string
+  parentTaskId?: string | null
+  name?: string | null
+  type?: string
+  status?: string
+  description?: string
+  label?: string
+  startTime?: number | string
+  model?: string | null
+  effort?: string | null
+  contextWindowSize?: number
+  tokenCount?: number
+  tokenSamples?: number[]
+  cwd?: string
+}
+
+export interface SubagentStatusLineInput {
+  columns: number
+  tasks: SubagentStatusLineTask[]
+  [key: string]: unknown
+}
+
+/** Converts the current UI activity snapshot into Claude-compatible task context. */
+export function buildSubagentStatusLineInput(
+  agents: readonly SubagentState[],
+  workflows: readonly WorkflowRun[],
+  columns: number,
+  cwd: string,
+  now = Date.now(),
+): SubagentStatusLineInput {
+  const agentTasks: SubagentStatusLineTask[] = agents.map(agent => ({
+    id: agent.id,
+    parentTaskId: agent.parentTaskId,
+    name: agent.agentName,
+    type: agent.workflowRunId ? 'workflow-agent' : agent.type ?? 'agent',
+    status: agent.status,
+    description: agent.task,
+    label: agent.agentName ?? 'Subagent',
+    startTime: agent.startedAt,
+    model: agent.model,
+    tokenCount: agent.tokens ?? undefined,
+    cwd: agent.workspace ?? cwd,
+  }))
+  const workflowTasks: SubagentStatusLineTask[] = workflows.map(run => ({
+    id: run.runId,
+    name: run.meta.name,
+    type: 'workflow',
+    status: run.status,
+    description: run.meta.description ?? run.phase ?? 'Dynamic Workflow',
+    label: run.meta.name,
+    startTime: Date.parse(run.startedAt ?? run.createdAt) || now,
+    tokenCount: run.usage.tokens,
+    cwd: run.projectRoot || cwd,
+  }))
+  return { columns, tasks: [...agentTasks, ...workflowTasks] }
+}
+
+/** Accepts the Claude-compatible command shape without allowing arbitrary values through. */
+export function validateSubagentStatusLineConfig(value: unknown): SubagentStatusLineConfig | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const candidate = value as Record<string, unknown>
+  if (candidate.type !== 'command' || typeof candidate.command !== 'string' || !candidate.command.trim()) return undefined
+  return { type: 'command', command: candidate.command.trim() }
+}
+
+/**
+ * Extracts a status-line command only from an explicitly supplied user-scope
+ * settings object. Project/local callers must not pass their effective merge
+ * here; those scopes are removed by the settings repository before runtime.
+ */
+export function getTrustedUserStatusLineConfig(userSettings: unknown): SubagentStatusLineConfig | undefined {
+  if (!userSettings || typeof userSettings !== 'object' || Array.isArray(userSettings)) return undefined
+  const candidate = userSettings as Record<string, unknown>
+  const interfaceSettings = candidate.interface
+  if (!interfaceSettings || typeof interfaceSettings !== 'object' || Array.isArray(interfaceSettings)) return undefined
+  return validateSubagentStatusLineConfig((interfaceSettings as Record<string, unknown>).subagentStatusLine)
+}
+
+/**
+ * Determines trust after the settings UI applies an effective (scope-sanitized)
+ * snapshot. The initial render uses the explicit CLI trust bit; only this
+ * effective snapshot may opt a command in during a live session.
+ */
+export function statusLineTrustFromEffectiveSettings(settings: unknown): boolean {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)) return false
+  const interfaceSettings = (settings as Record<string, unknown>).interface
+  if (!interfaceSettings || typeof interfaceSettings !== 'object' || Array.isArray(interfaceSettings)) return false
+  return validateSubagentStatusLineConfig((interfaceSettings as Record<string, unknown>).subagentStatusLine) !== undefined
+}
+
+/** Parses JSONL decorations and filters rows for tasks that still exist in the current registry. */
+export function parseSubagentStatusLineOutput(output: string, taskIds?: ReadonlySet<string>): Map<string, string> {
+  const decorations = new Map<string, string>()
+  for (const line of output.split(/\r?\n/)) {
+    if (!line.trim()) continue
+    try {
+      const value = JSON.parse(line) as unknown
+      if (!value || typeof value !== 'object' || Array.isArray(value)) continue
+      const row = value as Record<string, unknown>
+      if (typeof row.id !== 'string' || typeof row.content !== 'string') continue
+      if (taskIds && !taskIds.has(row.id)) continue
+      decorations.set(row.id, row.content)
+    } catch {
+      // A malformed row must not prevent valid decorations from rendering.
+    }
+  }
+  return decorations
+}
+
+export interface RunSubagentStatusLineOptions {
+  cwd: string
+  trusted: boolean
+  timeoutMs?: number
+}
+
+/** Keep a status-line extension from retaining unbounded command output. */
+export const SUBAGENT_STATUS_LINE_MAX_OUTPUT_BYTES = 64 * 1024
+
+interface LimitedStatusLineOutput {
+  text: string
+  truncated: boolean
+}
+
+/** Reads a child stream while retaining only the bounded prefix needed for JSONL parsing. */
+async function readLimitedStatusLineOutput(
+  stream: ReadableStream<Uint8Array>,
+  maxBytes = SUBAGENT_STATUS_LINE_MAX_OUTPUT_BYTES,
+  signal?: AbortSignal,
+): Promise<LimitedStatusLineOutput> {
+  const reader = stream.getReader()
+  const decoder = new TextDecoder()
+  let text = ''
+  let retainedBytes = 0
+  let truncated = false
+  const abort = () => { void reader.cancel().catch(() => undefined) }
+  signal?.addEventListener('abort', abort, { once: true })
+  try {
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      if (!value) continue
+      const remaining = Math.max(0, maxBytes - retainedBytes)
+      const takeBytes = Math.min(value.byteLength, remaining)
+      if (takeBytes > 0) {
+        text += decoder.decode(value.subarray(0, takeBytes), { stream: true })
+        retainedBytes += takeBytes
+      }
+      if (takeBytes < value.byteLength) truncated = true
+    }
+    text += decoder.decode()
+    return { text, truncated }
+  } finally {
+    signal?.removeEventListener('abort', abort)
+    reader.releaseLock()
+  }
+}
+
+function killStatusLineProcess(child: { pid: number; kill(signal?: number | NodeJS.Signals): void }, processGroup: boolean): void {
+  if (processGroup && !isWindows) {
+    try { process.kill(-child.pid, 'SIGTERM') } catch { /* the shell may have exited already */ }
+  }
+  child.kill()
+}
+
+/**
+ * Runs a configured status-line command with the same scrubbed environment used by shell tools.
+ * Callers must establish workspace trust; untrusted workspaces never spawn the command.
+ */
+export async function runSubagentStatusLine(
+  configValue: unknown,
+  input: SubagentStatusLineInput,
+  options: RunSubagentStatusLineOptions,
+): Promise<Map<string, string>> {
+  const config = validateSubagentStatusLineConfig(configValue)
+  if (!config || !options.trusted) return new Map()
+  const timeoutMs = Math.max(1, Math.min(options.timeoutMs ?? 5_000, 5_000))
+  const processGroup = !isWindows && hasBinary('setsid')
+  const shellArgs = isWindows
+    ? ['/d', '/s', '/c', config.command]
+    : processGroup ? [defaultShell(), '-c', config.command] : ['-c', config.command]
+  let child: ReturnType<typeof Bun.spawn> | undefined
+  let timedOut = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeoutController = new AbortController()
+  try {
+    child = Bun.spawn([...(processGroup ? ['setsid'] : [defaultShell()]), ...shellArgs], {
+      cwd: options.cwd,
+      env: scrubbedEnv(),
+      stdin: 'pipe',
+      stdout: 'pipe',
+      stderr: 'ignore',
+    })
+    const stdin = child.stdin
+    const stdout = child.stdout
+    if (!stdin || typeof stdin === 'number' || !stdout || typeof stdout === 'number') return new Map()
+    stdin.write(`${JSON.stringify(input)}\n`)
+    stdin.end()
+    timer = setTimeout(() => {
+      timedOut = true
+      timeoutController.abort()
+      if (child) killStatusLineProcess(child, processGroup)
+    }, timeoutMs)
+    const [limited, exitCode] = await Promise.all([readLimitedStatusLineOutput(stdout, SUBAGENT_STATUS_LINE_MAX_OUTPUT_BYTES, timeoutController.signal), child.exited])
+    // A truncated response could contain an apparently valid prefix while
+    // silently dropping later JSONL rows. Treat the whole extension output as
+    // invalid so a partial decoration never reaches the footer.
+    if (timedOut || exitCode !== 0 || limited.truncated) return new Map()
+    return parseSubagentStatusLineOutput(limited.text, new Set(input.tasks.map(task => task.id)))
+  } catch {
+    return new Map()
+  } finally {
+    if (timer) clearTimeout(timer)
+    if (timedOut && child) killStatusLineProcess(child, processGroup)
+  }
+}
+
+export interface SubagentStatusLineSchedulerOptions {
+  config: unknown
+  cwd: string | (() => string)
+  trusted: boolean
+  getInput: () => SubagentStatusLineInput
+  onUpdate: (decorations: Map<string, string>) => void
+  debounceMs?: number
+  refreshMs?: number
+  execute?: typeof runSubagentStatusLine
+}
+
+export interface SubagentStatusLineScheduler {
+  start(): void
+  notify(): void
+  stop(): void
+}
+
+/** Schedules the initial 300 ms status-line call and 5 s refreshes without overlapping commands. */
+export function createSubagentStatusLineScheduler(options: SubagentStatusLineSchedulerOptions): SubagentStatusLineScheduler {
+  const debounceMs = Math.max(0, options.debounceMs ?? 300)
+  const refreshMs = Math.max(debounceMs + 1, options.refreshMs ?? 5_000)
+  const execute = options.execute ?? runSubagentStatusLine
+  let active = false
+  let running = false
+  let pending = false
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined
+  let refreshTimer: ReturnType<typeof setInterval> | undefined
+
+  const run = async () => {
+    if (!active) return
+    if (running) { pending = true; return }
+    running = true
+    try {
+      const decorations = await execute(options.config, options.getInput(), {
+        cwd: typeof options.cwd === 'function' ? options.cwd() : options.cwd,
+        trusted: options.trusted,
+      })
+      if (active) options.onUpdate(decorations)
+    } finally {
+      running = false
+      if (pending) {
+        pending = false
+        schedule()
+      }
+    }
+  }
+
+  const schedule = () => {
+    if (!active) return
+    if (debounceTimer) clearTimeout(debounceTimer)
+    debounceTimer = setTimeout(() => {
+      debounceTimer = undefined
+      void run()
+    }, debounceMs)
+  }
+
+  return {
+    start() {
+      if (active) return
+      active = true
+      schedule()
+      refreshTimer = setInterval(schedule, refreshMs)
+    },
+    notify: schedule,
+    stop() {
+      active = false
+      pending = false
+      if (debounceTimer) clearTimeout(debounceTimer)
+      if (refreshTimer) clearInterval(refreshTimer)
+      debounceTimer = undefined
+      refreshTimer = undefined
+    },
+  }
+}
 
 /** Extracts thinking content and cleans response tags from streamed text */
 function processStreamedText(text: string): { thinking: string; content: string } {
@@ -109,7 +468,7 @@ interface PlanApprovalState {
   reject(reason: string): void
 }
 
-export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, onLogout, onExit, language, enchant, sessionId, initialSession, headerProvider, headerAgent, initialSettings, alternateScreen = false }: {
+export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, onLogout, onExit, language, enchant, sessionId, initialSession, headerProvider, headerAgent, initialSettings, alternateScreen = false, workspaceTrusted = false }: {
   initialAgent?: LoadedAgent | null
   initialMessage?: string | null
   theme: ThemeName
@@ -125,6 +484,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   headerAgent?: string | null
   initialSettings?: DeepSeekSettings
   alternateScreen?: boolean
+  /** Allows executable UI extensions only after the host establishes workspace trust. */
+  workspaceTrusted?: boolean
 }) {
   const transcriptRef = useRef<ScrollBoxHandle | null>(null)
   const selection = useSelection()
@@ -177,6 +538,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [btw, setBtw] = useState<BtwState | null>(null)
   const [agent] = useState(() => new Agent(providerConfig ?? undefined, { sessionId, projectRoot: projectRootRef.current }))
   const workflowRuns = useWorkflowRuns(agent.workflows)
+  const activeWorkflowRuns = useActiveWorkflowRuns(agent.workflows)
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
   const messagesRef = useRef(messages)
   messagesRef.current = messages
@@ -187,10 +549,15 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [showMobileQR, setShowMobileQR] = useState(false)
   const [currentLanguage, setCurrentLanguage] = useState<string | null>(language ?? null)
   const subagentsRef = useRef(useSubagents())
-  const [, setSubagentTick] = useState(0)
+  const [subagentTick, setSubagentTick] = useState(0)
+  const [taskDecorations, setTaskDecorations] = useState<Map<string, string>>(() => new Map())
+  const activeWorkflowRunsRef = useRef(activeWorkflowRuns)
+  const statusLineSchedulerRef = useRef<SubagentStatusLineScheduler | null>(null)
+  activeWorkflowRunsRef.current = activeWorkflowRuns
   const [showModelSelector, setShowModelSelector] = useState(false)
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [modelDescriptions, setModelDescriptions] = useState<Record<string, string>>({})
+  const [, setAgentReady] = useState(false)
   const [showEffortSelector, setShowEffortSelector] = useState(false)
   const [confirmState, setConfirmStateState] = useState<ConfirmState | null>(null)
   const confirmQueueRef = useRef<ConfirmState[]>([])
@@ -224,6 +591,53 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const thinkingStartedAtRef = useRef<number | null>(null)
   const turnStartedAtRef = useRef<number | null>(null)
   const askUserResolverRef = useRef<((answers: AskUserAnswers | null) => void) | null>(null)
+
+  const statusLineConfig = interfaceSettings.subagentStatusLine
+  // The CLI's explicit bit is the only trust source for the initial render.
+  // ConfigMenu may replace it with a scope-sanitized effective snapshot below.
+  const [statusLineTrusted, setStatusLineTrusted] = useState(workspaceTrusted)
+  const canControlWorkflow = useCallback(
+    (run: WorkflowRun) => canControlWorkflowRun(run, sessionId),
+    [sessionId],
+  )
+
+  useEffect(() => {
+    const config = validateSubagentStatusLineConfig(statusLineConfig)
+    if (!config || !statusLineTrusted) {
+      setTaskDecorations(new Map())
+      return
+    }
+    const scheduler = createSubagentStatusLineScheduler({
+      config,
+      cwd: () => agent.getWorkingDirectory(),
+      trusted: statusLineTrusted,
+      getInput: () => buildSubagentStatusLineInput(
+        subagentsRef.current.agents,
+        activeWorkflowRunsRef.current,
+        process.stdout.columns ?? 80,
+        agent.getWorkingDirectory(),
+      ),
+      onUpdate: setTaskDecorations,
+    })
+    statusLineSchedulerRef.current = scheduler
+    setTaskDecorations(new Map())
+    scheduler.start()
+    return () => {
+      scheduler.stop()
+      if (statusLineSchedulerRef.current === scheduler) statusLineSchedulerRef.current = null
+    }
+  }, [agent, statusLineConfig, statusLineTrusted])
+
+  useEffect(() => {
+    // State callbacks mutate the shared activity snapshot in place; the tick is
+    // the explicit invalidation signal for status-line refreshes.
+    // The scheduler applies its own 300 ms debounce.
+    statusLineSchedulerRef.current?.notify()
+  }, [subagentTick])
+
+  useEffect(() => {
+    statusLineSchedulerRef.current?.notify()
+  }, [activeWorkflowRuns])
 
   const showCompactBadge = useCallback((type: 'micro' | 'full') => {
     if (compactBadgeTimerRef.current) clearTimeout(compactBadgeTimerRef.current)
@@ -289,6 +703,15 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     void agent.readyPromise.then(async () => {
       await refreshWorkflowCommands(agent.getWorkingDirectory())
       await refreshCustomCommands(agent.getWorkingDirectory())
+      // Settings (model, provider, mode) land asynchronously; without a state change the status
+      // bar keeps showing the constructor defaults until the first keypress re-renders it.
+      setAgentReady(true)
+      if (agent.initErrors.length) {
+        setMessages((m) => [...m, { role: 'assistant', content: `⚠ Initialization warnings:\n${agent.initErrors.map(error => `• ${error}`).join('\n')}` }])
+      }
+    }).catch((error: Error) => {
+      setAgentReady(true)
+      setMessages((m) => [...m, { role: 'assistant', content: `⚠ Initialization failed: ${error.message}` }])
     })
   }, [agent])
 
@@ -311,10 +734,14 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       const record = located.task
       subs.onSubagentState({
         id, status: record.state, task: String(record.metadata.task ?? record.type),
+        startedAt: record.startedAt ? Date.parse(record.startedAt) : null,
+        completedAt: record.completedAt ? Date.parse(record.completedAt) : null,
         role: record.metadata.role as string | undefined,
         agentName: record.metadata.agentName as string | undefined,
         mode: record.mode, model: record.metadata.model as string | undefined,
         workspace: record.workspace?.path, workflowRunId: located.workflowRunId,
+        parentTaskId: record.parentTaskId,
+        type: record.type,
         workflowPhase: located.workflowPhase,
         prompt: typeof record.metadata.prompt === 'string' ? record.metadata.prompt : undefined,
         error: record.error?.message ?? record.blockReason,
@@ -333,6 +760,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           model: record.metadata.model as string | undefined,
           workspace: record.workspace?.path,
           workflowRunId: located.workflowRunId,
+          parentTaskId: record.parentTaskId,
+          type: record.type,
           workflowPhase: located.workflowPhase,
           prompt: typeof record.metadata.prompt === 'string' ? record.metadata.prompt : undefined,
         })
@@ -361,7 +790,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         setSubagentTick((t) => t + 1)
       },
     })
-    return () => agent.setSubAgentCallbacks(null)
+    const unsubscribe = agent.workflows.subscribe(event => {
+      if (event.taskId && syncTask(event.taskId)) setSubagentTick(tick => tick + 1)
+    })
+    return () => { unsubscribe(); agent.setSubAgentCallbacks(null) }
   }, [agent])
 
   useEffect(() => agent.orchestrator.subscribe(event => {
@@ -379,6 +811,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     subagentsRef.current.onSubagentState({
       id: record.taskId,
       status: record.state,
+      startedAt: record.startedAt ? Date.parse(record.startedAt) : null,
+      completedAt: record.completedAt ? Date.parse(record.completedAt) : null,
       workflowRunId: located.workflowRunId,
       workflowPhase: located.workflowPhase,
       task: String(record.metadata.task ?? record.type),
@@ -388,6 +822,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       mode: record.mode,
       model: record.metadata.model as string | undefined,
       workspace: record.workspace?.path,
+      parentTaskId: record.parentTaskId,
+      type: record.type,
       error: record.error?.message ?? record.blockReason,
     })
     setSubagentTick(tick => tick + 1)
@@ -1039,7 +1475,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     if (shouldGenerateTitle) titleRequestedRef.current = true
     setMessages((m) => [...m, { role: 'user', content: label }])
     setIsLoading(true)
-    setAgentPhase('refining')
+    setAgentPhase(agent.promptRefinerEnabled ? 'refining' : 'executing')
     setStreamText('')
 
     const worktreePolicy = agent.settings.git?.worktree ?? 'ask'
@@ -1087,15 +1523,23 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     // While focused on a subagent, plain text goes to that subagent via its
     // mailbox ('question' messages are drained by the executor each iteration);
     // slash commands and `!` shell lines still hit the main agent.
-    // ponytail: a message sent to a finished/blocked agent sits in the mailbox
-    // unread (executor not running) — acceptable v1, surfaces on resume.
+    // Blocked agents may queue a message for a later resume; terminal and
+    // non-agent activities are routed back to the main-agent input path.
     if (focusedSubagent) {
       const msg = text.trim()
       if (!msg.startsWith('/') && !msg.startsWith('!')) {
         const a = subagentsRef.current.agents.find(x => x.id === focusedSubagent.id)
-        if (a) { a.messages = [...(a.messages ?? []), { role: 'user', content: msg }]; setSubagentTick(t => t + 1) }
-        void agent.controlTask(focusedSubagent.id, 'message', msg)
-        return
+        if (a && canMessageSubagent(a)) {
+          a.messages = [...(a.messages ?? []), { role: 'user', content: msg }]
+          setSubagentTick(t => t + 1)
+          void agent.controlTask(focusedSubagent.id, 'message', msg)
+          return
+        }
+        // Terminal tasks and non-agent activities (for example background shell
+        // commands) have no executor that can consume a mailbox message. Let
+        // the normal main-agent path handle the text instead of dropping it.
+        setFocusedSubagent(null)
+        setActivityOpen(false)
       }
       // Slash command or `!` shell line routes to the MAIN agent — leave
       // subagent focus so the main-agent progress UI is not masked.
@@ -1451,7 +1895,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           const label = `/plan ${cmd.task}`
           setMessages((m) => [...m, { role: 'user', content: label }])
           setIsLoading(true)
-          setAgentPhase('refining')
+          setAgentPhase(agent.promptRefinerEnabled ? 'refining' : 'executing')
           setStreamText('')
           try {
             await runAgent(injection)
@@ -1903,7 +2347,18 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               setMessages(m => [...m, { role: 'assistant', content: ok ? `Workflow ${cmd.id} paused.` : `Workflow ${cmd.id} is not running.` }])
             } else if (cmd.action === 'resume') {
               const ok = await agent.workflows.resume(cmd.id)
-              setMessages(m => [...m, { role: 'assistant', content: ok ? `Workflow ${cmd.id} resumed.` : `Workflow ${cmd.id} is not paused.` }])
+              if (ok) {
+                setMessages(m => [...m, { role: 'assistant', content: `Workflow ${cmd.id} resumed.` }])
+              } else {
+                // Not paused — an interrupted or finished run resumes by relaunching over its journal,
+                // so every agent() call it already completed comes back without running again.
+                setIsLoading(true)
+                try {
+                  const handle = await agent.restartWorkflow(cmd.id)
+                  const result = await handle.result
+                  setMessages(m => [...m, { role: 'assistant', content: `Workflow ${result.runId} ${result.status} (resumed from ${cmd.id}).\n\n${JSON.stringify(result.result, null, 2)}` }])
+                } finally { setIsLoading(false) }
+              }
             } else if (cmd.action === 'stop') {
               const ok = await agent.workflows.cancel(cmd.id)
               setMessages(m => [...m, { role: 'assistant', content: ok ? `Workflow ${cmd.id} stopping.` : `Workflow ${cmd.id} is not active.` }])
@@ -2128,6 +2583,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           onStop={runId => agent.workflows.cancel(runId)}
           onRestart={restartWorkflowFromUi}
           onSave={saveWorkflowFromUi}
+          canControlWorkflow={canControlWorkflow}
         />
       </ThemeProvider>
     )
@@ -2154,9 +2610,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         onThemeSelect={(nextTheme) => { setTheme(nextTheme); onThemeChange?.(nextTheme) }}
         onLanguageSet={(nextLanguage) => { agent.setLanguage(nextLanguage); setCurrentLanguage(nextLanguage) }}
         onEnchantToggle={(enabled) => agent.setPromptRefinerEnabled(enabled)}
-        onSettingsChanged={async (settings) => {
+        onSettingsChanged={async (settings, latestSnapshot) => {
           await agent.applySettings(settings)
           setInterfaceSettings(settings.interface ?? {})
+          setStatusLineTrusted(getTrustedUserStatusLineConfig(latestSnapshot.levels.user.data) !== undefined)
           const nextTheme = settings.interface?.theme
           if (nextTheme) { setTheme(nextTheme); onThemeChange?.(nextTheme) }
           agent.setLanguage(settings.interface?.language)
@@ -2182,8 +2639,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }
 
   const termRows = process.stdout.rows || 24
-  const activityCount = subagentsRef.current.agents.filter(subagent => !subagent.workflowRunId).length +
-    workflowRuns.filter(run => ['queued', 'running'].includes(run.status)).length
+  const activityCount = countActiveActivities(subagentsRef.current.agents, activeWorkflowRuns)
+  const activityAvailable = hasActivityToOpen(subagentsRef.current.agents, activeWorkflowRuns)
   const focusedAgent = focusedSubagent ? subagentsRef.current.agents.find(a => a.id === focusedSubagent.id) ?? null : null
 
   // Fullscreen has no native scrollback: the root is pinned to exactly termRows
@@ -2313,7 +2770,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             vimEnabled={vimEnabled}
             workingDirectory={agent.getWorkingDirectory()}
             fuzzyFileSearch={featureFlags.fuzzyFileSearch}
-            activityAvailable={activityCount > 0}
+            activityAvailable={activityAvailable}
             onActivityOpen={() => setActivityOpen(true)}
             isActive={!activityOpen}
             showFullscreenHint={messages.length === 0}
@@ -2331,21 +2788,19 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         {!btw && !showModelSelector && !showEffortSelector && !askUserState && !toolPermissionState && !planApprovalState && !confirmState && (
           <ActivityFooter
             agents={subagentsRef.current.agents}
-            workflows={workflowRuns}
+            workflows={activeWorkflowRuns}
             open={activityOpen}
             onClose={() => setActivityOpen(false)}
             onOpenWorkflow={runId => { setActivityOpen(false); setWorkflowMonitor({ runId }) }}
             onOpenSubagent={(id) => {
-              const a = subagentsRef.current.agents.find(x => x.id === id)
               setActivityOpen(false)
-              setFocusedSubagent({ id, agentName: a?.agentName ?? null })
+              setFocusedSubagent(resolveActivityFocus({ kind: 'subagent', id }, subagentsRef.current.agents))
             }}
             onSelectMain={() => { setFocusedSubagent(null); setActivityOpen(false) }}
             onTaskAction={(taskId, action) => agent.controlTask(taskId, action)}
-            onWorkflowAction={async (runId, action) => {
-              if (action === 'stop') return await agent.workflows.cancel(runId) ? `Workflow ${runId.slice(0, 8)} stopping.` : 'Workflow is not active.'
-              return await agent.workflows.pause(runId) ? `Workflow ${runId.slice(0, 8)} paused.` : 'Workflow is not running.'
-            }}
+            onWorkflowAction={(runId, action) => runWorkflowFooterAction(agent.workflows, runId, action)}
+            canControlWorkflow={canControlWorkflow}
+            taskDecorations={taskDecorations}
             theme={theme}
             mainLabel={activeAgent ?? 'main'}
           />

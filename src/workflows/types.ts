@@ -7,27 +7,37 @@ export type WorkflowStatus = typeof WORKFLOW_STATUSES[number]
 export interface WorkflowPhaseMeta {
   title: string
   detail?: string
+  /** Model override applied to agents in this phase that do not set their own. */
+  model?: string
 }
 
 export interface WorkflowMeta {
   name: string
   description?: string
+  /** Shown in the workflow list so the model knows when a saved workflow applies. */
+  whenToUse?: string
   /** Declared phase skeleton; lets the monitor show phases that have not started yet. */
   phases?: WorkflowPhaseMeta[]
 }
+
+export const WORKFLOW_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+export type WorkflowEffort = typeof WORKFLOW_EFFORT_LEVELS[number]
 
 export interface WorkflowAgentOptions {
   label?: string
   phase?: string
   schema?: object
   model?: string
-  effort?: 'low' | 'high' | 'max'
+  effort?: WorkflowEffort
   isolation?: 'worktree'
   agentType?: string
   timeoutMs?: number
   maxTokens?: number
   maxCostUsd?: number
 }
+
+/** A child workflow reference: a saved workflow name or a script file the model wrote earlier. */
+export type WorkflowRef = string | { scriptPath: string }
 
 export interface WorkflowUsage {
   agents: number
@@ -84,6 +94,10 @@ export interface WorkflowResult {
   usage: WorkflowUsage
   failures: WorkflowFailure[]
   worktrees: WorkflowWorktree[]
+  /** Persisted copy of the executed script; edit it and relaunch with resumeFromRunId to iterate. */
+  scriptPath?: string
+  /** Journal with every agent call's arguments and actual return value. */
+  journalPath?: string
 }
 
 export interface WorkflowEvent {

@@ -2,20 +2,20 @@ import { Tool } from '../types.js'
 import * as fs from 'fs/promises'
 import { assertSafePath } from '../shared/pathSafety.js'
 
-const DEFAULT_MAX_LINES = 200
+const DEFAULT_MAX_LINES = 500
 
 export const ReadFile: Tool = {
   name: 'read_file',
-  description: `Read file content with line numbers. Always shows line numbers so you can request specific ranges.
-- Without start_line/end_line: returns first ${DEFAULT_MAX_LINES} lines with a summary of total lines
+  description: `Read a file with line numbers. Use it instead of shell cat/sed/head.
+- Without start_line/end_line: returns the first ${DEFAULT_MAX_LINES} lines plus the total line count
 - With start_line and/or end_line: returns exactly that range
-- Use line numbers to read large files in chunks (e.g. start_line=200, end_line=400)`,
+- Read large files in chunks (e.g. start_line=${DEFAULT_MAX_LINES + 1}, end_line=${DEFAULT_MAX_LINES * 2}); read a file before editing it`,
   parameters: {
     type: 'object',
     properties: {
       path: { type: 'string', description: 'File path' },
       start_line: { type: 'number', description: 'First line to read (1-indexed, inclusive). Defaults to 1.' },
-      end_line: { type: 'number', description: 'Last line to read (1-indexed, inclusive). Defaults to start_line + 199.' },
+      end_line: { type: 'number', description: 'Last line to read (1-indexed, inclusive). Defaults to start_line + 499.' },
     },
     required: ['path'],
   },

@@ -8,16 +8,20 @@ import type { SubagentState, SubagentStatus } from '../subagent/types.js'
 import { getThemeColors, type ThemeName } from '../theme.js'
 import { useClock } from '../clock.js'
 
-const ACTIVE_WORKFLOWS = new Set(['queued', 'running'])
+const ACTIVE_WORKFLOWS = new Set(['queued', 'running', 'paused'])
 const ACTIVE_AGENTS = new Set<SubagentStatus>(['queued', 'running', 'blocked'])
 const RESUMABLE_AGENTS = new Set<SubagentStatus>(['blocked', 'failed', 'error', 'cancelled', 'timed_out'])
+const TERMINAL_AGENTS = new Set<SubagentStatus>(['done', 'failed', 'error', 'cancelled', 'timed_out'])
+/** Keep a completed activity visible briefly so its result can be noticed. */
+export const ACTIVITY_RETENTION_MS = 30_000
+const IDLE_GROUP_ID = 'idle-agents'
 const STATUS_ICONS: Record<string, string> = {
   queued: '◌', running: '◯', blocked: 'Ⅱ', done: '✓', completed: '✓',
   failed: '✘', error: '✘', cancelled: '✘', timed_out: '⌛',
 }
 
 interface ActivityBase {
-  kind: 'agent' | 'workflow'
+  kind: 'agent' | 'workflow' | 'idle-group'
   id: string
   label: string
   description: string
@@ -30,15 +34,24 @@ interface ActivityBase {
 export interface AgentActivityItem extends ActivityBase {
   kind: 'agent'
   agent: SubagentState
+  /** Visible parent depth; zero when the parent is not in this list. */
+  indent?: number
 }
 
 export interface WorkflowActivityItem extends ActivityBase {
   kind: 'workflow'
   run: WorkflowRun
   agents: SubagentState[]
+  /** False when the run belongs to another live session and is observable only. */
+  controllable: boolean
 }
 
-export type ActivityItem = AgentActivityItem | WorkflowActivityItem
+export interface IdleActivityGroupItem extends ActivityBase {
+  kind: 'idle-group'
+  agents: AgentActivityItem[]
+}
+
+export type ActivityItem = AgentActivityItem | WorkflowActivityItem | IdleActivityGroupItem
 
 function truncate(value: string, width: number): string {
   if (width <= 0) return ''
@@ -88,24 +101,76 @@ function agentLabel(agent: SubagentState): { label: string; fixed: boolean } {
  *
  * @returns The sorted activity items.
  */
-export function buildActivityItems(agents: SubagentState[], workflows: WorkflowRun[]): ActivityItem[] {
-  const agentItems: AgentActivityItem[] = agents.filter(agent => !agent.workflowRunId).map(agent => {
-    const identity = agentLabel(agent)
-    return {
-      kind: 'agent', id: agent.id, ...identity, description: agent.task,
-      status: agent.status, active: ACTIVE_AGENTS.has(agent.status), startedAt: agent.startedAt, agent,
+export function buildActivityItems(
+  agents: SubagentState[],
+  workflows: WorkflowRun[],
+  now = Date.now(),
+  canControlWorkflow: (run: WorkflowRun) => boolean = () => true,
+): ActivityItem[] {
+  const visibleAgents = agents
+    .filter(agent => !agent.workflowRunId)
+    .filter(agent => agent.completedAt == null || !TERMINAL_AGENTS.has(agent.status) || now - agent.completedAt <= ACTIVITY_RETENTION_MS)
+  const visibleAgentIds = new Set(visibleAgents.map(agent => agent.id))
+  const visibleAgentById = new Map(visibleAgents.map(agent => [agent.id, agent]))
+  const getIndent = (agent: SubagentState): number => {
+    let indent = 0
+    let current = agent
+    const seen = new Set<string>()
+    while (current.parentTaskId && visibleAgentIds.has(current.parentTaskId) && !seen.has(current.parentTaskId)) {
+      seen.add(current.parentTaskId)
+      indent++
+      current = visibleAgentById.get(current.parentTaskId)!
     }
-  })
+    return indent
+  }
+  const agentItems: AgentActivityItem[] = visibleAgents.map(agent => {
+      const identity = agentLabel(agent)
+      return {
+        kind: 'agent', id: agent.id, ...identity, description: agent.task,
+        status: agent.status, active: ACTIVE_AGENTS.has(agent.status), startedAt: agent.startedAt, agent,
+        indent: getIndent(agent),
+      }
+    })
   const workflowItems: WorkflowActivityItem[] = workflows
     .filter(run => ACTIVE_WORKFLOWS.has(run.status))
     .map(run => ({
       kind: 'workflow', id: run.runId, label: run.meta.name,
       description: run.meta.description ?? run.phase ?? 'Dynamic Workflow', status: run.status,
-      fixed: false, active: true,
+      fixed: false, active: run.status === 'queued' || run.status === 'running',
       startedAt: Date.parse(run.startedAt ?? run.createdAt) || Date.now(), run,
       agents: agents.filter(agent => agent.workflowRunId === run.runId),
+      controllable: canControlWorkflow(run),
     }))
-  return [...agentItems, ...workflowItems].sort((left, right) => left.startedAt - right.startedAt)
+  return [...agentItems, ...workflowItems].sort((left, right) => {
+    // Running/queued work stays visible ahead of completed rows. Resumable
+    // failures get the next slot so a stale success cannot hide an action.
+    const priority = (item: ActivityItem): number => {
+      if (item.active) return 0
+      if (item.kind === 'workflow' && item.run.status === 'paused') return 1
+      if (item.kind === 'agent' && RESUMABLE_AGENTS.has(item.agent.status)) return 1
+      return 2
+    }
+    return priority(left) - priority(right) || left.startedAt - right.startedAt
+  })
+}
+
+/** Replace a noisy set of completed rows with Claude's compact idle summary. */
+export function groupIdleActivityItems(items: ActivityItem[]): ActivityItem[] {
+  const idle = items.filter((item): item is AgentActivityItem => item.kind === 'agent' && item.agent.status === 'done')
+  if (idle.length < 4) return items
+
+  const idleIds = new Set(idle.map(item => item.id))
+  const firstIdleIndex = items.findIndex(item => idleIds.has(item.id))
+  const group: IdleActivityGroupItem = {
+    kind: 'idle-group', id: IDLE_GROUP_ID, label: 'idle agents',
+    description: 'Completed background agents', status: 'idle', fixed: false,
+    active: false, startedAt: idle[0]!.startedAt, agents: idle,
+  }
+  return [
+    ...items.slice(0, firstIdleIndex),
+    group,
+    ...items.slice(firstIdleIndex).filter(item => !idleIds.has(item.id)),
+  ]
 }
 
 /** Cap the activity list at maxRows, reporting how many entries were cut off. */
@@ -114,14 +179,39 @@ export function compactActivityItems(items: ActivityItem[], maxRows = 5): { rows
   return { rows, overflow: Math.max(0, items.length - rows.length) }
 }
 
+export interface ActivityWindow {
+  rows: ActivityItem[]
+  start: number
+  above: number
+  below: number
+}
+
+/** Return a bounded window while keeping the selected item visible. */
+export function getActivityWindow(items: ActivityItem[], maxRows = 5, selectedIndex = -1): ActivityWindow {
+  const limit = Math.max(0, maxRows)
+  if (limit === 0 || items.length === 0) return { rows: [], start: 0, above: 0, below: items.length }
+  const start = selectedIndex >= 0 && selectedIndex < items.length
+    ? Math.min(Math.max(0, selectedIndex - limit + 1), Math.max(0, items.length - limit))
+    : 0
+  const rows = items.slice(start, start + limit)
+  return { rows, start, above: start, below: Math.max(0, items.length - start - rows.length) }
+}
+
 /** Contextual hint line for the open list, matching Claude Code's phrasing. */
 export function buildActionHint(item: ActivityItem | undefined): string {
   if (!item) return '↑/↓ to select'
   const base = '↑/↓ to select · Enter to view'
   const actions: string[] = []
+  if (item.kind === 'idle-group') {
+    // Idle summaries are rendered only by the closed footer; opening the list
+    // exposes the individual completed agents, so this row has no action.
+    return '↑/↓ to select'
+  }
   if (item.kind === 'workflow') {
+    if (!item.controllable) return `${base} · read-only (another session)`
     actions.push('x stop')
     if (item.run.status === 'running') actions.push('p pause')
+    if (item.run.status === 'paused') actions.push('r resume')
   } else if (item.active) {
     actions.push('x stop')
   }
@@ -140,8 +230,10 @@ export function buildActionHint(item: ActivityItem | undefined): string {
  * description and metrics, truncated to the requested width. Active agents
  * show `duration · ↓ tokens`; finished agents show `idle`.
  */
-export function formatActivityItem(item: ActivityItem, columns: number, now = Date.now(), iconOverride?: string): string {
+export function formatActivityItem(item: ActivityItem, columns: number, now = Date.now(), iconOverride?: string, decoration?: string): string {
   const icon = iconOverride ?? '◯'
+  if (item.kind === 'idle-group') return truncate(`${icon} ${item.agents.length} idle agents`, columns)
+  if (decoration !== undefined) return truncate(`${icon} ${item.label}  ${decoration}`, columns)
   const elapsed = item.kind === 'agent' && item.agent.durationMs != null
     ? item.agent.durationMs
     : item.kind === 'workflow' && item.run.completedAt
@@ -161,8 +253,10 @@ export function formatActivityItem(item: ActivityItem, columns: number, now = Da
     metrics.push(workflowProgress(item.run, item.agents), formatDuration(elapsed))
     const tokens = formatFooterTokens(item.run.usage.tokens)
     if (tokens) metrics.push(`↓ ${tokens}`)
+    if (!item.controllable) metrics.push('read-only')
   }
-  const prefix = `${icon} ${item.label}`
+  const indentation = item.kind === 'agent' && (item.indent ?? 0) > 0 ? `${'  '.repeat(Math.min(item.indent ?? 0, 3))}↳ ` : ''
+  const prefix = `${icon} ${indentation}${item.label}`
   if (columns < 55) return truncate(`${prefix} · ${metrics[0]}`, columns)
   const suffix = metrics.join(' · ')
   const descriptionWidth = Math.max(8, columns - prefix.length - suffix.length - 6)
@@ -170,6 +264,13 @@ export function formatActivityItem(item: ActivityItem, columns: number, now = Da
 }
 
 function detailLines(item: ActivityItem, now: number): string[] {
+  if (item.kind === 'idle-group') {
+    return [
+      `◌ ${item.agents.length} idle agents`,
+      'Completed background agents',
+      ...item.agents.map(agent => `  ${agent.label} · ${formatDuration(agent.agent.durationMs ?? Math.max(0, now - agent.startedAt))}`),
+    ]
+  }
   if (item.kind === 'workflow') {
     const run = item.run
     return [
@@ -186,6 +287,8 @@ function detailLines(item: ActivityItem, now: number): string[] {
     agent.task,
     `${agent.role ?? 'unclassified'} · ${formatDuration(duration)} · ${agent.toolCount} tools${agent.tokens != null ? ` · ${formatTokens(agent.tokens)}` : ''}`,
     ...(agent.lastToolInfo ? [`Latest: ${agent.lastToolInfo}`] : []),
+    ...(agent.type ? [`Type: ${agent.type}`] : []),
+    ...(agent.parentTaskId ? [`Parent: ${agent.parentTaskId}`] : []),
     ...(agent.model ? [`Model: ${agent.model}`] : []),
     ...(agent.workspace ? [`Workspace: ${agent.workspace}`] : []),
     ...(agent.result ? [`Result: ${agent.result}`] : []),
@@ -203,7 +306,11 @@ export interface ActivityFooterProps {
   /** Enter on the "main" row (selection index -1) — used to exit subagent focus. */
   onSelectMain?(): void
   onTaskAction(taskId: string, action: 'cancel' | 'resume'): Promise<string>
-  onWorkflowAction(runId: string, action: 'pause' | 'stop'): Promise<string>
+  onWorkflowAction(runId: string, action: 'pause' | 'resume' | 'stop'): Promise<string>
+  /** Marks workflows from other live sessions as visible but non-mutating. */
+  canControlWorkflow?(run: WorkflowRun): boolean
+  /** Optional per-agent status-line output, keyed by the subagent id. */
+  taskDecorations?: ReadonlyMap<string, string>
   theme?: ThemeName
   mainLabel?: string
 }
@@ -215,7 +322,7 @@ export interface ActivityFooterProps {
  */
 export function ActivityFooter({
   agents, workflows, open, onClose, onOpenWorkflow, onOpenSubagent, onSelectMain, onTaskAction, onWorkflowAction,
-  theme = 'dark', mainLabel = 'main',
+  canControlWorkflow = () => true, taskDecorations, theme = 'dark', mainLabel = 'main',
 }: ActivityFooterProps) {
   const colors = getThemeColors(theme)
   useClock()
@@ -223,18 +330,20 @@ export function ActivityFooter({
   // No useMemo here: `agents` is mutated in place upstream (useSubagents pushes
   // into the same array), so a reference-keyed memo never invalidates. The
   // clock tick re-renders ~every 80ms anyway, so just recompute directly.
-  const items = buildActivityItems(agents, workflows)
-  const [selected, setSelected] = useState(-1)
+  const items = buildActivityItems(agents, workflows, Date.now(), canControlWorkflow)
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [detail, setDetail] = useState(false)
   const [feedback, setFeedback] = useState('')
   const columns = Math.max(20, (process.stdout.columns ?? 80) - 4)
   const report = (operation: Promise<string>) => void operation.then(setFeedback).catch(error => setFeedback((error as Error).message))
+  const activityKey = (item: ActivityItem): string => `${item.kind}:${item.id}`
+  const selected = selectedKey == null ? -1 : items.findIndex(item => activityKey(item) === selectedKey)
 
   useEffect(() => {
-    if (!open) { setSelected(-1); setDetail(false); setFeedback(''); return }
+    if (!open) { setSelectedKey(null); setDetail(false); setFeedback(''); return }
     if (!items.length) onClose()
-    else if (selected >= items.length) setSelected(items.length - 1)
-  }, [items.length, onClose, open, selected])
+    else if (selectedKey != null && selected < 0) setSelectedKey(activityKey(items[0]!))
+  }, [items.length, onClose, open, selected, selectedKey])
 
   useInput((input, key, event) => {
     event.stopImmediatePropagation()
@@ -247,16 +356,16 @@ export function ActivityFooter({
     } else {
       if (key.upArrow) {
         if (selected === -1) { onClose(); return }
-        setSelected(value => value - 1)
+        setSelectedKey(selected <= 0 ? null : activityKey(items[selected - 1]!))
         return
       }
       if (key.downArrow) {
         if (items.length === 0) return
-        setSelected(value => (value === items.length - 1 ? -1 : value + 1))
+        setSelectedKey(selected === items.length - 1 ? null : activityKey(items[selected + 1]!))
         return
       }
     }
-    const item = items[selected]
+    const item = selected >= 0 ? items[selected] : undefined
     if (!item) {
       // Selection is on "main" (index -1): Enter returns to the main agent.
       if (key.return) onSelectMain?.()
@@ -268,28 +377,38 @@ export function ActivityFooter({
         // Enter on an agent opens the subagent chat (Claude Code behavior).
         // The detail view stays reachable via 'v' below, and via the
         // setDetail fallback for consumers that don't wire onOpenSubagent.
-        else if (onOpenSubagent) onOpenSubagent(item.agent.id)
-        else setDetail(true)
+        else if (item.kind === 'agent') {
+          if (onOpenSubagent) onOpenSubagent(item.agent.id)
+          else setDetail(true)
+        }
       }
       return
     }
     if (input === 'v' && item.kind === 'agent') { setDetail(true); return }
-    if (input === 'x' && item.active) {
+    if (input === 'x' && (item.active || item.kind === 'workflow')) {
+      if (item.kind === 'workflow' && !item.controllable) {
+        setFeedback('Workflow is read-only in another session.')
+        return
+      }
       const operation = item.kind === 'workflow'
         ? onWorkflowAction(item.id, 'stop')
         : onTaskAction(item.id, 'cancel')
       report(operation)
       return
     }
-    if (input === 'p' && item.kind === 'workflow' && item.run.status === 'running') {
+    if (input === 'p' && item.kind === 'workflow' && item.controllable && item.run.status === 'running') {
       report(onWorkflowAction(item.id, 'pause'))
+      return
+    }
+    if (input === 'r' && item.kind === 'workflow' && item.controllable && item.run.status === 'paused') {
+      report(onWorkflowAction(item.id, 'resume'))
       return
     }
     if (input === 'r' && item.kind === 'agent' && RESUMABLE_AGENTS.has(item.agent.status)) report(onTaskAction(item.id, 'resume'))
   }, { isActive: open })
 
   if (!items.length) return null
-  if (open && detail) {
+  if (open && detail && selected >= 0) {
     const safeIndex = Math.min(selected, items.length - 1)
     const item = items[safeIndex]!
     return (
@@ -299,15 +418,19 @@ export function ActivityFooter({
         ))}
         {feedback && <Text color={colors.warning}>{truncate(feedback, columns)}</Text>}
         <Text color={colors.textSubtle}>{item.kind === 'workflow'
-          ? item.run.status === 'running' ? 'Esc back · x stop · p pause' : 'Esc back · x stop'
-          : RESUMABLE_AGENTS.has(item.agent.status) ? `Esc back${item.active ? ' · x stop' : ''} · r resume` : item.active ? 'Esc back · x stop' : 'Esc back'}</Text>
+          ? !item.controllable ? 'Esc back · read-only (another session)' : item.run.status === 'running' ? 'Esc back · x stop · p pause' : item.run.status === 'paused' ? 'Esc back · x stop · r resume' : 'Esc back · x stop'
+          : item.kind === 'agent'
+            ? RESUMABLE_AGENTS.has(item.agent.status) ? `Esc back${item.active ? ' · x stop' : ''} · r resume` : item.active ? 'Esc back · x stop' : 'Esc back'
+            : 'Esc back'}</Text>
       </Box>
     )
   }
 
   const maxRows = open ? 8 : 5
-  const start = open ? Math.min(Math.max(0, selected - maxRows + 1), Math.max(0, items.length - maxRows)) : 0
-  const compact = compactActivityItems(items.slice(start), maxRows)
+  // Keep the interactive list flat so every agent remains addressable; only
+  // the closed footer groups completed noise into the idle summary.
+  const displayItems = open ? items : groupIdleActivityItems(items)
+  const window = getActivityWindow(displayItems, maxRows, open ? selected : -1)
   // The selection cursor column is reserved on every row (closed or open) so the
   // content never shifts when opening/navigating; only the selected row fills it.
   const mainCursor = open && selected === -1 ? '❯ ' : '  '
@@ -315,15 +438,17 @@ export function ActivityFooter({
   return (
     <Box flexDirection="column" paddingLeft={2}>
       <Text color={selected === -1 ? colors.primary : colors.textDim}>{`${mainCursor}${mainIcon} ${mainLabel}`}</Text>
-      {compact.rows.map((item, index) => {
-        const isSelected = open && start + index === selected
+      {window.above > 0 && <Text color={colors.textSubtle}>{`  ↑ ${window.above} more activities`}</Text>}
+      {window.rows.map((item, index) => {
+        const isSelected = open && window.start + index === selected
+        const decoration = item.kind === 'agent' ? taskDecorations?.get(item.agent.id) : undefined
         return (
-          <Text key={`${item.kind}-${item.id}`} color={item.active ? colors.text : colors.textDim}>
-            {`${isSelected ? '❯ ' : '  '}${formatActivityItem(item, open ? columns - 4 : columns - 2, now, isSelected ? '●' : undefined)}`}
+          <Text key={`${item.kind}-${item.id}`} color={item.active && (item.kind !== 'workflow' || item.controllable) ? colors.text : colors.textDim}>
+            {`${isSelected ? '❯ ' : '  '}${formatActivityItem(item, open ? columns - 4 : columns - 2, now, isSelected ? '●' : undefined, decoration)}`}
           </Text>
         )
       })}
-      {compact.overflow > 0 && <Text color={colors.textSubtle}>{`  … +${compact.overflow} activities`}</Text>}
+      {window.below > 0 && <Text color={colors.textSubtle}>{open ? `  ↓ ${window.below} more activities` : `  … +${window.below} activities`}</Text>}
       {open && <Text color={colors.textSubtle}>{feedback || buildActionHint(items[selected])}</Text>}
     </Box>
   )

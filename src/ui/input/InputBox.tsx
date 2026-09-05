@@ -244,6 +244,10 @@ export function InputBox({
       onModeChange?.()
       return
     }
+    if (activityAvailable && cursor.text.length === 0 && !showDropdown && !showFileDropdown && (key.downArrow || key.leftArrow)) {
+      onActivityOpen?.()
+      return
+    }
     if (input.startsWith('\x1b')) return
     if (input.length === 1 && input.charCodeAt(0) < 32 && !key.ctrl) return
 
@@ -340,11 +344,6 @@ export function InputBox({
       setSelectedIdx(0)
       historyRef.current.reset()
       setVimState(createVimState)
-      return
-    }
-
-    if (activityAvailable && key.downArrow && cursor.text.length === 0 && !showDropdown && !showFileDropdown) {
-      onActivityOpen?.()
       return
     }
 

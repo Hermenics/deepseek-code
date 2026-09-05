@@ -9,14 +9,26 @@ import type { TaskRecordV1 } from '../orchestration/types.js'
 import { discoverWorkflows } from './discovery.js'
 import { executeWorkflowScript, type WorkflowExecution } from './runtime.js'
 import { formatWorkflowSource, isWorkflowName, parseWorkflowSource } from './parser.js'
-import { WorkflowApprovalStore, WorkflowStore, hashWorkflowValue, type WorkflowJournal, type WorkflowJournalEntry } from './storage.js'
-import type {
-  WorkflowAgentOptions, WorkflowEvent, WorkflowFailure, WorkflowResult, WorkflowRpcResult, WorkflowRun, WorkflowRunOptions, WorkflowUsage,
+import {
+  WORKFLOW_ACTIVE_STATUSES, WORKFLOW_LEASE_HEARTBEAT_MS, WorkflowApprovalStore, WorkflowStore, hashWorkflowValue,
+  isWorkflowRunActive, type WorkflowJournal, type WorkflowJournalEntry, type WorkflowRunLease,
+} from './storage.js'
+import {
+  WORKFLOW_EFFORT_LEVELS,
+  type WorkflowAgentOptions, type WorkflowEffort, type WorkflowEvent, type WorkflowFailure, type WorkflowRef, type WorkflowResult,
+  type WorkflowRpcResult, type WorkflowRun, type WorkflowRunOptions, type WorkflowUsage,
 } from './types.js'
 
 const MAX_AGENTS = 17
 const MAX_CONCURRENCY = 16
 const RUN_ID_INPUT = /^[a-f0-9-]{4,36}$/i
+const MAX_SCRIPT_FILE_BYTES = 256 * 1024
+
+/** Subagents understand low/high/max; the two intermediate Claude Code tiers round to their neighbours. */
+export function toSubagentEffort(effort: WorkflowEffort | undefined): 'low' | 'high' | 'max' | undefined {
+  if (!effort) return undefined
+  return effort === 'medium' ? 'high' : effort === 'xhigh' ? 'max' : effort
+}
 
 export interface WorkflowAgentRequest {
   prompt: string
@@ -55,6 +67,19 @@ export interface StartWorkflowInput {
   timeoutMs?: number
   maxTokens?: number
   maxCostUsd?: number
+  /**
+   * Replay the journal of an earlier run (by full or unique-prefix id) even when the script
+   * changed: the longest prefix of agent() calls whose arguments match returns cached results,
+   * and the first edited or new call plus everything after it runs live.
+   */
+  resumeFromRunId?: string
+}
+
+/** What the `workflow` tool and slash commands accept before a script is resolved. */
+export interface WorkflowScriptSource {
+  script?: string
+  scriptPath?: string
+  name?: string
 }
 
 export interface WorkflowHandle {
@@ -67,6 +92,8 @@ export interface WorkflowManagerEvent {
   type: 'run' | 'runtime'
   run: WorkflowRun
   event?: WorkflowEvent
+  /** Task snapshot changed in the workflow's own registry. */
+  taskId?: string
 }
 
 interface ActiveRun {
@@ -87,10 +114,21 @@ interface ActiveRun {
   budgetExhausted: boolean
   /** Phase each spawned agent belonged to, captured at spawn time because `record.phase` moves on. */
   agentPhases: Map<string, string>
+  lease?: WorkflowRunLease
+  leaseTimer?: ReturnType<typeof setInterval>
+  leaseHeartbeat?: Promise<void>
+  leaseErrorReported?: boolean
+  completion?: Promise<WorkflowResult>
+  /** Resolves once startup either installed a completion promise or cleaned up after failure. */
+  startupCompletion: Promise<void>
 }
 
-function resultOf(run: WorkflowRun): WorkflowResult {
-  return { runId: run.runId, status: run.status, result: run.result ?? null, ...(run.error ? { error: run.error } : {}), usage: run.usage, failures: run.failures, worktrees: run.worktrees }
+function resultOf(run: WorkflowRun, store: WorkflowStore): WorkflowResult {
+  return {
+    runId: run.runId, status: run.status, result: run.result ?? null, ...(run.error ? { error: run.error } : {}),
+    usage: run.usage, failures: run.failures, worktrees: run.worktrees,
+    scriptPath: store.scriptPath(run.runId), journalPath: store.journalPath(run.runId),
+  }
 }
 
 function validateAgentOptions(value: unknown): WorkflowAgentOptions {
@@ -103,7 +141,7 @@ function validateAgentOptions(value: unknown): WorkflowAgentOptions {
   if (options.schema !== undefined && (!options.schema || typeof options.schema !== 'object' || Array.isArray(options.schema) || (options.schema as Record<string, unknown>).type !== 'object')) {
     throw new Error("agent option 'schema' must be a JSON Schema with type 'object'")
   }
-  if (options.effort !== undefined && !['low', 'high', 'max'].includes(String(options.effort))) throw new Error("agent option 'effort' must be low, high, or max")
+  if (options.effort !== undefined && !WORKFLOW_EFFORT_LEVELS.includes(options.effort as WorkflowEffort)) throw new Error(`agent option 'effort' must be one of ${WORKFLOW_EFFORT_LEVELS.join(', ')}`)
   if (options.isolation !== undefined && options.isolation !== 'worktree') throw new Error("agent option 'isolation' must be worktree")
   for (const key of ['timeoutMs', 'maxTokens'] as const) {
     if (options[key] !== undefined && (typeof options[key] !== 'number' || !Number.isFinite(options[key]) || options[key] <= 0)) throw new Error(`agent option '${key}' must be positive`)
@@ -134,7 +172,12 @@ export class WorkflowManager {
   }
 
   hasActiveRuns(): boolean {
-    return [...this.active.values()].some(active => ['queued', 'running', 'paused'].includes(active.record.status))
+    return [...this.active.values()].some(active => isWorkflowRunActive(active.record))
+  }
+
+  /** Where this project's persisted runs (scripts, journals) live; reading it is not user-data access. */
+  get stateDirectory(): string {
+    return this.store.projectDirectory
   }
 
   findTask(taskId: string): { workflowRunId: string; task: TaskRecordV1; workflowPhase: string | null } | undefined {
@@ -155,7 +198,15 @@ export class WorkflowManager {
   }
 
   async shutdown(reason = 'Workflow manager shutdown'): Promise<void> {
-    await Promise.all([...this.active.values()].filter(active => ['queued', 'running', 'paused'].includes(active.record.status)).map(active => this.cancel(active.record.runId, reason)))
+    const runs = [...this.active.values()].filter(active => isWorkflowRunActive(active.record))
+    await Promise.all(runs.map(async active => {
+      // start() publishes a queued ActiveRun before its disk/lease setup can finish. Wait for
+      // that barrier so shutdown cannot return before the run has a completion promise to cancel.
+      await active.startupCompletion
+      if (this.active.get(active.record.runId) !== active) return
+      await this.cancel(active.record.runId, reason)
+      if (active.completion) await active.completion
+    }))
   }
 
   subscribe(listener: (event: WorkflowManagerEvent) => void): () => void {
@@ -168,8 +219,8 @@ export class WorkflowManager {
     for (const active of this.active.values()) active.session.setCallbacks(this.callbacks)
   }
 
-  private publish(active: ActiveRun, event?: WorkflowEvent): void {
-    const payload: WorkflowManagerEvent = { type: event ? 'runtime' : 'run', run: structuredClone(active.record), ...(event ? { event } : {}) }
+  private publish(active: ActiveRun, event?: WorkflowEvent, taskId?: string): void {
+    const payload: WorkflowManagerEvent = { type: event ? 'runtime' : 'run', run: structuredClone(active.record), ...(event ? { event } : {}), ...(taskId ? { taskId } : {}) }
     for (const listener of this.listeners) listener(payload)
   }
 
@@ -216,28 +267,126 @@ export class WorkflowManager {
       snapshotFile: null,
     })
     session.setCallbacks(this.callbacks)
+    let resolveStartup!: () => void
+    const startupCompletion = new Promise<void>(resolve => { resolveStartup = resolve })
     const active: ActiveRun = {
       record, script: input.script, args: input.args ?? {}, store: this.store,
       journal: { schemaVersion: 1, scriptHash, argsHash, optionsHash, entries: [] },
-      replay: await this.store.findReplay(scriptHash, argsHash, optionsHash), replayValid: true, nextCall: 0,
+      replay: undefined, replayValid: true, nextCall: 0,
       session, controller: new AbortController(), pauseWaiters: [], persistChain: Promise.resolve(), budgetExhausted: false,
       agentPhases: new Map(),
+      startupCompletion,
     }
     this.active.set(runId, active)
+    this.publish(active)
+    session.subscribe(event => {
+      if (event.taskId && ['task_created', 'state_changed', 'metrics_updated', 'workspace_updated', 'metadata_updated'].includes(event.type)) {
+        this.publish(active, undefined, event.taskId)
+      }
+    })
     try {
+      active.replay = await this.selectReplay(input, scriptHash, argsHash, optionsHash)
       await this.store.createRun(record, input.script, input.args ?? {})
+      active.lease = await this.store.acquireRunLease(runId, record.sessionId)
+      active.leaseTimer = setInterval(() => {
+        const lease = active.lease
+        if (!lease || active.leaseHeartbeat) return
+        const heartbeat = this.store.heartbeatRunLease(lease).then(alive => {
+          if (!alive && !active.leaseErrorReported) {
+            active.leaseErrorReported = true
+            try { this.callbacks.onError?.(runId, 'Workflow lease was lost; keeping the run available for safe recovery.') } catch { /* lease diagnostics must not interrupt the workflow */ }
+          }
+        }).catch(error => {
+          if (!active.leaseErrorReported) {
+            active.leaseErrorReported = true
+            try { this.callbacks.onError?.(runId, `Failed to renew workflow lease: ${(error as Error).message}`) } catch { /* lease diagnostics must not interrupt the workflow */ }
+          }
+        })
+        active.leaseHeartbeat = heartbeat
+        void heartbeat.finally(() => {
+          if (active.leaseHeartbeat === heartbeat) active.leaseHeartbeat = undefined
+        })
+      }, WORKFLOW_LEASE_HEARTBEAT_MS)
+      ;(active.leaseTimer as unknown as { unref?: () => void }).unref?.()
       record.status = 'running'
       record.startedAt = new Date().toISOString()
       await this.persist(active)
+      this.publish(active)
+
+      const runPromise = this.run(active, input)
+      active.completion = runPromise
+      resolveStartup()
+      return { runId, result: runPromise, cancel: reason => { void this.cancel(runId, reason) } }
     } catch (error) {
+      record.status = 'failed'
+      record.error = (error as Error).message
+      record.completedAt = new Date().toISOString()
+      this.publish(active)
+      // createRun can succeed before lease acquisition or the first running
+      // persist fails. Keep the durable record terminal instead of leaving a
+      // queued run that can never be replayed automatically.
+      try { await active.store.writeRun(record) }
+      catch (persistError) {
+        try { this.callbacks.onError?.(runId, `Failed to persist workflow startup failure: ${(persistError as Error).message}`) }
+        catch { /* startup diagnostics must not mask the original error */ }
+      }
       this.active.delete(runId)
-      await session.shutdown('Workflow failed to start')
+      if (active.leaseTimer) clearInterval(active.leaseTimer)
+      await active.leaseHeartbeat?.catch(() => undefined)
+      if (active.lease) await this.store.releaseRunLease(active.lease).catch(() => undefined)
+      try { await session.shutdown('Workflow failed to start') }
+      catch (shutdownError) {
+        try { this.callbacks.onError?.(runId, `Failed to shut down workflow startup: ${(shutdownError as Error).message}`) } catch { /* startup diagnostics must not mask the original error */ }
+      }
+      resolveStartup()
       throw error
     }
-    this.publish(active)
+  }
 
-    const runPromise = this.run(active, input)
-    return { runId, result: runPromise, cancel: reason => { void this.cancel(runId, reason) } }
+  /**
+   * An explicit resume replays the named run's journal regardless of script changes — call
+   * fingerprints decide how far the cached prefix reaches. Without one, an identical
+   * script/args/options combination silently reuses its most complete earlier journal.
+   */
+  private async selectReplay(input: StartWorkflowInput, scriptHash: string, argsHash: string, optionsHash: string): Promise<WorkflowJournal | undefined> {
+    if (!input.resumeFromRunId) return this.store.findReplay(scriptHash, argsHash, optionsHash)
+    const resolved = await this.resolveRunId(input.resumeFromRunId)
+    const source = resolved ? await this.store.readRun(resolved) : undefined
+    if (source && isWorkflowRunActive(source) && await this.store.hasLiveLease(source)) {
+      throw new Error(`Workflow run '${input.resumeFromRunId}' is still active; stop it before replaying`)
+    }
+    const journal = resolved ? await this.store.readJournal(resolved) : undefined
+    if (!journal) throw new Error(`Workflow run '${input.resumeFromRunId}' has no journal to resume from`)
+    return journal
+  }
+
+  /** Resolves the tool's script/scriptPath/name inputs to executable source without running it. */
+  async resolveScript(source: WorkflowScriptSource): Promise<{ script: string; name?: string }> {
+    if (typeof source.script === 'string' && source.script.trim()) return { script: source.script, ...(source.name ? { name: source.name } : {}) }
+    if (typeof source.scriptPath === 'string' && source.scriptPath.trim()) return { script: await this.readScriptPath(source.scriptPath), ...(source.name ? { name: source.name } : {}) }
+    if (typeof source.name === 'string' && source.name.trim()) {
+      if (!isWorkflowName(source.name)) throw new Error('Invalid workflow name')
+      const script = await this.loadWorkflow(source.name)
+      if (!script) throw new Error(`Workflow '${source.name}' not found in .deepseek/workflows`)
+      return { script, name: source.name }
+    }
+    throw new Error('Provide a workflow script, a scriptPath, or the name of a saved workflow')
+  }
+
+  /**
+   * Script files may only come from the project itself or from this project's persisted run
+   * directory, so a workflow cannot be pointed at an arbitrary file on disk.
+   */
+  async readScriptPath(path: string): Promise<string> {
+    const requested = resolve(this.options.projectRoot, path)
+    let real: string
+    try { real = await realpath(requested) } catch { throw new Error(`Workflow script not found: ${path}`) }
+    const roots = await Promise.all([this.options.projectRoot, this.store.projectDirectory].map(root => realpath(root).catch(() => resolve(root))))
+    if (!roots.some(root => contained(root, real))) throw new Error('Workflow scriptPath must live inside the project or its persisted workflow runs')
+    const stats = await lstat(real)
+    if (!stats.isFile()) throw new Error(`Workflow script is not a file: ${path}`)
+    if (stats.size > MAX_SCRIPT_FILE_BYTES) throw new Error(`Workflow script exceeds ${MAX_SCRIPT_FILE_BYTES} bytes`)
+    return readFile(real, 'utf8')
   }
 
   private async run(active: ActiveRun, input: StartWorkflowInput): Promise<WorkflowResult> {
@@ -256,6 +405,13 @@ export class WorkflowManager {
       active.record.usage = { ...runtime.usage, agents: active.record.usage.agents }
       active.record.status = active.structuralError ? 'failed' : active.budgetExhausted ? 'budget_exhausted' : 'completed'
       if (active.structuralError) active.record.error = active.structuralError
+      else if (active.budgetExhausted) {
+        // A run that stops on its budget returns a partial value with nulls; say so explicitly,
+        // otherwise the caller has to infer it from a status word and an empty failure list.
+        const skipped = active.journal.entries.filter(entry => entry.budgetExhausted && entry.result === null).length
+        const limit = [input.maxTokens !== undefined ? `${input.maxTokens} tokens` : '', input.maxCostUsd !== undefined ? `$${input.maxCostUsd}` : ''].filter(Boolean).join(' / ')
+        active.record.error = `Budget of ${limit} exhausted after ${active.record.usage.agents} agent(s) and ${active.record.usage.tokens} tokens; ${skipped} agent() call(s) returned null. Relaunch with a higher budget or none, passing resumeFromRunId to keep the completed results.`
+      }
     } catch (error) {
       const message = (error as Error).message
       active.record.error = message
@@ -264,16 +420,29 @@ export class WorkflowManager {
       else active.record.status = 'failed'
     } finally {
       active.record.completedAt = new Date().toISOString()
-      await active.session.shutdown(`Workflow ${active.record.status}`)
       try {
+        try { await active.session.shutdown(`Workflow ${active.record.status}`) }
+        catch (error) {
+          try { this.callbacks.onError?.(active.record.runId, `Failed to shut down workflow session: ${(error as Error).message}`) } catch { /* cleanup diagnostics must not interrupt completion */ }
+        }
         try { await this.persist(active) }
         catch (error) {
           try { this.callbacks.onError?.(active.record.runId, `Failed to persist workflow result: ${(error as Error).message}`) } catch { /* reporting must not break cleanup */ }
         }
         this.publish(active)
-      } finally { this.active.delete(active.record.runId) }
+      } finally {
+        if (active.leaseTimer) clearInterval(active.leaseTimer)
+        await active.leaseHeartbeat
+        if (active.lease) {
+          try { await active.store.releaseRunLease(active.lease) }
+          catch (error) {
+            try { this.callbacks.onError?.(active.record.runId, `Failed to release workflow lease: ${(error as Error).message}`) } catch { /* cleanup diagnostics must not interrupt completion */ }
+          }
+        }
+        this.active.delete(active.record.runId)
+      }
     }
-    return resultOf(active.record)
+    return resultOf(active.record, active.store)
   }
 
   private async waitIfPaused(active: ActiveRun): Promise<void> {
@@ -289,7 +458,9 @@ export class WorkflowManager {
   private replayEntry(active: ActiveRun, index: number, fingerprint: string): WorkflowJournalEntry | undefined {
     if (!active.replayValid) return undefined
     const entry = active.replay?.entries[index]
-    if (!entry || entry.status !== 'completed' || entry.fingerprint !== fingerprint) {
+    // A null produced by an exhausted budget is an artifact of the earlier run's limits, not a
+    // result: replaying it would carry the exhaustion into a run that may have a larger budget.
+    if (!entry || entry.status !== 'completed' || entry.fingerprint !== fingerprint || entry.budgetExhausted) {
       active.replayValid = false
       return undefined
     }
@@ -304,7 +475,6 @@ export class WorkflowManager {
     const replay = this.replayEntry(active, index, fingerprint)
     if (replay) {
       active.journal.entries[index] = { ...replay, index, usage: replay.usage }
-      if (replay.budgetExhausted) active.budgetExhausted = true
       active.record.usage.agents += replay.usage?.agents ?? (method === 'agent' ? 1 : 0)
       active.record.usage.tokens += replay.usage?.tokens ?? 0
       active.record.usage.costUsd += replay.usage?.costUsd ?? 0
@@ -320,7 +490,9 @@ export class WorkflowManager {
       const reply = method === 'agent'
         ? await this.runAgent(active, args, input, index)
         : await this.runChild(active, args, input, index)
-      const usage = { ...reply.usage, agents: reply.usage?.agents ?? active.record.usage.agents - initialAgents }
+      // Concurrent calls admit agents while this one is in flight, so the run-level counter
+      // cannot attribute agents per call; a plain agent() is exactly one agent.
+      const usage = { ...reply.usage, agents: reply.usage?.agents ?? (method === 'agent' ? 1 : active.record.usage.agents - initialAgents) }
       Object.assign(entry, { status: 'completed', result: reply.value, usage, budgetExhausted: active.budgetExhausted || undefined, timestamp: new Date().toISOString() })
       await this.persist(active)
       return reply
@@ -356,6 +528,9 @@ export class WorkflowManager {
       this.publish(active, { type: 'phase', value: options.phase, timestamp: new Date().toISOString() })
     }
     if (typeof prompt !== 'string' || !prompt.trim()) throw new Error('agent prompt must be a non-empty string')
+    // A phase declared with `model` in meta.phases applies to every agent in it that has no override.
+    const phaseModel = active.record.meta.phases?.find(phase => phase.title === (options.phase ?? active.record.phase))?.model
+    if (!options.model && phaseModel) options = { ...options, model: phaseModel }
     const interactionMode = this.options.interactionMode?.() ?? 'build'
     if (['plan', 'review'].includes(interactionMode) && options.isolation === 'worktree') throw new Error(`Writer agents are blocked in ${interactionMode} mode`)
     active.record.usage.agents++
@@ -365,7 +540,10 @@ export class WorkflowManager {
       const phaseAtSpawn = active.record.phase
       const reply = await runner({
         prompt, options, session: active.session, interactionMode, signal: active.controller.signal,
-        onSpawn: taskId => { if (phaseAtSpawn) active.agentPhases.set(taskId, phaseAtSpawn) },
+        onSpawn: taskId => {
+          if (phaseAtSpawn) active.agentPhases.set(taskId, phaseAtSpawn)
+          this.publish(active, undefined, taskId)
+        },
       })
       active.record.usage.tokens += reply.usage?.tokens ?? 0
       active.record.usage.costUsd += reply.usage?.costUsd ?? 0
@@ -383,22 +561,32 @@ export class WorkflowManager {
   }
 
   private async runChild(active: ActiveRun, args: unknown[], input: StartWorkflowInput, callIndex: number): Promise<WorkflowRpcResult> {
-    const name = args[0]
-    if (typeof name !== 'string' || !isWorkflowName(name)) {
-      active.structuralError = 'Invalid child workflow name'
+    const ref = args[0] as WorkflowRef
+    const byPath = typeof ref === 'object' && ref !== null && typeof ref.scriptPath === 'string'
+    if (!byPath && (typeof ref !== 'string' || !isWorkflowName(ref))) {
+      active.structuralError = 'Invalid child workflow reference'
       throw new Error(active.structuralError)
     }
-    const source = await this.loadWorkflow(name)
-    if (!source) throw new Error(`Workflow '${name}' not found`)
-    const approved = await new WorkflowApprovalStore(this.options.projectRoot).isApproved(hashWorkflowValue(source))
-    if (!approved) throw new Error(`Child workflow '${name}' requires approval before execution`)
+    const source = byPath ? await this.readScriptPath(ref.scriptPath) : await this.loadWorkflow(ref as string)
+    if (!source) throw new Error(`Workflow '${String(ref)}' not found`)
+    // The parent run was already authorized; Auto mode extends that to its children, other modes
+    // still require the child script itself to have been approved once.
+    const autoMode = (this.options.interactionMode?.() ?? 'build') === 'auto'
+    const approved = autoMode || await new WorkflowApprovalStore(this.options.projectRoot).isApproved(hashWorkflowValue(source))
+    const childName = byPath ? parseWorkflowSource(source).meta.name : ref as string
+    if (!approved) throw new Error(`Child workflow '${childName}' requires approval before execution`)
     const initialAgents = active.record.usage.agents
+    // Child agents land under a `▸ name` group in the monitor, as Claude Code renders them.
+    const group = `▸ ${childName}`
+    this.setPhase(active, group)
+    this.publish(active, { type: 'phase', value: group, timestamp: new Date().toISOString() })
     const execution = executeWorkflowScript({
       script: source, args: args[1] ?? {}, timeoutMs: input.timeoutMs,
       maxTokens: input.maxTokens, maxCostUsd: input.maxCostUsd, signal: active.controller.signal,
       onEvent: event => {
-        if (event.type === 'phase') this.setPhase(active, event.value)
-        this.publish(active, event)
+        const scoped = event.type === 'phase' ? { ...event, value: `${group} · ${event.value}` } : event
+        if (scoped.type === 'phase') this.setPhase(active, scoped.value)
+        this.publish(active, scoped)
       },
       onCall: async (method, childArgs) => {
         if (method === 'workflow') throw new Error('Child workflows cannot start another workflow')
@@ -418,8 +606,8 @@ export class WorkflowManager {
   private async resolveRunId(runId: string): Promise<string | undefined> {
     if (!RUN_ID_INPUT.test(runId)) return undefined
     if (this.active.has(runId) || await this.store.readRun(runId)) return runId
-    const matches = (await this.store.listRuns()).filter(run => run.runId.startsWith(runId))
-    return matches.length === 1 ? matches[0]!.runId : undefined
+    const matches = await this.store.findRunIdsByPrefix(runId)
+    return matches.length === 1 ? matches[0] : undefined
   }
 
   async pause(runId: string): Promise<boolean> {
@@ -444,15 +632,17 @@ export class WorkflowManager {
 
   async cancel(runId: string, reason = 'Workflow cancelled by user'): Promise<boolean> {
     const active = this.active.get(await this.resolveRunId(runId) ?? '')
-    if (!active || !['queued', 'running', 'paused'].includes(active.record.status)) return false
+    if (!active || !isWorkflowRunActive(active.record)) return false
     active.controller.abort(new Error(reason))
     active.execution?.cancel(reason)
     for (const resume of active.pauseWaiters.splice(0)) resume()
     return true
   }
 
+  /** Relaunches a run from its persisted script and args, reusing its journal even if it was interrupted. */
   async restart(runId: string): Promise<WorkflowHandle> {
-    return this.start(await this.loadRunInput(runId))
+    const resolved = await this.resolveRunId(runId)
+    return this.start({ ...await this.loadRunInput(runId), ...(resolved ? { resumeFromRunId: resolved } : {}) })
   }
 
   async loadRunInput(runId: string): Promise<StartWorkflowInput> {
@@ -494,7 +684,38 @@ export class WorkflowManager {
 
   async list(): Promise<WorkflowRun[]> {
     const persisted = await this.store.listRuns()
-    return persisted.map(run => this.active.get(run.runId)?.record ?? run)
+    return [...this.active.values()].map(active => active.record).concat(persisted.filter(run => !this.active.has(run.runId)))
+  }
+
+  /**
+   * Lists only currently live workflow activity. Historical runs deliberately remain in list();
+   * an active status in run.json is not enough to put a row in the footer after a crash. A local
+   * in-memory run is authoritative, while another session must prove ownership with a fresh lease.
+   */
+  async listActiveRuns(now = Date.now()): Promise<WorkflowRun[]> {
+    const persisted = await this.store.listActiveRuns()
+    const live: WorkflowRun[] = [...this.active.values()].map(active => active.record).filter(isWorkflowRunActive)
+    for (const run of persisted) {
+      if (!WORKFLOW_ACTIVE_STATUSES.has(run.status)) continue
+      const active = this.active.get(run.runId)
+      if (active) continue
+      if (await this.store.hasLiveLease(run, now)) live.push(run)
+    }
+    return live
+  }
+
+  /**
+   * UI-safe view: all terminal history plus only active runs with a local authority or fresh
+   * cross-session lease. The complete historical list remains available through list()/formatRuns.
+   */
+  async listActivityRuns(now = Date.now()): Promise<WorkflowRun[]> {
+    const [history, active] = await Promise.all([this.list(), this.listActiveRuns(now)])
+    const activeIds = new Set(active.map(run => run.runId))
+    const activity = history.filter(run => !isWorkflowRunActive(run) || activeIds.has(run.runId))
+    const historyIds = new Set(activity.map(run => run.runId))
+    // Active runs have their own unbounded scan, so a long-lived run outside the 100-entry
+    // history window still appears in the footer/activity view.
+    return [...activity, ...active.filter(run => !historyIds.has(run.runId))]
   }
 
   async formatRuns(): Promise<string> {
@@ -521,7 +742,7 @@ async function defaultAgentRunner(request: WorkflowAgentRequest): Promise<Workfl
     ...(request.options.label ? { label: request.options.label } : {}),
     ...(request.options.model ? { model: request.options.model } : {}),
     ...(request.options.agentType ? { agent: request.options.agentType } : {}),
-    ...(request.options.effort ? { effort: request.options.effort } : {}),
+    ...(request.options.effort ? { effort: toSubagentEffort(request.options.effort) } : {}),
     ...(readOnly ? { role: 'reader' } : request.options.isolation === 'worktree' ? { role: 'writer' } : {}),
     ...(request.options.timeoutMs ? { timeoutMs: request.options.timeoutMs } : {}),
     ...(request.options.maxTokens !== undefined ? { maxTokens: request.options.maxTokens } : {}),

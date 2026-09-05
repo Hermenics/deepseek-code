@@ -103,7 +103,7 @@ Each provider also exposes provider-specific models (Bedrock, Vertex, local).
 
 The agent has access to these tools out of the box:
 
-`ReadFile` · `WriteFile` · `PatchFile` · `Shell` · `Glob` · `Grep` · `Git` · `ReadFolder` · `WebFetch` · `SubAgent` · `Memory` · `Todo` · `Introspect` · `MoA`
+`ReadFile` · `WriteFile` · `EditFile` · `PatchFile` · `Shell` · `Glob` · `Grep` · `Lsp` · `Git` · `ReadFolder` · `WebFetch` · `SubAgent` · `AskAgent` · `Workflow` · `Memory` · `Todo` · `Introspect` · `MoA` · `AskUserQuestions`
 
 ## TUI behavior
 

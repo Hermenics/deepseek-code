@@ -126,6 +126,11 @@ export async function runSubAgentLoop<T = never>(
     const isVerifier = agentId.endsWith('-v')
     if (!isVerifier && totalTokens > 0) options.context?.emit?.('token_progress', { tokens: totalTokens })
     if (options.context?.maxTokens !== undefined && totalTokens > options.context.maxTokens) {
+      // The tokens were spent even though the task fails; record them so budgets and the
+      // workflow journal see the real cost instead of zero.
+      if (options.context.taskId && options.context.session) {
+        try { options.context.session.registry.updateMetrics(options.context.taskId, { tokens: totalTokens, usageAvailable: true }) } catch { /* metrics are best-effort */ }
+      }
       throw new TaskRuntimeError('TOKEN_BUDGET_EXCEEDED', `Subagent used ${totalTokens} tokens; limit is ${options.context.maxTokens}`)
     }
     const message = response.choices[0]?.message

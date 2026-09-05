@@ -92,7 +92,7 @@ if (process.stdout.isTTY) process.stdout.write('\x1b]0;DeepSeek\x07')
 import { useState, useEffect } from 'react'
 import { writeSync } from 'fs'
 import { createRoot } from '../ink/root.js'
-import { App } from '../ui/App.js'
+import { App, getTrustedUserStatusLineConfig } from '../ui/App.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
 import { AlternateScreen } from '../ink/components/AlternateScreen.js'
@@ -104,7 +104,7 @@ import { migrateConfigIfNeeded, logout as doLogout } from '../utils/credentials.
 import { getGlobalPackageManagers } from '../utils/bun-global-package.js'
 import { loadAgentConfig, type LoadedAgent } from '../agent/config.js'
 import { getLastProjectSession, listSessions, loadSession, newSessionId, type SessionData } from '../agent/session.js'
-import { loadMergedSettings } from '../settings/loader.js'
+import { loadSettingsSnapshot } from '../settings/repository.js'
 import type { DeepSeekSettings } from '../settings/types.js'
 import { formatExitScreen } from '../utils/exitScreen.js'
 import { relaunchCurrentInvocation } from '../utils/relaunch.js'
@@ -306,16 +306,22 @@ function Root() {
   const [savedEnchant, setSavedEnchant] = useState<boolean>(false)
   const [initialSettings, setInitialSettings] = useState<DeepSeekSettings>({})
   const [alternateScreen, setAlternateScreen] = useState(false)
+  const [workspaceTrusted, setWorkspaceTrusted] = useState(false)
 
   useEffect(() => {
     const init = async () => {
       try {
         const { agentName, initialMessage: msg, resumeId, resumePicker } = ARGV
         await migrateConfigIfNeeded()
-        const [{ providerConfig: saved, theme: savedTheme, language, enchant }, settings] = await Promise.all([
+        const [{ providerConfig: saved, theme: savedTheme, language, enchant }, settingsSnapshot] = await Promise.all([
           loadSavedConfig(),
-          loadMergedSettings(),
+          loadSettingsSnapshot(),
         ])
+        const settings = settingsSnapshot.effective
+        // Executable status-line commands are trusted only from the user
+        // scope. Project/local values are omitted from effective settings by
+        // the repository and never enable this flag.
+        setWorkspaceTrusted(getTrustedUserStatusLineConfig(settingsSnapshot.levels.user.data) !== undefined)
 
         setTheme(savedTheme)
         setInitialSettings(settings)
@@ -409,6 +415,7 @@ function Root() {
       headerAgent={initialAgent?.config.name ?? null}
       initialSettings={initialSettings}
       alternateScreen={alternateScreen}
+      workspaceTrusted={workspaceTrusted}
       onExit={() => cleanExit(0)}
     />
   )

@@ -69,9 +69,11 @@ const workflowProgram = async function () {
     __spentCost += reply.usage?.costUsd ?? 0;
     return reply.value;
   };
-  const workflow = async (name, childArgs = {}) => {
-    if (typeof name !== 'string' || !name.trim()) throw new Error('workflow name must be a non-empty string');
-    const reply = await __call('workflow', [name, childArgs]);
+  const workflow = async (ref, childArgs = {}) => {
+    const named = typeof ref === 'string' && ref.trim();
+    const byPath = ref && typeof ref === 'object' && typeof ref.scriptPath === 'string' && ref.scriptPath.trim();
+    if (!named && !byPath) throw new Error('workflow expects a saved workflow name or { scriptPath }');
+    const reply = await __call('workflow', [named ? ref : { scriptPath: ref.scriptPath }, childArgs]);
     __agents += reply.usage?.agents ?? 0;
     __spentTokens += reply.usage?.tokens ?? 0;
     __spentCost += reply.usage?.costUsd ?? 0;
@@ -84,26 +86,45 @@ const workflowProgram = async function () {
     const settled = await Promise.allSettled(thunks.map(thunk => Promise.resolve().then(thunk)));
     return settled.map(item => item.status === 'fulfilled' ? item.value : null);
   };
+  // Every stage receives (previousResult, originalItem, index) so later stages can label work
+  // without threading context through the first stage's return value. A throwing stage drops
+  // the item to null and skips its remaining stages — items never block each other.
   const pipeline = async (items, ...stages) => {
     if (!Array.isArray(items)) throw new Error('pipeline expects an array');
     if (items.length > ${MAX_PIPELINE_ITEMS}) throw new Error('pipeline item limit exceeded');
     if (stages.some(stage => typeof stage !== 'function')) throw new Error('pipeline stages must be functions');
-    return Promise.all(items.map(async item => {
+    return Promise.all(items.map(async (item, index) => {
       try {
         let value = item;
-        for (const stage of stages) value = await stage(value);
+        for (const stage of stages) value = await stage(value, item, index);
         return value;
       } catch { return null; }
     }));
   };
   const log = value => { void __rpc('event', JSON.stringify(['log', String(value)])); };
   const phase = value => { void __rpc('event', JSON.stringify(['phase', String(value)])); };
+  // Same shape as Claude Code: total is the run's token ceiling (null when unbounded),
+  // spent()/remaining() are functions, and remaining() is Infinity without a ceiling.
   const budget = Object.freeze({
-    get spent() { return Object.freeze({ tokens: __spentTokens, costUsd: __spentCost }); },
-    get remaining() { return Object.freeze({
-      tokens: __limits.maxTokens == null ? null : Math.max(0, __limits.maxTokens - __spentTokens),
-      costUsd: __limits.maxCostUsd == null ? null : Math.max(0, __limits.maxCostUsd - __spentCost),
-    }); },
+    total: __limits.maxTokens == null ? null : __limits.maxTokens,
+    maxCostUsd: __limits.maxCostUsd == null ? null : __limits.maxCostUsd,
+    spent: () => __spentTokens,
+    remaining: () => __limits.maxTokens == null ? Infinity : Math.max(0, __limits.maxTokens - __spentTokens),
+    spentCostUsd: () => __spentCost,
+    remainingCostUsd: () => __limits.maxCostUsd == null ? Infinity : Math.max(0, __limits.maxCostUsd - __spentCost),
+  });
+  // Wall-clock and randomness would change agent prompts between runs and defeat resume, which
+  // replays the journal by matching each call's arguments. Timestamps belong in args instead.
+  const __nondeterministic = name => { throw new Error(name + ' is unavailable inside a workflow because it would break resume; pass timestamps or seeds through args'); };
+  const __Date = Date;
+  __Date.now = () => __nondeterministic('Date.now()');
+  Math.random = () => __nondeterministic('Math.random()');
+  globalThis.Date = new Proxy(__Date, {
+    construct(target, list, newTarget) {
+      if (list.length === 0) __nondeterministic('new Date()');
+      return Reflect.construct(target, list, newTarget);
+    },
+    apply() { return __nondeterministic('Date()'); },
   });
   Object.assign(globalThis, { agent, workflow, parallel, pipeline, log, phase, args, budget });
   return { usage: () => ({ agents: __agents, tokens: __spentTokens, costUsd: __spentCost }) };

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.7.0
+
+- Added: Dynamic Workflows reach parity with Claude Code's Workflow tool — `pipeline` stages receive `(previous, item, index)`, `budget` exposes `total`, `spent()` and `remaining()` (`Infinity` when unbounded) plus cost accessors, `workflow()` accepts `{ scriptPath }` as well as a saved name, `meta` accepts `whenToUse` and per-phase `model`, and `agent()` accepts the `low`/`medium`/`high`/`xhigh`/`max` effort tiers
+- Added: The `workflow` tool accepts `scriptPath`, a saved workflow `name`, and `resumeFromRunId`; every result now carries `scriptPath` and `journalPath`, and resuming replays the journaled result of every unchanged `agent()` call so an edited script only reruns from the first edited call
+- Added: Runs are located across earlier sessions of the same project, child workflow agents are grouped under `▸ name` in the monitor, and reading persisted workflow scripts and journals no longer prompts for outside-the-project access
+- Added: The activity footer now presents live agents and workflows in one navigable surface, keeps paused workflows and recently completed agents addressable, groups nested agents, shows live token/decorations, and marks runs owned by another session as read-only
+- Added: `shell` accepts `background=true` to create a controllable task handle with the same workspace, permission, timeout and cancellation rules as foreground execution
+- Added: An optional user-scoped `interface.subagentStatusLine` command receives the current activity snapshot as JSONL and can decorate footer rows; execution uses a scrubbed environment, bounded output and a hard timeout
+- Added: An `<environment>` packet (working directory, Git branch, platform, OS, shell, model, date) is delivered with the project context so models stop guessing where they are
+- Added: `model.maxOutputTokens` and `model.temperature` settings; the official DeepSeek API now always receives `max_tokens` so long file writes are no longer cut off at the provider's small default
+- Enhanced: The system prompt is rewritten as a compact, concrete operating guide (task loop, tool selection, scope discipline, care with irreversible actions, modes, communication) instead of an abstract policy manual; effort hints no longer inject generic "think step by step" filler
+- Enhanced: The `workflow` tool description documents the full script API with a canonical review-then-verify example, discourages self-imposed token budgets, and the `read_file`, `write_file` and `shell` descriptions steer the model toward the right tool; `read_file` returns 500 lines by default
+- Fixed: Tool calls whose arguments were cut off at the output-token limit or were otherwise invalid JSON are reported to the model as such instead of executing with empty arguments and surfacing as a schema error
+- Fixed: `shell` results include the exit code or timeout, and long output keeps both its head and its tail so a failing test run's verdict survives truncation
+- Fixed: Transient provider failures (408/409/5xx/529 and dropped connections) are retried with backoff, not only 429/503
+- Fixed: Replaying a journal no longer carries a previous run's budget exhaustion into a run with a larger budget, per-call agent accounting is correct under parallel fan-out, budget-exhausted runs explain what was skipped, and child workflows run without prior approval in Auto mode
+- Fixed: Activity counters no longer include workflow child agents, focused input is not sent to completed or shell tasks, retained terminal rows still open from the footer, and remote workflow activity refreshes without leaving stale rows; startup failures persist as terminal runs and release their leases
+- Fixed: Status-line timeouts terminate the shell process group (and its descendants where supported) when stdout stays open, and each refresh uses the agent's current working directory instead of a stale startup path
+- Fixed: The loading spinner only announces prompt refinement when the refiner is enabled
+- Fixed: The status bar shows the configured model as soon as settings load, initialization warnings are surfaced in the transcript, and `/workflow restart` (or `resume` on an interrupted run) relaunches over the run's journal instead of rerunning completed agents
+- Docs: Workflow reference updated in Introspect, the website and the project report for the new script API, tool inputs and resume flow
+- Tests: Add regression coverage for pipeline stage signatures, budget shape, nondeterminism guards, `resumeFromRunId`, `scriptPath` resolution and containment, Auto-mode children, phase models, effort mapping, budget replay, argument-parse feedback, shell truncation/background lifecycle, footer selection and retention, status-line trust/timeout/cwd, remote workflow polling, startup failure persistence and the environment packet
+
 ## 0.6.28
 
 - Added: Complete lifecycle hook coverage for prompt expansion, additional directories, configuration changes and idle teammates, alongside the existing session, tool, permission, task, compaction and worktree events

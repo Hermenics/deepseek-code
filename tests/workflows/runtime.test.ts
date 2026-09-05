@@ -108,3 +108,92 @@ describe('workflow runtime', () => {
     await expect(execution.result).rejects.toThrow('Script execution timed out')
   })
 })
+
+describe('workflow runtime — Claude Code parity', () => {
+  test('passes (previousResult, originalItem, index) to every pipeline stage', async () => {
+    const execution = executeWorkflowScript({
+      script: `
+        export const meta = {"name":"pipeline-signature"};
+        return pipeline(["a", "b"],
+          (value, item, index) => value.toUpperCase() + index,
+          (previous, item, index) => ({ previous, item, index }));
+      `,
+      onCall: async () => ({ value: null }),
+    })
+    expect((await execution.result).value).toEqual([
+      { previous: 'A0', item: 'a', index: 0 },
+      { previous: 'B1', item: 'b', index: 1 },
+    ])
+  })
+
+  test('exposes budget.total, spent() and remaining() and counts agent usage', async () => {
+    const execution = executeWorkflowScript({
+      script: `
+        export const meta = {"name":"budget-shape"};
+        const before = { total: budget.total, spent: budget.spent(), remaining: budget.remaining() };
+        await agent("one");
+        return { before, after: { spent: budget.spent(), remaining: budget.remaining(), cost: budget.spentCostUsd() } };
+      `,
+      maxTokens: 100,
+      onCall: async () => ({ value: 'ok', usage: { tokens: 30, costUsd: 0.5 } }),
+    })
+    expect((await execution.result).value).toEqual({
+      before: { total: 100, spent: 0, remaining: 100 },
+      after: { spent: 30, remaining: 70, cost: 0.5 },
+    })
+  })
+
+  test('reports an unbounded budget as remaining() === Infinity', async () => {
+    const execution = executeWorkflowScript({
+      script: 'export const meta = {"name":"budget-unbounded"}; return { total: budget.total, infinite: budget.remaining() === Infinity };',
+      onCall: async () => ({ value: null }),
+    })
+    expect((await execution.result).value).toEqual({ total: null, infinite: true })
+  })
+
+  test('rejects Date.now, Math.random and argless new Date because they break resume', async () => {
+    const execution = executeWorkflowScript({
+      script: `
+        export const meta = {"name":"deterministic"};
+        const attempt = fn => { try { fn(); return null; } catch (error) { return error.message; } };
+        return {
+          now: attempt(() => Date.now()),
+          random: attempt(() => Math.random()),
+          date: attempt(() => new Date()),
+          fixed: new Date(0).toISOString(),
+          fromArgs: new Date(args.stamp).getTime(),
+        };
+      `,
+      args: { stamp: 1_000 },
+      onCall: async () => ({ value: null }),
+    })
+    const value = (await execution.result).value as Record<string, unknown>
+    expect(String(value.now)).toContain('Date.now()')
+    expect(String(value.random)).toContain('Math.random()')
+    expect(String(value.date)).toContain('new Date()')
+    expect(value.fixed).toBe('1970-01-01T00:00:00.000Z')
+    expect(value.fromArgs).toBe(1_000)
+  })
+
+  test('forwards saved names and { scriptPath } references to the workflow RPC', async () => {
+    const refs: unknown[] = []
+    const execution = executeWorkflowScript({
+      script: `
+        export const meta = {"name":"child-refs"};
+        const a = await workflow("saved-child", { x: 1 });
+        const b = await workflow({ scriptPath: "/tmp/child.js" });
+        let invalid = null;
+        try { await workflow({}); } catch (error) { invalid = error.message; }
+        return { a, b, invalid };
+      `,
+      onCall: async (method, args) => { refs.push([method, args[0], args[1]]); return { value: 'child-done', usage: { agents: 2, tokens: 5 } } },
+    })
+    const result = await execution.result
+    expect(result.value).toEqual({ a: 'child-done', b: 'child-done', invalid: expect.stringContaining('scriptPath') })
+    expect(refs).toEqual([
+      ['workflow', 'saved-child', { x: 1 }],
+      ['workflow', { scriptPath: '/tmp/child.js' }, {}],
+    ])
+    expect(result.usage).toEqual({ agents: 4, tokens: 10, costUsd: 0 })
+  })
+})

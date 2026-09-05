@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Workflow } from '../../src/tools/Workflow/Workflow.js'
@@ -51,6 +51,7 @@ describe('Workflow tool', () => {
     let finish: (value: object) => void = () => {}
     const result = new Promise<object>(resolve => { finish = resolve })
     const manager = {
+      async resolveScript(source: { script?: string; name?: string }) { return { script: source.script ?? '', name: source.name } },
       async start() {
         return {
           runId: 'cancelled-run', result,
@@ -69,5 +70,28 @@ describe('Workflow tool', () => {
     controller.abort(new Error('parent stopped'))
     expect(JSON.parse(await output).status).toBe('cancelled')
     expect(cancelReason).toBe('parent stopped')
+  })
+})
+
+describe('Workflow tool — script sources', () => {
+  test('runs a saved workflow by name and returns the persisted script and journal paths', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-tool-'))
+    roots.push(root)
+    await mkdir(join(root, '.deepseek', 'workflows'), { recursive: true })
+    await writeFile(join(root, '.deepseek', 'workflows', 'greet.js'), 'export const meta = {"name":"greet"}; return agent("hi " + args.who);')
+    const manager = new WorkflowManager({
+      sessionId: 'tool-session', projectRoot: root, baseDirectory: join(root, 'state'),
+      providerConfig: { provider: 'deepseek' }, agentRunner: async request => ({ value: request.prompt, usage: { tokens: 1 } }),
+    })
+    const context = { sessionId: 'tool-session', workspacePath: root, projectRoot: root, permissionProfile: 'coordinator-integrator' as const, workflowManager: manager, interactionMode: 'build' as const }
+    const output = JSON.parse(await Workflow.execute({ name: 'greet', args: { who: 'marcelo' } }, context))
+    expect(output).toMatchObject({ status: 'completed', result: 'hi marcelo' })
+    expect(output.scriptPath).toEndWith('workflow.js')
+    expect(output.journalPath).toEndWith('journal.json')
+
+    const resumed = JSON.parse(await Workflow.execute({ scriptPath: output.scriptPath, resumeFromRunId: output.runId, args: { who: 'marcelo' } }, context))
+    expect(resumed).toMatchObject({ status: 'completed', result: 'hi marcelo', usage: { agents: 1, tokens: 1 } })
+    expect(resumed.runId).not.toBe(output.runId)
+    await expect(Workflow.execute({ name: 'missing' }, context)).rejects.toThrow('not found')
   })
 })

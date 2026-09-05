@@ -358,6 +358,17 @@ export function validateSettings(settings: DeepSeekSettings, level?: SettingsLev
   const mcp = settings.mcp as unknown
   if (mcp !== undefined && !isObject(mcp)) add('mcp', 'Must be an object')
   if (isObject(mcp) && mcp.enabled !== undefined && typeof mcp.enabled !== 'boolean') add('mcp.enabled', 'Must be a boolean')
+  const interfaceSettings = settings.interface as unknown
+  if (isObject(interfaceSettings)) {
+    const statusLine = interfaceSettings.subagentStatusLine
+    if (statusLine !== undefined) {
+      if (!isObject(statusLine)) add('interface.subagentStatusLine', 'Must be an object')
+      else {
+        if (statusLine.type !== 'command') add('interface.subagentStatusLine.type', 'Must be command')
+        if (typeof statusLine.command !== 'string' || !statusLine.command.trim()) add('interface.subagentStatusLine.command', 'Command cannot be empty')
+      }
+    }
+  }
   if (settings.keybindings !== undefined) validateKeybindings(settings.keybindings, 'keybindings')
   if (isObject(settings.interface) && settings.interface.keybindings !== undefined) {
     validateKeybindings(settings.interface.keybindings, 'interface.keybindings')
@@ -374,6 +385,9 @@ export function validateSettings(settings: DeepSeekSettings, level?: SettingsLev
   if (level !== 'user' && settings.hooks && Object.keys(settings.hooks).length > 0) add('hooks', 'Executable hooks are ignored outside User scope', 'warning')
   if (level !== 'user' && settings.lsp && Object.keys(settings.lsp).length > 0) add('lsp', 'Language-server commands are ignored outside User scope', 'warning')
   if (level !== 'user' && settings.mcp && Object.keys(settings.mcp).length > 0) add('mcp', 'Project MCP servers can only be enabled at User scope', 'warning')
+  if (level !== 'user' && isObject(interfaceSettings) && interfaceSettings.subagentStatusLine !== undefined) {
+    add('interface.subagentStatusLine', 'Executable status-line commands are ignored outside User scope', 'warning')
+  }
   if (settings.git?.branchPattern !== undefined && !settings.git.branchPattern.includes('{shortId}')) add('git.branchPattern', 'Include {shortId} to keep branch names unique', 'warning')
   return issues
 }
@@ -387,6 +401,14 @@ export async function loadSettingsSnapshot(cwd?: string): Promise<SettingsSnapsh
     safe.hooks = undefined
     safe.lsp = undefined
     safe.mcp = undefined
+    // A checked-out project must never be able to introduce an executable
+    // status-line command. Keep the setting available in its scope snapshot
+    // for diagnostics, but only merge the user-scoped value into effective
+    // runtime settings.
+    if (level !== 'user' && safe.interface?.subagentStatusLine !== undefined) {
+      delete safe.interface.subagentStatusLine
+      if (Object.keys(safe.interface).length === 0) delete safe.interface
+    }
     if (level === 'project' && safe.provider) {
       // A checked-out project must not choose provider routing used with
       // credentials loaded from the user's private config.
@@ -487,6 +509,7 @@ export function resolveSetting(snapshot: SettingsSnapshot, path: string): Settin
     if (level === 'project' && /^provider\.(name|endpoint|region|profile|projectId|location)$/.test(path)) return []
     if (level === 'project' && path === 'permissions.allow') return []
     if (level !== 'user' && (path.startsWith('hooks.') || path === 'lsp' || path.startsWith('lsp.') || path === 'mcp' || path.startsWith('mcp.'))) return []
+    if (level !== 'user' && (path === 'interface.subagentStatusLine' || path.startsWith('interface.subagentStatusLine.'))) return []
     return value === undefined ? [] : [{ level, value }]
     }),
   ]

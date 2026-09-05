@@ -18,7 +18,7 @@ Credentials and other secrets remain exclusively in `~/.deepseek/config.json`. T
 
 ```text
 provider       provider name, endpoint, region/profile, project/location, timeout
-model          default and subagent model
+model          default and subagent model, maxOutputTokens (max_tokens ceiling; DeepSeek API defaults to 32768, or 8192 at low effort), temperature (0–2, provider default when unset)
 interaction    defaultMode: build | plan | review | auto
 compaction     enabled, threshold (0.70–0.95)
 promptRefiner  enabled, model, minimumLength, excludeTypes

@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { existsSync, realpathSync } from 'node:fs'
 import { execa } from 'execa'
 import type { Tool } from '../types.js'
+import type { ToolExecutionContext, TaskHandle } from '../../orchestration/types.js'
 import { SHELL_OUTPUT_MAX_CHARS, SHELL_TIMEOUT_MS } from '../../constants.js'
 import { isPathIgnored, IGNORE_FILE_NAME } from '../shared/deepseekignore.js'
 import { hasBinary, isLinux, scrubbedEnv, defaultShell, isWindows } from '../../utils/platform.js'
@@ -133,13 +134,20 @@ async function runSandboxed(command: string, cwd: string, timeout: number, readO
     '--setenv', 'HOME', '/tmp', '--setenv', 'TMPDIR', '/tmp', '--chdir', '/mnt',
   )
   args.push('/bin/sh', '-lc', command)
-  const result = await execa('bwrap', args, {
+  const subprocess = execa('bwrap', args, {
     timeout,
     cancelSignal: signal,
     env: scrubbedEnv(),
     extendEnv: false,
   })
-  return { stdout: result.stdout, stderr: result.stderr }
+  const stopReading = () => { subprocess.stdout?.destroy(); subprocess.stderr?.destroy() }
+  signal?.addEventListener('abort', stopReading, { once: true })
+  try {
+    const result = await subprocess
+    return { stdout: result.stdout, stderr: result.stderr }
+  } finally {
+    signal?.removeEventListener('abort', stopReading)
+  }
 }
 
 /**
@@ -150,7 +158,7 @@ async function runSandboxed(command: string, cwd: string, timeout: number, readO
  * here — unlike the bwrap path — which is why the caller labels the output.
  */
 async function runUnsandboxed(command: string, cwd: string, timeout: number, signal?: AbortSignal): Promise<{ stdout: string; stderr: string }> {
-  const result = await execa(command, {
+  const subprocess = execa(command, {
     shell: isWindows ? true : defaultShell(),
     cwd,
     timeout,
@@ -159,63 +167,171 @@ async function runUnsandboxed(command: string, cwd: string, timeout: number, sig
     extendEnv: false,
     windowsHide: true,
   })
-  return { stdout: result.stdout, stderr: result.stderr }
+  const stopReading = () => { subprocess.stdout?.destroy(); subprocess.stderr?.destroy() }
+  signal?.addEventListener('abort', stopReading, { once: true })
+  try {
+    const result = await subprocess
+    return { stdout: result.stdout, stderr: result.stderr }
+  } finally {
+    signal?.removeEventListener('abort', stopReading)
+  }
+}
+
+interface PreparedShellExecution {
+  command: string
+  cwd: string
+  timeout: number
+  sandboxed: boolean
+  readOnly: boolean
+  allowNetwork: boolean
+}
+
+/**
+ * Performs the checks shared by foreground and detached shell runs. Keeping
+ * authorization here prevents the background path from becoming a permission
+ * bypass just because it returns before the process finishes.
+ */
+async function prepareShellExecution(
+  command: string,
+  timeout: number,
+  background: boolean,
+  context?: ToolExecutionContext,
+): Promise<PreparedShellExecution | string> {
+  if (!command.trim()) return 'Error: Shell command must be a non-empty string.'
+  if (background && (!context?.session || !context.session.registry)) {
+    return 'Command blocked — background shell execution requires an active task session.'
+  }
+
+  const networkCapability = hasNetworkCapability('shell', { command })
+  const warning = destructiveWarning(command)
+  if (context?.permissionProfile === 'writer-worktree' && context.workspaceIsolation === 'serialized-writer') {
+    return 'Command blocked — shell writes require a Git worktree; serialized fallback only permits path-validated file tools.'
+  }
+  if (warning) {
+    if (context && (context.permissionProfile !== 'coordinator-integrator' || !context.dangerousOperationApproved)) {
+      return 'Command blocked — destructive commands require coordinator confirmation.'
+    }
+    if (!context && (!legacyConfirmHandler || !await legacyConfirmHandler(warning))) return 'Command cancelled by user.'
+  }
+  if (networkCapability && (!context || !context.dangerousOperationApproved)) {
+    return 'Command blocked — network access requires explicit approval.'
+  }
+
+  const cwd = context?.workspacePath ?? process.cwd()
+  const ignoredPath = findIgnoredShellPath(command, cwd)
+  if (ignoredPath) {
+    return `Command blocked — '${ignoredPath}' is excluded by ${IGNORE_FILE_NAME} (or DeepSeek Code's defaults when the file is absent). ` +
+      `This is intentional and user-controlled. If access is genuinely needed, ask the user to edit ${IGNORE_FILE_NAME} at the project root.`
+  }
+
+  return {
+    command,
+    cwd,
+    timeout,
+    sandboxed: Boolean(context),
+    readOnly: context?.permissionProfile === 'tester',
+    allowNetwork: networkCapability && context?.dangerousOperationApproved === true,
+  }
+}
+
+function formatShellFailure(error: unknown, timeout: number, signal: AbortSignal | undefined, sandboxed: boolean): string {
+  const failure = error as { stdout?: string; stderr?: string; message?: string; shortMessage?: string; exitCode?: number; timedOut?: boolean; signal?: string }
+  const prefix = signal?.aborted ? 'Cancelled' : 'Error'
+  const notice = sandboxed && !sandboxAvailableForShell() ? `${SANDBOX_UNAVAILABLE_NOTICE}\n` : ''
+  const status = failure.timedOut
+    ? `Command timed out after ${Math.round(timeout / 1000)}s and was killed.`
+    : typeof failure.exitCode === 'number'
+      ? `Command exited with code ${failure.exitCode}.`
+      : failure.signal ? `Command was terminated by signal ${failure.signal}.` : ''
+  const detail = [failure.stderr, failure.stdout].filter(Boolean).join('\n') || failure.shortMessage || failure.message || 'Command failed'
+  return truncateShellOutput(`${prefix}: ${notice}${status ? `${status}\n` : ''}${detail}`)
+}
+
+async function runPreparedShell(execution: PreparedShellExecution, signal?: AbortSignal, strict = false): Promise<string> {
+  try {
+    if (execution.sandboxed && !sandboxAvailableForShell()) {
+      if (strict) throw new Error(SANDBOX_UNAVAILABLE_NOTICE)
+      return `Error: ${SANDBOX_UNAVAILABLE_NOTICE}`
+    }
+    // The registry owns the lifecycle of a detached task. Give execa a small
+    // grace period so its own timeout cannot race the registry's timed_out
+    // transition; cancellation still travels through the shared signal.
+    const processTimeout = strict ? execution.timeout + 1000 : execution.timeout
+    const result = execution.sandboxed
+      ? await runSandboxed(execution.command, execution.cwd, processTimeout, execution.readOnly, execution.allowNetwork, signal)
+      : await runUnsandboxed(execution.command, execution.cwd, processTimeout, signal)
+    const output = [result.stdout, result.stderr].filter(Boolean).join('\n') || '(no output)'
+    return truncateShellOutput(output)
+  } catch (error) {
+    if (strict) throw error
+    return formatShellFailure(error, execution.timeout, signal, execution.sandboxed)
+  }
+}
+
+function backgroundHandle(handle: TaskHandle<string>): string {
+  return JSON.stringify({
+    schemaVersion: 1,
+    sessionId: handle.sessionId,
+    taskId: handle.taskId,
+    type: 'shell',
+    state: handle.status().state,
+  })
+}
+
+/**
+ * Keeps the head and the tail of oversized output: the tail is where a failing build or test
+ * run prints its verdict, and a head-only cut used to hide exactly that.
+ */
+export function truncateShellOutput(output: string, maxChars = SHELL_OUTPUT_MAX_CHARS): string {
+  if (output.length <= maxChars) return output
+  const head = Math.floor(maxChars * 0.6)
+  const tail = maxChars - head
+  const dropped = output.length - head - tail
+  return `${output.slice(0, head)}\n\n… [${dropped} characters truncated — rerun with a narrower command, e.g. pipe through head/tail or grep] …\n\n${output.slice(output.length - tail)}`
 }
 
 export const Shell: Tool = {
   name: 'shell',
-  description: 'Run a shell command in an isolated workspace with a scrubbed environment. Network access requires explicit approval.',
+  description: `Run a shell command in the workspace with a scrubbed environment (no provider keys) and return its output; failures include their exit status. Set background=true to detach a controllable shell task and receive a task handle. Use it for builds, tests, git, package managers and other terminal work; prefer read_file, grep, glob and the edit tools for reading, searching and editing. Output is capped at ${SHELL_OUTPUT_MAX_CHARS} characters (head and tail kept); the command is killed after the timeout (default ${SHELL_TIMEOUT_MS / 1000}s). Network access requires explicit approval.`,
   parameters: {
     type: 'object', additionalProperties: false,
     properties: {
       command: { type: 'string', minLength: 1, description: 'Shell command to run' },
-      timeout: { type: 'number', minimum: 0.001, description: 'Timeout in seconds (default: 30)' },
+      timeout: { type: 'number', minimum: 0.001, description: `Timeout in seconds (default ${SHELL_TIMEOUT_MS / 1000})` },
+      background: { type: 'boolean', description: 'Detach the command and return a task handle that can be inspected or cancelled.' },
     },
     required: ['command'],
   },
   async execute(args, context) {
     const command = args.command as string
-    const networkCapability = hasNetworkCapability('shell', { command })
     const timeoutArg = args.timeout as number | undefined
     const timeout = timeoutArg != null && Number.isFinite(timeoutArg) && timeoutArg > 0 ? timeoutArg * 1000 : SHELL_TIMEOUT_MS
-    const warning = destructiveWarning(command)
-    if (context?.permissionProfile === 'writer-worktree' && context.workspaceIsolation === 'serialized-writer') {
-      return 'Command blocked — shell writes require a Git worktree; serialized fallback only permits path-validated file tools.'
+    const background = args.background === true
+    const prepared = await prepareShellExecution(command, timeout, background, context)
+    if (typeof prepared === 'string') return prepared
+    if (background) {
+      // A detached shell is still a normal registry task: it inherits the
+      // parent hierarchy and can be cancelled through /task or the footer.
+      const session = context!.session!
+      const handle = session.spawn<string>({
+        parentTaskId: context!.taskId,
+        type: 'shell',
+        mode: 'background',
+        timeoutMs: Math.max(1, Math.trunc(timeout)),
+        maxRetries: 0,
+        permissionProfile: context!.permissionProfile,
+        allowedTools: ['shell'],
+        cancellationPolicy: 'detach',
+        metadata: {
+          origin: 'shell',
+          task: command,
+          prompt: command,
+          command,
+          shellBackground: true,
+        },
+      }, runContext => runPreparedShell(prepared, runContext.signal, true))
+      return backgroundHandle(handle)
     }
-    if (warning) {
-      if (context && (context.permissionProfile !== 'coordinator-integrator' || !context.dangerousOperationApproved)) {
-        return 'Command blocked — destructive commands require coordinator confirmation.'
-      }
-      if (!context && (!legacyConfirmHandler || !await legacyConfirmHandler(warning))) return 'Command cancelled by user.'
-    }
-    if (networkCapability && (!context || !context.dangerousOperationApproved)) {
-      return 'Command blocked — network access requires explicit approval.'
-    }
-
-    const workspaceCwd = context?.workspacePath ?? process.cwd()
-    const ignoredPath = findIgnoredShellPath(command, workspaceCwd)
-    if (ignoredPath) {
-      return `Command blocked — '${ignoredPath}' is excluded by ${IGNORE_FILE_NAME} (or DeepSeek Code's defaults when the file is absent). ` +
-        `This is intentional and user-controlled. If access is genuinely needed, ask the user to edit ${IGNORE_FILE_NAME} at the project root.`
-    }
-
-    try {
-      const cwd = workspaceCwd
-      const needsSandbox = !!context
-      const degraded = needsSandbox && !sandboxAvailableForShell()
-      if (degraded) return `Error: ${SANDBOX_UNAVAILABLE_NOTICE}`
-      const result = needsSandbox
-        ? await runSandboxed(command, cwd, timeout, context!.permissionProfile === 'tester', networkCapability && context!.dangerousOperationApproved === true, context!.signal)
-        : await runUnsandboxed(command, cwd, timeout)
-      const output = [result.stdout, result.stderr].filter(Boolean).join('\n') || '(no output)'
-      return output.slice(0, SHELL_OUTPUT_MAX_CHARS)
-    } catch (error) {
-      const failure = error as { stdout?: string; stderr?: string; message?: string; code?: string }
-      const prefix = context?.signal?.aborted ? 'Cancelled' : 'Error'
-      const notice = context && !sandboxAvailableForShell()
-        ? `${SANDBOX_UNAVAILABLE_NOTICE}\n`
-        : ''
-      return `${prefix}: ${notice}${failure.stderr || failure.message || 'Command failed'}\n${failure.stdout || ''}`.slice(0, SHELL_OUTPUT_MAX_CHARS)
-    }
+    return runPreparedShell(prepared, context?.signal)
   },
 }
