@@ -147,6 +147,7 @@ const CATEGORIES: Category[] = [
       { path: 'interface.showDiffs', label: 'Show diffs', description: 'Show diffs while preserving their history records.', kind: 'boolean' },
       { path: 'interface.statusBar', label: 'Status bar order', description: 'Comma-separated order: mode, model, tokens, branch, context.', kind: 'list' },
       { path: 'interface.narrowPriority', label: 'Narrow priorities', description: 'Truncation priority for status items in narrow terminals.', kind: 'list' },
+      { path: 'interface.subagentStatusLine', label: 'Subagent status line', description: 'Optional trusted User-scoped command. Project and Local values are ignored. Receives task JSON on stdin and returns JSONL rows with id and content.', kind: 'json' },
     ],
   },
   {
@@ -220,7 +221,7 @@ interface ConfigMenuProps {
   onEnchantToggle(enabled: boolean): void
   onClose(): void
   onThemeChange?(t: ThemeName): void
-  onSettingsChanged?(settings: DeepSeekSettings): void | Promise<void>
+  onSettingsChanged?(settings: DeepSeekSettings, snapshot: SettingsSnapshot): void | Promise<void>
   onTestConnection?(settings: DeepSeekSettings, credentials: Record<string, string>): Promise<string[]>
   onClearApprovals?(): void
   onPermissionsHelp?(): string
@@ -282,7 +283,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
       const [next, nextCredentials] = await Promise.all([repository.reload(), loadFullConfig()])
       setSnapshot(next)
       setCredentials(nextCredentials)
-      await props.onSettingsChanged?.(next.effective)
+      await props.onSettingsChanged?.(next.effective, next)
       setStatus(message)
     } catch (error) {
       setStatus(`Error: ${(error as Error).message}`)
@@ -345,7 +346,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
           ? await repository.unset(scope, definition.path)
           : await repository.set(scope, definition.path, value)
         setSnapshot(next)
-        await props.onSettingsChanged?.(next.effective)
+        await props.onSettingsChanged?.(next.effective, next)
         if (definition.path === 'interface.theme') props.onThemeSelect(value as ThemeName)
         if (definition.path === 'interface.language') {
           const language = valueAt(next.effective, definition.path)
@@ -438,6 +439,10 @@ export default function ConfigMenu(props: ConfigMenuProps) {
 
   const activate = async (definition: SettingDefinition) => {
     if (!snapshot || busy) return
+    if (definition.path === 'interface.subagentStatusLine' && scope !== 'user') {
+      setStatus('Ignored outside User scope · switch to User to edit')
+      return
+    }
     if (definition.path === 'agents.basePrompt') {
       try { await saveValue(definition, await editPromptMarkdown('subagent-base-prompt', String(effectiveValue ?? ''))) }
       catch (error) { setStatus(`Editor error: ${(error as Error).message}`) }
@@ -483,7 +488,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
           try {
             if (action === 'reset-scope') {
               const next = await repository.reset(scope)
-              setSnapshot(next); await props.onSettingsChanged?.(next.effective); setStatus(`${scope} scope reset`)
+              setSnapshot(next); await props.onSettingsChanged?.(next.effective, next); setStatus(`${scope} scope reset`)
             } else if (action === 'clear-memory') {
               const { clearMemory } = await import('../../agent/memory.js')
               await clearMemory(); setStatus('Active memory cleared')
@@ -549,7 +554,13 @@ export default function ConfigMenu(props: ConfigMenuProps) {
     }
     if ((input === 'e' || input === ' ') && item && (focus === 'items' || layout === 'narrow')) void activate(item)
     if (input === 'r' && item && snapshot && !item.path.startsWith('$')) {
-      void repository.unset(scope, item.path).then(async next => { setSnapshot(next); await props.onSettingsChanged?.(next.effective); setStatus('Override removed · inherited value active') }).catch(error => setStatus(`Error: ${error.message}`))
+      void repository.unset(scope, item.path).then(async next => {
+        setSnapshot(next)
+        await props.onSettingsChanged?.(next.effective, next)
+        setStatus(item.path === 'interface.subagentStatusLine' && scope !== 'user'
+          ? 'Ignored override removed · User scope controls this setting'
+          : 'Override removed · inherited value active')
+      }).catch(error => setStatus(`Error: ${error.message}`))
     }
   }, { isActive: library === null })
 
@@ -561,6 +572,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
   const scopeValue = item && snapshot && !item.path.startsWith('$') ? valueAt(snapshot.levels[scope].data, item.path) : undefined
   const defaultValue = item && !item.path.startsWith('$') ? valueAt(DEFAULT_SETTINGS, item.path) : undefined
   const invalidScope = snapshot?.levels[scope].error
+  const statusLineRestricted = item?.path === 'interface.subagentStatusLine' && scope !== 'user'
 
   const Header = () => (
     <Box flexDirection="column" flexShrink={0}>
@@ -602,6 +614,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
           const value = entry.kind === 'secret'
             ? (credentials[entry.credentialKey!] ? '••••••••' : 'not set')
             : entry.kind === 'action' ? 'open'
+            : entry.path === 'interface.subagentStatusLine' && scope !== 'user' ? 'ignored'
             : displayValue(snapshot ? valueAt(snapshot.effective, entry.path) : undefined)
           return (
             <Box key={entry.path} width="100%" justifyContent="space-between" flexShrink={0}>
@@ -620,12 +633,12 @@ export default function ConfigMenu(props: ConfigMenuProps) {
       <Text bold color={colors.primary}>{item.label}</Text>
       <Box marginTop={layout === 'medium' ? 0 : 1}><Text wrap={layout === 'medium' ? 'truncate-end' : 'wrap'}>{item.description}</Text></Box>
       <Box marginTop={layout === 'medium' ? 0 : 1} flexDirection="column">
-        {resolution ? <Text dimColor>{layout === 'narrow'
+        {statusLineRestricted ? <Text color={colors.warning}>Ignored outside User scope · only a User value can be active</Text> : resolution ? <Text dimColor>{layout === 'narrow'
           ? `Effective: ${item.kind === 'secret' ? (effectiveValue ? '•••••••• configured' : 'not configured') : displayValue(effectiveValue)} · ${scope}${scopeValue === undefined ? ' inherited' : ' override'}`
           : `Effective: ${item.kind === 'secret' ? (effectiveValue ? '•••••••• configured' : 'not configured') : displayValue(effectiveValue)} · Origin: ${origin} · editing: ${scope}${scopeValue === undefined ? ' (inherited)' : ' (override)'}`}</Text> : <Text dimColor>{`Effective: ${item.kind === 'secret' ? (effectiveValue ? '•••••••• configured' : 'not configured') : displayValue(effectiveValue)}`}</Text>}
         {layout !== 'medium' && defaultValue !== undefined ? <Text dimColor>Default: {displayValue(defaultValue)}</Text> : null}
         {layout !== 'medium' && resolution && resolution.overrides.length > 1 ? <Text dimColor>Chain: {resolution.overrides.map(entry => entry.level).join(' → ')}</Text> : null}
-        {item.restart ? <Text color={colors.warning}>△ Applies next session</Text> : item.kind !== 'action' ? <Text color={colors.success}>✓ Applies immediately</Text> : null}
+        {statusLineRestricted ? null : item.restart ? <Text color={colors.warning}>△ Applies next session</Text> : item.kind !== 'action' ? <Text color={colors.success}>✓ Applies immediately</Text> : null}
       </Box>
       {layout !== 'medium' && item.path === 'agents.basePrompt' ? (
         <Box marginTop={1} flexDirection="column">

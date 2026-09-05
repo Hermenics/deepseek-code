@@ -126,6 +126,21 @@ describe('SettingsRepository', () => {
     expect(validateSettings({ workflows: { enabled: 'yes' as never } })).toContainEqual(expect.objectContaining({ path: 'workflows.enabled', message: 'Must be a boolean' }))
   })
 
+  it('validates status-line command shape and warns when configured outside user scope', () => {
+    const malformed = validateSettings({
+      interface: { subagentStatusLine: { type: 'shell', command: '  ' } as never },
+    })
+    expect(malformed.map(issue => issue.path)).toContain('interface.subagentStatusLine.type')
+    expect(malformed.map(issue => issue.path)).toContain('interface.subagentStatusLine.command')
+
+    const projectIssues = validateSettings({
+      interface: { subagentStatusLine: { type: 'command', command: 'printf project' } },
+    }, 'project')
+    expect(projectIssues).toContainEqual(expect.objectContaining({
+      path: 'interface.subagentStatusLine', severity: 'warning',
+    }))
+  })
+
   it('never activates Auto mode or executable configuration from project files', async () => {
     const cwd = await project()
     const fakeHome = await project()
@@ -151,6 +166,41 @@ describe('SettingsRepository', () => {
     expect(snapshot.issues.some(issue => issue.path === 'interaction.defaultMode')).toBe(true)
     expect(snapshot.issues.some(issue => issue.path === 'lsp')).toBe(true)
     expect(snapshot.issues.some(issue => issue.path === 'mcp')).toBe(true)
+  })
+
+  it('keeps the status-line command user-scoped when project or local files override it', async () => {
+    const cwd = await project()
+    const fakeHome = await project()
+    const homedirSpy = spyOn(os, 'homedir').mockReturnValue(fakeHome)
+    try {
+      const dir = join(cwd, '.deepseek')
+      await mkdir(dir, { recursive: true })
+      await mkdir(join(fakeHome, '.deepseek'), { recursive: true })
+      await writeFile(join(dir, 'settings.json'), JSON.stringify({
+        interface: { subagentStatusLine: { type: 'command', command: 'printf project' } },
+      }))
+      await writeFile(join(dir, 'settings.local.json'), JSON.stringify({
+        interface: { subagentStatusLine: { type: 'command', command: 'printf local' } },
+      }))
+
+      const blockedSnapshot = await loadSettingsSnapshot(cwd)
+      expect(blockedSnapshot.effective.interface?.subagentStatusLine).toBeUndefined()
+      expect(resolveSetting(blockedSnapshot, 'interface.subagentStatusLine').origin).toBe('default')
+      expect(resolveSetting(blockedSnapshot, 'interface.subagentStatusLine.command')).toEqual(expect.objectContaining({
+        value: undefined, origin: 'default', overrides: [],
+      }))
+
+      await writeFile(join(fakeHome, '.deepseek', 'settings.json'), JSON.stringify({
+        interface: { subagentStatusLine: { type: 'command', command: 'printf user' } },
+      }))
+      const snapshot = await loadSettingsSnapshot(cwd)
+      expect(snapshot.levels.user.data.interface?.subagentStatusLine?.command).toBe('printf user')
+      expect(snapshot.effective.interface?.subagentStatusLine?.command).toBe('printf user')
+      expect(resolveSetting(snapshot, 'interface.subagentStatusLine').origin).toBe('user')
+      expect(resolveSetting(snapshot, 'interface.subagentStatusLine.command').origin).toBe('user')
+    } finally {
+      homedirSpy.mockRestore()
+    }
   })
 
   it('ignores project provider and endpoint overrides', async () => {
@@ -204,6 +254,15 @@ describe('settings center topology', () => {
   it('exposes all ten requested categories with searchable rows', () => {
     expect(SETTINGS_CATEGORIES).toHaveLength(10)
     expect(SETTINGS_CATEGORIES.every(category => category.items.length > 0)).toBe(true)
+  })
+
+  it('exposes the optional subagent status line as a JSON interface setting', () => {
+    const setting = SETTINGS_CATEGORIES
+      .flatMap(category => category.items)
+      .find(item => item.path === 'interface.subagentStatusLine')
+
+    expect(setting).toMatchObject({ path: 'interface.subagentStatusLine', kind: 'json' })
+    expect(setting?.description).toContain('JSONL')
   })
 
   it('keeps the medium selector stable until the selection reaches the viewport edge', () => {

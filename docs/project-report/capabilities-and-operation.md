@@ -187,7 +187,7 @@ It is not CrewAI, LangGraph, a TypeScript demo, or a new scheduler. The JavaScri
 
 ### 11.2 Source format
 
-Saved workflow source must start with JSON-compatible metadata. An ad-hoc tool call may omit it only when the caller supplies the validated fallback `name` option:
+Saved workflow source must start with a pure `meta` literal (`name`, optional `description`, `whenToUse`, and `phases` with optional per-phase `model`). An ad-hoc tool call may omit it only when the caller supplies the validated fallback `name` option. The `workflow` tool accepts inline `script`, a contained `scriptPath`, or the `name` of a saved workflow, plus `resumeFromRunId` to replay every unchanged `agent()` call from an earlier run's journal:
 
 ```js
 export const meta = {"name":"triage","description":"Triage issues and propose fixes"};
@@ -203,14 +203,15 @@ The parser treats the metadata object as JSON. Double-quoted string tracking is 
 
 | Global | Contract |
 | --- | --- |
-| `agent(prompt, options?)` | Execute one constrained agent call; return result or `null` for a recoverable agent failure |
-| `parallel(items)` | Run admitted operations concurrently, preserve input order, represent individual recoverable failures as `null` |
-| `pipeline(items, steps)` | Apply steps per item; stop later steps only for an item that fails |
-| `workflow(name, args?)` | Invoke one approved saved child workflow, up to one composition layer |
+| `agent(prompt, options?)` | Execute one constrained agent call; return its text (or a schema-validated object) or `null` for a recoverable agent failure. Options: `label`, `phase`, `schema`, `model`, `effort` (`low`…`max`, Claude Code tiers accepted), `isolation`, `agentType`, `timeoutMs`, `maxTokens`, `maxCostUsd` |
+| `parallel(thunks)` | Run thunks concurrently as a barrier, preserve input order, represent individual recoverable failures as `null` |
+| `pipeline(items, ...stages)` | Apply stages per item with no barrier between stages; each stage receives `(previous, item, index)`; a failing stage drops that item to `null` |
+| `workflow(nameOrRef, args?)` | Invoke one saved child workflow by name or `{ scriptPath }`, up to one composition layer; child agents are grouped under `▸ name` |
 | `log(value)` | Publish workflow diagnostic/progress information |
 | `phase(name)` | Update the observable phase |
-| `args` | Caller-provided JSON-compatible arguments |
-| `budget` | Current budget/usage view supplied by the host |
+| `args` | Caller-provided JSON-compatible arguments, deep-frozen |
+| `budget` | `total` (token ceiling or `null`), `spent()`, `remaining()` (`Infinity` when unbounded), `maxCostUsd`, `spentCostUsd()`, `remainingCostUsd()` |
+| `Date.now()`, `Math.random()`, `new Date()` | Throw — nondeterminism would break resume; pass timestamps and seeds through `args` |
 
 Top-level `await` and `return` are supported. Structural errors—invalid arguments, limit violations, parser/runtime failures—terminate the workflow rather than becoming `null`.
 
@@ -274,9 +275,11 @@ The `Workflow` tool accepts:
 
 ```ts
 {
-  script: string
+  script?: string
+  scriptPath?: string
   args?: unknown
   name?: string
+  resumeFromRunId?: string
 }
 ```
 

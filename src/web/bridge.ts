@@ -243,7 +243,13 @@ export class WebBridge {
           const workflows = this.agent.workflows
           if (!workflows) { this.commandResult('Dynamic Workflows are unavailable.'); return }
           if (command.action === 'pause') { const ok = await workflows.pause(command.id); this.commandResult(ok ? `Workflow ${command.id} paused.` : `Workflow ${command.id} is not running.`); return }
-          if (command.action === 'resume') { const ok = await workflows.resume(command.id); this.commandResult(ok ? `Workflow ${command.id} resumed.` : `Workflow ${command.id} is not paused.`); return }
+          if (command.action === 'resume') {
+            if (await workflows.resume(command.id)) { this.commandResult(`Workflow ${command.id} resumed.`); return }
+            // Not paused: relaunch over the run's journal so completed agent() calls are reused.
+            const result = await (await workflows.restart(command.id)).result
+            this.commandResult(`Workflow ${result.runId} ${result.status} (resumed from ${command.id}).\n\n${JSON.stringify(result.result, null, 2)}`)
+            return
+          }
           if (command.action === 'stop') { const ok = await workflows.cancel(command.id); this.commandResult(ok ? `Workflow ${command.id} stopping.` : `Workflow ${command.id} is not active.`); return }
           if (command.action === 'save') { const path = await workflows.save(command.id, command.name); this.commandResult(`Workflow saved to ${path}`); return }
           if (command.action === 'restart') { const result = await (await workflows.restart(command.id)).result; this.commandResult(`Workflow ${result.runId} ${result.status}.\n\n${JSON.stringify(result.result, null, 2)}`); return }

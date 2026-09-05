@@ -8,6 +8,15 @@ function createHook(): UseSubagentsReturn {
 }
 
 describe('useSubagents', () => {
+  it('uses registry timestamps and freezes completion across duplicate state updates', () => {
+    const hook = createHook()
+    hook.onSubagentState({ id: 'queued', status: 'queued', task: 'wait', startedAt: null })
+    hook.onSubagentState({ id: 'queued', status: 'running', startedAt: 1000 })
+    hook.onSubagentState({ id: 'queued', status: 'done', startedAt: 1000, completedAt: 5000 })
+    hook.onSubagentState({ id: 'queued', status: 'done' })
+    expect(hook.agents[0]!.durationMs).toBe(4000)
+    expect(hook.agents[0]!.completedAt).toBe(5000)
+  })
   describe('onSubagentStart', () => {
     it('should add agent with status running', () => {
       const hook = createHook()
@@ -89,9 +98,9 @@ describe('useSubagents', () => {
 
     it('should retain runtime identity and workspace details', () => {
       const hook = createHook()
-      hook.onSubagentStart({ id: 'a1', task: 'task', agentName: 'coder', mode: 'background', model: 'deepseek-reasoner', workspace: '/tmp/worktree', workflowRunId: 'workflow-1' })
+      hook.onSubagentStart({ id: 'a1', task: 'task', agentName: 'coder', mode: 'background', model: 'deepseek-reasoner', workspace: '/tmp/worktree', workflowRunId: 'workflow-1', parentTaskId: 'coordinator', type: 'review' })
 
-      expect(hook.agents[0]).toMatchObject({ agentName: 'coder', mode: 'background', model: 'deepseek-reasoner', workspace: '/tmp/worktree', workflowRunId: 'workflow-1' })
+      expect(hook.agents[0]).toMatchObject({ agentName: 'coder', mode: 'background', model: 'deepseek-reasoner', workspace: '/tmp/worktree', workflowRunId: 'workflow-1', parentTaskId: 'coordinator', type: 'review' })
     })
   })
 
@@ -186,6 +195,19 @@ describe('useSubagents', () => {
       expect(hook.agents[0].durationMs!).toBeGreaterThanOrEqual(0)
     })
 
+    it('should record completedAt when an agent finishes', () => {
+      const hook = createHook()
+      const before = Date.now()
+
+      hook.onSubagentStart({ id: 'a1', task: 'task' })
+      hook.onSubagentDone({ id: 'a1', result: 'done' })
+
+      const completedAt = hook.agents[0].completedAt
+      expect(typeof completedAt).toBe('number')
+      expect(completedAt!).toBeGreaterThanOrEqual(before)
+      expect(completedAt!).toBeLessThanOrEqual(Date.now())
+    })
+
     it('should not affect other agents when one finishes', () => {
       const hook = createHook()
 
@@ -224,6 +246,14 @@ describe('useSubagents', () => {
 
       expect(hook.agents[0].durationMs).not.toBeNull()
       expect(hook.agents[0].durationMs!).toBeGreaterThanOrEqual(0)
+    })
+
+    it('should record completedAt when an agent errors', () => {
+      const hook = createHook()
+      hook.onSubagentStart({ id: 'a1', task: 'task' })
+      hook.onSubagentError({ id: 'a1', error: 'timeout' })
+
+      expect(typeof hook.agents[0].completedAt).toBe('number')
     })
 
     it('should not affect other agents when one errors', () => {
@@ -304,6 +334,37 @@ describe('useSubagents', () => {
 
       expect(hook.agents[0].status).toBe('done')
       expect(hook.agents[0].tokens).toBe(30_000)
+    })
+
+    it('should retain parent task and task type from state events', () => {
+      const hook = createHook()
+      hook.onSubagentState({ id: 'a1', task: 'review', parentTaskId: 'coordinator', type: 'verification' })
+
+      expect(hook.agents[0]).toMatchObject({ parentTaskId: 'coordinator', type: 'verification' })
+    })
+
+    it('should record completedAt when state changes to a terminal status', () => {
+      const hook = createHook()
+      hook.onSubagentStart({ id: 'a1', task: 'task' })
+      hook.onSubagentState({ id: 'a1', status: 'cancelled' })
+
+      expect(typeof hook.agents[0].completedAt).toBe('number')
+    })
+
+    it('should reset execution metadata when a terminal task becomes active again', async () => {
+      const hook = createHook()
+      hook.onSubagentStart({ id: 'a1', task: 'first task' })
+      hook.onSubagentDone({ id: 'a1', result: 'old result' })
+      const firstStartedAt = hook.agents[0].startedAt
+      hook.agents[0].error = 'old error'
+      await Bun.sleep(1)
+
+      hook.onSubagentState({ id: 'a1', status: 'running', task: 'second task' })
+
+      expect(hook.agents[0]).toMatchObject({
+        status: 'running', completedAt: null, error: null, result: null, durationMs: null,
+      })
+      expect(hook.agents[0].startedAt).toBeGreaterThan(firstStartedAt)
     })
   })
 

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import React from 'react'
 import { PassThrough } from 'node:stream'
-import { renderSync } from '../../src/ink/root.js'
+import { invalidateInkFrame, renderSync } from '../../src/ink/root.js'
 import { WorkflowMonitor } from '../../src/ui/workflows/WorkflowMonitor.js'
 import type { WorkflowRun } from '../../src/workflows/types.js'
 
@@ -27,8 +27,7 @@ function run(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
 function renderMonitor(runs: WorkflowRun[], props: Partial<React.ComponentProps<typeof WorkflowMonitor>> = {}) {
   const stdin = new FakeTerminal()
   const stdout = new FakeTerminal()
-  const instance = renderSync(
-    <WorkflowMonitor
+  const element = () => <WorkflowMonitor
       runs={runs}
       onClose={() => {}}
       onPause={async () => false}
@@ -37,7 +36,9 @@ function renderMonitor(runs: WorkflowRun[], props: Partial<React.ComponentProps<
       onRestart={async () => {}}
       onSave={async () => ''}
       {...props}
-    />,
+    />
+  const instance = renderSync(
+    element(),
     {
       stdin: stdin as unknown as NodeJS.ReadStream,
       stdout: stdout as unknown as NodeJS.WriteStream,
@@ -46,7 +47,7 @@ function renderMonitor(runs: WorkflowRun[], props: Partial<React.ComponentProps<
       patchConsole: false,
     },
   )
-  return { stdin, stdout, instance }
+  return { stdin, stdout, instance, rerender: () => instance.rerender(element()) }
 }
 
 async function press(stdin: FakeTerminal, input: string) {
@@ -146,7 +147,7 @@ test('renders the Claude-style phases and agents detail panel', async () => {
     // Agents of the selected phase carry their model and token spend.
     expect(plain).toContain('●review:secur')
     expect(plain).toContain('deepseek-v4-flash·1.2k')
-    expect(plain).toContain('↑↓select·escback·ssave')
+    expect(plain).toContain('↑↓select·→/Enterview·←/escback·ssave')
   } finally {
     cleanup(monitor)
   }
@@ -193,6 +194,27 @@ test('supports pause, resume, stop, restart, and save shortcuts', async () => {
   }
 })
 
+test('does not invoke controls for a workflow owned by another session', async () => {
+  const calls: string[] = []
+  const monitor = renderMonitor([run({ sessionId: 'other-session' })], {
+    canControlWorkflow: workflow => workflow.sessionId === 'session',
+    onPause: async () => { calls.push('pause'); return true },
+    onResume: async () => { calls.push('resume'); return true },
+    onStop: async () => { calls.push('stop'); return true },
+    onSave: async () => { calls.push('save'); return '' },
+  })
+
+  try {
+    await Bun.sleep(100)
+    await press(monitor.stdin, 'x')
+    await press(monitor.stdin, 'p')
+    await press(monitor.stdin, 's')
+    expect(calls).toEqual([])
+  } finally {
+    cleanup(monitor)
+  }
+})
+
 test('agent drill-down shows the real prompt while labels stay short', async () => {
   const monitor = renderMonitor([run({
     phase: 'Alpha', phaseHistory: ['Alpha'], usage: { agents: 1, tokens: 1200, costUsd: 0 },
@@ -209,6 +231,7 @@ test('agent drill-down shows the real prompt while labels stay short', async () 
     await press(monitor.stdin, '\r')
     rendered = ''
     await press(monitor.stdin, '\r')
+    await press(monitor.stdin, '\r')
     const plain = rendered.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\s/g, '')
     // The label keeps naming the agent in the left column and the panel title...
     expect(plain).toContain('a:red')
@@ -218,4 +241,45 @@ test('agent drill-down shows the real prompt while labels stay short', async () 
   } finally {
     cleanup(monitor)
   }
+})
+
+test('Right focuses agents, Down selects one, Enter opens its live activity and Left returns', async () => {
+  const agents = ['first', 'second'].map((id) => ({
+    id, task: id, prompt: `Prompt for ${id}`, status: 'running' as const,
+    colorIndex: 0, toolCount: 1, lastToolInfo: 'read_file entry.ts', startedAt: Date.now(),
+    durationMs: null, result: null, error: null, tokens: 100, costUsd: 0,
+    role: null, confidence: null, verified: null, agentName: id,
+    workflowRunId: 'workflow-run', workflowPhase: 'Review',
+    messages: [{ role: 'thinking' as const, content: `Thinking from ${id}` }],
+  }))
+  const monitor = renderMonitor([run({ phase: 'Review', phaseHistory: ['Review'] })], { initialRunId: 'workflow-run', agents })
+  let rendered = ''
+  monitor.stdout.on('data', chunk => { rendered += chunk.toString() })
+  const plain = () => rendered.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\s/g, '')
+  const key = async (input: string) => {
+    rendered = ''
+    await press(monitor.stdin, input)
+    rendered = ''
+    invalidateInkFrame(monitor.stdout as unknown as NodeJS.WriteStream)
+    monitor.rerender()
+    await Bun.sleep(50)
+  }
+  try {
+    await Bun.sleep(100)
+    rendered = ''
+    await key('\x1b[C')
+    expect(plain()).toContain('❯●first')
+    expect(plain()).not.toContain('❯1Review')
+    rendered = ''
+    await key('\x1b[B')
+    expect(plain()).toContain('❯●second')
+    rendered = ''
+    await key('\r')
+    expect(plain()).toContain('Thinkingfromsecond')
+    expect(plain()).toContain('read_fileentry.ts')
+    rendered = ''
+    await key('\x1b[D')
+    expect(plain()).toContain('Phases')
+    expect(plain()).toContain('❯●second')
+  } finally { cleanup(monitor) }
 })

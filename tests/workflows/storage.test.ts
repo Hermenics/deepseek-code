@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { WorkflowApprovalStore, WorkflowStore, hashWorkflowValue } from '../../src/workflows/storage.js'
@@ -34,6 +34,28 @@ describe('workflow storage', () => {
       expect((await stat(store.runDirectory('run-1'))).mode & 0o077).toBe(0)
       expect((await stat(join(store.runDirectory('run-1'), 'run.json'))).mode & 0o077).toBe(0)
     }
+  })
+
+  test('lists runs from every project session', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-store-'))
+    roots.push(root)
+    const store = new WorkflowStore({ projectRoot: join(root, 'project'), sessionId: 'current' })
+    Object.defineProperties(store, {
+      projectDirectory: { value: root },
+      root: { value: join(root, 'current', 'workflows') },
+    })
+    const older = { ...run(store.options.projectRoot), runId: 'older', sessionId: 'older', createdAt: '2025-01-01T00:00:00.000Z' }
+    const current = { ...run(store.options.projectRoot), runId: 'current', sessionId: 'current', createdAt: '2026-01-01T00:00:00.000Z' }
+    await Promise.all([
+      mkdir(join(root, 'older', 'workflows', older.runId), { recursive: true }),
+      mkdir(join(root, 'current', 'workflows', current.runId), { recursive: true }),
+    ])
+    await Promise.all([
+      writeFile(join(root, 'older', 'workflows', older.runId, 'run.json'), JSON.stringify(older)),
+      writeFile(join(root, 'current', 'workflows', current.runId, 'run.json'), JSON.stringify(current)),
+    ])
+
+    expect((await store.listRuns()).map(record => record.runId)).toEqual(['current', 'older'])
   })
 
   test('stores approvals by project and content hash', async () => {

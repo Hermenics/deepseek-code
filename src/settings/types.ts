@@ -59,6 +59,13 @@ export interface ProviderSettings {
 export interface ModelSettings {
   default?: string
   subagent?: string
+  /**
+   * Output-token ceiling sent as max_tokens. Without it the official DeepSeek API defaults to a
+   * few thousand tokens and silently cuts long tool calls; other providers keep their own default.
+   */
+  maxOutputTokens?: number
+  /** Sampling temperature (0–2). Omitted by default so the provider's default applies. */
+  temperature?: number
 }
 
 export interface InteractionSettings {
@@ -147,6 +154,16 @@ export interface KeybindingsSettings {
   [action: string]: KeybindingValue
 }
 
+/**
+ * Optional trusted status-line extension. The command receives the current
+ * activity snapshot as JSON on stdin and returns one JSON object per line:
+ * `{ "id": "task-id", "content": "decoration" }`.
+ */
+export interface SubagentStatusLineSettings {
+  type: 'command'
+  command: string
+}
+
 export interface InterfaceSettings {
   theme?: ThemeName
   language?: string
@@ -160,6 +177,8 @@ export interface InterfaceSettings {
   statusBar?: StatusBarItem[]
   narrowPriority?: StatusBarItem[]
   keybindings?: KeybindingsSettings
+  /** Executed only after the host establishes workspace trust. */
+  subagentStatusLine?: SubagentStatusLineSettings
 }
 
 export interface DeepSeekSettings {

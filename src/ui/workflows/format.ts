@@ -92,9 +92,9 @@ export function workflowSummaryLine(runs: WorkflowRun[]): string {
 }
 
 /** List row: `⟳ essay-check  6 agents · 339k tok · 1m 6s`. */
-export function formatWorkflowRunRow(run: WorkflowRun, width: number, now = Date.now()): string {
+export function formatWorkflowRunRow(run: WorkflowRun, width: number, now = Date.now(), controllable = true): string {
   const stats = `${run.usage.agents} agent${run.usage.agents === 1 ? '' : 's'} · ${formatTokens(run.usage.tokens)} tok · ${formatDuration(workflowDurationMs(run, now))}`
-  return truncate(`${runIcon(run.status)} ${run.meta.name}  ${stats}`, width)
+  return truncate(`${runIcon(run.status)} ${run.meta.name}  ${stats}${controllable ? '' : ' · read-only'}`, width)
 }
 
 /** Header stats: `6/6 agents · 1m23s · done` — the suffix only lands once the run settles. */
@@ -128,27 +128,32 @@ export function formatWorkflowPhaseRow(
 export function formatWorkflowPanelAgentRow(
   agent: SubagentState, width: number, now = Date.now(), labelWidth = 0,
 ): string {
-  const duration = formatDuration(agent.durationMs ?? Math.max(0, now - agent.startedAt))
+  const duration = agent.status === 'queued' ? '' : formatDuration(agent.durationMs ?? Math.max(0, (agent.completedAt ?? now) - agent.startedAt))
   // Workflows that skip `label` hand us the whole prompt, so clamp it or it swallows the panel.
   const label = truncate(agent.task || 'agent', Math.max(8, labelWidth)).padEnd(labelWidth)
   const details = agent.status === 'queued'
     ? [agent.model, 'queued'].filter(Boolean).join(' · ')
     : [agent.model, agent.tokens == null ? undefined : `${formatTokens(agent.tokens)} tok`].filter(Boolean).join(' · ')
   const left = `${agentIcon(agent.status)} ${label}  ${details}`
-  const gap = Math.max(1, width - left.length - duration.length)
-  return truncate(`${left}${' '.repeat(gap)}${duration}`, width)
+  if (!duration) return truncate(left, width)
+  const body = truncate(left, Math.max(0, width - duration.length - 1))
+  return truncate(`${body.padEnd(Math.max(0, width - duration.length))}${duration}`, width)
 }
 
 /** Contextual hint for the run list; `x to stop` only shows for an active selection. */
-export function workflowListHint(status: WorkflowStatus | undefined): string {
+export function workflowListHint(status: WorkflowStatus | undefined, controllable = true): string {
   const actions = ['↑/↓ to select', 'Enter to view']
-  if (status && isRunActive(status)) actions.push('x to stop')
-  actions.push('s to save', 'Esc to close')
+  if (!controllable) actions.push('read-only (another session)')
+  else {
+    if (status && isRunActive(status)) actions.push('x to stop')
+    actions.push('s to save')
+  }
+  actions.push('Esc to close')
   return actions.join(' · ')
 }
 
-export function workflowControlHint(status: WorkflowStatus): string {
-  return workflowListHint(status)
+export function workflowControlHint(status: WorkflowStatus, controllable = true): string {
+  return workflowListHint(status, controllable)
 }
 
 export function windowRows<T>(rows: T[], selected: number, maxRows: number): { rows: T[]; start: number } {

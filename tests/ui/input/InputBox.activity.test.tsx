@@ -49,6 +49,40 @@ test('Down opens the activity footer from an empty input', async () => {
   }
 })
 
+test('Left also opens the activity footer from an empty input for Claude-compatible navigation', async () => {
+  const stdin = new FakeTerminal()
+  const stdout = new FakeTerminal()
+  let opened = 0
+  const instance = renderSync(
+    <InputBox
+      onSubmit={() => {}}
+      isLoading={false}
+      toolCallCount={0}
+      workingDirectory={process.cwd()}
+      activityAvailable
+      onActivityOpen={() => { opened++ }}
+    />,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stderr: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  )
+
+  try {
+    await Bun.sleep(100)
+    stdin.write('\x1b[D')
+    await Bun.sleep(100)
+    expect(opened).toBe(1)
+  } finally {
+    stdout.isTTY = false
+    instance.unmount()
+    instance.cleanup()
+  }
+})
+
 test('hides the fullscreen hint after the first input character', async () => {
   setFullscreenActive(true)
   const stdin = new FakeTerminal()

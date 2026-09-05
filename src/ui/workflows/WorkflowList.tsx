@@ -3,28 +3,57 @@ import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 import type { WorkflowManager } from '../../workflows/manager.js'
 import type { WorkflowRun } from '../../workflows/types.js'
+import { isWorkflowRunActive } from '../../workflows/storage.js'
 
-const ACTIVE = new Set(['queued', 'running', 'paused'])
+const WORKFLOW_POLL_MS = 1_000
 
-export function useWorkflowRuns(manager: WorkflowManager): WorkflowRun[] {
+export interface WorkflowRunListOptions {
+  /** Use the lease-aware activity view instead of the complete historical list. */
+  activeOnly?: boolean
+}
+
+export function useWorkflowRuns(manager: WorkflowManager, options: WorkflowRunListOptions = {}): WorkflowRun[] {
   const [runs, setRuns] = useState<WorkflowRun[]>([])
+  const activeOnly = options.activeOnly ?? false
 
   useEffect(() => {
     let mounted = true
-    void manager.list().then(next => {
-      if (!mounted) return
-      setRuns(current => current.length ? [...current, ...next.filter(run => !current.some(latest => latest.runId === run.runId))] : next)
-    })
+    let request = 0
+    const refresh = (replace = false) => {
+      const sequence = ++request
+      const loaded = activeOnly ? manager.listActiveRuns() : manager.list()
+      void loaded.then(next => {
+        if (!mounted || sequence !== request) return
+        if (replace) {
+          setRuns(next)
+          return
+        }
+        setRuns(current => current.length ? [...current, ...next.filter(run => !current.some(latest => latest.runId === run.runId))] : next)
+      }).catch(() => undefined)
+    }
+    // The default hook is consumed by the monitor, which must retain interrupted/active
+    // historical records for restart and replay. The footer opts into the lease-aware view.
+    refresh()
+    // Poll the history view too: a workflow started or completed in another TUI
+    // process cannot emit through this manager's in-memory subscription.
+    const pollTimer = setInterval(() => refresh(true), WORKFLOW_POLL_MS)
     const unsubscribe = manager.subscribe(event => {
+      request++
       setRuns(current => {
+        if (activeOnly && !isWorkflowRunActive(event.run)) return current.filter(run => run.runId !== event.run.runId)
         const next = current.filter(run => run.runId !== event.run.runId)
         return [event.run, ...next]
       })
     })
-    return () => { mounted = false; unsubscribe() }
-  }, [manager])
+    return () => { mounted = false; if (pollTimer) clearInterval(pollTimer); unsubscribe() }
+  }, [activeOnly, manager])
 
   return runs
+}
+
+/** Lease-aware activity list for footers; history consumers should keep useWorkflowRuns(). */
+export function useActiveWorkflowRuns(manager: WorkflowManager): WorkflowRun[] {
+  return useWorkflowRuns(manager, { activeOnly: true })
 }
 
 export function formatWorkflowRun(run: WorkflowRun, now = Date.now()): string {
@@ -39,16 +68,16 @@ export function formatWorkflowRun(run: WorkflowRun, now = Date.now()): string {
 }
 
 export function WorkflowList({ manager }: { manager: WorkflowManager }) {
-  const runs = useWorkflowRuns(manager)
+  const runs = useActiveWorkflowRuns(manager)
   const [, setClock] = useState(0)
 
   useEffect(() => {
-    if (!runs.some(run => ACTIVE.has(run.status))) return
+    if (!runs.some(isWorkflowRunActive)) return
     const timer = setInterval(() => setClock(value => value + 1), 1_000)
     return () => clearInterval(timer)
   }, [runs])
 
-  const active = runs.filter(run => ACTIVE.has(run.status))
+  const active = runs.filter(isWorkflowRunActive)
   if (!active.length) return null
 
   return (

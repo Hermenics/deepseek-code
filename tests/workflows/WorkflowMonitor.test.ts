@@ -38,6 +38,12 @@ function agent(overrides: Partial<SubagentState> = {}): SubagentState {
 }
 
 describe('workflow monitor model', () => {
+  test('queued agents show no execution timer and narrow rows preserve the timer', () => {
+    const queued = agent({ status: 'queued', durationMs: null, tokens: null })
+    expect(formatWorkflowPanelAgentRow(queued, 90, queued.startedAt + 39000, 10)).not.toContain('39s')
+    const running = { ...queued, status: 'running' as const, tokens: 29300 }
+    expect(formatWorkflowPanelAgentRow(running, 58, queued.startedAt + 39000, 20)).toEndWith('39s')
+  })
   test('summarizes every workflow state used by the monitor', () => {
     const summary = summarizeWorkflowRuns([
       run({ runId: 'running', status: 'running' }),
@@ -120,6 +126,13 @@ describe('workflow monitor model', () => {
     expect(windowRows(runs, 6, 3)).toEqual({ rows: runs.slice(4, 7), start: 4 })
     expect(workflowListHint('running')).toBe('↑/↓ to select · Enter to view · x to stop · s to save · Esc to close')
     expect(workflowListHint('completed')).toBe('↑/↓ to select · Enter to view · s to save · Esc to close')
+  })
+
+  test('marks a cross-session run read-only without save or stop affordances', () => {
+    const hint = workflowListHint('running', false)
+    expect(hint).toContain('read-only')
+    expect(hint).not.toContain('x to stop')
+    expect(hint).not.toContain('s to save')
   })
 })
 

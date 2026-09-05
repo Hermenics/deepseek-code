@@ -75,4 +75,22 @@ describe('JavaScript meta literals', () => {
     expect(() => parseWorkflowSource("export const meta = { name: process.exit(1) }\nphase('A')"))
       .toThrow('Workflow metadata must be a plain object literal')
   })
+
+  test('rejects calls, spreads and template interpolation in metadata', () => {
+    const invalid = [
+      "export const meta = { name: String('called') }; return 1",
+      "export const meta = { name: 'spread', ...{ description: 'dynamic' } }; return 1",
+      "export const meta = { name: 'assign', description: Object.assign({}, { value: 'dynamic' }) }; return 1",
+      "export const meta = { name: 'interpolated', description: `${'dynamic'}` }; return 1",
+      "export const meta = { ['name']: 'computed' }; return 1",
+    ]
+    for (const source of invalid) expect(() => parseWorkflowSource(source)).toThrow('Workflow metadata must be a plain object literal')
+  })
+
+  test('rejects excessively nested metadata with the validation error', () => {
+    const depth = 200
+    const source = `export const meta = { name: 'deep', nested: ${'['.repeat(depth)}0${']'.repeat(depth)} }; return 1`
+
+    expect(() => parseWorkflowSource(source)).toThrow('Workflow metadata must be a plain object literal')
+  })
 })

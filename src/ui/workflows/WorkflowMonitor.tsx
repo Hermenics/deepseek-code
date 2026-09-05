@@ -32,12 +32,6 @@ function boxBottom(leftWidth: number, rightWidth: number, note?: string): string
   return `╰${'─'.repeat(leftWidth)}┴${right}╯`
 }
 
-/** Both cells are truncated as well as padded, so an over-long label cannot push the borders apart. */
-function boxRow(left: string, leftWidth: number, right: string, rightWidth: number): string {
-  const cell = (value: string, width: number) => truncate(value, width).padEnd(width)
-  return `│ ${cell(left, Math.max(0, leftWidth - 2))} │${cell(right, rightWidth)}│`
-}
-
 /** Hard-wraps a paragraph so long agent output stays inside the panel. */
 function wrapText(value: string, width: number): string[] {
   if (width <= 0) return []
@@ -56,11 +50,16 @@ function agentTranscript(agent: SubagentState, width: number, now: number): stri
   const metrics = [agent.tokens == null ? undefined : `${formatTokens(agent.tokens)} tok`, duration].filter(Boolean).join(' · ')
   return [
     `${agentIcon(agent.status)} ${status}${agent.model ? ` · ${agent.model}` : ''}`,
-    metrics,
+    agent.status === 'queued' ? 'Waiting for an agent slot.' : metrics,
     '',
     'Prompt',
     // `task` is the short label here; fall back to it for runs spawned before prompts were kept.
     ...wrapText(agent.prompt ?? agent.task, Math.max(8, width - 2)).map(line => `  ${line}`),
+    '', 'Activity',
+    ...wrapText(agent.lastToolInfo ?? (agent.status === 'queued' ? 'Waiting for an agent slot.' : 'No tool calls yet.'), width),
+    ...(agent.messages ?? []).filter(message => message.role !== 'user').flatMap(message => [
+      '', message.role === 'thinking' ? 'Thinking' : 'Response', ...wrapText(message.content, width),
+    ]),
     ...(agent.result ? ['', ...wrapText(agent.result, width)] : []),
     ...(agent.error ? ['', `✘ ${truncate(agent.error, width - 2)}`] : []),
   ]
@@ -77,15 +76,18 @@ export interface WorkflowMonitorProps {
   onStop(runId: string): Promise<boolean>
   onRestart(runId: string): Promise<void>
   onSave(runId: string, name: string): Promise<string>
+  /** Marks workflows from another live session as visible but non-mutating. */
+  canControlWorkflow?(run: WorkflowRun): boolean
 }
 
 export function WorkflowMonitor({
   runs, agents = [], initialRunId, theme = 'dark', onClose, onPause, onResume, onStop, onRestart, onSave,
+  canControlWorkflow = () => true,
 }: WorkflowMonitorProps) {
   const colors = getThemeColors(theme)
   useClock()
   // Opening from the activity footer names a run, so it lands straight on that run's detail.
-  const [view, setView] = useState<'list' | 'run' | 'agent'>(initialRunId ? 'run' : 'list')
+  const [view, setView] = useState<'list' | 'run' | 'agents' | 'agent'>(initialRunId ? 'run' : 'list')
   const [selectedRunId, setSelectedRunId] = useState<string | undefined>(() => initialRunId ?? runs[0]?.runId)
   const [phaseIndex, setPhaseIndex] = useState(0)
   const [agentIndex, setAgentIndex] = useState(0)
@@ -99,6 +101,7 @@ export function WorkflowMonitor({
   const now = Date.now()
   const selected = Math.max(0, runs.findIndex(run => run.runId === selectedRunId))
   const run = runs[selected]
+  const runControllable = run ? canControlWorkflow(run) : false
   const runAgents = run ? agents.filter(agent => agent.workflowRunId === run.runId) : []
   const phases = run ? workflowPhases(run) : []
   const phase = phases[Math.min(phaseIndex, Math.max(0, phases.length - 1))]
@@ -126,7 +129,7 @@ export function WorkflowMonitor({
       if (key.escape) { setSaveName(null); return }
       if (key.backspace || key.delete) { setSaveName(value => value!.slice(0, -1)); return }
       if (key.return) {
-        if (!run || !saveName.trim()) return
+        if (!run || !runControllable || !saveName.trim()) return
         void onSave(run.runId, saveName.trim())
           .then(path => { setFeedback(`Saved to ${path}`); setSaveName(null) })
           .catch(error => setFeedback((error as Error).message))
@@ -135,37 +138,44 @@ export function WorkflowMonitor({
       if (!key.ctrl && !key.meta && input && !input.startsWith('\x1b')) setSaveName(value => value + input)
       return
     }
-    if (key.escape) {
-      if (view === 'agent') { setView('run'); setScroll(0) }
+    if (key.escape || key.leftArrow) {
+      if (view === 'agent') { setView('agents'); setScroll(0) }
+      else if (view === 'agents') setView('run')
       else if (view === 'run') { setView('list'); setFeedback('') }
       else onClose()
       return
     }
     if (!runs.length || !run) return
-    if (input === 's') { setSaveName(run.meta.name); return }
+    if (input === 's') {
+      if (!runControllable) { setFeedback('Workflow is read-only in another session.'); return }
+      setSaveName(run.meta.name)
+      return
+    }
 
     if (view === 'list') {
       if (key.upArrow) { setSelectedRunId(runs[(selected - 1 + runs.length) % runs.length]!.runId); return }
       if (key.downArrow) { setSelectedRunId(runs[(selected + 1) % runs.length]!.runId); return }
       if (key.return) { setView('run'); setPhaseIndex(0); return }
-      if (input === 'x' && isRunActive(run.status)) {
+      if (input === 'x' && runControllable && isRunActive(run.status)) {
         void onStop(run.runId).then(ok => setFeedback(ok ? 'Workflow stopping.' : 'Workflow is not active.')).catch(error => setFeedback((error as Error).message))
-      } else if (input === 'p' && run.status === 'running') {
+      } else if (input === 'p' && runControllable && run.status === 'running') {
         void onPause(run.runId).then(ok => setFeedback(ok ? 'Workflow paused.' : 'Workflow is not running.')).catch(error => setFeedback((error as Error).message))
-      } else if (input === 'p' && run.status === 'paused') {
+      } else if (input === 'p' && runControllable && run.status === 'paused') {
         void onResume(run.runId).then(ok => setFeedback(ok ? 'Workflow resumed.' : 'Workflow is not paused.')).catch(error => setFeedback((error as Error).message))
-      } else if (input === 'r' && !isRunActive(run.status)) {
+      } else if (input === 'r' && runControllable && !isRunActive(run.status)) {
         void onRestart(run.runId).catch(error => setFeedback((error as Error).message))
       }
       return
     }
 
     if (view === 'run') {
-      if (key.upArrow && phases.length) { setPhaseIndex((phaseIndex - 1 + phases.length) % phases.length); return }
-      if (key.downArrow && phases.length) { setPhaseIndex((phaseIndex + 1) % phases.length); return }
-      if (key.return && phaseAgents.length) { setView('agent'); setAgentIndex(0); setScroll(0) }
+      if (key.upArrow && phases.length) { setPhaseIndex(Math.max(0, phaseIndex - 1)); setAgentIndex(0); return }
+      if (key.downArrow && phases.length) { setPhaseIndex(Math.min(phases.length - 1, phaseIndex + 1)); setAgentIndex(0); return }
+      if ((key.return || key.rightArrow) && phaseAgents.length) { setView('agents'); setAgentIndex(0); setScroll(0) }
       return
     }
+
+    if (view === 'agents' && (key.return || key.rightArrow)) { setView('agent'); setScroll(0); return }
 
     if (key.upArrow && phaseAgents.length) { setAgentIndex((agentIndex - 1 + phaseAgents.length) % phaseAgents.length); setScroll(0); return }
     if (key.downArrow && phaseAgents.length) { setAgentIndex((agentIndex + 1) % phaseAgents.length); setScroll(0); return }
@@ -199,20 +209,20 @@ export function WorkflowMonitor({
         })
         const phaseWidth = phaseColumnWidth(cells)
         return cells.map(cell =>
-          `${cell.index === phaseIndex ? '❯' : ' '} ${formatWorkflowPhaseRow(cell.phase, cell.index, cell.state, cell.done, cell.total, phaseWidth)}`)
+          `${view === 'run' && cell.index === phaseIndex ? '❯' : ' '} ${formatWorkflowPhaseRow(cell.phase, cell.index, cell.state, cell.done, cell.total, phaseWidth)}`)
       })()
     const leftWidth = Math.min(34, Math.max(12, Math.max(0, ...leftRows.map(row => row.length)) + 2))
     const rightWidth = Math.max(12, width - leftWidth - 3)
     const labelWidth = Math.min(20, Math.max(0, ...phaseAgents.map(item => item.task.length)))
     const body = isAgentView && agent
       ? agentTranscript(agent, rightWidth - 2, now).map(line => ` ${line}`)
-      : phaseAgents.map(item => `  ${formatWorkflowPanelAgentRow(item, rightWidth - 3, now, labelWidth)}`)
+      : phaseAgents.map((item, index) => `${view === 'agents' && index === agentIndex ? '❯ ' : '  '}${formatWorkflowPanelAgentRow(item, rightWidth - 3, now, labelWidth)}`)
     // Keep the selected phase/agent on screen once the list outgrows the panel.
     const activeIndex = isAgentView ? agentIndex : phaseIndex
     const leftWindow = windowRows(leftRows, activeIndex, panelHeight)
     // `j` increments freely, so clamp before slicing or the panel scrolls past the end.
     const scrollOffset = Math.min(scroll, Math.max(0, body.length - panelHeight))
-    const visibleBody = body.slice(scrollOffset, scrollOffset + panelHeight)
+    const visibleBody = isAgentView ? body.slice(scrollOffset, scrollOffset + panelHeight) : windowRows(body, agentIndex, panelHeight).rows
     const note = isAgentView && body.length > panelHeight
       ? `${scrollOffset + 1}–${Math.min(body.length, scrollOffset + panelHeight)} of ${body.length} ↓`
       : undefined
@@ -222,7 +232,7 @@ export function WorkflowMonitor({
     return (
       <Box flexDirection="column">
         <Text color={colors.textDim}>{`  ${'─'.repeat(width)}`}</Text>
-        <Text color={colors.primary} bold>{`   ${truncate(run.meta.name, width)}`}</Text>
+        <Text color={colors.primary} bold>{`   ${truncate(`${run.meta.name}${runControllable ? '' : ' · read-only'}`, width)}`}</Text>
         <Text color={colors.textDim}>
           {`   ${truncate(run.meta.description ?? 'Dynamic Workflow', Math.max(12, width - 30)).padEnd(Math.max(12, width - 28))}${formatWorkflowHeaderStats(run, runAgents, now)}`}
         </Text>
@@ -233,15 +243,21 @@ export function WorkflowMonitor({
           const right = visibleBody[index] ?? ''
           const active = leftWindow.start + index === activeIndex
           return (
-            <Text key={index} color={index < leftWindow.rows.length && active ? colors.primary : colors.textDim}>
-              {`   ${boxRow(left, leftWidth, right, rightWidth)}`}
+            <Text key={index} color={colors.textDim}>
+              {'   │ '}
+              <Text color={view !== 'agents' && index < leftWindow.rows.length && active ? colors.primary : colors.textDim}>{truncate(left, leftWidth - 2).padEnd(leftWidth - 2)}</Text>
+              {' │'}
+              <Text color={view === 'agents' && right.startsWith('❯') ? colors.primary : colors.textDim}>{truncate(right, rightWidth).padEnd(rightWidth)}</Text>
+              {'│'}
             </Text>
           )
         })}
         <Text color={colors.textDim}>{`   ${boxBottom(leftWidth, rightWidth, note)}`}</Text>
         {feedback && <Text color={colors.warning}>{`   ${truncate(feedback, width)}`}</Text>}
         <Text color={colors.textSubtle}>
-          {isAgentView ? '   ↑↓ agent · j/k scroll · esc back · s save' : '   ↑↓ select · esc back · s save'}
+          {runControllable
+            ? isAgentView ? '   ↑↓ agent · j/k scroll · ←/esc back · s save' : '   ↑↓ select · →/Enter view · ←/esc back · s save'
+            : '   ↑↓ select · esc back · read-only (another session)'}
         </Text>
       </Box>
     )
@@ -261,7 +277,7 @@ export function WorkflowMonitor({
             const isSelected = visible.start + index === selected
             return (
               <Text key={item.runId} color={['failed', 'cancelled'].includes(item.status) ? colors.error : isSelected ? colors.primary : colors.textDim}>
-                {`   ${isSelected ? '❯ ' : '  '}${formatWorkflowRunRow(item, width - 5, now)}`}
+                {`   ${isSelected ? '❯ ' : '  '}${formatWorkflowRunRow(item, width - 5, now, canControlWorkflow(item))}`}
               </Text>
             )
           })}
@@ -269,7 +285,7 @@ export function WorkflowMonitor({
         </>}
       <Text>{' '}</Text>
       {feedback && <Text color={colors.warning}>{`   ${truncate(feedback, width)}`}</Text>}
-      <Text color={colors.textSubtle}>{`   ${runs.length ? workflowListHint(run?.status) : 'Esc to close'}`}</Text>
+      <Text color={colors.textSubtle}>{`   ${runs.length ? workflowListHint(run?.status, runControllable) : 'Esc to close'}`}</Text>
     </Box>
   )
 }

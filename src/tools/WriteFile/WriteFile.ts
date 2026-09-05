@@ -32,7 +32,7 @@ function computeDiff(oldLines: string[], newLines: string[], _filePath?: string)
 
 export const WriteFile: Tool = {
   name: 'write_file',
-  description: 'Write content to a file. Creates parent directories if needed.',
+  description: 'Create a file or replace its entire content. Creates parent directories if needed. For changes to an existing file prefer edit_file or patch_file after reading it; use write_file for new files or full rewrites, and split very large files into a write followed by targeted edits.',
   parameters: {
     type: 'object',
     properties: {

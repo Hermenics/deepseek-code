@@ -72,6 +72,101 @@ test('controls and opens the selected workflow', async () => {
   }
 })
 
+test('paused workflow remains selectable and can be resumed', async () => {
+  const stdin = new FakeTerminal()
+  const stdout = new FakeTerminal()
+  const actions: string[] = []
+  const run: WorkflowRun = {
+    runId: 'paused-workflow', sessionId: 'session', projectRoot: '/project', meta: { name: 'paused audit' },
+    status: 'paused', scriptHash: 'script', argsHash: 'args', optionsHash: 'options', options: {},
+    createdAt: new Date().toISOString(), startedAt: new Date().toISOString(),
+    usage: { agents: 0, tokens: 0, costUsd: 0 }, failures: [], worktrees: [],
+  }
+  const instance = renderSync(
+    <ActivityFooter
+      agents={[]}
+      workflows={[run]}
+      open
+      onClose={() => {}}
+      onOpenWorkflow={() => {}}
+      onTaskAction={async () => ''}
+      onWorkflowAction={async (_id, action) => { actions.push(action); return '' }}
+    />,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stderr: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  )
+
+  try {
+    await Bun.sleep(100)
+    stdin.write('\x1b[B')
+    await Bun.sleep(100)
+    stdin.write('r')
+    await Bun.sleep(100)
+    stdin.write('x')
+    await Bun.sleep(100)
+    expect(actions).toEqual(['resume', 'stop'])
+  } finally {
+    stdout.isTTY = false
+    instance.unmount()
+    instance.cleanup()
+  }
+})
+
+test('keeps the selected agent by id when a newly active row is inserted', async () => {
+  const stdin = new FakeTerminal()
+  const stdout = new FakeTerminal()
+  const opened: string[] = []
+  const first = fakeAgent({ id: 'first', task: 'first', startedAt: 2_000 })
+  const second = fakeAgent({ id: 'second', task: 'second', startedAt: 3_000 })
+  const inserted = fakeAgent({ id: 'inserted', task: 'inserted', startedAt: 1_000 })
+
+  const makeFooter = (agents: SubagentState[]) => (
+    <ActivityFooter
+      agents={agents}
+      workflows={[]}
+      open
+      onClose={() => {}}
+      onOpenWorkflow={() => {}}
+      onOpenSubagent={id => opened.push(id)}
+      onTaskAction={async () => ''}
+      onWorkflowAction={async () => ''}
+    />
+  )
+  const instance = renderSync(makeFooter([first, second]), {
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    stdout: stdout as unknown as NodeJS.WriteStream,
+    stderr: stdout as unknown as NodeJS.WriteStream,
+    exitOnCtrlC: false,
+    patchConsole: false,
+  })
+
+  try {
+    await Bun.sleep(100)
+    // Main -> first -> second.
+    stdin.write('\x1b[B')
+    await Bun.sleep(50)
+    stdin.write('\x1b[B')
+    await Bun.sleep(80)
+
+    // The new row sorts before the selected agent. Selection must follow the id.
+    instance.rerender(makeFooter([inserted, first, second]))
+    await Bun.sleep(100)
+    stdin.write('\r')
+    await Bun.sleep(100)
+
+    expect(opened).toEqual(['second'])
+  } finally {
+    stdout.isTTY = false
+    instance.unmount()
+    instance.cleanup()
+  }
+})
+
 test('Enter on an agent row calls onOpenSubagent', async () => {
   const stdin = new FakeTerminal()
   const stdout = new FakeTerminal()
@@ -183,6 +278,45 @@ test('closed state renders the main header and flat agent rows', async () => {
       .replace(/\x1b\[[?0-9;]*[a-zA-Z]/g, '')
     expect(output).toContain('● main')
     expect(output).toContain('◯ Coder')
+  } finally {
+    stdout.isTTY = false
+    instance.unmount()
+    instance.cleanup()
+  }
+})
+
+test('task decoration replaces the closed agent row body without losing its label', async () => {
+  const stdin = new FakeTerminal()
+  const stdout = new FakeTerminal()
+  const agent = fakeAgent({ status: 'running', task: 'audit security' })
+  const instance = renderSync(
+    <ActivityFooter
+      agents={[agent]}
+      workflows={[]}
+      open={false}
+      taskDecorations={new Map([[agent.id, 'custom status']])}
+      onClose={() => {}}
+      onOpenWorkflow={() => {}}
+      onTaskAction={async () => ''}
+      onWorkflowAction={async () => ''}
+    />,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stderr: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  )
+
+  try {
+    await Bun.sleep(100)
+    const output = (stdout.read()?.toString() ?? '')
+      .replace(/\x1b\[\d*C/g, ' ')
+      .replace(/\x1b\[[?0-9;]*[a-zA-Z]/g, '')
+    expect(output).toContain('◯ Coder')
+    expect(output).toContain('custom status')
+    expect(output).not.toContain('audit security')
   } finally {
     stdout.isTTY = false
     instance.unmount()

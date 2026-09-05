@@ -18,6 +18,8 @@ export interface SubagentState {
   toolCount: number
   lastToolInfo: string | null
   startedAt: number
+  /** Wall-clock completion time used for short-lived activity retention. */
+  completedAt?: number | null
   durationMs: number | null
   result: string | null
   error: string | null
@@ -33,6 +35,10 @@ export interface SubagentState {
   model?: string | null
   workspace?: string | null
   workflowRunId?: string | null
+  /** Parent orchestration task, when this UI state came from TaskRegistry. */
+  parentTaskId?: string | null
+  /** Runtime task type (for example review, verification, or shell). */
+  type?: string | null
   /** Workflow phase active when this agent was spawned; drives the phase/agent split in the monitor. */
   workflowPhase?: string | null
   /** Original instruction; `task` is only a short label when the workflow supplied one. */

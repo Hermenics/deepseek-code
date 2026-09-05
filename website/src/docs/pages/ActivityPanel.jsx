@@ -14,7 +14,7 @@ const TOC = [
 
 const CONTENTS = [
   ["Standalone subagent", "Every standalone entry currently retained by the session, including recently finished entries."],
-  ["Workflow", "Only a workflow whose run status is queued or running."],
+  ["Workflow", "A workflow whose run status is queued, running or paused."],
   ["Workflow child agent", "Grouped into its workflow progress and excluded as a separate top-level row."],
   ["Main agent", "A permanent navigation row, labeled with the active main-agent identity when available."],
 ];
@@ -25,9 +25,9 @@ const CONTROLS = [
   ["Enter on an agent", "Open that subagent's live conversation and route ordinary input to it."],
   ["Enter on a workflow", "Open the dedicated workflow monitor for that run."],
   ["v on an agent", "Open the compact metadata detail view."],
-  ["x", "Cancel the selected active agent, or stop the selected queued/running workflow."],
+  ["x", "Cancel the selected active agent, or stop the selected queued, running or paused workflow."],
   ["p", "Pause the selected workflow when its status is running."],
-  ["r", "Resume a selected blocked, failed, error, cancelled or timed-out agent."],
+  ["r", "Resume a selected paused workflow or blocked, failed, error, cancelled or timed-out agent."],
   ["Esc", "Leave detail view first; from the activity list, close the panel."],
 ];
 
@@ -89,7 +89,7 @@ export default function ActivityPanel() {
             activities. This prevents one workflow from flooding the footer with duplicate top-level entries.
           </p>
           <p>
-            Only queued and running workflows appear here. Paused, completed, failed, cancelled, timed-out and
+            Queued, running and paused workflows appear here. Completed, failed, cancelled, timed-out and
             budget-exhausted workflow runs belong in the workflow history or monitor rather than this active footer.
           </p>
         </section>
@@ -116,8 +116,8 @@ export default function ActivityPanel() {
         <section id="open">
           <h2><span className="anchor">#</span>Open and navigate</h2>
           <p>
-            Place the input cursor on an empty prompt, close any command or file dropdown, then press Down. The panel
-            opens with the main row selected. Press Down to enter the activity list; continue pressing Down to move
+            Place the input cursor on an empty prompt, close any command or file dropdown, then press Down (or Left).
+            The panel opens with the main row selected. Press Down to enter the activity list; continue pressing Down to move
             through entries and wrap back to main. Pressing Up while main is selected closes the panel immediately.
           </p>
           <div className="doc-table-wrap">
@@ -180,14 +180,15 @@ export default function ActivityPanel() {
           <h2><span className="anchor">#</span>Stop, pause and resume work</h2>
           <p>
             Press <code className="inline">x</code> on a queued, running or blocked standalone agent to request
-            cancellation. On a queued or running workflow, the same key requests that the workflow stop. These are
+            cancellation. On a queued, running or paused workflow, the same key requests that the workflow stop. These are
             control requests: the row may remain active briefly while the runtime acknowledges and propagates the state.
           </p>
           <p>
-            Press <code className="inline">p</code> to pause a workflow only while it is running. To inspect or resume a
-            paused workflow, enter its dedicated workflow monitor; paused runs disappear from this footer. Press{" "}
-            <code className="inline">r</code> to resume a standalone agent in blocked, failed, error, cancelled or timed-out
-            state. Resume is not offered for an agent that completed normally.
+            Press <code className="inline">p</code> to pause a workflow only while it is running. A paused workflow
+            remains visible and controllable in this footer: press <code className="inline">x</code> to stop it or{" "}
+            <code className="inline">r</code> to resume it. You can also enter its dedicated workflow monitor.
+            Press <code className="inline">r</code> to resume a standalone agent in blocked, failed, error, cancelled
+            or timed-out state. Resume is not offered for an agent that completed normally.
           </p>
           <Note>
             DeepSeek Code reports the runtime&apos;s response in the hint line. A control request can fail when the selected
@@ -216,15 +217,16 @@ export default function ActivityPanel() {
 
         <section id="troubleshooting">
           <h2><span className="anchor">#</span>Troubleshooting</h2>
-          <h3>Down moves through input history instead of opening Activity</h3>
+          <h3>Down or Left moves through input history instead of opening Activity</h3>
           <p>
             Clear the prompt and close any slash-command or file-completion dropdown. Activity must also contain at least
-            one retained standalone agent or queued/running workflow before the empty-prompt shortcut is enabled.
+            one retained standalone agent or queued, running or paused workflow before the empty-prompt shortcut is enabled.
           </p>
-          <h3>A workflow disappeared after pausing</h3>
+          <h3>A workflow disappeared after it finished</h3>
           <p>
-            That is expected: this footer includes only queued and running workflows. Open the workflow history or its
-            monitor to inspect a paused or resolved run.
+            That is expected: this footer includes queued, running and paused workflows, but removes terminal runs.
+            Open the workflow history or its monitor to inspect a completed, failed, cancelled, timed-out or
+            budget-exhausted run.
           </p>
           <h3>An agent is marked idle</h3>
           <p>

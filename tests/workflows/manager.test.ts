@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, setDefaultTimeout, spyOn, test } from 'bun:test'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { WorkflowManager } from '../../src/workflows/manager.js'
@@ -330,5 +330,138 @@ describe('WorkflowManager', () => {
     const path = await manager.save(handle.runId, 'saved-workflow')
     expect(await readFile(path, 'utf8')).toContain('export const meta = {"name":"saved-workflow"};')
     await expect(manager.save(handle.runId, 'saved-workflow')).rejects.toThrow()
+  })
+})
+
+describe('WorkflowManager — Claude Code parity', () => {
+  test('resumeFromRunId replays the unchanged prefix of an edited script', async () => {
+    const calls: string[] = []
+    const manager = await setup(async request => { calls.push(request.prompt); return { value: `done:${request.prompt}`, usage: { tokens: 1 } } })
+    const first = await manager.start({ script: 'export const meta = {"name":"resume"}; return [await agent("a"), await agent("b")];' })
+    expect((await first.result).result).toEqual(['done:a', 'done:b'])
+
+    const edited = 'export const meta = {"name":"resume"}; return [await agent("a"), await agent("b-edited"), await agent("c")];'
+    const second = await manager.start({ script: edited, resumeFromRunId: first.runId.slice(0, 8) })
+    const result = await second.result
+    expect(result.result).toEqual(['done:a', 'done:b-edited', 'done:c'])
+    expect(calls).toEqual(['a', 'b', 'b-edited', 'c'])
+    expect(result.scriptPath).toEndWith(join(second.runId, 'workflow.js'))
+    expect(result.journalPath).toEndWith(join(second.runId, 'journal.json'))
+    await expect(manager.start({ script: edited, resumeFromRunId: 'ffffffff' })).rejects.toThrow('no journal')
+  })
+
+  test('resolves scripts from source, saved names and contained script paths only', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-manager-'))
+    roots.push(root)
+    const project = join(root, 'project')
+    await mkdir(join(project, '.deepseek', 'workflows'), { recursive: true })
+    await writeFile(join(project, '.deepseek', 'workflows', 'saved.js'), 'export const meta = {"name":"saved"}; return "saved";')
+    await writeFile(join(root, 'outside.js'), 'export const meta = {"name":"outside"}; return "outside";')
+    const manager = new WorkflowManager({
+      sessionId: 'resolve', projectRoot: project, baseDirectory: join(root, 'state'),
+      providerConfig: { provider: 'deepseek' }, agentRunner: async request => ({ value: request.prompt }),
+    })
+
+    expect(await manager.resolveScript({ script: 'return 1;', name: 'adhoc' })).toEqual({ script: 'return 1;', name: 'adhoc' })
+    expect((await manager.resolveScript({ name: 'saved' })).script).toContain('"saved"')
+    expect((await manager.resolveScript({ scriptPath: '.deepseek/workflows/saved.js' })).script).toContain('"saved"')
+    await expect(manager.resolveScript({ scriptPath: join(root, 'outside.js') })).rejects.toThrow('inside the project')
+    await expect(manager.resolveScript({ name: 'missing' })).rejects.toThrow('not found')
+    await expect(manager.resolveScript({})).rejects.toThrow('Provide a workflow script')
+
+    // A previous run's persisted script is a valid scriptPath — that is how resume iterates.
+    const run = await manager.start({ script: 'export const meta = {"name":"persisted"}; return agent("x");' })
+    const result = await run.result
+    expect((await manager.resolveScript({ scriptPath: result.scriptPath! })).script).toContain('"persisted"')
+  })
+
+  test('runs { scriptPath } children in Auto mode without prior approval and groups their phases', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-manager-'))
+    roots.push(root)
+    const project = join(root, 'project')
+    await mkdir(project, { recursive: true })
+    await writeFile(join(project, 'child.js'), 'export const meta = {"name":"child"}; phase("inner"); return agent("child-agent", { phase: "tagged" });')
+    const manager = new WorkflowManager({
+      sessionId: 'auto-child', projectRoot: project, baseDirectory: join(root, 'state'),
+      providerConfig: { provider: 'deepseek' }, interactionMode: () => 'auto',
+      agentRunner: async request => ({ value: request.prompt }),
+    })
+    const approval = spyOn(WorkflowApprovalStore.prototype, 'isApproved').mockResolvedValue(false)
+    try {
+      const handle = await manager.start({ script: 'export const meta = {"name":"parent"}; return workflow({ scriptPath: "child.js" }, {});' })
+      const result = await handle.result
+      expect(result.status).toBe('completed')
+      expect(result.result).toBe('child-agent')
+      expect((await manager.get(handle.runId))?.phaseHistory).toEqual(['▸ child', '▸ child · inner', 'tagged'])
+    } finally { approval.mockRestore() }
+  })
+
+  test('applies meta.phases[].model to agents without an override and maps Claude Code effort tiers', async () => {
+    const seen: Array<{ model?: string; effort?: string }> = []
+    const manager = await setup(async request => { seen.push({ model: request.options.model, effort: request.options.effort }); return { value: request.prompt } })
+    const handle = await manager.start({
+      script: `
+        export const meta = {"name":"phase-model","phases":[{"title":"Scan","model":"cheap"},{"title":"Judge"}]};
+        phase("Scan");
+        await agent("a", { effort: "medium" });
+        await agent("b", { model: "own", effort: "xhigh" });
+        phase("Judge");
+        await agent("c");
+        return null;
+      `,
+    })
+    expect((await handle.result).status).toBe('completed')
+    expect(seen).toEqual([{ model: 'cheap', effort: 'medium' }, { model: 'own', effort: 'xhigh' }, { model: undefined, effort: undefined }])
+    const { toSubagentEffort } = await import('../../src/workflows/manager.js')
+    expect(['low', 'medium', 'high', 'xhigh', 'max'].map(level => toSubagentEffort(level as never))).toEqual(['low', 'high', 'high', 'max', 'max'])
+  })
+})
+
+describe('WorkflowManager — budget replay', () => {
+  test('re-executes budget-exhausted journal entries when the new run has room, and counts one agent per call', async () => {
+    let calls = 0
+    const manager = await setup(async request => { calls++; return { value: request.prompt, usage: { tokens: 3 } } })
+    const script = 'export const meta = {"name":"budget-replay"}; return parallel([() => agent("one"), () => agent("two")]);'
+    const starved = await (await manager.start({ script, maxTokens: 2 })).result
+    expect(starved.status).toBe('budget_exhausted')
+    expect(starved.error).toContain('Budget of 2 tokens exhausted')
+    expect(starved.error).toContain('resumeFromRunId')
+
+    const roomy = await (await manager.start({ script, maxTokens: 100, resumeFromRunId: starved.runId })).result
+    expect(roomy.status).toBe('completed')
+    expect(roomy.result).toEqual(['one', 'two'])
+    expect(roomy.usage).toEqual({ agents: 2, tokens: 6, costUsd: 0 })
+    expect(calls).toBe(2)
+    expect((await manager.get(roomy.runId))?.usage.agents).toBe(2)
+  })
+})
+
+describe('WorkflowManager — interrupted runs', () => {
+  test('restart resumes an interrupted run over its journal instead of rerunning completed agents', async () => {
+    let calls = 0
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-manager-'))
+    roots.push(root)
+    const state = join(root, 'state')
+    const manager = new WorkflowManager({
+      sessionId: 'interrupted', projectRoot: join(root, 'project'), baseDirectory: state,
+      providerConfig: { provider: 'deepseek' }, agentRunner: async request => { calls++; return { value: request.prompt } },
+    })
+    const script = 'export const meta = {"name":"interrupted"}; return [await agent("a"), await agent("b")];'
+    const first = await (await manager.start({ script })).result
+    expect(calls).toBe(2)
+    // Simulate a session that died mid-run: the record never reached a terminal status.
+    const runPath = join(state, first.runId, 'run.json')
+    const run = JSON.parse(await readFile(runPath, 'utf8'))
+    run.status = 'running'
+    await writeFile(runPath, JSON.stringify(run))
+    const journalPath = join(state, first.runId, 'journal.json')
+    const journal = JSON.parse(await readFile(journalPath, 'utf8'))
+    journal.entries[1].status = 'running'
+    await writeFile(journalPath, JSON.stringify(journal))
+
+    const resumed = await (await manager.restart(first.runId.slice(0, 8))).result
+    expect(resumed.status).toBe('completed')
+    expect(resumed.result).toEqual(['a', 'b'])
+    expect(calls).toBe(3)
   })
 })

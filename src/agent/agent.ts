@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { readFile, unlink, writeFile } from 'fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 import DEFAULT_SYSTEM_PROMPT_MD from './system-prompt.md' with { type: 'text' }
+import { collectEnvironmentInfo, formatEnvironmentInfo } from './environment.js'
 import { allTools } from '../tools/index.js'
 import type { SubAgentCallbacks } from '../tools/SubAgent/SubAgent.js'
 import { approveMcpConfig, loadMcpTools, type McpApprovalRequest } from './mcp.js'
@@ -285,6 +286,36 @@ function extractThinking(text: string): string {
   return parts.join('\n')
 }
 
+export interface ToolCallInvocation {
+  tc: { id: string; type: 'function'; function: { name: string; arguments: string } }
+  parsedArgs: Record<string, unknown>
+  /** Set when the arguments are not valid JSON; the text is the result the model receives. */
+  parseError?: string
+}
+
+/**
+ * Parses tool-call arguments and explains a failure in terms the model can act on. A cut-off
+ * response (`finish_reason: length`) is the common cause, and the fix is to split the work.
+ */
+export function parseToolCallArguments(tc: ToolCallInvocation['tc'], finishReason: string | null): ToolCallInvocation {
+  const raw = tc.function.arguments ?? ''
+  if (!raw.trim()) return { tc, parsedArgs: {} }
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return { tc, parsedArgs: parsed as Record<string, unknown> }
+    return { tc, parsedArgs: {}, parseError: `Error: arguments for '${tc.function.name}' must be a JSON object, received ${Array.isArray(parsed) ? 'an array' : typeof parsed}. Resend the call with an object of named parameters.` }
+  } catch (error) {
+    const reason = (error as Error).message
+    const truncated = finishReason === 'length'
+    return {
+      tc, parsedArgs: {},
+      parseError: truncated
+        ? `Error: the response was cut off at the output-token limit, so the arguments for '${tc.function.name}' are incomplete (${raw.length} characters received; JSON error: ${reason}). Nothing was executed. Split the work into smaller calls — for example write a file in parts with write_file then edit_file, or use patch_file/edit_file for targeted changes — and keep prose out of tool arguments.`
+        : `Error: arguments for '${tc.function.name}' are not valid JSON (${reason}). Nothing was executed. Resend the call with complete, valid JSON arguments.`,
+    }
+  }
+}
+
 function toOpenAITools(tools: Tool[], mode: InteractionMode = 'auto'): ChatCompletionTool[] {
   return tools.map((t) => ({
     type: 'function' as const,
@@ -319,6 +350,8 @@ const PATH_TOOL_ARGUMENTS: Record<string, { key: 'path' | 'cwd'; isDirectory: bo
   grep: { key: 'path', isDirectory: true },
   glob: { key: 'cwd', isDirectory: true },
 }
+
+const READ_ONLY_PATH_TOOLS = new Set(['read_file', 'read_folder', 'grep', 'glob'])
 
 function isPathContained(root: string, target: string): boolean {
   const pathRelative = relative(root, target)
@@ -649,7 +682,12 @@ export class Agent {
       await this.orchestrator.memory.configure(settings.memory ?? {}, this.orchestrator.projectRoot)
 
       const memorySnapshot = await this.orchestrator.memory.snapshot()
+      const environment = formatEnvironmentInfo(await collectEnvironmentInfo({
+        workingDirectory: this.workspacePath, additionalDirectories: this.listAdditionalDirectories(),
+        model: this.model, provider: this.provider,
+      }))
       this.projectContext = buildProjectContext([
+        ['environment', environment],
         ['steering', steering],
         ['agents-md', agentsMd],
         ['deepseek-md', deepseekMd],
@@ -1212,10 +1250,24 @@ export class Agent {
 
   private getEffortHint(): string | null {
     switch (this.effortLevel) {
-      case 'low': return 'Be concise and quick. Skip detailed explanations. Give the shortest correct answer.'
-      case 'high': return 'Be thorough and comprehensive. Think step by step.'
-      case 'max': return 'Use your deepest reasoning. Think extensively before responding. Consider all edge cases, alternative approaches, and potential issues.'
+      case 'low': return 'Favor speed: inspect only what the change touches, make the edit, run the smallest check, and keep replies to a few sentences.'
+      case 'high': return null
+      case 'max': return 'Favor depth: trace callers and contracts before editing, compare alternatives when the design is not obvious, cover failure paths in verification, and re-read the final diff before reporting.'
     }
+  }
+
+  /**
+   * Sampling and output-limit parameters. The official DeepSeek API caps output at 4K tokens
+   * without max_tokens (8K max outside thinking mode), which truncates long file writes mid-JSON;
+   * other providers keep their own default unless the user configures one.
+   */
+  private getSamplingParams(): Record<string, unknown> {
+    const model = typeof this.settings.model === 'object' ? this.settings.model : undefined
+    const params: Record<string, unknown> = {}
+    if (typeof model?.maxOutputTokens === 'number' && model.maxOutputTokens > 0) params.max_tokens = Math.floor(model.maxOutputTokens)
+    else if (this.provider === 'deepseek') params.max_tokens = this.effortLevel === 'low' ? 8192 : 32768
+    if (typeof model?.temperature === 'number' && model.temperature >= 0 && model.temperature <= 2) params.temperature = model.temperature
+    return params
   }
 
   /** Returns extra API params for DeepSeek V4 thinking mode control based on effortLevel */
@@ -1526,11 +1578,15 @@ export class Agent {
       try {
         return await fn()
       } catch (e: unknown) {
-        const err = e as { name?: string; status?: number }
+        const err = e as { name?: string; status?: number; code?: string; cause?: { code?: string } }
         // Never retry aborts — check the signal directly, not the error name
         if (signal?.aborted) throw e
-        // Retry on rate limit or server error
-        if ((err.status === 429 || err.status === 503) && attempt < delays.length) {
+        // Retry on rate limits, overloads, gateway errors and dropped connections — all transient
+        // for every provider, and a proxy in front of the model turns most of them into 5xx.
+        const transientStatus = err.status !== undefined && [408, 409, 429, 500, 502, 503, 504, 529].includes(err.status)
+        const networkCode = err.code ?? err.cause?.code
+        const transientNetwork = err.name === 'APIConnectionError' || (networkCode !== undefined && ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'EAI_AGAIN', 'UND_ERR_SOCKET'].includes(networkCode))
+        if ((transientStatus || transientNetwork) && attempt < delays.length) {
           await this.waitForRetry(delays[attempt]!, signal)
           continue
         }
@@ -1603,6 +1659,7 @@ export class Agent {
                 max_tokens: 32768,
                 stream: false,
                 ...effortParams,
+                ...this.getSamplingParams(),
               } as any,
               { signal: this.abortController!.signal },
             )
@@ -1619,6 +1676,7 @@ export class Agent {
         const msg = choice.message
         const rawText = msg?.content ?? ''
         const reasoningText = (msg as any)?.reasoning_content ?? ''
+        const finishReason: string | null = choice.finish_reason ?? null
 
         // Track usage
         const usage = (response as any).usage
@@ -1699,17 +1757,13 @@ export class Agent {
         this.messages.push(assistantMsg)
 
         // Execute tools
-        const parsedList = tcArray.map((tc: any) => {
-          let parsedArgs: Record<string, unknown> = {}
-          try { parsedArgs = JSON.parse(tc.function.arguments) } catch { }
-          return { tc, parsedArgs }
-        })
+        const parsedList = tcArray.map((tc: any) => parseToolCallArguments(tc, finishReason))
 
         const batchCalls: Array<Record<string, unknown>> = []
-        for (const { tc, parsedArgs } of parsedList) {
-          const { result } = await this.checkAndExecuteTool(tc, parsedArgs, cb)
-          batchCalls.push({ tool_name: tc.function.name, tool_input: parsedArgs, tool_response: result, tool_use_id: tc.id })
-          this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
+        for (const call of parsedList) {
+          const { result } = await this.executeParsedCall(call, cb)
+          batchCalls.push({ tool_name: call.tc.function.name, tool_input: call.parsedArgs, tool_response: result, tool_use_id: call.tc.id })
+          this.messages.push({ role: 'tool', tool_call_id: call.tc.id, content: result })
         }
         await this.runPostToolBatchHooks(batchCalls)
         continue // next iteration of the agent loop
@@ -1727,6 +1781,7 @@ export class Agent {
             stream: true,
             stream_options: { include_usage: true },
             ...effortParams,
+            ...this.getSamplingParams(),
           } as any, { signal: this.abortController!.signal }) as any
         )
       } catch (e: unknown) {
@@ -1740,6 +1795,7 @@ export class Agent {
 
       let assistantText = ''
       let reasoningText = ''
+      let finishReason: string | null = null
       const toolCalls: Map<number, { id: string; name: string; args: string }> = new Map()
 
       // Bedrock R1 emits <think>/<tool_call> as plain text — filter it out of
@@ -1772,6 +1828,10 @@ export class Agent {
             this.contextUsage = chunk.usage.prompt_tokens
             this.contextStale = false
           }
+
+          // The last chunk often carries finish_reason with an empty delta; capture it before skipping.
+          const chunkFinish = chunk.choices?.[0]?.finish_reason
+          if (chunkFinish) finishReason = chunkFinish
 
           const delta = chunk.choices[0]?.delta
           if (!delta) continue
@@ -1890,11 +1950,7 @@ export class Agent {
       this.messages.push(assistantMsg)
 
       // ── Parse all args first ───────────────────────────────────────────────
-      const parsedList = tcArray.map((tc) => {
-        let parsedArgs: Record<string, unknown> = {}
-        try { parsedArgs = JSON.parse(tc.function.arguments) } catch { }
-        return { tc, parsedArgs }
-      })
+      const parsedList = tcArray.map((tc) => parseToolCallArguments(tc, finishReason))
 
       // ── Partition: parallel-safe vs sequential ─────────────────────────────
       const canParallelize = parsedList.every(({ tc }) => PARALLEL_SAFE.has(tc.function.name))
@@ -1903,7 +1959,7 @@ export class Agent {
         // Run all tool calls concurrently — use allSettled so a deny doesn't
         // silently abandon already-running tools without recording their results
         const settled = await Promise.allSettled(
-          parsedList.map(({ tc, parsedArgs }) => this.checkAndExecuteTool(tc, parsedArgs, cb))
+          parsedList.map(call => this.executeParsedCall(call, cb))
         )
         let hasDeny = false
         const batchCalls: Array<Record<string, unknown>> = []
@@ -1925,10 +1981,10 @@ export class Agent {
       } else {
         // Sequential execution (file writes, or mixed batch)
         const batchCalls: Array<Record<string, unknown>> = []
-        for (const { tc, parsedArgs } of parsedList) {
-          const { result } = await this.checkAndExecuteTool(tc, parsedArgs, cb)
-          batchCalls.push({ tool_name: tc.function.name, tool_input: parsedArgs, tool_response: result, tool_use_id: tc.id })
-          this.messages.push({ role: 'tool', tool_call_id: tc.id, content: result })
+        for (const call of parsedList) {
+          const { result } = await this.executeParsedCall(call, cb)
+          batchCalls.push({ tool_name: call.tc.function.name, tool_input: call.parsedArgs, tool_response: result, tool_use_id: call.tc.id })
+          this.messages.push({ role: 'tool', tool_call_id: call.tc.id, content: result })
         }
         await this.runPostToolBatchHooks(batchCalls)
       }
@@ -1992,6 +2048,19 @@ export class Agent {
     } finally {
       if (!completionHandled) cb.onDone()
     }
+  }
+
+  /**
+   * A call whose arguments never parsed is answered without touching the tool: silently
+   * executing `{}` used to surface as a schema error that hid the real cause (usually the
+   * response being cut off at the output-token limit).
+   */
+  private async executeParsedCall(call: ToolCallInvocation, cb: AgentCallbacks): Promise<{ tc: ToolCallInvocation['tc']; result: string }> {
+    if (call.parseError === undefined) return this.checkAndExecuteTool(call.tc, call.parsedArgs, cb)
+    const result = call.parseError
+    cb.onToolCall(call.tc.function.name, { arguments: call.tc.function.arguments.slice(0, 200) })
+    cb.onToolResult(call.tc.function.name, result, call.parsedArgs)
+    return { tc: call.tc, result }
   }
 
   /**
@@ -2112,14 +2181,24 @@ export class Agent {
     }
 
     if (tc.function.name === 'workflow') {
-      const script = effectiveArgs.script
-      if (typeof script !== 'string') {
-        const blockMsg = 'Workflow script must be a string.'
+      // Resolve scriptPath/name to source first so the approval prompt shows the exact code
+      // that will run and the approval hash covers it.
+      let resolved: { script: string; name?: string }
+      try {
+        resolved = await this.workflows.resolveScript({
+          script: effectiveArgs.script as string | undefined,
+          scriptPath: effectiveArgs.scriptPath as string | undefined,
+          name: effectiveArgs.name as string | undefined,
+        })
+      } catch (error) {
+        const blockMsg = `Workflow rejected: ${(error as Error).message}`
         cb.onToolCall(tc.function.name, effectiveArgs)
         cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
         return { tc, result: blockMsg }
       }
-      await this.authorizeWorkflow(script, effectiveArgs)
+      effectiveArgs = { ...effectiveArgs, script: resolved.script, ...(resolved.name ? { name: resolved.name } : {}) }
+      delete effectiveArgs.scriptPath
+      await this.authorizeWorkflow(resolved.script, effectiveArgs)
       workflowApproved = true
     }
 
@@ -2149,8 +2228,13 @@ export class Agent {
       const targetPath = resolvePathForContext(requestedPath, pathContext)
       if (!isPathContained(this.workspacePath, targetPath)) {
         const externalDirectory = await resolveExternalApprovalDirectory(requestedPath, pathTool.isDirectory, pathContext)
-        approvedExternalDirectory = [...this.sessionApprovedDirectories]
+        // Persisted workflow runs (scripts, journals) are DeepSeek Code's own state, not user
+        // data: reading them back is part of the workflow contract and must not prompt.
+        const workflowState = this.workflows.stateDirectory
+        const workflowStateRead = READ_ONLY_PATH_TOOLS.has(tc.function.name) && isPathContained(workflowState, targetPath)
+        approvedExternalDirectory = workflowStateRead || [...this.sessionApprovedDirectories]
           .some(directory => isPathContained(directory, externalDirectory))
+        if (workflowStateRead) executionExternalPaths = [...this.sessionApprovedDirectories, workflowState]
         if (!approvedExternalDirectory) {
           const hookDecision = await this.permissionHookDecision(tc.function.name, effectiveArgs)
           if (hookDecision.decision === 'block') {

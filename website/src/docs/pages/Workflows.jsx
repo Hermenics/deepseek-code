@@ -23,12 +23,15 @@ const LIMITS = [
 ];
 
 const HELPERS = [
-  ["agent(prompt, options)", "Run one sub-agent; resolves to its result"],
-  ["parallel(thunks)", "Run many agents concurrently via Promise.allSettled"],
-  ["pipeline(items, ...stages)", "Push each item through stages in sequence"],
-  ["workflow(name, args)", "Run a saved child workflow"],
-  ["log(value) / phase(value)", "Emit a log line / update the run's phase"],
-  ["args / budget", "Deep-frozen inputs; budget.spent and budget.remaining in tokens and cost"],
+  ["agent(prompt, options)", "Run one sub-agent; resolves to its text, or a validated object when options.schema is set (null on failure)"],
+  ["parallel(thunks)", "Run thunks concurrently and wait for all of them (a barrier); a failed thunk resolves to null"],
+  ["pipeline(items, ...stages)", "Push each item through every stage independently, no barrier; stages receive (previous, item, index)"],
+  ["workflow(nameOrRef, args)", "Run a saved workflow by name or { scriptPath } as a child; its agents show under a ▸ name group"],
+  ["log(value) / phase(value)", "Emit a log line / start a new progress group"],
+  ["args", "The tool's args input, deep-frozen"],
+  ["budget", "total (token ceiling or null), spent(), remaining() (Infinity when unbounded), maxCostUsd, spentCostUsd(), remainingCostUsd()"],
+  ["Date.now() / Math.random() / new Date()", "Throw inside a workflow — they would break resume; pass timestamps and seeds through args"],
+  ["Tool inputs", "script, scriptPath, name, args, resumeFromRunId, timeoutMs, maxTokens, maxCostUsd — resumeFromRunId replays every unchanged agent() call from that run's journal"],
 ];
 
 export default function Workflows() {
@@ -86,10 +89,12 @@ export default function Workflows() {
             <code className="inline">phase</code>, <code className="inline">schema</code> (a JSON Schema{" "}
             <code className="inline">object</code>), <code className="inline">model</code>,{" "}
             <code className="inline">effort</code> (<code className="inline">low</code> |{" "}
-            <code className="inline">high</code> | <code className="inline">max</code>),{" "}
-            <code className="inline">isolation</code>, <code className="inline">agentType</code>,{" "}
-            <code className="inline">timeoutMs</code>, <code className="inline">maxTokens</code>, and{" "}
-            <code className="inline">maxCostUsd</code>.
+            <code className="inline">medium</code> | <code className="inline">high</code> |{" "}
+            <code className="inline">xhigh</code> | <code className="inline">max</code>),{" "}
+            <code className="inline">isolation</code>, <code className="inline">agentType</code>, and — only when the
+            user asked for a budget — <code className="inline">timeoutMs</code>, <code className="inline">maxTokens</code>, and{" "}
+            <code className="inline">maxCostUsd</code>; an agent that hits its own limit fails and resolves to{" "}
+            <code className="inline">null</code>.
           </Note>
         </section>
 
@@ -156,9 +161,9 @@ export default function Workflows() {
           <p>
             The first call whose entry is missing, failed, or has a different fingerprint breaks the
             replay and execution continues fresh from that point; a corrupted journal disables replay
-            for the run entirely. Replayed entries marked <code className="inline">budget_exhausted</code> also
-            propagate that state into the new run, so a budget-limited outcome is never silently
-            re-derived.
+            for the run entirely. Entries marked <code className="inline">budget_exhausted</code> are not replayed:
+            execution continues fresh from that call, and the earlier exhaustion does not propagate into
+            the new run.
           </p>
         </section>
 
@@ -199,7 +204,7 @@ export default function Workflows() {
             <li><code className="inline">/workflow run &lt;name&gt; [args-json]</code> — run a saved workflow with arguments</li>
             <li><code className="inline">/workflow save &lt;run-id&gt; &lt;name&gt;</code> — persist a run as a saved workflow</li>
             <li><code className="inline">/workflow pause|resume|stop &lt;run-id&gt;</code> — control an active run</li>
-            <li><code className="inline">/workflow restart &lt;run-id&gt;</code> — re-run a previous run from its persisted script, args, and options</li>
+            <li><code className="inline">/workflow restart &lt;run-id&gt;</code> — re-run a previous run from its persisted script, args, and options, reusing its journal so completed agents are not rerun; <code className="inline">/workflow resume</code> does the same for a run that is not paused</li>
             <li><code className="inline">/workflows</code> — monitor runs, phases, and usage</li>
           </ul>
           <p>
@@ -236,26 +241,39 @@ export default function Workflows() {
             <code className="inline">parallel</code>, and thread results through a{" "}
             <code className="inline">pipeline</code>:
           </p>
-          <CodeBlock lang="js">{`phase("reviewing");
-const [security, style, tests] = await parallel([
-  () => agent("Review for security issues", { isolation: "worktree", effort: "high" }),
-  () => agent("Review code style", { isolation: "worktree" }),
-  () => agent("Review test coverage", { isolation: "worktree" }),
-]);
+          <CodeBlock lang="js">{`export const meta = {
+  name: "review-changes",
+  description: "Review the diff across dimensions, then verify each finding",
+  phases: [{ title: "Review" }, { title: "Verify" }],
+};
 
-phase("synthesizing");
-const report = await pipeline([security, style, tests],
-  (results) => results.filter(Boolean).join("\\n\\n"),
-  (text) => \`# Review\\n\\n\${text}\`,
+const FINDINGS = { type: "object", properties: { findings: { type: "array", items: { type: "object",
+  properties: { file: { type: "string" }, title: { type: "string" } }, required: ["file", "title"] } } }, required: ["findings"] };
+const VERDICT = { type: "object", properties: { isReal: { type: "boolean" } }, required: ["isReal"] };
+const DIMENSIONS = [
+  { key: "bugs", prompt: "Find correctness bugs in the current git diff." },
+  { key: "security", prompt: "Find security issues in the current git diff." },
+];
+
+// pipeline: each dimension starts verifying as soon as its own review finishes.
+const results = await pipeline(
+  DIMENSIONS,
+  (d) => agent(d.prompt, { label: "review:" + d.key, phase: "Review", schema: FINDINGS }),
+  (review, d) => parallel((review?.findings ?? []).map((f) => () =>
+    agent("Try to refute this finding: " + JSON.stringify(f), { label: "verify:" + f.file, phase: "Verify", schema: VERDICT })
+      .then((v) => ({ ...f, dimension: d.key, real: v?.isReal === true })))),
 );
 
-log(\`spent \${budget.spent.tokens} tokens\`);
-return report;`}</CodeBlock>
+log(\`spent \${budget.spent()} of \${budget.total ?? "unbounded"} tokens\`);
+return results.flat().filter(Boolean).filter((f) => f.real);`}</CodeBlock>
           <Note>
             <code className="inline">parallel</code> and <code className="inline">pipeline</code> resolve failed items
-            to <code className="inline">null</code> — keep array positions and filter before merging. Child
-            workflows run with <code className="inline">workflow(name, args)</code> need prior approval and cannot
-            start another workflow.
+            to <code className="inline">null</code> — keep array positions and filter before merging. Prefer{" "}
+            <code className="inline">pipeline</code>; reach for a <code className="inline">parallel</code> barrier only when a
+            later step needs every prior result at once. Child workflows run with{" "}
+            <code className="inline">workflow(nameOrRef, args)</code>, need prior approval outside Auto mode, and cannot
+            start another workflow. To iterate on a run, edit the file at its <code className="inline">scriptPath</code> and
+            call the tool again with <code className="inline">resumeFromRunId</code>.
           </Note>
         </section>
       </main>
