@@ -2708,6 +2708,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             currentModel={agent.model}
             models={availableModels}
             descriptions={modelDescriptions}
+            columns={process.stdout.columns ?? 80}
+            getContextLimit={(model) => agent.getKnownModelContextLimit(model)}
             onSelect={(m) => {
               agent.setModel(m)
               setMessages((prev) => [...prev, { role: 'assistant', content: `Model switched to ${m}` }])

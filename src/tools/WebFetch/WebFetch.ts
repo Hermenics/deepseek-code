@@ -253,3 +253,20 @@ export const WebFetch: Tool = {
     }
   },
 }
+
+export const WebSearch: Tool = {
+  name: 'web_search',
+  description: 'Search the public web for an exact model ID or technical topic. Returns search result text and links.',
+  parameters: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'A precise search query' },
+    },
+    required: ['query'],
+  },
+  async execute(args, context) {
+    const query = String(args.query ?? '').trim().slice(0, 300)
+    if (!query) return 'Error: search query is required.'
+    return WebFetch.execute({ url: `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}` }, context)
+  },
+}

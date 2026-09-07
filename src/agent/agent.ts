@@ -25,7 +25,8 @@ import { saveHistory } from './history.js'
 import { saveCheckpoint, listCheckpoints, loadCheckpoint } from './checkpoint.js'
 import { createFileCheckpoint, setCheckpointSession, rollbackAll as fileRollbackAll, listFileCheckpoints } from './fileCheckpoint.js'
 import { createBoundaryMarker, getMessagesAfterBoundary, isBoundaryMarker, type MessageOrBoundary } from './compactBoundary.js'
-import { estimateCost, formatCost, getContextLimit, type TokenUsage } from './cost.js'
+import { estimateCost, formatCost, getContextLimit, getKnownContextLimit, formatContextLimit, type TokenUsage } from './cost.js'
+import { WebSearch } from '../tools/WebFetch/WebFetch.js'
 import type { ProviderConfig } from '../types/provider.js'
 import { UNDO_STACK_MAX, CONTEXT_COMPACT_THRESHOLD, MICRO_COMPACT_KEEP_LAST } from '../constants.js'
 import { shouldAutoCompact, createCompactState, createAutoCompactConfig, type CompactState, type AutoCompactConfig } from '../services/compact/autoCompact.js'
@@ -323,6 +324,27 @@ function toOpenAITools(tools: Tool[], mode: InteractionMode = 'auto'): ChatCompl
   }))
 }
 
+export function canonicalResearchUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  try {
+    const url = new URL(value)
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null
+    url.hash = ''
+    return url.href
+  } catch {
+    return null
+  }
+}
+
+export function evidenceUrls(text: string): Set<string> {
+  const urls = new Set<string>()
+  for (const match of text.matchAll(/https?:\/\/[^\s<>"'`]+/gi)) {
+    const url = canonicalResearchUrl(match[0].replace(/[),.;:!?]+$/, ''))
+    if (url) urls.add(url)
+  }
+  return urls
+}
+
 interface PendingAgentNote {
   agentName: string
   text: string
@@ -429,6 +451,7 @@ export class Agent {
 
   public tokenCount = 0
   public model: Model = 'deepseek-v4-flash'
+  private modelContextLimits = new Map<string, number>()
   public activeAgent: string | null = null
   public provider: ProviderConfig['provider'] = 'deepseek'
   private providerConfig: ProviderConfig = { provider: 'deepseek' }
@@ -970,8 +993,20 @@ export class Agent {
     try {
       const res = await this.client.models.list({ signal: AbortSignal.timeout(10_000) })
       const models: string[] = []
+      this.modelContextLimits.clear()
       for await (const m of res) {
         models.push(m.id)
+        const metadata = m as unknown as Record<string, unknown>
+        for (const key of ['context_length', 'context_window', 'contextWindow', 'max_context_tokens', 'max_input_tokens', 'input_token_limit']) {
+          const limit = metadata[key]
+          const numericLimit = typeof limit === 'number' ? limit : typeof limit === 'string' ? Number(limit) : NaN
+          if (Number.isFinite(numericLimit) && numericLimit > 0) {
+            const discoveredLimit = Math.floor(numericLimit)
+            this.modelContextLimits.set(m.id, discoveredLimit)
+            if (m.id === this.model) this.contextLimit = discoveredLimit
+            break
+          }
+        }
       }
       return models
     } catch {
@@ -1163,13 +1198,21 @@ export class Agent {
 
   setModel(m: Model) {
     this.model = m
-    this.contextLimit = getContextLimit(this.provider, m)
+    this.contextLimit = this.getModelContextLimit(m)
     this.orchestrator.configure({ model: m })
     this.workflows.configure({ model: m })
   }
 
+  getModelContextLimit(model: string): number {
+    return this.modelContextLimits.get(model) ?? getContextLimit(this.provider, model)
+  }
+
+  getKnownModelContextLimit(model: string): number | undefined {
+    return this.modelContextLimits.get(model) ?? getKnownContextLimit(this.provider, model)
+  }
+
   async generateDescriptions(models: string[]): Promise<Record<string, string>> {
-    const { getKnownDescription, getModelDescription, saveCachedDescriptions } = await import('./modelInfo.js')
+    const { getKnownDescription, getModelDescription, isGenericModelDescription, saveCachedDescriptions } = await import('./modelInfo.js')
     const cache = new Map<string, string>()
     const missing = models.filter((m) => {
       const cached = getModelDescription(m)
@@ -1178,28 +1221,67 @@ export class Agent {
     })
     if (missing.length === 0) return Object.fromEntries(cache)
 
+    const researchContext = {
+      sessionId: 'model-description-research',
+      workspacePath: this.workspacePath,
+      projectRoot: this.workspacePath,
+      permissionProfile: 'researcher-readonly' as const,
+      allowedTools: ['web_search', 'web_fetch'],
+      model: this.model,
+    }
+
     // Batch into groups of 5 to avoid response truncation
     const BATCH_SIZE = 5
     const validated = new Map<string, string>()
+    const validatedSources = new Map<string, string>()
     for (let i = 0; i < missing.length; i += BATCH_SIZE) {
       const batch = missing.slice(i, i + BATCH_SIZE)
-      const prompt = `For each of these AI models, write a short one-line description (max 80 chars). Include context window size if you know it. Return ONLY a JSON object mapping model ID → description, no other text.\n\nModels: ${batch.join(', ')}`
+      const evidence = await Promise.all(batch.map(async (model) => {
+        try {
+          const result = await WebSearch.execute({ query: `"${model}" official model documentation context window` }, researchContext)
+          return { text: `${model}: ${result.slice(0, 6000)}`, urls: evidenceUrls(result) }
+        } catch {
+          return { text: `${model}: No web evidence available.`, urls: new Set<string>() }
+        }
+      }))
+      const evidenceUrlsByModel = new Map(evidence.map((item, index) => [batch[index]!, item.urls]))
+      const contextHints = batch.map((m) => `${m}: ${this.getKnownModelContextLimit(m) ? `${this.getKnownModelContextLimit(m)} tokens reported by provider` : 'context not reported'}`).join('; ')
+      const prompt = `Using the supplied web evidence, write one useful description for each exact AI model ID below. Prefer official documentation or a model card. Never infer capabilities or context size from the name. If no authoritative source exists, return an empty description for that model. Return ONLY JSON in this shape: {"exact-id":{"description":"one useful line, max 120 chars","source":"https://...","contextLimit":123}}. Only include contextLimit when the evidence explicitly states it. The source must be copied exactly from a URL in the evidence.\n\nModels: ${contextHints}\n\nWeb evidence:\n${evidence.map((item) => item.text).join('\n\n')}`
+      const messages: ChatCompletionMessageParam[] = [
+        { role: 'system', content: 'You are a cautious AI model catalog researcher. Evidence beats plausibility.' },
+        { role: 'user', content: prompt },
+      ]
 
       try {
         const response = await this.client.chat.completions.create({
           model: this.model,
-          messages: [{ role: 'user', content: prompt }],
-          max_tokens: 200 * batch.length,
+          messages,
+          max_tokens: 300 * batch.length,
           stream: false,
         })
         const text = response.choices[0]?.message?.content ?? ''
-        const parsed = JSON.parse(text)
+        const jsonText = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1] ?? text
+        const start = jsonText.indexOf('{')
+        const end = jsonText.lastIndexOf('}')
+        if (start < 0 || end <= start) continue
+        let parsed: Record<string, unknown>
+        try { parsed = JSON.parse(jsonText.slice(start, end + 1)) as Record<string, unknown> } catch { continue }
 
         for (const [k, v] of Object.entries(parsed)) {
-          // Validate: key must be in this batch, value must be a short non-empty string
+          // Validate: only exact IDs and evidence-backed, short descriptions survive.
           if (!batch.includes(k)) continue
-          if (typeof v !== 'string' || v.length === 0 || v.length > 200) continue
-          validated.set(k, v)
+          if (!v || typeof v !== 'object') continue
+          const entry = v as { description?: unknown; source?: unknown; contextLimit?: unknown }
+          if (typeof entry.description !== 'string' || entry.description.length === 0 || entry.description.length > 200 || isGenericModelDescription(entry.description)) continue
+          const source = canonicalResearchUrl(entry.source)
+          if (!source || !evidenceUrlsByModel.get(k)?.has(source)) continue
+          const researchedContext = typeof entry.contextLimit === 'number'
+            ? entry.contextLimit
+            : typeof entry.contextLimit === 'string' ? Number(entry.contextLimit) : NaN
+          const validResearchedContext = Number.isFinite(researchedContext) && researchedContext > 0 ? Math.floor(researchedContext) : undefined
+          const trustedContext = this.getKnownModelContextLimit(k) ?? validResearchedContext
+          validated.set(k, trustedContext && !/\bcontext\b/i.test(entry.description) ? `${entry.description} · ${formatContextLimit(trustedContext)}` : entry.description)
+          validatedSources.set(k, source)
         }
       } catch {
         // One batch failed — descriptions for this batch are skipped, others continue
@@ -1209,7 +1291,7 @@ export class Agent {
     // Merge validated into existing cache and persist
     const merged = Object.fromEntries(cache)
     for (const [k, v] of validated) merged[k] = v
-    saveCachedDescriptions(merged)
+    saveCachedDescriptions(merged, Object.fromEntries(validatedSources))
 
     return merged
   }
@@ -1469,7 +1551,7 @@ export class Agent {
     this.rebuildSystemPromptEffort()
     if (config.model) {
       this.model = config.model
-      this.contextLimit = getContextLimit(this.provider, config.model)
+      this.contextLimit = this.getModelContextLimit(config.model)
       this.orchestrator.configure({ model: config.model })
     }
     this.activeAgent = config.name

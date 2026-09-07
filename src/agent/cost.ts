@@ -12,6 +12,13 @@ const PRICING: Record<string, { input: number; cachedInput: number; output: numb
 // Context window limits per model/provider (1M = 1,000,000 tokens)
 // Source: https://api-docs.deepseek.com/quick_start/pricing
 const MODEL_CONTEXT: Record<string, number> = {
+  'gpt-6-astra': 1_050_000,
+  'gpt-5.6-sol': 1_050_000,
+  'gpt-5.6-terra': 1_050_000,
+  'gpt-5.6-luna': 1_050_000,
+  'gpt-daybreak-blue-latest': 1_050_000,
+  'gpt-5.5': 1_050_000,
+  'gpt-5.4-mini': 400_000,
   'deepseek-v4-flash': 1_000_000,
   'deepseek-v4-pro':   1_000_000,
   'deepseek-v4-flash-vision-exp': 1_000_000,
@@ -21,10 +28,22 @@ const MODEL_CONTEXT: Record<string, number> = {
 }
 
 export function getContextLimit(provider: string, model: string): number {
+  return getKnownContextLimit(provider, model) ?? 128_000
+}
+
+export function getKnownContextLimit(provider: string, model: string): number | undefined {
   if (provider === 'vertex')  return 128_000  // DeepSeek R1 no Vertex (limited by provider)
   if (provider === 'bedrock') return 128_000  // DeepSeek R1 no Bedrock (limited by provider)
-  // Conservative fallback for unknown/custom models to avoid delaying compaction
-  return MODEL_CONTEXT[model] ?? 128_000
+  return MODEL_CONTEXT[model.split('/').pop() ?? model]
+}
+
+export function formatContextLimit(tokens: number): string {
+  if (tokens >= 1_000_000) {
+    const millions = tokens / 1_000_000
+    return `${Number.isInteger(millions) ? millions : millions.toFixed(2).replace(/0+$/, '')}M context`
+  }
+  if (tokens >= 1_000) return `${Math.round(tokens / 1_000)}k context`
+  return `${tokens} context`
 }
 
 export interface TokenUsage {
