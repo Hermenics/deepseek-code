@@ -483,7 +483,7 @@ export function InputBox({
         </InputChrome>
 
         {showDropdown && (
-          <Box position="absolute" bottom="100%" width="100%">
+          <Box position="absolute" bottom="100%" width="100%" opaque>
             <CommandDropdown
               matches={matches}
               selectedIdx={selectedIdx}
@@ -494,7 +494,7 @@ export function InputBox({
         )}
 
         {showFileDropdown && (
-          <Box position="absolute" bottom="100%" width="100%">
+          <Box position="absolute" bottom="100%" width="100%" opaque>
             <FileDropdown
               files={fileMatches}
               selectedIdx={fileSelectedIdx}

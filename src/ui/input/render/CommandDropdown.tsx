@@ -27,7 +27,7 @@ export function CommandDropdown({ matches, selectedIdx, columns, descriptions = 
         const desc = descriptions[cmd] ?? ''
         const truncDesc = desc.length > descMaxLen ? desc.slice(0, descMaxLen - 1) + '…' : desc
         return (
-          <Box key={cmd} flexDirection="row">
+          <Box key={vi} flexDirection="row">
             <Text color="#888888">{'│ '}</Text>
             <Text color={isSelected ? 'cyan' : undefined}>{cmd.padEnd(CMD_WIDTH)}</Text>
             <Text color={isSelected ? 'cyan' : '#888888'}>{truncDesc}</Text>

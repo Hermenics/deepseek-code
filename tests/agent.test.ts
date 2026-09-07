@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach, afterEach, beforeAll, afterAll } from 'bun:test'
-import { Agent } from '../src/agent/agent.js'
+import { Agent, canonicalResearchUrl, evidenceUrls } from '../src/agent/agent.js'
 import type { AgentCallbacks, ToolPermissionResult } from '../src/agent/agent.js'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -63,6 +63,15 @@ function createMockCallbacks(): AgentCallbacks & { tokens: string[]; toolCalls: 
 }
 
 describe('Agent class', () => {
+  describe('model research evidence', () => {
+    it('canonicalizes only valid HTTP(S) evidence URLs', () => {
+      expect(canonicalResearchUrl('https://example.com/model#overview')).toBe('https://example.com/model')
+      expect(canonicalResearchUrl('file:///tmp/model')).toBeNull()
+      expect(canonicalResearchUrl('https://user:pass@example.com/model')).toBeNull()
+      expect(evidenceUrls('Docs: https://example.com/model.')).toEqual(new Set(['https://example.com/model']))
+    })
+  })
+
   describe('constructor', () => {
     it('should create an agent with default config', () => {
       const agent = new Agent()
@@ -189,6 +198,24 @@ describe('Agent class', () => {
       const agent = new Agent()
       agent.setModel('deepseek-reasoner')
       expect(agent.contextLimit).toBe(1_000_000)
+    })
+
+    it('refreshes the active context limit from discovered model metadata', async () => {
+      const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
+      resolveReady(agent)
+      agent.setModel('active-model')
+      injectMockClient(agent, {
+        models: {
+          list: async function* () {
+            yield { id: 'active-model', context_length: '999999' }
+            yield { id: 'inactive-model', context_length: 123456 }
+          },
+        },
+      })
+
+      expect(await agent.getAvailableModels()).toEqual(['active-model', 'inactive-model'])
+      expect(agent.contextLimit).toBe(999999)
+      expect(agent.getModelContextLimit('inactive-model')).toBe(123456)
     })
 
     it('should accept arbitrary model string', () => {
