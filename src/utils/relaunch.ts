@@ -10,9 +10,10 @@ export function getCurrentInvocation(
 /**
  * Start the exact command that launched the current process with the updated
  * package, keeping the terminal, cwd, environment, and user arguments intact.
- * The parent waits only long enough to hand control to the replacement process.
+ * The parent exits immediately after handing control to the replacement process
+ * so two readers never share the same terminal input stream.
  */
-export async function relaunchCurrentInvocation(args: readonly string[] = process.argv.slice(2)): Promise<number> {
+export function relaunchCurrentInvocation(args: readonly string[] = process.argv.slice(2)): void {
   const child = Bun.spawn(getCurrentInvocation(args), {
     cwd: process.cwd(),
     env: process.env,
@@ -20,5 +21,5 @@ export async function relaunchCurrentInvocation(args: readonly string[] = proces
     stdout: 'inherit',
     stderr: 'inherit',
   })
-  return await child.exited
+  child.unref()
 }
