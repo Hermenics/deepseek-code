@@ -278,8 +278,8 @@ if (!ARGV.update) {
       } else {
         process.stdout.write(`Updated! Launching DeepSeek Code ${update.latest}...\n`)
         try {
-          const exitCode = await relaunchCurrentInvocation()
-          process.exit(exitCode)
+          relaunchCurrentInvocation()
+          process.exit(0)
         } catch (error) {
           process.stderr.write(`Could not relaunch DeepSeek Code: ${(error as Error).message}\n`)
           process.exit(1)
