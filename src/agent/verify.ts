@@ -40,7 +40,8 @@ export async function detectVerificationCommand(cwd = process.cwd()): Promise<Ve
 // Exact messages of runners that exit 1 only because no test files exist yet. Collection, configuration
 // and import errors print something else and keep failing.
 const NO_TESTS_FOUND = [
-  /^error: 0 test files matching\b/m, // bun
+  /^error: 0 test files matching\b/m, // bun, compact output used inside AI agents (CLAUDECODE and similar)
+  /^No tests found!$/m, // bun, regular terminal output
   /No tests found, exiting with code 1/, // jest
   /No test files found, exiting with code 1/, // vitest
   /^Error: No test files found\b/m, // mocha
