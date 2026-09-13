@@ -5,6 +5,10 @@ import { tmpdir } from 'node:os'
 import { Shell } from '../src/tools/Shell/Shell.js'
 import { OrchestratorSession } from '../src/orchestration/OrchestratorSession.js'
 import type { ToolExecutionContext } from '../src/orchestration/types.js'
+import { sandboxAvailable } from '../src/utils/platform.js'
+
+// A contextual shell fails closed without bubblewrap (macOS, Windows, Linux without bwrap), so only the schema check runs there.
+const itWithSandbox = it.skipIf(!sandboxAvailable())
 
 const roots: string[] = []
 const sessions: OrchestratorSession[] = []
@@ -30,7 +34,7 @@ async function createContext(): Promise<ToolExecutionContext> {
 }
 
 describe('shell background execution', () => {
-  it('exposes a typed controllable handle and stores the eventual result', async () => {
+  itWithSandbox('exposes a typed controllable handle and stores the eventual result', async () => {
     const context = await createContext()
     const handle = JSON.parse(await Shell.execute({ command: 'printf background-ok', background: true }, context)) as {
       schemaVersion: number
@@ -52,7 +56,7 @@ describe('shell background execution', () => {
     expect(context.session!.registry.getStatus(handle.taskId).type).toBe('shell')
   })
 
-  it('cancels a running shell through the shared task registry', async () => {
+  itWithSandbox('cancels a running shell through the shared task registry', async () => {
     const context = await createContext()
     const handle = JSON.parse(await Shell.execute({ command: 'sleep 5', background: true }, context)) as { taskId: string }
 
@@ -63,7 +67,7 @@ describe('shell background execution', () => {
     expect(context.session!.registry.getStatus(handle.taskId).state).toBe('cancelled')
   })
 
-  it('marks a non-zero exit as failed instead of returning done with an error string', async () => {
+  itWithSandbox('marks a non-zero exit as failed instead of returning done with an error string', async () => {
     const context = await createContext()
     const handle = JSON.parse(await Shell.execute({ command: 'exit 7', background: true }, context)) as { taskId: string }
 
@@ -73,7 +77,7 @@ describe('shell background execution', () => {
     expect(context.session!.registry.getStatus(handle.taskId).state).toBe('failed')
   })
 
-  it('lets the registry own the timeout state for detached commands', async () => {
+  itWithSandbox('lets the registry own the timeout state for detached commands', async () => {
     const context = await createContext()
     const handle = JSON.parse(await Shell.execute({ command: 'sleep 5', timeout: 0.05, background: true }, context)) as { taskId: string }
 
@@ -83,7 +87,7 @@ describe('shell background execution', () => {
     expect(context.session!.registry.getStatus(handle.taskId).state).toBe('timed_out')
   })
 
-  it('keeps the foreground result contract when background is omitted', async () => {
+  itWithSandbox('keeps the foreground result contract when background is omitted', async () => {
     const context = await createContext()
     const result = await Shell.execute({ command: 'printf foreground-ok' }, context)
     expect(result).toContain('foreground-ok')

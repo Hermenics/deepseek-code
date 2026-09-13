@@ -11,8 +11,10 @@ const fakeCredentials = {
   sessionToken: undefined,
 }
 
+// mock.module is process-wide: keep every export bedrock.ts imports, or later test files fail to link.
 mock.module('@aws-sdk/credential-providers', () => ({
   fromIni: (_opts: { profile: string }) => async () => fakeCredentials,
+  fromEnv: () => async () => fakeCredentials,
 }))
 
 // Capture what globalThis.fetch receives so we can inspect signed headers

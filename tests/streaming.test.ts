@@ -652,7 +652,9 @@ describe('Agent streaming callbacks', () => {
 describe('Agent tool-call error boundary', () => {
   it('continues a sequential batch after a tool failure and answers every call', async () => {
     const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
-    resolveReady(agent)
+    // Let the constructor's initialize() finish: it resets messages, and when that lands mid-turn it
+    // silently drops the assistant tool-call message and hides the auto-memory request below.
+    await agent.readyPromise.catch(() => {})
     ;(agent as any).settings = { risk: { enabled: false }, permissions: { autoApproveLowRisk: true } }
     const executed: string[] = []
     ;(agent as any).executeTool = async (name: string) => {
@@ -673,9 +675,13 @@ describe('Agent tool-call error boundary', () => {
     }]
     let requests = 0
     injectMockClient(agent, {
-      chat: { completions: { create: () => ++requests === 1
-        ? makeStream(chunks)
-        : makeStream([{ choices: [{ delta: { content: 'done' } }] }]) } },
+      chat: { completions: { create: (body: { stream?: boolean }) => {
+        // Non-streaming calls are the background auto-memory extraction, not the agent loop.
+        if (!body.stream) return Promise.resolve({ choices: [{ message: { content: '{"kind":"none","fact":""}' } }] })
+        return ++requests === 1
+          ? makeStream(chunks)
+          : makeStream([{ choices: [{ delta: { content: 'done' } }] }])
+      } } },
     })
 
     const cb = makeTrackedCallbacks()

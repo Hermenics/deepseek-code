@@ -19,8 +19,10 @@ mock.module('@aws-sdk/client-bedrock', () => ({
   ListFoundationModelsCommand: class {},
 }))
 
+// mock.module is process-wide: keep every export bedrock.ts imports, or later test files fail to link.
 mock.module('@aws-sdk/credential-providers', () => ({
   fromIni: () => ({}),
+  fromEnv: () => ({}),
 }))
 
 // ── Importa DEPOIS dos mocks ───────────────────────────────────────────────
