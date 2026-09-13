@@ -54,7 +54,7 @@ export interface AgentSpec {
 export const DEFAULT_AGENT_SPEC: Omit<AgentSpec, 'agent_id' | 'name' | 'system_prompt'> = {
   role: 'reader',
   provider: 'deepseek',
-  model: 'deepseek-v4-flash',
+  model: 'deepseek-flash',
   allowed_tools: '*',
   permission_profile: 'researcher-readonly',
   workspace_isolation: 'readonly-shared',

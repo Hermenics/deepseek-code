@@ -53,6 +53,7 @@ import { BACKGROUND_WORKFLOW_SCRIPT } from '../commands/background/index.js'
 import type { SubagentState } from './subagent/types.js'
 import type { WorkflowRun } from '../workflows/types.js'
 import type { WorkflowManager } from '../workflows/manager.js'
+import type { PromptImage, PromptInput } from '../types/input.js'
 
 export type AgentPhase = 'idle' | 'refining' | 'executing'
 
@@ -503,7 +504,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     return selection.setScrollTarget(target)
   }, [alternateScreen, selection])
   const initialSessionRef = useRef(initialSession)
-  const handleSubmitRef = useRef<((text: string) => Promise<void>) | null>(null)
+  const handleSubmitRef = useRef<((text: string, images?: PromptImage[]) => Promise<void>) | null>(null)
   const projectRootRef = useRef(initialSession?.cwd && existsSync(initialSession.cwd) ? initialSession.cwd : process.cwd())
   const originalProjectRoot = useRef(process.cwd())  // never changes — used to scope worktree isolation
   const toolStatusClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -534,7 +535,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [toolCallCount, setToolCallCount] = useState(0)
   const [agentPhase, setAgentPhase] = useState<AgentPhase>('idle')
   const [interactionMode, setInteractionMode] = useState<InteractionMode>(initialSettings?.interaction?.defaultMode ?? DEFAULT_MODE)
-  const [queuedMessages, setQueuedMessages] = useState<string[]>([])
+  const [queuedMessages, setQueuedMessages] = useState<PromptInput[]>([])
   const [btw, setBtw] = useState<BtwState | null>(null)
   const [agent] = useState(() => new Agent(providerConfig ?? undefined, { sessionId, projectRoot: projectRootRef.current }))
   const workflowRuns = useWorkflowRuns(agent.workflows)
@@ -1103,13 +1104,13 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     })
   }, [agent])
 
-  const handleQueue = useCallback((msg: string) => {
+  const handleQueue = useCallback((msg: string, images: PromptImage[] = []) => {
     const question = getImmediateBtwQuestion(msg)
     if (question !== undefined) {
       runBtw(question)
       return
     }
-    setQueuedMessages((q) => enqueue(q, msg))
+    setQueuedMessages((q) => enqueue(q, { text: msg, images }))
   }, [runBtw])
 
   const handleModeChange = useCallback(() => {
@@ -1153,7 +1154,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     setPlanApprovalState(null)
   }, [planApprovalState, agent])
 
-  const runAgent = useCallback(async (prompt: string) => {
+  const runAgent = useCallback(async (prompt: string, images: PromptImage[] = []) => {
     const suggestionGeneration = ++suggestedReplyGenerationRef.current
     setSuggestedReply(undefined)
     turnStartedAtRef.current = Date.now()
@@ -1227,7 +1228,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     }, 50)
 
     try {
-      await agent.run(prompt, {
+      await agent.run(images.length > 0 ? { text: prompt, images } : prompt, {
         onPhaseChange(phase) { setAgentPhase(phase) },
         onToken(token) { tokenBuffer += token },
         onToolPending(name, argsText) { pendingTool = { name, args: argsText } },
@@ -1342,7 +1343,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             }
             queuedSubmitTimerRef.current = setTimeout(() => {
               queuedSubmitTimerRef.current = null
-              void handleSubmitRef.current!(first!)
+              void handleSubmitRef.current!(first!.text, first!.images)
             }, 0)
             return rest
           })
@@ -1408,7 +1409,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               goalContinuationTimerRef.current = setTimeout(() => {
                 goalContinuationTimerRef.current = null
                 setQueuedMessages((q) => {
-                  const next = enqueue(q, prompt)
+                  const next = enqueue(q, { text: prompt })
                   // Queue processing already ran earlier in onDone, so if
                   // the queue was empty before this enqueue we must trigger
                   // the dequeue ourselves.
@@ -1416,7 +1417,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
                     if (queuedSubmitTimerRef.current) clearTimeout(queuedSubmitTimerRef.current)
                     queuedSubmitTimerRef.current = setTimeout(() => {
                       queuedSubmitTimerRef.current = null
-                      void handleSubmitRef.current!(next[0]!)
+                      void handleSubmitRef.current!(next[0]!.text, next[0]!.images)
                     }, 0)
                   }
                   return next
@@ -1453,6 +1454,20 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         ? formatChatError(e, provider)
         : String(e)
       setMessages((m) => [...m, { role: 'assistant', content: `⚠ Error: ${message}`, workedMs }])
+      
+      // Drain queued messages same as onDone
+      setQueuedMessages((q) => {
+        if (q.length === 0) return q
+        const [first, ...rest] = q
+        if (queuedSubmitTimerRef.current) {
+          clearTimeout(queuedSubmitTimerRef.current)
+        }
+        queuedSubmitTimerRef.current = setTimeout(() => {
+          queuedSubmitTimerRef.current = null
+          void handleSubmitRef.current!(first!.text, first!.images)
+        }, 0)
+        return rest
+      })
     }
   }, [agent, sessionId, language, initialSession, providerConfig, showCompactBadge])
 
@@ -1469,7 +1484,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       .catch(() => { titleRequestedRef.current = false })
   }, [agent, sessionId])
 
-  const runWithPrompt = useCallback(async (label: string, prompt: string, intendedMode: InteractionMode) => {
+  const runWithPrompt = useCallback(async (label: string, prompt: string, intendedMode: InteractionMode, images: PromptImage[] = []) => {
     if (isLoading) return
     const shouldGenerateTitle = Boolean(sessionId && !sessionTitleRef.current && !titleRequestedRef.current && !agent.getLastUserMessage())
     if (shouldGenerateTitle) titleRequestedRef.current = true
@@ -1485,7 +1500,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         const { createWorktree, getActiveWorktree, isInsideWorktree, isGitRepository } = await import('../agent/worktree.js')
         const projectRoot = originalProjectRoot.current
         if (!isGitRepository(projectRoot)) {
-          await runAgent(prompt)
+          await runAgent(prompt, images)
           if (shouldGenerateTitle) generateSessionTitle()
           return
         }
@@ -1513,11 +1528,11 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         return
       }
     }
-    await runAgent(prompt)
+    await runAgent(prompt, images)
     if (shouldGenerateTitle) generateSessionTitle()
   }, [isLoading, runAgent, agent, generateSessionTitle, sessionId])
 
-  const handleSubmit = useCallback(async (text: string) => {
+  const handleSubmit = useCallback(async (text: string, images: PromptImage[] = []) => {
     if (!text.trim()) return
 
     // While focused on a subagent, plain text goes to that subagent via its
@@ -1527,7 +1542,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     // non-agent activities are routed back to the main-agent input path.
     if (focusedSubagent) {
       const msg = text.trim()
-      if (!msg.startsWith('/') && !msg.startsWith('!')) {
+      if (!msg.startsWith('/') && !msg.startsWith('!') && images.length === 0) {
         const a = subagentsRef.current.agents.find(x => x.id === focusedSubagent.id)
         if (a && canMessageSubagent(a)) {
           a.messages = [...(a.messages ?? []), { role: 'user', content: msg }]
@@ -1549,7 +1564,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
     const cmd = await resolveCommand(text, agent.getWorkingDirectory())
     const liveWorkflowControl = cmd?.type === 'workflows' || cmd?.type === 'background' || (cmd?.type === 'workflow' && ['pause', 'resume', 'stop'].includes(cmd.action))
-    if (isLoading && !liveWorkflowControl) return
+    if (isLoading && !liveWorkflowControl) {
+      if (images.length > 0) handleQueue(text, images)
+      return
+    }
     if (cmd) {
       switch (cmd.type) {
         case 'quit':
@@ -1638,7 +1656,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           return
         }
         case 'retry': {
-          const last = agent.getLastUserMessage()
+          const lastPrompt = agent.getLastUserPrompt()
+          const last = lastPrompt?.text ?? agent.getLastUserMessage()
           if (!last) {
             setMessages((m) => [...m, { role: 'assistant', content: 'Nothing to retry.' }])
             return
@@ -1648,7 +1667,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             if (idx === -1) return m
             return m.slice(0, m.length - 1 - idx)
           })
-          await handleSubmit(last)
+          await handleSubmit(last, lastPrompt?.images)
           return
         }
         case 'cost': {
@@ -2301,12 +2320,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               goalContinuationTimerRef.current = setTimeout(() => {
                 goalContinuationTimerRef.current = null
                 setQueuedMessages((q) => {
-                  const next = enqueue(q, prompt)
+                  const next = enqueue(q, { text: prompt })
                   if (q.length === 0 && next.length > 0) {
                     if (queuedSubmitTimerRef.current) clearTimeout(queuedSubmitTimerRef.current)
                     queuedSubmitTimerRef.current = setTimeout(() => {
                       queuedSubmitTimerRef.current = null
-                      void handleSubmitRef.current!(next[0]!)
+                      void handleSubmitRef.current!(next[0]!.text, next[0]!.images)
                     }, 0)
                   }
                   return next
@@ -2390,7 +2409,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           return
         }
         case 'custom':
-          await runWithPrompt(text, cmd.prompt, interactionMode)
+          await runWithPrompt(text, cmd.prompt, interactionMode, images)
           return
         case 'task': {
           const result = await agent.controlTask(cmd.id, cmd.action, 'message' in cmd ? cmd.message : undefined)
@@ -2545,8 +2564,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       return
     }
 
-    await runWithPrompt(text, text, interactionMode)
-  }, [agent, isLoading, onExit, runWithPrompt, runAgent, runBtw, interactionMode, focusedSubagent])
+    await runWithPrompt(text, text, interactionMode, images)
+  }, [agent, isLoading, onExit, runWithPrompt, runAgent, runBtw, interactionMode, focusedSubagent, handleQueue])
 
   // Keep ref in sync so the init effect always calls the latest handleSubmit
   handleSubmitRef.current = handleSubmit
@@ -2761,7 +2780,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             isLoading={isLoading}
             toolCallCount={toolCallCount}
             onAbort={handleAbort}
-            onQueue={focusedSubagent ? (t) => void handleSubmit(t) : handleQueue}
+            onQueue={focusedSubagent ? (t, queuedImages) => void handleSubmit(t, queuedImages) : handleQueue}
             phase={agentPhase}
             contextPct={contextPct}
             agentLabel={focusedSubagent ? '@' + (focusedSubagent.agentName ?? 'subagent') : (activeAgent ?? 'deepseek')}

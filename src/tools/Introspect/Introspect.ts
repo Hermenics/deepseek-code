@@ -42,7 +42,7 @@ Secrets belong in \`~/.deepseek/config.json\` or the provider's normal credentia
 
 ### Models and reasoning effort
 
-The default built-in DeepSeek model identifiers are \`deepseek-v4-flash\` (fast general work) and \`deepseek-v4-pro\` (more capable reasoning). Providers may expose additional identifiers. Use \`/model\` to select a model and \`/effort [low|high|max|auto]\` to change reasoning effort for the session when the provider supports it. A custom agent can select its own model.
+The default built-in DeepSeek model identifiers are \`deepseek-flash\` (native visual understanding and fast general work) and \`deepseek-v4-pro\` (more capable reasoning). Providers may expose additional identifiers. Use \`/model\` to select a model and \`/effort [low|high|max|auto]\` to change reasoning effort for the session when the provider supports it. A custom agent can select its own model.
 
 ## Settings, scopes, and precedence
 

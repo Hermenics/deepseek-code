@@ -74,7 +74,7 @@ Switch models at any time with `/model`:
 
 | Model ID | Description | Context |
 |----------|-------------|---------|
-| `deepseek-v4-flash` | Fast, general purpose (default) | 1M |
+| `deepseek-flash` | Native visual understanding; fast, general purpose (default) | 1M |
 | `deepseek-v4-pro` | Advanced reasoning | 1M |
 
 Each provider also exposes provider-specific models (Bedrock, Vertex, local).

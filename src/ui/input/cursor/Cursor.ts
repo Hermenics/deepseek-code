@@ -2,7 +2,7 @@ import { MeasuredText } from './MeasuredText.js'
 import { pushToKillRing } from './killRing.js'
 
 /** Placeholder the input inserts for a long paste — edited as one unit. */
-const PASTE_PLACEHOLDER_RE = /\[Text #\d+\]/g
+const PASTE_PLACEHOLDER_RE = /\[(?:Text|Image) #\d+\]/g
 
 /**
  * Finds the paste placeholder a delete at `offset` would cut into, so it gets

@@ -26,6 +26,10 @@ describe('placeholderSpanAt', () => {
   it('returns null for text with no placeholders', () => {
     expect(placeholderSpanAt('just words', 5, 'before')).toBeNull()
   })
+
+  it('treats image placeholders as atomic too', () => {
+    expect(placeholderSpanAt('see [Image #1]', 14, 'before')).toEqual({ start: 4, end: 14 })
+  })
 })
 
 describe('Cursor backspace over a paste placeholder', () => {

@@ -5,7 +5,7 @@ import { formatContextLimit } from './cost.js'
 
 const CONFIG_PATH = join(homedir(), '.deepseek', 'config.json')
 
-// Auto-format: 'deepseek-v4-flash' → 'DeepSeek V4 Flash'
+// Auto-format: 'deepseek-flash' → 'DeepSeek Flash'
 // Preserves "DeepSeek" branding (capital S) while formatting other segments normally
 export function formatModelLabel(id: string): string {
   return id
@@ -26,6 +26,7 @@ const PATTERN_DESCRIPTIONS: Array<{ pattern: RegExp; description: string }> = [
 
 // Official OpenAI model catalog, checked before asking an LLM to research a new ID.
 const CATALOG_DESCRIPTIONS: Record<string, string> = {
+  'deepseek-flash': '1M context window · Native visual understanding · Fast & efficient for everyday tasks',
   'gpt-6-astra': 'Most capable model for complex reasoning, coding, research, and professional work',
   'gpt-5.6-sol': 'Flagship model for complex professional work',
   'gpt-5.6-terra': 'Balances intelligence and cost for professional workloads',

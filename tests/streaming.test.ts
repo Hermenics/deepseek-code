@@ -1,4 +1,7 @@
-import { describe, it, expect, mock, beforeAll } from 'bun:test'
+import { describe, it, expect, mock, beforeAll, afterAll } from 'bun:test'
+import { join } from 'node:path'
+import { rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { Agent } from '../src/agent/agent.js'
 import type { AgentCallbacks } from '../src/agent/agent.js'
 import type { ProviderConfig } from '../src/ui/setup/ApiKeySetup.js'
@@ -7,8 +10,18 @@ import type { ProviderConfig } from '../src/ui/setup/ApiKeySetup.js'
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
+const TEST_HISTORY_PATH = join(tmpdir(), `deepseek-code-streaming-history-${process.pid}.json`)
+const ORIGINAL_HISTORY_PATH = process.env.DEEPSEEK_HISTORY_PATH
+
 beforeAll(() => {
   process.env.DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || 'test-key-for-unit-tests'
+  process.env.DEEPSEEK_HISTORY_PATH = TEST_HISTORY_PATH
+})
+
+afterAll(async () => {
+  if (ORIGINAL_HISTORY_PATH === undefined) delete process.env.DEEPSEEK_HISTORY_PATH
+  else process.env.DEEPSEEK_HISTORY_PATH = ORIGINAL_HISTORY_PATH
+  await rm(TEST_HISTORY_PATH, { force: true })
 })
 
 /** Injeta um client mockado no Agent via cast (mesmo padrão de agent.test.ts) */

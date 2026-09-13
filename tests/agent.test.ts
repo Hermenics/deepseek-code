@@ -75,7 +75,7 @@ describe('Agent class', () => {
   describe('constructor', () => {
     it('should create an agent with default config', () => {
       const agent = new Agent()
-      expect(agent.model).toBe('deepseek-v4-flash')
+      expect(agent.model).toBe('deepseek-flash')
       expect(agent.activeAgent).toBeNull()
       expect(agent.provider).toBe('deepseek')
     })
@@ -369,7 +369,7 @@ describe('Agent class', () => {
       })
       agent.resetAgent()
       expect(agent.activeAgent).toBeNull()
-      expect(agent.model).toBe('deepseek-v4-flash')
+      expect(agent.model).toBe('deepseek-flash')
     })
   })
 
