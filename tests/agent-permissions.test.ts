@@ -90,6 +90,7 @@ describe('agent external-path permissions', () => {
     await (agent as any).readyPromise
     agent.setToolPermissionHandler(async () => 'directory')
 
+    await executeTool(agent, 'read_file', { path: target })
     await executeTool(agent, 'write_file', { path: target, content: 'after' })
     expect(await readFile(target, 'utf8')).toBe('after')
     expect(await agent.undo()).toBe(`Restored ${target}`)

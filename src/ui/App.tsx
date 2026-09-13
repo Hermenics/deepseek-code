@@ -578,6 +578,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [toolPermissionState, setToolPermissionState] = useState<ToolPermissionState | null>(null)
   const [askUserState, setAskUserState] = useState<AskUserState | null>(null)
   const [planApprovalState, setPlanApprovalState] = useState<PlanApprovalState | null>(null)
+  /** Mode to return to once a plan is approved, so planning from Auto does not drop the session to Build. */
+  const planReturnModeRef = useRef<InteractionMode>('build')
   const [vimEnabled, setVimEnabled] = useState(initialSettings?.interface?.vim ?? false)
   const [interfaceSettings, setInterfaceSettings] = useState<InterfaceSettings>(initialSettings?.interface ?? {})
   const [suggestedReply, setSuggestedReply] = useState<string>()
@@ -978,6 +980,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       if (!approved) return
       const result = await runVerification(command, agent.getWorkingDirectory())
       setMessages((m) => [...m, { role: 'assistant', content: `${result.ok ? '✓' : '✗'} ${command.display}\n\n${result.output}` }])
+      return result
     })
     return () => agent.setVerificationHandler(null)
   }, [agent])
@@ -1114,7 +1117,11 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [runBtw])
 
   const handleModeChange = useCallback(() => {
-    setInteractionMode((current) => nextMode(current))
+    setInteractionMode((current) => {
+      const next = nextMode(current)
+      if (next === 'plan') planReturnModeRef.current = current === 'auto' ? 'auto' : 'build'
+      return next
+    })
   }, [])
 
   const handleConfirm = useCallback((yes: boolean) => {
@@ -1135,14 +1142,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   const handlePlanDecision = useCallback((result: PlanApprovalResult) => {
     if (!planApprovalState) return
-    if (result.approved) {
-      planApprovalState.resolve(JSON.stringify({ approved: true, message: 'Plan accepted. Now switch to Build mode and implement it.' }))
-      agent.interactionMode = 'build'
-      setInteractionMode('build')
-    } else if ('aborted' in result && result.aborted) {
-      planApprovalState.reject('aborted')
-      agent.interactionMode = 'build'
-      setInteractionMode('build')
+    if (result.approved || ('aborted' in result && result.aborted)) {
+      if (result.approved) planApprovalState.resolve(JSON.stringify({ approved: true, message: 'Plan accepted. Implement it now.' }))
+      else planApprovalState.reject('aborted')
+      agent.interactionMode = planReturnModeRef.current
+      agent.planFilePath = null
+      setInteractionMode(planReturnModeRef.current)
     } else {
       const feedback = 'feedback' in result ? result.feedback : ''
       planApprovalState.resolve(JSON.stringify({
@@ -1384,7 +1389,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             }, 100)
           }
           // Auto-continuation: if goal is active, schedule next turn
-          import('../agent/goal.js').then(({ getGoal, updateGoal, buildContinuationPrompt, GOAL_MAX_CONTINUATIONS }) => {
+          import('../agent/goal.js').then(({ getGoal, updateGoal, buildContinuationPrompt, recordGoalTurnProgress, GOAL_MAX_CONTINUATIONS }) => {
             const activeGoal = getGoal()
             const maxTurns = activeGoal?.maxContinuations ?? GOAL_MAX_CONTINUATIONS
             if (activeGoal?.status !== 'active') return
@@ -1394,6 +1399,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               tokensUsed: activeGoal.tokensUsed + Math.max(0, turnTokens),
               updatedAt: now,
             })
+            const stalled = recordGoalTurnProgress(agent.getTurnModifiedFiles().length > 0 || agent.getTurnToolCallCount() > 0)
+            if (stalled) {
+              updateGoal({ status: 'blocked', blockReason: stalled, updatedAt: new Date().toISOString() })
+              setMessages((m) => [...m, { role: 'assistant', content: `⚠ Goal paused: ${stalled}. Use /goal resume to keep going or /goal clear to drop it.` }])
+              return
+            }
             if (activeGoal.continuations >= maxTurns) {
               updateGoal({ status: 'budget_limited', updatedAt: new Date().toISOString() })
               setMessages((m) => [...m, { role: 'assistant', content: `⚠ Goal turn limit reached (${activeGoal.continuations}/${maxTurns} turns). Goal paused.` }])
@@ -1671,7 +1682,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           return
         }
         case 'cost': {
-          const summary = agent.getCostSummary()
+          const summary = await agent.getCostReport()
           setMessages((m) => [...m, { role: 'assistant', content: summary }])
           return
         }
@@ -1907,6 +1918,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           const planPath = newPlanPath(cmd.task, agent.getWorkingDirectory())
           await mkdir(dirname(planPath), { recursive: true })
           // Set plan mode synchronously on both agent and React state
+          planReturnModeRef.current = agent.interactionMode === 'auto' ? 'auto' : 'build'
           agent.interactionMode = 'plan'
           agent.planFilePath = planPath
           setInteractionMode('plan')
@@ -1919,8 +1931,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           try {
             await runAgent(injection)
           } finally {
+            // The plan file stays assigned so feedback turns revise the same plan; approval clears it.
             setIsLoading(false)
-            agent.planFilePath = null
           }
           return
         }

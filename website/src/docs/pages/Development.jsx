@@ -244,6 +244,14 @@ $ npm run dev`}</CodeBlock>
             from the root <code className="inline">CHANGELOG.md</code>. If that generated file changes,
             inspect it and include it with the changelog update.
           </p>
+          <p>
+            They also copy <code className="inline">src/agent/deepseekModels.json</code> to{" "}
+            <code className="inline">src/docs/data/deepseek-models.json</code>, so model, limit and pricing tables match
+            what <code className="inline">/cost</code> uses. Refresh the source with{" "}
+            <code className="inline">bun scripts/update-deepseek-models.ts</code>; the daily{" "}
+            <code className="inline">DeepSeek models &amp; pricing</code> workflow runs it and opens a pull request when
+            DeepSeek&apos;s pricing page changes.
+          </p>
         </section>
 
         <section id="state">

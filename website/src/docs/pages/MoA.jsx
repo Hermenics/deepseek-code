@@ -15,7 +15,7 @@ const TOC = [
 ];
 
 const CONFIG = [
-  ["referenceModels", "deepseek-v4-flash, deepseek-v4-pro (weight 1 each)", "The models answering independently."],
+  ["referenceModels", "deepseek-flash, deepseek-v4-pro (weight 1 each)", "The models answering independently."],
   ["aggregator", "deepseek-v4-pro @ temperature 0.4", "The synthesizer. Lower temperature than the references on purpose."],
   ["minResponses", "1", "Unique successful candidates required before synthesis may run."],
   ["maxCandidates", "5", "Hard ceiling on reference models per call."],
@@ -131,7 +131,7 @@ export default function MoA() {
           <h2><span className="anchor">#</span>The two layers</h2>
           <CodeBlock lang="text">{`layer 1 — reference models (parallel, independent, bounded)
 
-   deepseek-v4-flash ──► candidate A   done       1.2s
+   deepseek-flash ──► candidate A   done       1.2s
    deepseek-v4-pro   ──► candidate B   done       3.8s
    deepseek-v4-pro   ──► candidate C   duplicate  of B
                               │
@@ -180,7 +180,7 @@ layer 2 — aggregator (one call, temperature 0.4)
     "referenceModels": [
       { "model": "deepseek-v4-pro", "temperature": 0.8 },
       { "model": "deepseek-v4-pro", "temperature": 0.3 },
-      { "model": "deepseek-v4-flash" }
+      { "model": "deepseek-flash" }
     ],
     "aggregatorModel": { "model": "deepseek-v4-pro", "temperature": 0.4 }
   }

@@ -207,11 +207,11 @@ export default function Settings() {
             candidate in precedence order:
           </p>
           <CodeBlock lang="text">{`agents.subagentModel
-  effective  deepseek-v4-flash
+  effective  deepseek-flash
   origin     local
   candidates user    → deepseek-v4-pro
              project → deepseek-v4-pro
-             local   → deepseek-v4-flash`}</CodeBlock>
+             local   → deepseek-flash`}</CodeBlock>
           <p>
             Keeping every candidate—including the winning value—rather than discarding it is what turns
             "this setting is not working" from an investigation into a lookup. Origin can also be{" "}
@@ -275,7 +275,7 @@ export default function Settings() {
           </p>
           <CodeBlock lang="json">{`{ "model": "deepseek-v4-pro" }
 
-{ "model": { "default": "deepseek-v4-pro", "subagent": "deepseek-v4-flash" } }`}</CodeBlock>
+{ "model": { "default": "deepseek-v4-pro", "subagent": "deepseek-flash" } }`}</CodeBlock>
           <p>
             Prefer <code className="inline">agents.subagentModel</code> for delegated work. The runtime resolves
             an explicit task model first, then a named agent's model, then{" "}

@@ -1,4 +1,5 @@
 import { CodeBlock, Note, Toc } from "../Layout";
+import { DEEPSEEK_MODELS, formatTokens } from "../deepseekModels";
 
 const TOC = [
   { id: "sessions", label: "Session lifecycle" },
@@ -135,9 +136,11 @@ $ deepseek --resume a1b2c3d4e5f6`}</CodeBlock>
         <section id="context">
           <h2><span className="anchor">#</span>Understanding context usage</h2>
           <p>
-            The direct DeepSeek API models get a <b>1,000,000-token</b> context window
-            (<code className="inline">deepseek-v4-flash</code>, <code className="inline">deepseek-v4-pro</code> and{" "}
-            <code className="inline">deepseek-v4-flash-vision-exp</code>).
+            The direct DeepSeek API models get the context window DeepSeek publishes for them (
+            {DEEPSEEK_MODELS.map((m, i) => (
+              <span key={m.id}>{i > 0 && ", "}<code className="inline">{m.id}</code>: <b>{formatTokens(m.contextTokens)}</b></span>
+            ))}
+            ).
             Other providers/models are limited by their
             window (for example 128K on Bedrock and Vertex).
           </p>

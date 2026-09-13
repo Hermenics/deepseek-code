@@ -1,14 +1,15 @@
 import { CodeBlock, Note, Toc } from "../Layout";
+import { LegacyAliasList, PEAK_HOURS, PricingSourceNote, PricingTable } from "../deepseekModels";
 
 const TOC = [
   { id: "scope", label: "What is being accounted" },
   { id: "counters", label: "Primary-agent counters" },
   { id: "commands", label: "/cost and /stats" },
   { id: "formula", label: "Estimation formula" },
-  { id: "pricing", label: "Embedded price table" },
+  { id: "pricing", label: "Price table" },
   { id: "cache", label: "Cached input" },
   { id: "included", label: "Included and excluded work" },
-  { id: "models", label: "Model-switch caveat" },
+  { id: "models", label: "Model switches and peak hours" },
   { id: "agents", label: "Subagents, workflows and MoA" },
   { id: "headless", label: "Headless limitations" },
   { id: "interpretation", label: "How to interpret the number" },
@@ -19,11 +20,6 @@ const COUNTERS = [
   ["Completion tokens", "Sum of provider-reported completion_tokens across tracked responses."],
   ["Cached tokens", "Sum of prompt_cache_hit_tokens when that provider field is present."],
   ["Context usage", "Prompt-token count from the most recent main-loop response, not a cumulative total."],
-];
-const PRICING = [
-  ["deepseek-v4-flash", "$0.140000", "$0.002800", "$0.280000"],
-  ["deepseek-v4-pro", "$0.435000", "$0.003625", "$0.870000"],
-  ["deepseek-v4-flash-vision-exp", "$0.140000", "$0.002800", "$0.280000"],
 ];
 const COVERAGE = [
   ["Main agent-loop responses", "Included when usage is returned", "Streaming usage events and non-streaming response usage update all primary counters."],
@@ -100,16 +96,16 @@ export default function CostAccounting() {
         <section id="commands">
           <h2><span className="anchor">#</span><code className="inline">/cost</code> and <code className="inline">/stats</code></h2>
           <p>
-            Both commands read the same primary counters and calculate the estimate at display time.
+            Both commands read the same primary counters and the running cost estimate.
             <code className="inline">/cost</code> is the compact accounting view:
           </p>
-          <CodeBlock lang="text">{"Model: deepseek-v4-flash\nTokens: 18,420 total\n  prompt: 17,900 (12,100 cached)\n  completion: 520\nEstimated cost: $0.0010"}</CodeBlock>
+          <CodeBlock lang="text">{"Model: deepseek-flash\nTokens: 18,420 total\n  prompt: 17,900 (12,100 cached)\n  completion: 520\nEstimated cost: $0.0010"}</CodeBlock>
           <p>
             <code className="inline">/stats</code> adds duration, provider, user turns, tool calls, files modified
             and the most recent context-usage percentage. Its prompt line presents cache hits as a rounded
             percentage rather than the raw cached-token count.
           </p>
-          <CodeBlock lang="text">{"**Session Statistics**\nDuration:       4m 12s\nModel:          deepseek-v4-flash\nProvider:       deepseek\n\n**Tokens**\nTotal:          18,420\nPrompt:         17,900 (68% cached)\nCompletion:     520\n\n**Activity**\nUser turns:     3\nTool calls:     7\nFiles modified: 1\nContext usage:  4%\n\n**Cost**\nEstimated:      $0.0010"}</CodeBlock>
+          <CodeBlock lang="text">{"**Session Statistics**\nDuration:       4m 12s\nModel:          deepseek-flash\nProvider:       deepseek\n\n**Tokens**\nTotal:          18,420\nPrompt:         17,900 (68% cached)\nCompletion:     520\n\n**Activity**\nUser turns:     3\nTool calls:     7\nFiles modified: 1\nContext usage:  4%\n\n**Cost**\nEstimated:      $0.0010"}</CodeBlock>
           <Note>
             These are interactive slash commands. Supplying
             <code className="inline">/cost</code> through <code className="inline">--pipe</code> sends those
@@ -123,7 +119,8 @@ export default function CostAccounting() {
             Fresh input is prompt tokens minus cached tokens, with a floor at zero. The estimate adds three
             independently priced quantities: fresh input multiplied by its rate, cached input multiplied by its
             rate, and completion tokens multiplied by its rate. Each quantity is divided by one million because
-            every embedded rate is expressed per million tokens.
+            every rate is expressed per million tokens. Each response is priced when its usage arrives and added to a
+            running session total.
           </p>
           <p>
             The zero floor prevents a malformed report with more cache hits than prompt tokens from producing a
@@ -138,25 +135,22 @@ export default function CostAccounting() {
         </section>
 
         <section id="pricing">
-          <h2><span className="anchor">#</span>Embedded price table</h2>
+          <h2><span className="anchor">#</span>Price table</h2>
           <p>
-            The implementation embeds a static compatibility table. These are the exact fixed values currently used by
-            the local estimator; the table does not model the provider's official pricing.
+            The estimator reads <code className="inline">src/agent/deepseekModels.json</code>. A daily GitHub Action
+            refreshes it from DeepSeek&apos;s pricing page and opens a pull request when a model, limit or price changes.
+            A response that arrives during peak hours ({PEAK_HOURS}) uses the peak rate; any other response uses the
+            off-peak rate. Cache hit is the cached-input rate and cache miss is the fresh-input rate.
           </p>
-          <div className="doc-table-wrap">
-            <table className="doc-table">
-              <thead><tr><th style={{ width: "31%" }}>Model ID</th><th>Fresh input / 1M</th><th>Cached input / 1M</th><th>Output / 1M</th></tr></thead>
-              <tbody>{PRICING.map(([model, input, cached, output]) => <tr key={model}><td><code className="inline">{model}</code></td><td>{input}</td><td>{cached}</td><td>{output}</td></tr>)}</tbody>
-            </table>
-          </div>
+          <PricingTable />
+          <PricingSourceNote />
           <p>
-            The legacy aliases <code className="inline">deepseek-chat</code> and
-            <code className="inline">deepseek-reasoner</code> map to the flash rates. Every unrecognized model
+            The retired names <LegacyAliasList /> are priced as the model that serves them. Every unrecognized model
             also falls back to flash rates rather than returning “unavailable.”
           </p>
           <Note>
-            The table documents the named DeepSeek rates embedded in the local estimator. Unknown model IDs
-            still use the Flash fallback described above, but that fallback is not a discovered provider tariff.
+            Unknown model IDs use the Flash fallback described above, but that fallback is not a discovered provider
+            tariff.
           </Note>
         </section>
 
@@ -201,18 +195,16 @@ export default function CostAccounting() {
         </section>
 
         <section id="models">
-          <h2><span className="anchor">#</span>Model-switch caveat</h2>
+          <h2><span className="anchor">#</span>Model switches and peak hours</h2>
           <p>
-            Usage is aggregated without storing the model used for each response. When
-            <code className="inline">/cost</code> runs, the estimator applies the currently active model's rates
-            to every accumulated token. Switching model therefore reprices earlier usage retroactively in the
-            displayed estimate.
+            Cost is added per response, so each response keeps the rate of the model that produced it and of the peak
+            or off-peak period in which it arrived. Switching model, or crossing into peak hours, changes the rate for
+            later responses only; earlier usage is never repriced.
           </p>
-          <CodeBlock lang="text">{"# Before switching\nModel: deepseek-v4-flash\nEstimated cost: $0.0042\n\n# Same counters after selecting deepseek-v4-pro\nModel: deepseek-v4-pro\nEstimated cost: $0.0131"}</CodeBlock>
+          <CodeBlock lang="text">{"# After two responses on deepseek-flash\nModel: deepseek-flash\nEstimated cost: $0.0042\n\n# Switch to deepseek-v4-pro and send one more message\nModel: deepseek-v4-pro\nEstimated cost: $0.0131   # only the new response uses Pro rates"}</CodeBlock>
           <p>
-            The precise values depend on the prompt/cache/output mix; the important behavior is that the count
-            did not change while the rate did. Start a fresh process when comparing model costs, or calculate
-            per-call costs from provider telemetry outside DeepSeek Code.
+            The precise values depend on the prompt/cache/output mix. The token counters remain session totals without
+            a per-model breakdown, so start a fresh process when comparing model costs side by side.
           </p>
         </section>
 

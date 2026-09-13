@@ -30,6 +30,21 @@ function computeDiff(oldLines: string[], newLines: string[], _filePath?: string)
   return result
 }
 
+/** Points the model at the likely target when old_content has no exact match. */
+export function closestMatchHint(source: string, snippet: string): string {
+  const wanted = snippet.split('\n').map((line) => line.trim()).filter(Boolean)
+  if (wanted.length === 0) return ''
+  const nonEmpty = source.split('\n').flatMap((line, i) => (line.trim() ? [{ line: i + 1, text: line.trim() }] : []))
+  for (let i = 0; i + wanted.length <= nonEmpty.length; i++) {
+    if (wanted.every((text, j) => nonEmpty[i + j]!.text === text)) {
+      return ` — it matches at line ${nonEmpty[i]!.line} if whitespace is ignored; re-read that range with read_file and copy the text exactly, indentation included`
+    }
+  }
+  const firstLine = nonEmpty.find((entry) => entry.text === wanted[0])
+  if (firstLine) return ` — its first line appears at line ${firstLine.line} but the following lines differ; re-read that range with read_file`
+  return ' — re-read the file with read_file; it may have changed since you last saw it'
+}
+
 export const PatchFile: Tool = {
   name: 'patch_file',
   description:
@@ -46,8 +61,8 @@ export const PatchFile: Tool = {
   async execute(args, context) {
     assertExecutionActive(context)
     const filePath = await assertSafePath(args.path as string, context)
-    const oldContent = args.old_content as string
-    const newContent = args.new_content as string
+    let oldContent = args.old_content as string
+    let newContent = args.new_content as string
 
     let source: string
     try {
@@ -57,8 +72,14 @@ export const PatchFile: Tool = {
       return `Error: file not found: ${filePath}`
     }
 
+    // Models write LF; in a CRLF file convert the snippet to match, and always write CRLF so endings never mix.
+    if (source.includes('\r\n')) {
+      if (oldContent.includes('\n') && !oldContent.includes('\r\n')) oldContent = oldContent.replace(/\n/g, '\r\n')
+      newContent = newContent.replace(/\r?\n/g, '\r\n')
+    }
+
     const count = source.split(oldContent).length - 1
-    if (count === 0) return `Error: old_content not found in ${filePath}`
+    if (count === 0) return `Error: old_content not found in ${filePath}${closestMatchHint(source, oldContent)}`
     if (count > 1) return `Error: old_content matches ${count} times — be more specific`
 
     // Use a function replacement to avoid special $ patterns in newContent being interpreted

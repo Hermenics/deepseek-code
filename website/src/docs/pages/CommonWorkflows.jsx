@@ -225,7 +225,7 @@ Before reporting a task complete:
           <CodeBlock lang="json">{`// .deepseek/settings.json
 {
   "model": { "default": "deepseek-v4-pro" },
-  "agents": { "subagentModel": "deepseek-v4-flash" },
+  "agents": { "subagentModel": "deepseek-flash" },
   "hooks": {
     "PostToolUse": [
       { "matcher": { "tools": ["edit_file", "write_file"] },

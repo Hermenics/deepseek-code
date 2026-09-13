@@ -1,0 +1,1 @@
+Users report that `formatBytes(1536)` shows `1 KB` but it should show `1.5 KB`. Fix `src/format.ts` so sizes show up to two decimals without trailing zeros (for example `1.5 KB`, `1.18 MB`, `2 GB`). A value that would round to 1024 of a unit moves to the next unit instead. Keep the existing tests passing and add a test for the reported bug.

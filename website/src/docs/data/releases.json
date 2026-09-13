@@ -1,5 +1,54 @@
 [
   {
+    "version": "0.7.2",
+    "changes": [
+      "Added: Image attachments in the prompt — paste clipboard images with `Ctrl+V` or bracketed paste (Linux, macOS and Windows clipboard readers) and they appear as atomic `[Image #n]` placeholders that are deleted as one unit",
+      "Added: Terminal file drops are recognized as paths (direct, shell-escaped, quoted, `file://` URIs and quoted Windows UNC paths) and inserted into the prompt",
+      "Added: Images are sent as OpenAI-compatible `image_url` parts; only images whose placeholders survive editing are sent, and queued prompts and `/retry` keep their attachments",
+      "Enhanced: The default DeepSeek model is now `deepseek-flash`, with native visual understanding, pricing and a 1M context window",
+      "Enhanced: A single prompt accepts up to 20 images and 100MB of encoded image data; images beyond either limit are rejected with an inline notice and existing attachments are kept",
+      "Fixed: Compaction serializes images as `[Image: type]` markers instead of base64 data, and no longer fails on assistant tool-call messages with empty content",
+      "Fixed: Prompts queued during a turn are still submitted when that turn ends with an error",
+      "Fixed: Relaunching after an update hands the terminal to the new process immediately, so two processes no longer read the same input stream",
+      "Tests: Add regression coverage for clipboard image decoding, dropped-path normalization, image placeholder remapping and deletion, multimodal prompt content, compaction serialization and `deepseek-flash` pricing"
+    ]
+  },
+  {
+    "version": "0.7.0",
+    "changes": [
+      "Added: Dynamic Workflows reach parity with Claude Code's Workflow tool — `pipeline` stages receive `(previous, item, index)`, `budget` exposes `total`, `spent()` and `remaining()` (`Infinity` when unbounded) plus cost accessors, `workflow()` accepts `{ scriptPath }` as well as a saved name, `meta` accepts `whenToUse` and per-phase `model`, and `agent()` accepts the `low`/`medium`/`high`/`xhigh`/`max` effort tiers",
+      "Added: The `workflow` tool accepts `scriptPath`, a saved workflow `name`, and `resumeFromRunId`; every result now carries `scriptPath` and `journalPath`, and resuming replays the journaled result of every unchanged `agent()` call so an edited script only reruns from the first edited call",
+      "Added: Runs are located across earlier sessions of the same project, child workflow agents are grouped under `▸ name` in the monitor, and reading persisted workflow scripts and journals no longer prompts for outside-the-project access",
+      "Added: The activity footer now presents live agents and workflows in one navigable surface, keeps paused workflows and recently completed agents addressable, groups nested agents, shows live token/decorations, and marks runs owned by another session as read-only",
+      "Added: `shell` accepts `background=true` to create a controllable task handle with the same workspace, permission, timeout and cancellation rules as foreground execution",
+      "Added: An optional user-scoped `interface.subagentStatusLine` command receives the current activity snapshot as JSONL and can decorate footer rows; execution uses a scrubbed environment, bounded output and a hard timeout",
+      "Added: An `<environment>` packet (working directory, Git branch, platform, OS, shell, model, date) is delivered with the project context so models stop guessing where they are",
+      "Added: `model.maxOutputTokens` and `model.temperature` settings; the official DeepSeek API now always receives `max_tokens` so long file writes are no longer cut off at the provider's small default",
+      "Enhanced: The system prompt is rewritten as a compact, concrete operating guide (task loop, tool selection, scope discipline, care with irreversible actions, modes, communication) instead of an abstract policy manual; effort hints no longer inject generic \"think step by step\" filler",
+      "Enhanced: The `workflow` tool description documents the full script API with a canonical review-then-verify example, discourages self-imposed token budgets, and the `read_file`, `write_file` and `shell` descriptions steer the model toward the right tool; `read_file` returns 500 lines by default",
+      "Fixed: Tool calls whose arguments were cut off at the output-token limit or were otherwise invalid JSON are reported to the model as such instead of executing with empty arguments and surfacing as a schema error",
+      "Fixed: `shell` results include the exit code or timeout, and long output keeps both its head and its tail so a failing test run's verdict survives truncation",
+      "Fixed: Transient provider failures (408/409/5xx/529 and dropped connections) are retried with backoff, not only 429/503",
+      "Fixed: Replaying a journal no longer carries a previous run's budget exhaustion into a run with a larger budget, per-call agent accounting is correct under parallel fan-out, budget-exhausted runs explain what was skipped, and child workflows run without prior approval in Auto mode",
+      "Fixed: Activity counters no longer include workflow child agents, focused input is not sent to completed or shell tasks, retained terminal rows still open from the footer, and remote workflow activity refreshes without leaving stale rows; startup failures persist as terminal runs and release their leases",
+      "Fixed: Status-line timeouts terminate the shell process group (and its descendants where supported) when stdout stays open, and each refresh uses the agent's current working directory instead of a stale startup path",
+      "Fixed: The loading spinner only announces prompt refinement when the refiner is enabled",
+      "Fixed: The status bar shows the configured model as soon as settings load, initialization warnings are surfaced in the transcript, and `/workflow restart` (or `resume` on an interrupted run) relaunches over the run's journal instead of rerunning completed agents",
+      "Docs: Workflow reference updated in Introspect, the website and the project report for the new script API, tool inputs and resume flow",
+      "Tests: Add regression coverage for pipeline stage signatures, budget shape, nondeterminism guards, `resumeFromRunId`, `scriptPath` resolution and containment, Auto-mode children, phase models, effort mapping, budget replay, argument-parse feedback, shell truncation/background lifecycle, footer selection and retention, status-line trust/timeout/cwd, remote workflow polling, startup failure persistence and the environment packet"
+    ]
+  },
+  {
+    "version": "0.6.28",
+    "changes": [
+      "Added: Complete lifecycle hook coverage for prompt expansion, additional directories, configuration changes and idle teammates, alongside the existing session, tool, permission, task, compaction and worktree events",
+      "Added: Suggested reply ghost text generated after assistant responses, with `Tab` acceptance, local writing-style adaptation and the `ghostReplies` feature flag enabled by default",
+      "Fixed: Suggested replies are rendered when the input is empty and disappear as soon as the user starts typing, without replacing or completing user input",
+      "Fixed: Shell and command-prefixed outputs such as `!` and `/` are rejected as suggested replies, while stale asynchronous generations cannot overwrite a newer turn",
+      "Tests: Add regression coverage for lifecycle hook expansion, local style statistics and empty-input suggested-reply rendering"
+    ]
+  },
+  {
     "version": "0.6.27",
     "changes": [
       "Enhanced: Replace the oversized static operator manual with a compact system core and a per-request runtime contract containing the active mode, supplied tools, allowlist, and current restrictions",

@@ -160,7 +160,7 @@ export default function StreamingBehavior() {
             in an event whose choices array is empty. The agent records usage before looking for a content delta,
             so this event updates totals without producing text or crashing the stream.
           </p>
-          <CodeBlock lang="text">{"Assistant output: Repository scan complete.\n/cost\nModel: deepseek-v4-flash\nTokens: 18,420 total\n  prompt: 17,900 (12,100 cached)\n  completion: 520\nEstimated cost: $0.0010"}</CodeBlock>
+          <CodeBlock lang="text">{"Assistant output: Repository scan complete.\n/cost\nModel: deepseek-flash\nTokens: 18,420 total\n  prompt: 17,900 (12,100 cached)\n  completion: 520\nEstimated cost: $0.0010"}</CodeBlock>
           <p>
             Each response's prompt, completion and cache-hit counts are accumulated. The most recent prompt
             count also becomes current context usage. If the provider omits usage, the response still completes

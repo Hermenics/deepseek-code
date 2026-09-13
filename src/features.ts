@@ -23,6 +23,11 @@ export const FEATURES = {
     description: 'Suggest a reply to the assistant\'s latest question',
     default: true,
   },
+  readBeforeEdit: {
+    label: 'Read Before Edit',
+    description: 'Reject edits to files the agent has not read or that changed on disk since it read them',
+    default: true,
+  },
 } as const
 
 export type FeatureName = keyof typeof FEATURES

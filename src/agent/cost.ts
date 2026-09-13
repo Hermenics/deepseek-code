@@ -1,18 +1,16 @@
-// DeepSeek pricing (USD per million tokens, September 2026)
-// Source: https://api-docs.deepseek.com/quick_start/pricing
-const PRICING: Record<string, { input: number; cachedInput: number; output: number }> = {
-  'deepseek-flash':     { input: 0.14, cachedInput: 0.0028, output: 0.28 },
-  'deepseek-v4-flash': { input: 0.14, cachedInput: 0.0028, output: 0.28 },
-  'deepseek-v4-pro':   { input: 0.435, cachedInput: 0.003625, output: 0.87 },
-  'deepseek-v4-flash-vision-exp': { input: 0.14, cachedInput: 0.0028, output: 0.28 },
-  // Aliases (deprecated 2026/07/24, map to deepseek-v4-flash)
-  'deepseek-chat':     { input: 0.14, cachedInput: 0.0028, output: 0.28 },
-  'deepseek-reasoner': { input: 0.14, cachedInput: 0.0028, output: 0.28 },
+import DEEPSEEK from './deepseekModels.json'
+
+// DeepSeek models, limits and pricing (USD per 1M tokens) come from deepseekModels.json, synced from
+// https://api-docs.deepseek.com/quick_start/pricing by scripts/update-deepseek-models.ts.
+const DEEPSEEK_MODELS = new Map(DEEPSEEK.models.map((model) => [model.id, model]))
+const DEFAULT_PRICED_MODEL = DEEPSEEK_MODELS.get('deepseek-flash') ?? DEEPSEEK.models[0]!
+
+function deepseekModel(id: string) {
+  return DEEPSEEK_MODELS.get(id) ?? DEEPSEEK_MODELS.get((DEEPSEEK.legacyAliases as Record<string, string>)[id] ?? '')
 }
 
-// Context window limits per model/provider (1M = 1,000,000 tokens)
-// Source: https://api-docs.deepseek.com/quick_start/pricing
-const MODEL_CONTEXT: Record<string, number> = {
+// Context windows for non-DeepSeek models reachable through OpenAI-compatible endpoints.
+const OTHER_MODEL_CONTEXT: Record<string, number> = {
   'gpt-6-astra': 1_050_000,
   'gpt-5.6-sol': 1_050_000,
   'gpt-5.6-terra': 1_050_000,
@@ -20,13 +18,6 @@ const MODEL_CONTEXT: Record<string, number> = {
   'gpt-daybreak-blue-latest': 1_050_000,
   'gpt-5.5': 1_050_000,
   'gpt-5.4-mini': 400_000,
-  'deepseek-flash':     1_000_000,
-  'deepseek-v4-flash': 1_000_000,
-  'deepseek-v4-pro':   1_000_000,
-  'deepseek-v4-flash-vision-exp': 1_000_000,
-  // Aliases (deprecated 2026/07/24, map to deepseek-v4-flash)
-  'deepseek-chat':     1_000_000,
-  'deepseek-reasoner': 1_000_000,
 }
 
 export function getContextLimit(provider: string, model: string): number {
@@ -36,7 +27,8 @@ export function getContextLimit(provider: string, model: string): number {
 export function getKnownContextLimit(provider: string, model: string): number | undefined {
   if (provider === 'vertex')  return 128_000  // DeepSeek R1 no Vertex (limited by provider)
   if (provider === 'bedrock') return 128_000  // DeepSeek R1 no Bedrock (limited by provider)
-  return MODEL_CONTEXT[model.split('/').pop() ?? model]
+  const id = model.split('/').pop() ?? model
+  return deepseekModel(id)?.contextTokens ?? OTHER_MODEL_CONTEXT[id]
 }
 
 export function formatContextLimit(tokens: number): string {
@@ -54,13 +46,26 @@ export interface TokenUsage {
   cachedTokens: number
 }
 
-export function estimateCost(model: string, usage: TokenUsage): number {
-  const p = PRICING[model] ?? PRICING['deepseek-v4-flash']!
-  const regularInput = Math.max(0, usage.promptTokens - usage.cachedTokens)
+const toMinutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5))
+
+/** True when DeepSeek bills peak rates at `at` (UTC weekday hour ranges, end exclusive). */
+export function isPeakTime(at: Date): boolean {
+  if (!DEEPSEEK.peakHoursUtc.weekdays.includes(at.getUTCDay())) return false
+  const minute = at.getUTCHours() * 60 + at.getUTCMinutes()
+  return DEEPSEEK.peakHoursUtc.ranges.some(([start, end]) => minute >= toMinutes(start!) && minute < toMinutes(end!))
+}
+
+/** Prices usage at the peak or off-peak rate in effect at `at`; unknown models use Flash rates. */
+export function estimateCost(model: string, usage: TokenUsage, at: Date = new Date()): number {
+  const { pricing } = deepseekModel(model) ?? DEFAULT_PRICED_MODEL
+  const rates = isPeakTime(at) ? pricing.peak : pricing.offPeak
+  // An inconsistent report can claim more cache hits than prompt tokens; never bill more input than was sent.
+  const cachedInput = Math.min(Math.max(0, usage.cachedTokens), usage.promptTokens)
+  const regularInput = Math.max(0, usage.promptTokens - cachedInput)
   return (
-    (regularInput / 1_000_000) * p.input +
-    (usage.cachedTokens / 1_000_000) * p.cachedInput +
-    (usage.completionTokens / 1_000_000) * p.output
+    (regularInput / 1_000_000) * rates.cacheMiss +
+    (cachedInput / 1_000_000) * rates.cacheHit +
+    (usage.completionTokens / 1_000_000) * rates.output
   )
 }
 

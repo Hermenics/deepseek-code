@@ -519,7 +519,7 @@ describe('Agent error propagation', () => {
     }
   }
 
-  it('does not emit onDone when the iteration limit fails the turn', async () => {
+  it('ends the turn with a resumable notice when the iteration limit is reached', async () => {
     const agent = new Agent({ provider: 'vertex', gcpProject: 'test', gcpLocation: 'global', gcpCredentials: '/tmp/test-service-account.json' })
     resolveReady(agent)
     // Vertex streams now — the mock returns a fresh async-iterable stream per call
@@ -533,9 +533,10 @@ describe('Agent error propagation', () => {
     }))
     injectMockClient(agent, { chat: { completions: { create } } })
     const cb = makeTrackedCallbacks()
-    await expect(agent.run('loop', cb)).rejects.toThrow('maximum iteration limit')
-    expect(cb.onDone).not.toHaveBeenCalled()
+    await agent.run('loop', cb)
+    expect(cb.onDone).toHaveBeenCalledTimes(1)
     expect(create).toHaveBeenCalledTimes(100)
+    expect(cb.onToken).toHaveBeenCalledWith(expect.stringContaining('Stopped after 100 tool iterations'))
   })
 
   describe('run(): erros da API devem propagar', () => {

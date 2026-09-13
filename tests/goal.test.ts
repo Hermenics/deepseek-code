@@ -3,11 +3,27 @@ import {
   getGoal, setGoal, createGoal, updateGoal,
   markGoalComplete, markGoalBlocked, resumeGoal,
   buildContinuationPrompt, GOAL_MAX_CONTINUATIONS, getElapsedSeconds,
+  recordGoalTurnProgress, GOAL_MAX_IDLE_TURNS,
   type Goal,
 } from '../src/agent/goal.js'
 
 beforeEach(() => {
   setGoal(null)
+})
+
+describe('Goal progress', () => {
+  it('allows ten continuation turns by default', () => {
+    expect(GOAL_MAX_CONTINUATIONS).toBe(10)
+  })
+
+  it('reports a stall after consecutive turns without file changes and resets on progress', () => {
+    createGoal('Ship the feature')
+    expect(recordGoalTurnProgress(false)).toBeNull()
+    expect(recordGoalTurnProgress(true)).toBeNull()
+    for (let turn = 1; turn < GOAL_MAX_IDLE_TURNS; turn++) expect(recordGoalTurnProgress(false)).toBeNull()
+    expect(recordGoalTurnProgress(false)).toBe(`no tool calls or file changes in the last ${GOAL_MAX_IDLE_TURNS} goal turns`)
+    expect(resumeGoal().idleTurns).toBe(0)
+  })
 })
 
 describe('Goal creation', () => {

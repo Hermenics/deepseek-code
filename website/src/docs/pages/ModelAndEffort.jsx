@@ -1,4 +1,5 @@
 import { CodeBlock, Note, Toc } from "../Layout";
+import { DEEPSEEK_MODELS } from "../deepseekModels";
 
 const TOC = [
   { id: "model", label: "Choose the main model" },
@@ -16,16 +17,14 @@ const TOC = [
 ];
 
 const PROVIDERS = [
-  ["DeepSeek", "deepseek-v4-flash", "Lists models through the provider-compatible models endpoint."],
+  ["DeepSeek", "deepseek-flash", "Lists models through the provider-compatible models endpoint."],
   ["Amazon Bedrock", "us.deepseek.r1-v1:0", "Uses the AWS foundation-model catalog and keeps only DeepSeek model IDs."],
   ["Google Vertex AI", "deepseek-ai/deepseek-r1", "Uses Vertex model discovery for DeepSeek deployments."],
   ["Local", "Configured local model, otherwise llama3", "Uses the local OpenAI-compatible /v1/models endpoint."],
 ];
 
 const LIMITS = [
-  ["Direct DeepSeek: deepseek-v4-flash", "1,000,000"],
-  ["Direct DeepSeek: deepseek-v4-pro", "1,000,000"],
-  ["Direct DeepSeek: deepseek-v4-flash-vision-exp", "1,000,000"],
+  ...DEEPSEEK_MODELS.map((m) => [`Direct DeepSeek: ${m.id}`, m.contextTokens.toLocaleString("en-US")]),
   ["Amazon Bedrock", "128,000"],
   ["Google Vertex AI", "128,000"],
   ["Unknown or custom model ID", "128,000"],
@@ -155,7 +154,7 @@ export default function ModelAndEffort() {
             <code className="inline">agents.subagentModel</code>, the compatibility fallback
             <code className="inline">model.subagent</code>, and finally the live main model.
           </p>
-          <CodeBlock lang="json">{'{\n  "provider": {\n    "name": "deepseek"\n  },\n  "model": {\n    "default": "deepseek-v4-pro",\n    "subagent": "deepseek-v4-flash"\n  },\n  "agents": {\n    "subagentModel": "deepseek-v4-flash"\n  }\n}'}</CodeBlock>
+          <CodeBlock lang="json">{'{\n  "provider": {\n    "name": "deepseek"\n  },\n  "model": {\n    "default": "deepseek-v4-pro",\n    "subagent": "deepseek-flash"\n  },\n  "agents": {\n    "subagentModel": "deepseek-flash"\n  }\n}'}</CodeBlock>
           <p>
             Effective settings merge user, project and local levels. A direct
             <code className="inline">/model &lt;id&gt;</code> changes only the live process; it does not edit any
@@ -178,9 +177,9 @@ export default function ModelAndEffort() {
             display and compaction timing; it is not a claim about the remote model&apos;s actual maximum.
           </p>
           <Note>
-            The DeepSeek API can expose additional real model IDs, including{" "}
-            <code className="inline">deepseek-v4-flash-vision-exp</code>. The current local resolver has
-            explicit 1M entries for Flash, Pro and Vision; other IDs use the conservative fallback here.
+            The DeepSeek rows come from the official pricing page. Retired names such as{" "}
+            <code className="inline">deepseek-v4-flash</code> resolve to the model that serves them; other IDs use the
+            conservative fallback here.
           </Note>
           <p>
             Switching from a recognized one-million-token model to an unknown ID can therefore make the same
