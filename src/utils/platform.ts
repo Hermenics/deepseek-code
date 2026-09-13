@@ -1,6 +1,8 @@
 import { execFileSync, execSync } from 'node:child_process'
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
+import type { PromptImage, PromptImageMediaType } from '../types/input.js'
 
 /**
  * Cross-platform helpers. Everything the tools need that differs between
@@ -63,6 +65,133 @@ export function readClipboardSync(): string {
     )
   } catch {
     return ''
+  }
+}
+
+const CLIPBOARD_IMAGE_MAX_BYTES = 32 * 1024 * 1024
+const CLIPBOARD_IMAGE_TYPES: PromptImageMediaType[] = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
+
+function detectImageType(data: Uint8Array): PromptImageMediaType | null {
+  if (data.length >= 8 && data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47) return 'image/png'
+  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return 'image/jpeg'
+  if (data.length >= 6 && (new TextDecoder().decode(data.slice(0, 6)) === 'GIF87a' || new TextDecoder().decode(data.slice(0, 6)) === 'GIF89a')) return 'image/gif'
+  if (data.length >= 12 && new TextDecoder().decode(data.slice(0, 4)) === 'RIFF' && new TextDecoder().decode(data.slice(8, 12)) === 'WEBP') return 'image/webp'
+  return null
+}
+
+/** Converts clipboard bytes to the content shape accepted by DeepSeek vision. */
+export function clipboardImageFromBytes(data: Uint8Array): PromptImage | null {
+  if (data.length === 0 || data.length > CLIPBOARD_IMAGE_MAX_BYTES) return null
+  const mediaType = detectImageType(data)
+  return mediaType ? { mediaType, data: Buffer.from(data).toString('base64') } : null
+}
+
+function readClipboardBinary(command: string, args: string[]): Buffer | null {
+  if (!hasBinary(command)) return null
+  try {
+    const result = execFileSync(command, args, {
+      encoding: 'buffer',
+      timeout: 2500,
+      maxBuffer: CLIPBOARD_IMAGE_MAX_BYTES + 1024,
+      windowsHide: true,
+    })
+    return Buffer.isBuffer(result) ? result : Buffer.from(result)
+  } catch {
+    return null
+  }
+}
+
+function readClipboardText(command: string, args: string[]): string | null {
+  if (!hasBinary(command)) return null
+  try {
+    return execFileSync(command, args, {
+      encoding: 'utf8',
+      timeout: 2500,
+      maxBuffer: CLIPBOARD_IMAGE_MAX_BYTES * 2,
+      windowsHide: true,
+    }).trim()
+  } catch {
+    return null
+  }
+}
+
+function readLinuxClipboardImage(): PromptImage | null {
+  const readers: Array<{ command: string; args: (mime: string) => string[] }> = [
+    { command: 'xclip', args: (mime) => ['-selection', 'clipboard', '-t', mime, '-o'] },
+    { command: 'wl-paste', args: (mime) => ['--type', mime] },
+    { command: 'xsel', args: (mime) => ['--clipboard', '--output', '--mime-type', mime] },
+  ]
+  for (const reader of readers) {
+    if (!hasBinary(reader.command)) continue
+    const available = reader.command === 'xclip'
+      ? readClipboardText(reader.command, ['-selection', 'clipboard', '-t', 'TARGETS', '-o'])
+      : reader.command === 'wl-paste'
+        ? readClipboardText(reader.command, ['--list-types'])
+        : null
+    const types = available
+      ? CLIPBOARD_IMAGE_TYPES.filter((mime) => available.includes(mime))
+      : CLIPBOARD_IMAGE_TYPES
+    for (const mime of types) {
+      const image = clipboardImageFromBytes(readClipboardBinary(reader.command, reader.args(mime)) ?? new Uint8Array())
+      if (image) return image
+    }
+  }
+  return null
+}
+
+function readMacClipboardImage(): PromptImage | null {
+  const direct = clipboardImageFromBytes(readClipboardBinary('pngpaste', ['-']) ?? new Uint8Array())
+  if (direct) return direct
+  if (!hasBinary('osascript')) return null
+
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'deepseek-clipboard-'))
+  const target = path.join(dir, 'clipboard.png')
+  const script = [
+    'on run argv',
+    'set outputPath to item 1 of argv',
+    'set imageData to the clipboard as «class PNGf»',
+    'set fileRef to open for access POSIX file outputPath with write permission',
+    'write imageData to fileRef',
+    'close access fileRef',
+    'end run',
+  ].join('\n')
+  try {
+    execFileSync('osascript', ['-e', script, target], { stdio: 'ignore', timeout: 2500 })
+    return clipboardImageFromBytes(readFileSync(target))
+  } catch {
+    return null
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+function readWindowsClipboardImage(): PromptImage | null {
+  const script = [
+    'Add-Type -AssemblyName System.Windows.Forms',
+    'Add-Type -AssemblyName System.Drawing',
+    '$image = [Windows.Forms.Clipboard]::GetImage()',
+    'if ($null -eq $image) { exit 1 }',
+    '$stream = New-Object System.IO.MemoryStream',
+    '$image.Save($stream, [Drawing.Imaging.ImageFormat]::Png)',
+    '[Console]::Out.Write([Convert]::ToBase64String($stream.ToArray()))',
+  ].join(';')
+  for (const command of ['powershell', 'pwsh']) {
+    const encoded = readClipboardText(command, ['-NoProfile', '-NonInteractive', '-STA', '-Command', script])
+    if (!encoded) continue
+    const image = clipboardImageFromBytes(Buffer.from(encoded, 'base64'))
+    if (image) return image
+  }
+  return null
+}
+
+/** Reads the first supported raster image currently in the system clipboard. */
+export function readClipboardImageSync(): PromptImage | null {
+  try {
+    if (isMac) return readMacClipboardImage()
+    if (isWindows) return readWindowsClipboardImage()
+    return readLinuxClipboardImage()
+  } catch {
+    return null
   }
 }
 

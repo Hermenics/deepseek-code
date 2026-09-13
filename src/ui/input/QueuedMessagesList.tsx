@@ -7,12 +7,12 @@ export function truncateMessage(msg: string): string {
   return msg.slice(0, MAX_MSG_LEN) + '…'
 }
 
-export function buildQueueItems(messages: string[]): { text: string }[] {
-  return messages.map((msg) => ({ text: truncateMessage(msg) }))
+export function buildQueueItems(messages: Array<string | { text: string }>): { text: string }[] {
+  return messages.map((msg) => ({ text: truncateMessage(typeof msg === 'string' ? msg : msg.text) }))
 }
 
 interface Props {
-  messages: string[]
+  messages: Array<string | { text: string }>
 }
 
 export function QueuedMessagesList({ messages }: Props) {

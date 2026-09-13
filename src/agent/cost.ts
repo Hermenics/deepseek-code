@@ -1,6 +1,7 @@
-// DeepSeek pricing (USD per million tokens, July 2026)
+// DeepSeek pricing (USD per million tokens, September 2026)
 // Source: https://api-docs.deepseek.com/quick_start/pricing
 const PRICING: Record<string, { input: number; cachedInput: number; output: number }> = {
+  'deepseek-flash':     { input: 0.14, cachedInput: 0.0028, output: 0.28 },
   'deepseek-v4-flash': { input: 0.14, cachedInput: 0.0028, output: 0.28 },
   'deepseek-v4-pro':   { input: 0.435, cachedInput: 0.003625, output: 0.87 },
   'deepseek-v4-flash-vision-exp': { input: 0.14, cachedInput: 0.0028, output: 0.28 },
@@ -19,6 +20,7 @@ const MODEL_CONTEXT: Record<string, number> = {
   'gpt-daybreak-blue-latest': 1_050_000,
   'gpt-5.5': 1_050_000,
   'gpt-5.4-mini': 400_000,
+  'deepseek-flash':     1_000_000,
   'deepseek-v4-flash': 1_000_000,
   'deepseek-v4-pro':   1_000_000,
   'deepseek-v4-flash-vision-exp': 1_000_000,

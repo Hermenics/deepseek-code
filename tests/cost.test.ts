@@ -11,6 +11,11 @@ describe('estimateCost', () => {
     expect(cost).toBeCloseTo(0.14 + 0.28, 4)
   })
 
+  it('should calculate cost for the current deepseek-flash model', () => {
+    const usage: TokenUsage = { promptTokens: 1_000_000, completionTokens: 1_000_000, cachedTokens: 0 }
+    expect(estimateCost('deepseek-flash', usage)).toBeCloseTo(0.14 + 0.28, 4)
+  })
+
   it('should calculate cost for deepseek-chat with cached tokens', () => {
     const usage: TokenUsage = { promptTokens: 1_000_000, completionTokens: 500_000, cachedTokens: 600_000 }
     const cost = estimateCost('deepseek-chat', usage)
@@ -83,6 +88,10 @@ describe('getContextLimit', () => {
 
   it('should return 1M for deepseek-chat', () => {
     expect(getContextLimit('deepseek', 'deepseek-chat')).toBe(1_000_000)
+  })
+
+  it('should return 1M for deepseek-flash', () => {
+    expect(getContextLimit('deepseek', 'deepseek-flash')).toBe(1_000_000)
   })
 
   it('should return 1M for deepseek-reasoner', () => {

@@ -6,12 +6,12 @@ import { parseCommand } from '../commands.js'
 
 export const MAX_QUEUE_SIZE = 10
 
-export function enqueue(queue: string[], msg: string): string[] {
+export function enqueue<T>(queue: T[], msg: T): T[] {
   if (queue.length >= MAX_QUEUE_SIZE) return queue
   return [...queue, msg]
 }
 
-export function dequeue(queue: string[]): { next: string | null; remaining: string[] } {
+export function dequeue<T>(queue: T[]): { next: T | null; remaining: T[] } {
   if (queue.length === 0) return { next: null, remaining: [] }
   const [first, ...rest] = queue
   return { next: first!, remaining: rest }

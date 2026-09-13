@@ -8,7 +8,7 @@ import { collectEnvironmentInfo, formatEnvironmentInfo } from './environment.js'
 import { allTools } from '../tools/index.js'
 import type { SubAgentCallbacks } from '../tools/SubAgent/SubAgent.js'
 import { approveMcpConfig, loadMcpTools, type McpApprovalRequest } from './mcp.js'
-import type { ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
+import type { ChatCompletionContentPart, ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
 import type { Model } from '../commands.js'
 import { loadAgentRegistry, type AgentConfig } from './config.js'
 import type { Tool, ToolCallbacks } from '../tools/types.js'
@@ -64,6 +64,7 @@ import { WorkflowApprovalStore, hashWorkflowValue } from '../workflows/storage.j
 import { loadSkillPrompt } from '../skills/native.js'
 import type { AskUserHandler } from '../tools/AskUserQuestions/types.js'
 import { AdditionalDirectories } from './additionalDirectories.js'
+import type { PromptImage, PromptInput } from '../types/input.js'
 
 /** Workaround: OpenAI SDK has not typed reasoning_content yet (exclusive field of deepseek-reasoner) */
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & { reasoning_content?: string }
@@ -76,6 +77,33 @@ class DenyAbortError extends Error {
 const PARALLEL_SAFE = new Set(['subagent', 'ask_agent', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect'])
 
 const DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT_MD
+
+export function buildPromptContent(text: string, images: PromptImage[]): string | ChatCompletionContentPart[] {
+  if (images.length === 0) return text
+  const visibleText = text.replace(/\[Image #\d+\]/g, '').trim()
+  return [
+    ...(visibleText ? [{ type: 'text' as const, text: visibleText }] : []),
+    ...images.map((image) => ({
+      type: 'image_url' as const,
+      image_url: { url: `data:${image.mediaType};base64,${image.data}`, detail: 'auto' as const },
+    })),
+  ]
+}
+
+/**
+ * Serialize message content for compaction, replacing base64 image data with markers
+ * to prevent large payloads from entering the compaction prompt.
+ */
+export function serializeContentForCompaction(content: ChatCompletionMessageParam['content']): string {
+  if (content == null) return ''
+  if (typeof content === 'string') return content
+  return content.map((part) => {
+    if (part.type === 'text') return part.text
+    if (part.type === 'refusal') return part.refusal
+    if (part.type === 'image_url') return `[Image: ${part.image_url.url.match(/^data:([^;,]+)/)?.[1] ?? 'image'}]`
+    return `[${part.type}]`
+  }).join('\n')
+}
 
 const READ_ONLY_MODE_ACTIONS: Record<string, string[]> = {
   git: ['status', 'diff', 'log'],
@@ -433,6 +461,7 @@ export class Agent {
   private filesModified: Set<string> = new Set()
   private tokenUsage: TokenUsage = { promptTokens: 0, completionTokens: 0, cachedTokens: 0 }
   private lastUserMessage: string | null = null
+  private lastUserPrompt: PromptInput | null = null
   private abortController: AbortController | null = null
   public readyPromise: Promise<void> = Promise.resolve()
   public mcpErrors: string[] = []
@@ -450,7 +479,7 @@ export class Agent {
   private additionalDirectories: AdditionalDirectories
 
   public tokenCount = 0
-  public model: Model = 'deepseek-v4-flash'
+  public model: Model = 'deepseek-flash'
   private modelContextLimits = new Map<string, number>()
   public activeAgent: string | null = null
   public provider: ProviderConfig['provider'] = 'deepseek'
@@ -1129,6 +1158,10 @@ export class Agent {
     return this.lastUserMessage
   }
 
+  getLastUserPrompt(): PromptInput | null {
+    return this.lastUserPrompt
+  }
+
   // ── Checkpoint ─────────────────────────────────────────────────────────────
 
   async saveCheckpoint(label?: string): Promise<string> {
@@ -1166,7 +1199,7 @@ export class Agent {
           model: this.model,
           messages: [
             { role: 'system', content: COMPACT_SYSTEM_PROMPT },
-            { role: 'user', content: `${COMPACT_SUMMARY_PROMPT}\n\n---\n\nConversation to summarize:\n\n${nonSystem.map((m) => `[${m.role}]: ${typeof m.content === 'string' ? m.content : JSON.stringify(m.content)}`).join('\n\n')}` },
+            { role: 'user', content: `${COMPACT_SUMMARY_PROMPT}\n\n---\n\nConversation to summarize:\n\n${nonSystem.map((m) => `[${m.role}]: ${serializeContentForCompaction(m.content)}`).join('\n\n')}` },
           ],
           max_tokens: 4000,
         },
@@ -1572,10 +1605,12 @@ export class Agent {
     this.clearHistory()
   }
 
-  async run(userMessage: string, cb: AgentCallbacks) {
+  async run(userMessage: string | PromptInput, cb: AgentCallbacks) {
     // Wait for settings, snapshots and project context before resetting turn state.
     await this.readyPromise
-    const originalUserMessage = userMessage
+    const promptInput = typeof userMessage === 'string' ? { text: userMessage } : userMessage
+    const originalUserMessage = promptInput.text
+    const promptImages = promptInput.images ?? []
 
     this.orchestrator.resetTurnMemory()
     this.turnWriteCount = 0
@@ -1586,7 +1621,7 @@ export class Agent {
 
     let hookContext = ''
     if (this.settings.hooks) {
-      const promptHook = await runUserPromptSubmitHooks(this.settings.hooks as HooksConfig, this.hookSessionId, userMessage, { cwd: this.workspacePath, model: this.model })
+      const promptHook = await runUserPromptSubmitHooks(this.settings.hooks as HooksConfig, this.hookSessionId, originalUserMessage, { cwd: this.workspacePath, model: this.model })
       if (promptHook.decision === 'block') throw new Error(promptHook.reason ?? 'Prompt blocked by UserPromptSubmit hook')
       if (promptHook.additionalContext) hookContext = `\n\n[Hook context]\n${promptHook.additionalContext}`
     }
@@ -1620,6 +1655,7 @@ export class Agent {
     // PromptRefiner-refined variant. /retry and the input history depend on this
     // staying the raw input so the history shows what the user actually wrote.
     this.lastUserMessage = originalUserMessage
+    this.lastUserPrompt = { text: originalUserMessage, ...(promptImages.length > 0 ? { images: promptImages } : {}) }
 
     // Prompt refinement (if enabled)
     let effectiveMessage = originalUserMessage
@@ -1648,7 +1684,7 @@ export class Agent {
     }
 
     cb.onPhaseChange?.('executing')
-    this.messages.push({ role: 'user', content: messageContent })
+    this.messages.push({ role: 'user', content: buildPromptContent(messageContent, promptImages) })
     await this.loop(cb)
   }
 

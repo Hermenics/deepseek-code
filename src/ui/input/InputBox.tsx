@@ -24,9 +24,16 @@ import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 import { getAtMention, searchFiles } from './fileMatcher.js'
 import { isFullscreenActive } from '../../utils/fullscreen.js'
-import { readClipboardSync } from '../../utils/platform.js'
+import { readClipboardImageSync, readClipboardSync } from '../../utils/platform.js'
+import type { PromptImage } from '../../types/input.js'
+import { prepareImagePrompt } from './imageAttachments.js'
+import { insertDroppedPath, normalizeDroppedPath } from './fileDrop.js'
 import type { KeybindingsSettings } from '../../settings/types.js'
 import { resolveKeybindingAction, resolveKeybindings } from './keybindings.js'
+
+// Aggregate limits for images attached to one prompt (base64-encoded size)
+const MAX_IMAGE_COUNT = 20
+const MAX_TOTAL_IMAGE_SIZE = 100 * 1024 * 1024
 
 // Convert Ink's Key (boolean flags) to KeyEvent (name-based) used by processTextInputKey/processVimKey
 export function inkKeyToKeyEvent(key: Key, input: string): KeyEvent {
@@ -92,12 +99,12 @@ export function InputBox({
   suggestedReply,
   onSuggestedReplyDismiss,
 }: {
-  onSubmit: (text: string) => void
+  onSubmit: (text: string, images?: PromptImage[]) => void
   isLoading: boolean
   toolCallCount: number
   onAbort?: () => void
   onExit?: () => void
-  onQueue?: (text: string) => void
+  onQueue?: (text: string, images?: PromptImage[]) => void
   phase?: AgentPhase
   contextPct?: number
   agentLabel?: string
@@ -123,6 +130,8 @@ export function InputBox({
   const [cursor, setCursor] = useState(() => Cursor.fromText('', cols))
   const [fullscreenHintVisible, setFullscreenHintVisible] = useState(showFullscreenHint)
   const [pastedTexts, setPastedTexts] = useState<string[]>([])
+  const [pastedImages, setPastedImages] = useState<PromptImage[]>([])
+  const [imageNotice, setImageNotice] = useState<string | null>(null)
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [vimState, setVimState] = useState<VimState>(createVimState)
   const [fileMatches, setFileMatches] = useState<string[]>([])
@@ -140,6 +149,7 @@ export function InputBox({
     fileSearchRequestRef.current++
     setFileMatches([])
     setFileSelectedIdx(0)
+    setImageNotice(null)
     if (next.text.length > 0) setFullscreenHintVisible(false)
     if (next.text.length > 0) onSuggestedReplyDismiss?.()
     setCursor(next)
@@ -158,6 +168,7 @@ export function InputBox({
     onDoublePress: () => {
       updateCursor(Cursor.fromText('', cols))
       setPastedTexts([])
+      setPastedImages([])
       setSelectedIdx(0)
       historyRef.current.reset()
     },
@@ -218,23 +229,62 @@ export function InputBox({
     })
   }
 
+  const prepareSubmittedPrompt = (text: string) => prepareImagePrompt(expandPastedTexts(text), pastedImages)
+
+  const insertImage = (image: PromptImage) => {
+    if (pastedImages.length >= MAX_IMAGE_COUNT) {
+      setImageNotice(`Image not attached: limit is ${MAX_IMAGE_COUNT} images per message.`)
+      return
+    }
+    const currentSize = pastedImages.reduce((sum, img) => sum + img.data.length, 0)
+    if (currentSize + image.data.length > MAX_TOTAL_IMAGE_SIZE) {
+      const mb = (bytes: number) => Math.ceil(bytes / (1024 * 1024))
+      setImageNotice(`Image not attached: images would exceed ${mb(MAX_TOTAL_IMAGE_SIZE)}MB (${mb(currentSize)}MB attached, this one ${mb(image.data.length)}MB).`)
+      return
+    }
+    const idx = pastedImages.length
+    setPastedImages((prev) => [...prev, image])
+    updateCursor(cursor.insert(`[Image #${idx + 1}]`))
+    setSelectedIdx(0)
+    historyRef.current.reset()
+  }
+
+  const insertDroppedFile = (droppedPath: string) => {
+    const inserted = insertDroppedPath(cursor.text, cursor.offset, droppedPath)
+    updateCursor(Cursor.fromText(inserted.text, cols, inserted.offset))
+    setSelectedIdx(0)
+    historyRef.current.reset()
+  }
+
   const matches = getMatches(cursor.text)
   const showDropdown = matches.length > 0
   const showFileDropdown = fileMatches.length > 0 && !showDropdown
   const ghost = getSuggestedReplyGhost(cursor.text, suggestedReply) ?? computeGhostText(cursor.text, cursor.offset)
   const resolvedKeybindings = resolveKeybindings(keybindings)
 
-  const submitOrQueueWhileLoading = (value: string) => {
+  const submitPrompt = (text: string, images: PromptImage[] = []) => {
+    if (images.length > 0) onSubmit(text, images)
+    else onSubmit(text)
+  }
+
+  const submitOrQueueWhileLoading = (value: string, images: PromptImage[] = []) => {
     const text = value.trim()
     if (!text) return
-    if (/^\/workflows(?:\s|$)|^\/workflow\s+(?:pause|resume|stop)\b/.test(text)) onSubmit(text)
+    if (/^\/workflows(?:\s|$)|^\/workflow\s+(?:pause|resume|stop)\b/.test(text)) submitPrompt(text, images)
+    else if (images.length > 0) onQueue?.(text, images)
     else onQueue?.(text)
   }
 
   useInput((input: string, key: Key) => {
     // Bracketed paste from terminal (Ctrl+Shift+V or middle-click)
-    if (key.isPasted && input.length > 0) {
-      handlePaste(input)
+    if (key.isPasted) {
+      const droppedPath = normalizeDroppedPath(input)
+      if (droppedPath) insertDroppedFile(droppedPath)
+      else if (input.length > 0) handlePaste(input)
+      else {
+        const image = readClipboardImageSync()
+        if (image) insertImage(image)
+      }
       return
     }
     const keyEvent = inkKeyToKeyEvent(key, input)
@@ -272,8 +322,12 @@ export function InputBox({
 
     if (key.ctrl && input === 'v') {
       try {
-        const text = readClipboardSync()
-        if (text) handlePaste(text)
+        const image = readClipboardImageSync()
+        if (image) insertImage(image)
+        else {
+          const text = readClipboardSync()
+          if (text) handlePaste(text)
+        }
       } catch {}
       return
     }
@@ -312,6 +366,7 @@ export function InputBox({
       onSuggestedReplyDismiss?.()
       updateCursor(Cursor.fromText('', cols))
       setPastedTexts([])
+      setPastedImages([])
       historyRef.current.reset()
       return
     }
@@ -341,6 +396,7 @@ export function InputBox({
       onSubmit(chosen)
       updateCursor(Cursor.fromText('', cols))
       setPastedTexts([])
+      setPastedImages([])
       setSelectedIdx(0)
       historyRef.current.reset()
       setVimState(createVimState)
@@ -348,11 +404,12 @@ export function InputBox({
     }
 
     if (isLoading && action === 'submit') {
-      const queued = expandPastedTexts(cursor.text).trim()
-      if (queued) {
-        submitOrQueueWhileLoading(queued)
+      const submitted = prepareSubmittedPrompt(cursor.text)
+      if (submitted.text.trim()) {
+        submitOrQueueWhileLoading(submitted.text, submitted.images)
         updateCursor(Cursor.fromText('', cols))
-          setPastedTexts([])
+        setPastedTexts([])
+        setPastedImages([])
       }
       return
     }
@@ -365,15 +422,15 @@ export function InputBox({
         setSelectedIdx(0)
         historyRef.current.reset()
         if (chunk.action === 'submit') {
-          const expanded = expandPastedTexts(chunk.cursor.text)
+          const submitted = prepareSubmittedPrompt(chunk.cursor.text)
           if (isLoading) {
-            const queued = expanded.trim()
-            if (queued) submitOrQueueWhileLoading(queued)
+            if (submitted.text.trim()) submitOrQueueWhileLoading(submitted.text, submitted.images)
           } else {
-            onSubmit(expanded)
+            submitPrompt(submitted.text, submitted.images)
           }
           updateCursor(Cursor.fromText('', cols))
           setPastedTexts([])
+          setPastedImages([])
           setVimState(createVimState)
         } else if (chunk.action) {
           const entry = chunk.action === 'historyUp' ? historyRef.current.up(chunk.cursor.text) : historyRef.current.down()
@@ -395,15 +452,15 @@ export function InputBox({
       if (vim.type === 'action') {
         if (vim.action === 'submit') {
           const full = cursor.text
-          const expanded = expandPastedTexts(full)
+          const submitted = prepareSubmittedPrompt(full)
           if (isLoading) {
-            const queued = expanded.trim()
-            if (queued) submitOrQueueWhileLoading(queued)
+            if (submitted.text.trim()) submitOrQueueWhileLoading(submitted.text, submitted.images)
           } else {
-            onSubmit(expanded)
+            submitPrompt(submitted.text, submitted.images)
           }
           updateCursor(Cursor.fromText('', cols))
-              setPastedTexts([])
+          setPastedTexts([])
+          setPastedImages([])
           historyRef.current.reset()
           setVimState(createVimState)
           return
@@ -424,15 +481,15 @@ export function InputBox({
     }
 
     if (result.action === 'submit') {
-      const expanded = expandPastedTexts(cursor.text)
+      const submitted = prepareSubmittedPrompt(cursor.text)
       if (isLoading) {
-        const queued = expanded.trim()
-        if (queued) submitOrQueueWhileLoading(queued)
+        if (submitted.text.trim()) submitOrQueueWhileLoading(submitted.text, submitted.images)
       } else {
-        onSubmit(expanded)
+        submitPrompt(submitted.text, submitted.images)
       }
       updateCursor(Cursor.fromText('', cols))
       setPastedTexts([])
+      setPastedImages([])
       setSelectedIdx(0)
       historyRef.current.reset()
       return
@@ -479,6 +536,9 @@ export function InputBox({
           )}
           {escDouble.armed && (
             <Text color="yellow">{'  Press Esc again to clear input'}</Text>
+          )}
+          {imageNotice && (
+            <Text color="yellow">{`  ${imageNotice}`}</Text>
           )}
         </InputChrome>
 
