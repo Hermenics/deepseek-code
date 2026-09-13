@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.2
+
+- Added: Image attachments in the prompt — paste clipboard images with `Ctrl+V` or bracketed paste (Linux, macOS and Windows clipboard readers) and they appear as atomic `[Image #n]` placeholders that are deleted as one unit
+- Added: Terminal file drops are recognized as paths (direct, shell-escaped, quoted, `file://` URIs and quoted Windows UNC paths) and inserted into the prompt
+- Added: Images are sent as OpenAI-compatible `image_url` parts; only images whose placeholders survive editing are sent, and queued prompts and `/retry` keep their attachments
+- Enhanced: The default DeepSeek model is now `deepseek-flash`, with native visual understanding, pricing and a 1M context window
+- Enhanced: A single prompt accepts up to 20 images and 100MB of encoded image data; images beyond either limit are rejected with an inline notice and existing attachments are kept
+- Fixed: Compaction serializes images as `[Image: type]` markers instead of base64 data, and no longer fails on assistant tool-call messages with empty content
+- Fixed: Prompts queued during a turn are still submitted when that turn ends with an error
+- Fixed: Relaunching after an update hands the terminal to the new process immediately, so two processes no longer read the same input stream
+- Tests: Add regression coverage for clipboard image decoding, dropped-path normalization, image placeholder remapping and deletion, multimodal prompt content, compaction serialization and `deepseek-flash` pricing
+
 ## 0.7.0
 
 - Added: Dynamic Workflows reach parity with Claude Code's Workflow tool — `pipeline` stages receive `(previous, item, index)`, `budget` exposes `total`, `spent()` and `remaining()` (`Infinity` when unbounded) plus cost accessors, `workflow()` accepts `{ scriptPath }` as well as a saved name, `meta` accepts `whenToUse` and per-phase `model`, and `agent()` accepts the `low`/`medium`/`high`/`xhigh`/`max` effort tiers
