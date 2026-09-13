@@ -27,6 +27,12 @@ describe('Legacy hook executor audit', () => {
     expect(run.decision).toBe('allow')
   })
 
+  it('runs a hook command that contains quotes on every platform', async () => {
+    const input = buildInput({ event: 'SessionStart', session_id: 's1' })
+    const output = await runHookCommand({ type: 'command', command: `"${process.execPath}" -e "process.stdout.write('quoted-ok')"` }, input)
+    expect(output).toBe('quoted-ok')
+  })
+
   it('should record block decision on nonzero exit', async () => {
     const input = buildInput({ event: 'SessionStart', session_id: 's1' })
     await runHookCommand({ type: 'command', command: process.platform === 'win32' ? 'exit /b 1' : 'exit 1' }, input)
@@ -120,6 +126,14 @@ describe('HookRuntime execution', () => {
     const result = await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: 's1', cwd: process.cwd() })
     expect(result.decision).toBe('block')
     expect(result.runs[0]!.decision).toBe('block')
+  })
+
+  it('runs a shell handler whose command contains quotes on every platform', async () => {
+    const command = `"${process.execPath}" -e "process.stdout.write(JSON.stringify({decision:'allow',modified_input:{path:'quoted.ts'}}))"`
+    runtime.register(shellHook({ id: 'h-quoted', handler_config: { command } }))
+    runtime.trust('h-quoted')
+    const result = await runtime.execute('PreToolUse', 'WriteFile', { path: 'orig.ts' }, { session_id: 's1', cwd: process.cwd() })
+    expect(result.modifiedInput).toEqual({ path: 'quoted.ts' })
   })
 
   it('should apply modified_input from a handler', async () => {

@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from 'bun:test'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
 import * as os from 'node:os'
+import { spawnSync } from 'node:child_process'
+import { execa } from 'execa'
 import {
   hasBinary,
   clearBinaryCache,
@@ -10,6 +12,7 @@ import {
   defaultShell,
   sandboxAvailable,
   isWindows,
+  shellCommandArgs,
 } from '../src/utils/platform.js'
 import { jsGrep } from '../src/tools/Grep/jsGrep.js'
 import { clearIgnoreCache } from '../src/tools/shared/deepseekignore.js'
@@ -59,6 +62,19 @@ describe('platform helpers', () => {
 
   it('returns a shell path', () => {
     expect(defaultShell().length).toBeGreaterThan(0)
+  })
+
+  // A leading quote is the case cmd.exe /s mangles when arguments are escaped instead of passed verbatim.
+  const quotedCommand = `"${process.execPath}" -e "process.stdout.write('quoted-ok')"`
+
+  it('runs a quoted shell command through node:child_process', () => {
+    const result = spawnSync(defaultShell(), shellCommandArgs(quotedCommand), { encoding: 'utf8', windowsVerbatimArguments: isWindows })
+    expect(result.stdout.trim()).toBe('quoted-ok')
+  })
+
+  it('runs a quoted shell command through execa', async () => {
+    const result = await execa(defaultShell(), shellCommandArgs(quotedCommand), { reject: false, windowsVerbatimArguments: isWindows })
+    expect(result.stdout.trim()).toBe('quoted-ok')
   })
 
   it('only reports a sandbox on Linux', () => {

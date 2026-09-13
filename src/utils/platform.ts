@@ -217,6 +217,16 @@ export function defaultShell(): string {
 }
 
 /**
+ * Arguments that run `command` through defaultShell(). cmd.exe parses its own raw command line, so on
+ * Windows spawn with `windowsVerbatimArguments: isWindows`: the command goes inside one pair of quotes
+ * that /s strips, as Node's `shell: true` does. Default argument escaping turns the command's own
+ * quotes into \" and cmd.exe runs a mangled command.
+ */
+export function shellCommandArgs(command: string): string[] {
+  return isWindows ? ['/d', '/s', '/c', `"${command}"`] : ['-c', command]
+}
+
+/**
  * Environment variables safe to pass to a sandboxless child process.
  * Allow-list, not deny-list: a new provider key must never leak by default.
  */
