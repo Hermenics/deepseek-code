@@ -29,11 +29,6 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # Contextual shell tests need bubblewrap; without it they skip on every runner.
-      - name: Install bubblewrap
-        if: matrix.os == 'ubuntu-latest'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends bubblewrap
-
       - name: Type check
         run: bun run typecheck
 

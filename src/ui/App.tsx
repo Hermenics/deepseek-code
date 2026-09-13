@@ -299,8 +299,10 @@ export async function runSubagentStatusLine(
   if (!config || !options.trusted) return new Map()
   const timeoutMs = Math.max(1, Math.min(options.timeoutMs ?? 5_000, 5_000))
   const processGroup = !isWindows && hasBinary('setsid')
+  // cmd.exe parses the raw command line, so the command goes through verbatim inside one pair of
+  // quotes that /s strips; the default escaping turns the user's own quotes into \" and breaks them.
   const shellArgs = isWindows
-    ? ['/d', '/s', '/c', config.command]
+    ? ['/d', '/s', '/c', `"${config.command}"`]
     : processGroup ? [defaultShell(), '-c', config.command] : ['-c', config.command]
   let child: ReturnType<typeof Bun.spawn> | undefined
   let timedOut = false
@@ -310,6 +312,7 @@ export async function runSubagentStatusLine(
     child = Bun.spawn([...(processGroup ? ['setsid'] : [defaultShell()]), ...shellArgs], {
       cwd: options.cwd,
       env: scrubbedEnv(),
+      windowsVerbatimArguments: isWindows,
       stdin: 'pipe',
       stdout: 'pipe',
       stderr: 'ignore',
