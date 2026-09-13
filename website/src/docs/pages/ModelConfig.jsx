@@ -1,4 +1,5 @@
 import { CodeBlock, Note, Toc } from "../Layout";
+import { DEEPSEEK_MODELS } from "../deepseekModels";
 
 const TOC = [
   { id: "choosing", label: "Choosing a model" },
@@ -14,7 +15,11 @@ const TOC = [
 ];
 
 const LIMITS = [
-  ["deepseek (direct)", "1,000,000", "deepseek-v4-flash, deepseek-v4-pro and deepseek-v4-flash-vision-exp; legacy aliases map to Flash."],
+  [
+    "deepseek (direct)",
+    [...new Set(DEEPSEEK_MODELS.map((m) => m.contextTokens.toLocaleString("en-US")))].join(" / "),
+    `${DEEPSEEK_MODELS.map((m) => m.id).join(", ")}; retired names map to the model that serves them.`,
+  ],
   ["vertex", "128,000", "Capped by the provider, not by the model."],
   ["bedrock", "128,000", "Capped by the provider, not by the model."],
   ["unknown / custom", "128,000", "Conservative fallback so compaction is not delayed."],
@@ -100,8 +105,7 @@ export default function ModelConfig() {
             The limit is resolved from provider and model together, and the provider can override the model:
           </p>
           <p>
-            The direct-provider table lists the model IDs with explicit client-side limits, including the real
-            API model <code className="inline">deepseek-v4-flash-vision-exp</code>. Other unknown IDs follow
+            The direct-provider row lists the models synced from DeepSeek&apos;s pricing page. Other unknown IDs follow
             the conservative fallback rather than being treated as unsupported by the provider.
           </p>
           <div className="doc-table-wrap">
@@ -148,7 +152,7 @@ export default function ModelConfig() {
     "default": "deepseek-v4-pro"
   },
   "agents": {
-    "subagentModel": "deepseek-v4-flash"
+    "subagentModel": "deepseek-flash"
   }
 }`}</CodeBlock>
           <p>
@@ -211,7 +215,8 @@ export default function ModelConfig() {
           <p>
             The estimate adds three independently priced parts: fresh input, cached input and completion.
             Each token count is divided by one million and multiplied by its model rate. Fresh input is the
-            reported prompt total minus cached tokens, clamped to zero.
+            reported prompt total minus cached tokens, clamped to zero. Each response is priced when it arrives, at
+            the peak or off-peak rate in effect (see <a href="/docs/costs#pricing">Pricing</a>).
           </p>
           <p>
             Three rates, not two. Cached input is billed separately and far more cheaply than fresh input,
@@ -259,7 +264,7 @@ export default function ModelConfig() {
           <h2><span className="anchor">#</span>Model labels & descriptions</h2>
           <p>
             Model ids are formatted for display —{" "}
-            <code className="inline">deepseek-v4-flash</code> renders as{" "}
+            <code className="inline">deepseek-flash</code> renders as{" "}
             <code className="inline">DeepSeek V4 Flash</code> — so the picker is readable without a hardcoded
             label per model.
           </p>
@@ -295,7 +300,7 @@ export default function ModelConfig() {
 {
   "provider": { "name": "deepseek", "timeoutMs": 120000 },
   "model": { "default": "deepseek-v4-pro" },
-  "agents": { "subagentModel": "deepseek-v4-flash" },
+  "agents": { "subagentModel": "deepseek-flash" },
   "compaction": { "threshold": 0.85 }
 }`}</CodeBlock>
           <p>

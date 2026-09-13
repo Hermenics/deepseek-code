@@ -185,7 +185,7 @@ export default function DebugConfig() {
             list of values that were overridden.
           </p>
           <CodeBlock lang="text">{`agents.subagentModel
-  effective  deepseek-v4-flash
+  effective  deepseek-flash
   origin     local
   overrides  project → deepseek-v4-pro
              user    → deepseek-v4-pro`}</CodeBlock>

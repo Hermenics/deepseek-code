@@ -1,17 +1,12 @@
 import { CodeBlock, Note, Toc, Icon } from "../Layout";
 import useNpmVersion from "../../lib/useNpmVersion";
+import { ModelTable } from "../deepseekModels";
 
 const PROVIDERS = [
   { name: "DeepSeek API", badge: "default", auth: "API key from platform.deepseek.com", env: ["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"] },
   { name: "Amazon Bedrock", auth: "AWS IAM via ~/.aws/credentials", env: ["AWS_REGION", "AWS_PROFILE"] },
   { name: "Google Vertex AI", auth: "GCP service account JSON key", env: ["GCP_PROJECT", "GCP_LOCATION", "GCP_CREDENTIALS"] },
   { name: "Local (Ollama / LM Studio)", auth: "No auth — point to your endpoint", env: ["LOCAL_BASE_URL", "LOCAL_MODEL"] },
-];
-
-const MODELS = [
-  { id: "deepseek-v4-flash", desc: "Fast, general purpose", tag: "default", ctx: "1M" },
-  { id: "deepseek-v4-pro", desc: "Advanced reasoning", tag: null, ctx: "1M" },
-  { id: "deepseek-v4-flash-vision-exp", desc: "Experimental vision", tag: "experimental", ctx: "1M" },
 ];
 
 const SLASH = [
@@ -191,30 +186,8 @@ $ cat src/index.tsx | deepseek --pipe --json "summarize"`}</CodeBlock>
 
         <section id="models-sec">
           <h2><span className="anchor">#</span>Models</h2>
-          <p className="lead">Three first-class DeepSeek API models are documented below; the selector still discovers the models available to your account.</p>
-          <div className="doc-table-wrap">
-            <table className="doc-table">
-              <thead>
-                <tr>
-                  <th style={{ width: "30%" }}>Model ID</th>
-                  <th>Description</th>
-                  <th style={{ width: "14%" }}>Context</th>
-                </tr>
-              </thead>
-              <tbody>
-                {MODELS.map((m) => (
-                  <tr key={m.id}>
-                    <td>
-                      <code className="inline">{m.id}</code>
-                      {m.tag && <span className="badge" style={{ marginLeft: 8, padding: "2px 8px", fontSize: 10 }}>{m.tag}</span>}
-                    </td>
-                    <td>{m.desc}</td>
-                    <td><code className="inline">{m.ctx}</code></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <p className="lead">The DeepSeek API models below are synced daily from the official pricing page; the selector still discovers the models available to your account.</p>
+          <ModelTable />
           <p style={{ color: "var(--text-muted)", fontSize: 14 }}>
             The built-in Bedrock and Vertex discovery paths filter for DeepSeek model IDs. A local endpoint
             can expose whatever model IDs its OpenAI-compatible server reports.

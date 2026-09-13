@@ -1,0 +1,1 @@
+`UserCache.get` in `src/userCache.ts` sends one request per call when several callers ask for the same uncached user at the same time. Make concurrent calls for the same id share a single in-flight request. A failed request must not be cached: every caller waiting on it gets the error, and the next call tries again. Add tests for this behavior.

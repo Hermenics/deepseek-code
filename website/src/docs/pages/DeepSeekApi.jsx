@@ -1,4 +1,5 @@
 import { CodeBlock, Note, Toc } from "../Layout";
+import { DEFAULT_MODEL, LegacyAliasList, ModelTable, PricingSourceNote, PricingTable } from "../deepseekModels";
 
 const TOC = [
   { id: "setup", label: "Setup" },
@@ -35,43 +36,30 @@ export default function DeepSeekApi() {
 
         <section id="models"><h2><span className="anchor">#</span>API models</h2>
           <p>
-            The current DeepSeek API exposes three first-class model ids:
-            <code className="inline">deepseek-v4-flash</code>, <code className="inline">deepseek-v4-pro</code>
-            and <code className="inline">deepseek-v4-flash-vision-exp</code>.
-            The built-in default is Flash; a model selected in <code className="inline">model.default</code>
+            The table lists the models on DeepSeek&apos;s official pricing page, synced daily. The built-in default is{" "}
+            <code className="inline">{DEFAULT_MODEL}</code>; a model selected in <code className="inline">model.default</code>
             overrides it on startup. Sub-agents and the prompt refiner may each use separate model settings
             without changing the main session model.
           </p>
-          <div className="doc-table-wrap doc-table-wrap--stacked"><table className="doc-table doc-table--stacked"><thead><tr><th>Model ID</th><th>API version</th><th>Context</th><th>Max output</th><th>FIM</th><th>Concurrency</th></tr></thead><tbody>
-            <tr><td data-label="Model ID"><code className="inline">deepseek-v4-flash</code></td><td data-label="API version"><code className="inline">DeepSeek-V4-Flash-0731</code></td><td data-label="Context"><code className="inline">1M</code></td><td data-label="Max output"><code className="inline">384K</code></td><td data-label="FIM">Non-thinking only</td><td data-label="Concurrency"><code className="inline">2500</code></td></tr>
-            <tr><td data-label="Model ID"><code className="inline">deepseek-v4-pro</code></td><td data-label="API version"><code className="inline">DeepSeek-V4-Pro-0813</code></td><td data-label="Context"><code className="inline">1M</code></td><td data-label="Max output"><code className="inline">384K</code></td><td data-label="FIM">Non-thinking only</td><td data-label="Concurrency"><code className="inline">500</code></td></tr>
-            <tr><td data-label="Model ID"><code className="inline">deepseek-v4-flash-vision-exp</code></td><td data-label="API version"><code className="inline">DeepSeek-V4-Flash-Vision-Exp</code></td><td data-label="Context"><code className="inline">1M</code></td><td data-label="Max output"><code className="inline">384K</code></td><td data-label="FIM">Not supported</td><td data-label="Concurrency"><code className="inline">2500</code></td></tr>
-          </tbody></table></div>
+          <ModelTable />
           <p>
-            All three models support JSON output, tool calls, the Responses API, the Anthropic API and Chat
-            Prefix Completion (beta). FIM Completion (beta) is available only in non-thinking mode for Flash
-            and Pro; the Vision experimental model does not support FIM.
+            The listed models support JSON output, tool calls, the Responses API, the Anthropic API and Chat Prefix
+            Completion (beta). FIM Completion (beta) works only in non-thinking mode. Only models with vision accept the
+            images DeepSeek Code sends when you paste or drop one into the prompt.
           </p>
           <p>
             The API <code className="inline">/models</code> endpoint is the source of truth for the models
-            currently available to your account. The legacy names <code className="inline">deepseek-chat</code>
-            and <code className="inline">deepseek-reasoner</code> alias non-thinking Flash and thinking Flash,
-            respectively, and should not be used for new configuration.
+            currently available to your account. The retired names <LegacyAliasList /> are still accepted, but move
+            configuration to the IDs above.
           </p>
         </section>
 
         <section id="pricing"><h2><span className="anchor">#</span>Pricing</h2>
-          <p>USD per one million tokens. DeepSeek now publishes separate off-peak and peak rates for cache hits, cache misses and output.</p>
-          <div className="doc-table-wrap doc-table-wrap--stacked"><table className="doc-table doc-table--stacked"><thead><tr><th>Model</th><th>Cache hit<br />off-peak / peak</th><th>Cache miss<br />off-peak / peak</th><th>Output<br />off-peak / peak</th></tr></thead><tbody>
-            <tr><td data-label="Model"><code className="inline">deepseek-v4-flash</code></td><td data-label="Cache hit"><code className="inline">$0.007 / $0.014</code></td><td data-label="Cache miss"><code className="inline">$0.22 / $0.44</code></td><td data-label="Output"><code className="inline">$0.66 / $1.32</code></td></tr>
-            <tr><td data-label="Model"><code className="inline">deepseek-v4-pro</code></td><td data-label="Cache hit"><code className="inline">$0.022 / $0.044</code></td><td data-label="Cache miss"><code className="inline">$0.66 / $1.32</code></td><td data-label="Output"><code className="inline">$1.98 / $3.96</code></td></tr>
-            <tr><td data-label="Model"><code className="inline">deepseek-v4-flash-vision-exp</code></td><td data-label="Cache hit"><code className="inline">$0.007 / $0.014</code></td><td data-label="Cache miss"><code className="inline">$0.22 / $0.44</code></td><td data-label="Output"><code className="inline">$0.66 / $1.32</code></td></tr>
-          </tbody></table></div>
+          <PricingTable />
+          <PricingSourceNote />
           <p>
-            Prices can change, and the provider determines the peak/off-peak schedule. Check the{" "}
-            <a href="https://api-docs.deepseek.com/quick_start/pricing/" target="_blank" rel="noreferrer">official DeepSeek pricing page</a>
-            {" "}before budgeting or topping up. The CLI&apos;s <code className="inline">/cost</code> is a local
-            estimate and does not currently model peak/off-peak billing, so it is not an invoice.
+            The CLI&apos;s <code className="inline">/cost</code> prices each response at the peak or off-peak rate in
+            effect when it arrives, so it follows the same schedule. It is still a local estimate, not an invoice.
           </p>
         </section>
 
@@ -110,11 +98,11 @@ export default function DeepSeekApi() {
             as local estimates and use provider billing as the source of truth.
           </p>
           <p>
-            Known V4 models use a one-million-token context limit in local calculations. Unknown or custom
+            Listed models use their published context window in local calculations. Unknown or custom
             model ids fall back to 128,000 tokens so auto-compaction triggers conservatively.
           </p>
           <p>
-            All three API models support thinking and non-thinking modes. For the API,
+            The listed API models support thinking and non-thinking modes. For the API,
             <code className="inline">reasoning_effort</code> accepts <code className="inline">high</code> and
             <code className="inline">max</code>; lower values are normalized by the API, while
             <code className="inline">thinking: {"{ type: 'disabled' }"}</code> explicitly turns thinking off.

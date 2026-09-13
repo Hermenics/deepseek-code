@@ -1,4 +1,5 @@
 import { CodeBlock, Note, Toc } from "../Layout";
+import { DEEPSEEK_MODELS, LegacyAliasList, PricingSourceNote, PricingTable, formatTokens } from "../deepseekModels";
 
 const TOC = [
   { id: "shape", label: "The shape of agentic cost" },
@@ -20,16 +21,14 @@ const EFFORT = [
   ["max", "Appends the deepest-reasoning hint. DeepSeek and Bedrock receive reasoning_effort: 'max' with thinking enabled."],
 ];
 
-const PRICING = [
-  ["deepseek-v4-flash", "$0.14", "$0.0028", "$0.28"],
-  ["deepseek-v4-pro", "$0.435", "$0.003625", "$0.87"],
-  ["deepseek-v4-flash-vision-exp", "$0.14", "$0.0028", "$0.28"],
-];
+const RATIOS = DEEPSEEK_MODELS.map(({ id, pricing: { offPeak } }) => ({
+  id,
+  output: Math.round(offPeak.output / offPeak.cacheMiss),
+  cache: Math.round(offPeak.cacheMiss / offPeak.cacheHit),
+}));
 
 const LIMITS = [
-  ["deepseek-v4-flash", "1,000,000"],
-  ["deepseek-v4-pro", "1,000,000"],
-  ["deepseek-v4-flash-vision-exp", "1,000,000"],
+  ...DEEPSEEK_MODELS.map((m) => [m.id, m.contextTokens.toLocaleString("en-US")]),
   ["Bedrock / Vertex models", "128,000"],
   ["Unknown / custom models", "128,000"],
 ];
@@ -174,6 +173,10 @@ export default function Costs() {
             rest of the session. Clamping at zero fails toward over-reporting rather than under-reporting.
           </p>
           <p>
+            Each response is priced as soon as its usage arrives, at the rate of the active model and of the peak or
+            off-peak period at that moment. Switching model or crossing into peak hours only affects later responses.
+          </p>
+          <p>
             An unrecognized model falls back to the flash-tier table, so a custom endpoint still produces a
             figure — an estimate, and labelled as such by its context. Very small amounts display as{" "}
             <code className="inline">&lt;$0.0001</code> rather than <code className="inline">$0.0000</code>, so a
@@ -183,46 +186,22 @@ export default function Costs() {
 
         <section id="pricing">
           <h2><span className="anchor">#</span>Pricing</h2>
-          <p>USD per million tokens:</p>
-          <div className="doc-table-wrap">
-            <table className="doc-table">
-              <thead>
-                <tr>
-                  <th style={{ width: "30%" }}>Model</th>
-                  <th style={{ width: "22%" }}>Cache hit / 1M</th>
-                  <th style={{ width: "22%" }}>Cache miss / 1M</th>
-                  <th>Output / 1M</th>
-                </tr>
-              </thead>
-              <tbody>
-                {PRICING.map(([m, i, c, o]) => (
-                  <tr key={m}>
-                    <td><code className="inline">{m}</code></td>
-                    <td><code className="inline">{i}</code></td>
-                    <td><code className="inline">{c}</code></td>
-                    <td><code className="inline">{o}</code></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <PricingTable />
+          <PricingSourceNote />
           <p>
-            Two ratios are worth internalizing. <b>Output costs three times cache-miss input</b> — a verbose
-            answer is more expensive than a long prompt. Cache-hit input is about 79× cheaper than cache-miss
-            input for Flash and Vision and about 182× cheaper for Pro.
+            Two ratios are worth internalizing.{" "}
+            {RATIOS.map((r) => (
+              <span key={r.id}>
+                For <code className="inline">{r.id}</code>, output costs <b>{r.output}×</b> cache-miss input and a cache
+                hit is <b>{r.cache}×</b> cheaper than a miss.{" "}
+              </span>
+            ))}
+            A verbose answer costs more than a long prompt, and a stable prompt prefix is the largest discount available.
           </p>
           <p>
-            The local estimator has explicit rates for <code className="inline">deepseek-v4-flash</code>,{" "}
-            <code className="inline">deepseek-v4-pro</code> and{" "}
-            <code className="inline">deepseek-v4-flash-vision-exp</code>. <code className="inline">deepseek-chat</code> and{" "}
-            <code className="inline">deepseek-reasoner</code> are legacy compatibility aliases for Flash, not
-            separate current model tiers. Other model IDs use the Flash fallback in the local estimator.
-          </p>
-          <p>
-            See the{" "}
-            <a href="https://api-docs.deepseek.com/quick_start/pricing/" target="_blank" rel="noreferrer">official pricing page</a>
-            {" "}for provider pricing; product prices may change. The table above documents the fixed values embedded
-            in the client, while <code className="inline">/cost</code> remains a local estimate rather than an invoice.
+            The local estimator uses these rates for each listed model. The retired names <LegacyAliasList /> are still
+            accepted by the API and priced as the model that serves them; other model IDs use the Flash rates.{" "}
+            <code className="inline">/cost</code> remains a local estimate rather than an invoice.
           </p>
         </section>
 
@@ -264,8 +243,9 @@ export default function Costs() {
           </div>
           <p>
             DeepSeek Code's context accounting assigns 128,000 tokens to Bedrock, Vertex and unrecognized
-            custom models regardless of the model's upstream limit. The three direct API models support 1M
-            context and up to 384K output. The 128K value is a CLI fallback used for usage
+            custom models regardless of the model's upstream limit. Direct API models use the limits DeepSeek publishes:{" "}
+            {DEEPSEEK_MODELS.map((m) => `${m.id} has ${formatTokens(m.contextTokens)} context and ${formatTokens(m.maxOutputTokens)} output`).join("; ")}.
+            The 128K value is a CLI fallback used for usage
             percentages and compaction decisions; an early summary is still lossy, so check the configured
             model's real limit when using a custom endpoint.
           </p>
@@ -315,7 +295,7 @@ export default function Costs() {
           </div>
           <CodeBlock lang="json">{`{
   "model": { "default": "deepseek-v4-pro" },
-  "agents": { "subagentModel": "deepseek-v4-flash" }
+  "agents": { "subagentModel": "deepseek-flash" }
 }`}</CodeBlock>
           <p>
             There is also a <b>fixed floor</b> you cannot compact below: system prompt, memory, steering and

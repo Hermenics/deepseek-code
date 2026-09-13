@@ -23,6 +23,29 @@ function applyLineReplacements(lineContent: string, olds: string[], news: string
   return parts.join('')
 }
 
+/**
+ * Numbered view of the edited lines (plus two lines of context) in their new positions, so a
+ * follow-up edit uses current line numbers after a replacement that added lines.
+ */
+function previewEditedLines(lines: string[], originalLines: number[], spans: Map<number, number>, context = 2): string {
+  const ranges: Array<[number, number]> = []
+  let shift = 0
+  for (const line of originalLines) {
+    const span = spans.get(line) ?? 1
+    const start = line - 1 + shift
+    ranges.push([Math.max(0, start - context), Math.min(lines.length, start + span + context)])
+    shift += span - 1
+  }
+  const shown: string[] = []
+  let lastEnd = -1
+  for (const [start, end] of ranges) {
+    if (lastEnd >= 0 && start > lastEnd) shown.push('…')
+    for (let i = Math.max(start, lastEnd); i < end; i++) shown.push(`${i + 1}  ${lines[i]}`)
+    lastEnd = Math.max(lastEnd, end)
+  }
+  return shown.join('\n')
+}
+
 export const EditFile: Tool = {
   name: 'edit_file',
   description:
@@ -96,6 +119,7 @@ export const EditFile: Tool = {
     // Sort edits bottom-to-top so line numbers remain valid as we splice
     const sorted = [...edits].sort((a, b) => b.line - a.line)
     const linesAffected: number[] = []
+    const spans = new Map<number, number>()
 
     for (const edit of sorted) {
       const idx = edit.line - 1
@@ -111,8 +135,10 @@ export const EditFile: Tool = {
       if (replaced.includes('\n')) {
         const subLines = replaced.split('\n')
         lines.splice(idx, 1, ...subLines)
+        spans.set(edit.line, subLines.length)
       } else {
         lines[idx] = replaced
+        spans.set(edit.line, 1)
       }
       linesAffected.push(edit.line)
     }
@@ -123,6 +149,7 @@ export const EditFile: Tool = {
       path: filePath,
       linesAffected: linesAffected.sort((a, b) => a - b),
       editCount: edits.length,
+      after: previewEditedLines(lines, linesAffected, spans),
     })
   },
 }

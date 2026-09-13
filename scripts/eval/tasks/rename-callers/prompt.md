@@ -1,0 +1,1 @@
+Rename the function `fmt` exported from `src/money.ts` to `formatBRL` and update every usage in the project, including tests. Behavior must stay exactly the same, and anything else named `fmt` that is unrelated to this function must not change.

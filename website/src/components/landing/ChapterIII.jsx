@@ -4,7 +4,7 @@ import { ArrowUpRight } from "lucide-react";
 import Chapter from "./Chapter";
 
 const PROVIDERS = [
-  { id: "01", name: "DeepSeek", endpoint: "api.deepseek.com", auth: "api key", model: "deepseek-v4-flash", accent: "text-neon-blue" },
+  { id: "01", name: "DeepSeek", endpoint: "api.deepseek.com", auth: "api key", model: "deepseek-flash", accent: "text-neon-blue" },
   { id: "02", name: "Bedrock", endpoint: "bedrock-runtime.{region}.amazonaws.com", auth: "aws sigv4", model: "us.deepseek.r1-v1:0", accent: "text-neon-amber" },
   { id: "03", name: "Vertex", endpoint: "{location}-aiplatform.googleapis.com", auth: "gcp service account", model: "deepseek-ai/deepseek-r1", accent: "text-neon-cyan" },
   { id: "04", name: "Local", endpoint: "localhost:11434 · ollama · lm studio", auth: "none", model: "llama3 (default)", accent: "text-neon-green" },

@@ -1,7 +1,7 @@
 import OpenAI from 'openai'
 import { execa } from 'execa'
 import { randomUUID } from 'node:crypto'
-import { readFile, unlink, writeFile } from 'fs/promises'
+import { readFile, stat, unlink, writeFile } from 'fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 import DEFAULT_SYSTEM_PROMPT_MD from './system-prompt.md' with { type: 'text' }
 import { collectEnvironmentInfo, formatEnvironmentInfo } from './environment.js'
@@ -65,9 +65,34 @@ import { loadSkillPrompt } from '../skills/native.js'
 import type { AskUserHandler } from '../tools/AskUserQuestions/types.js'
 import { AdditionalDirectories } from './additionalDirectories.js'
 import type { PromptImage, PromptInput } from '../types/input.js'
+import { getTodos } from './todoStore.js'
+import { newPlanPath } from './planMode.js'
+import { fetchDeepSeekBalance, formatBalance, type AccountBalance } from './balance.js'
+import type { VerificationResult } from './verify.js'
 
 /** Workaround: OpenAI SDK has not typed reasoning_content yet (exclusive field of deepseek-reasoner) */
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & { reasoning_content?: string }
+
+/** Completion gates re-enter the loop with runtime feedback; the cap keeps a flaky check from looping. */
+const MAX_VERIFICATION_RETRIES = 2
+const FILE_WRITE_TOOLS = ['write_file', 'patch_file', 'edit_file']
+const MAX_LENGTH_CONTINUATIONS = 3
+const REPEATED_FAILURE_THRESHOLD = 3
+const MAX_EMPTY_REPLY_NUDGES = 2
+const EMPTY_REPLY_FEEDBACK = '[Empty response] Your last response had no text and no tool calls, so the turn would end with the task unfinished and nothing reported. Continue the task; when it is truly done, reply with a short summary of what changed.'
+const OUTPUT_LIMIT_FEEDBACK = '[Output limit] Your previous response was cut off at the output-token limit. Continue exactly where it stopped, without repeating what you already wrote. If you were writing a large file or block, split the rest into smaller steps.'
+
+function formatVerificationFeedback(result: VerificationResult, attempt: number): string {
+  const output = result.output.length > 4_000 ? `…${result.output.slice(-4_000)}` : result.output
+  return [
+    `[Verification failed — attempt ${attempt} of ${MAX_VERIFICATION_RETRIES}]`,
+    `\`${result.command.display}\` failed after your changes:`,
+    '',
+    output,
+    '',
+    'Fix the cause, then finish. If the failure is unrelated to your changes and was already there, say so instead of changing unrelated code.',
+  ].join('\n')
+}
 
 class DenyAbortError extends Error {
   constructor() { super('deny-abort') }
@@ -460,6 +485,10 @@ export class Agent {
   private undoStack: UndoEntry[] = []
   private filesModified: Set<string> = new Set()
   private tokenUsage: TokenUsage = { promptTokens: 0, completionTokens: 0, cachedTokens: 0 }
+  /** Each response is priced when it arrives, at its model and peak/off-peak rate. */
+  private costUsd = 0
+  /** Real account balance when the session's first turn started, for the spend shown by /cost. */
+  private sessionStartBalance: Promise<AccountBalance | undefined> | null = null
   private lastUserMessage: string | null = null
   private lastUserPrompt: PromptInput | null = null
   private abortController: AbortController | null = null
@@ -493,8 +522,19 @@ export class Agent {
   private sessionApprovedDirectories: Set<string> = new Set()
   private turnWriteCount = 0
   private turnModifiedFiles: Set<string> = new Set()
+  private turnVerificationRetries = 0
+  private turnTodoNudged = false
+  /** Todo statuses when the turn started; the completion check covers only items added or updated since. */
+  private turnTodoSnapshot = new Map<string, string>()
+  private turnLengthContinuations = 0
+  private turnEmptyReplyNudges = 0
+  private turnToolCalls = 0
+  /** Failure count per identical tool call (name + arguments) in the current turn. */
+  private turnFailedCalls = new Map<string, number>()
+  /** mtime of each file as of the agent's last successful read or write, for read-before-edit checks. */
+  private fileSeenTimes = new Map<string, number>()
   private diffReviewHandler: ((summary: string) => Promise<boolean>) | null = null
-  private verificationHandler: ((files: string[]) => Promise<void>) | null = null
+  private verificationHandler: ((files: string[]) => Promise<VerificationResult | void>) | null = null
   private allowedTools: string[] | '*' | null = null
   public interactionMode: InteractionMode = DEFAULT_MODE
   public effortLevel: EffortLevel = 'high'
@@ -657,7 +697,7 @@ export class Agent {
     this.diffReviewHandler = handler
   }
 
-  setVerificationHandler(handler: ((files: string[]) => Promise<void>) | null) {
+  setVerificationHandler(handler: ((files: string[]) => Promise<VerificationResult | void>) | null) {
     this.verificationHandler = handler
   }
 
@@ -826,6 +866,16 @@ export class Agent {
 
   getFilesModified(): string[] {
     return [...this.filesModified]
+  }
+
+  /** Files changed by write tools during the current or most recent turn. */
+  getTurnModifiedFiles(): string[] {
+    return [...this.turnModifiedFiles]
+  }
+
+  /** Tool calls executed during the current or most recent turn. */
+  getTurnToolCallCount(): number {
+    return this.turnToolCalls
   }
 
   /**
@@ -1080,8 +1130,15 @@ export class Agent {
 
   // ── Cost ───────────────────────────────────────────────────────────────────
 
+  private recordUsage(promptTokens: number, completionTokens: number, cachedTokens: number): void {
+    this.tokenUsage.promptTokens += promptTokens
+    this.tokenUsage.completionTokens += completionTokens
+    this.tokenUsage.cachedTokens += cachedTokens
+    this.costUsd += estimateCost(this.model, { promptTokens, completionTokens, cachedTokens })
+  }
+
   getCostSummary(): string {
-    const cost = estimateCost(this.model, this.tokenUsage)
+    const cost = this.costUsd
     return [
       `Model: ${this.model}`,
       `Tokens: ${this.tokenCount.toLocaleString()} total`,
@@ -1089,6 +1146,34 @@ export class Agent {
       `  completion: ${this.tokenUsage.completionTokens.toLocaleString()}`,
       `Estimated cost: ${formatCost(cost)}`,
     ].join('\n')
+  }
+
+  /** Free balance lookup; undefined for non-DeepSeek providers and gateways without /user/balance. */
+  private fetchBalance(): Promise<AccountBalance | undefined> {
+    if (this.provider !== 'deepseek') return Promise.resolve(undefined)
+    return fetchDeepSeekBalance(this.providerConfig.apiKey ?? process.env.DEEPSEEK_API_KEY, this.providerConfig.baseURL ?? process.env.DEEPSEEK_BASE_URL)
+  }
+
+  /** /cost: the local estimate plus the real account balance and how much it moved since the session started. */
+  async getCostReport(): Promise<string> {
+    const [start, now] = await Promise.all([this.sessionStartBalance ?? undefined, this.fetchBalance()])
+    const lines = [this.getCostSummary()]
+    if (!now) return lines.join('\n')
+    lines.push(`Account balance: ${formatBalance(now)}`)
+    if (start && start.currency === now.currency) {
+      const spent = Math.round((start.total - now.total) * 100) / 100
+      const sign = spent > 0 ? '-' : spent < 0 ? '+' : ''
+      lines.push(`Balance change this session: ${sign}${formatBalance({ currency: now.currency, total: Math.abs(spent) })}`)
+      lines.push('  (real, but in whole cents; DeepSeek can take a few minutes to update it, and other sessions using this key count too)')
+    }
+    return lines.join('\n')
+  }
+
+  /** Adds the usage of a side request (compaction, memory extraction) to the session totals. */
+  private recordResponseUsage(usage: { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number; prompt_cache_hit_tokens?: number } | undefined): void {
+    if (!usage) return
+    this.tokenCount += usage.total_tokens ?? 0
+    this.recordUsage(usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0, usage.prompt_cache_hit_tokens ?? 0)
   }
 
   /** Structured live telemetry for UIs; shape-matches web/protocol.ts SessionStats. */
@@ -1102,7 +1187,7 @@ export class Agent {
       contextLimit: this.contextLimit,
       toolCalls: this.toolCallTotal,
       filesModified: this.filesModified.size,
-      costUsd: estimateCost(this.model, this.tokenUsage),
+      costUsd: this.costUsd,
     }
   }
 
@@ -1111,7 +1196,7 @@ export class Agent {
     const minutes = Math.floor(elapsed / 60_000)
     const seconds = Math.floor((elapsed % 60_000) / 1000)
     const duration = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`
-    const cost = estimateCost(this.model, this.tokenUsage)
+    const cost = this.costUsd
     const userTurns = this.messages.filter((m) => !isBoundaryMarker(m) && (m as ChatCompletionMessageParam).role === 'user' && !isProjectContextMessage(m)).length
     const cacheHitPct = this.tokenUsage.promptTokens > 0
       ? Math.round((this.tokenUsage.cachedTokens / this.tokenUsage.promptTokens) * 100)
@@ -1207,7 +1292,10 @@ export class Agent {
       )
     )
     const summary = response.choices[0]?.message.content ?? '(no summary)'
+    this.recordResponseUsage(response.usage as Parameters<typeof this.recordResponseUsage>[0])
 
+    // The summary no longer holds file contents, so edits need a fresh read.
+    this.fileSeenTimes.clear()
     // Reset messages to system + boundary + summary
     this.messages = [
       { role: 'system', content: this.systemPrompt },
@@ -1459,6 +1547,7 @@ export class Agent {
     this.messages = this.createSeedMessages()
     this.undoStack = []
     this.filesModified = new Set()
+    this.fileSeenTimes.clear()
   }
 
   addAgentNote(agentName: string, text: string): void {
@@ -1494,9 +1583,7 @@ export class Agent {
     const usage = (response as any).usage
     if (usage) {
       this.tokenCount += usage.total_tokens ?? 0
-      this.tokenUsage.promptTokens += usage.prompt_tokens ?? 0
-      this.tokenUsage.completionTokens += usage.completion_tokens ?? 0
-      this.tokenUsage.cachedTokens += usage.prompt_cache_hit_tokens ?? 0
+      this.recordUsage(usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0, usage.prompt_cache_hit_tokens ?? 0)
     }
 
     const content = (response as any).choices?.[0]?.message?.content
@@ -1615,6 +1702,14 @@ export class Agent {
     this.orchestrator.resetTurnMemory()
     this.turnWriteCount = 0
     this.turnModifiedFiles.clear()
+    this.turnVerificationRetries = 0
+    this.turnTodoNudged = false
+    this.turnTodoSnapshot = new Map(getTodos().map((todo) => [todo.id, todo.status]))
+    this.turnLengthContinuations = 0
+    this.turnEmptyReplyNudges = 0
+    this.turnToolCalls = 0
+    this.turnFailedCalls.clear()
+    this.sessionStartBalance ??= this.fetchBalance()
 
     // One signal owns the entire turn, including foreground tools and tasks.
     this.abortController = new AbortController()
@@ -1752,11 +1847,13 @@ export class Agent {
     let iterations = 0
     while (true) {
       if (++iterations > MAX_AGENT_ITERATIONS) {
-        const message = 'Agent reached maximum iteration limit (100)'
-        this.messages.push({ role: 'assistant', content: `⚠ ${message}. Stopping to prevent an infinite loop.` })
+        const message = `⚠ Stopped after ${MAX_AGENT_ITERATIONS} tool iterations in one turn. The work so far is kept; send "continue" to resume, or narrow the request.`
+        this.messages.push({ role: 'assistant', content: message })
         this.orchestrator.emit('error', { code: 'MAX_ITERATIONS', message })
+        cb.onToken(message)
         await saveHistory(this.messages)
-        throw new Error(message)
+        cb.onDone()
+        return
       }
 
       // Sanitize messages for the API: reasoning_content must be preserved for all models
@@ -1800,9 +1897,7 @@ export class Agent {
         const usage = (response as any).usage
         if (usage) {
           this.tokenCount += usage.total_tokens ?? 0
-          this.tokenUsage.promptTokens += usage.prompt_tokens ?? 0
-          this.tokenUsage.completionTokens += usage.completion_tokens ?? 0
-          this.tokenUsage.cachedTokens += usage.prompt_cache_hit_tokens ?? 0
+          this.recordUsage(usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0, usage.prompt_cache_hit_tokens ?? 0)
           this.contextUsage = usage.prompt_tokens ?? 0
           this.contextStale = false
         }
@@ -1841,7 +1936,6 @@ export class Agent {
           if (reasoningText) finalMsg.reasoning_content = reasoningText
           this.messages.push(finalMsg)
           await saveHistory(this.messages)
-          this.syncTurn()
           await this.completeTurn(cb)
           return
         }
@@ -1854,8 +1948,12 @@ export class Agent {
           const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText }
           if (reasoningText) finalMsg.reasoning_content = reasoningText
           this.messages.push(finalMsg)
+          if (finishReason === 'length' && this.turnLengthContinuations < MAX_LENGTH_CONTINUATIONS) {
+            this.turnLengthContinuations++
+            this.messages.push({ role: 'user', content: OUTPUT_LIMIT_FEEDBACK })
+            continue
+          }
           await saveHistory(this.messages)
-          this.syncTurn()
           await this.completeTurn(cb)
           return
         }
@@ -1940,9 +2038,7 @@ export class Agent {
           // Always capture usage when present — may arrive with empty choices OR alongside a delta
           if (chunk.usage) {
             this.tokenCount += chunk.usage.total_tokens
-            this.tokenUsage.promptTokens += chunk.usage.prompt_tokens
-            this.tokenUsage.completionTokens += chunk.usage.completion_tokens
-            this.tokenUsage.cachedTokens += (chunk.usage as { prompt_cache_hit_tokens?: number }).prompt_cache_hit_tokens ?? 0
+            this.recordUsage(chunk.usage.prompt_tokens, chunk.usage.completion_tokens, (chunk.usage as { prompt_cache_hit_tokens?: number }).prompt_cache_hit_tokens ?? 0)
             this.contextUsage = chunk.usage.prompt_tokens
             this.contextStale = false
           }
@@ -2045,8 +2141,12 @@ export class Agent {
         // Always preserve reasoning_content — DeepSeek-V4-Flash has built-in thinking mode
         if (reasoningText) finalMsg.reasoning_content = reasoningText
         this.messages.push(finalMsg)
+        if (finishReason === 'length' && this.turnLengthContinuations < MAX_LENGTH_CONTINUATIONS) {
+          this.turnLengthContinuations++
+          this.messages.push({ role: 'user', content: OUTPUT_LIMIT_FEEDBACK })
+          continue
+        }
         await saveHistory(this.messages)
-        this.syncTurn()
         await this.completeTurn(cb)
         return
       }
@@ -2110,6 +2210,12 @@ export class Agent {
     }
   }
 
+  /** Re-enters the loop with runtime feedback; the nested completeTurn reports onDone. */
+  private async continueTurn(cb: AgentCallbacks, feedback: string): Promise<void> {
+    this.messages.push({ role: 'user', content: feedback })
+    await this.runLoop(cb)
+  }
+
   private async completeTurn(cb: AgentCallbacks): Promise<void> {
     let completionHandled = false
     try {
@@ -2133,6 +2239,32 @@ export class Agent {
           }
           return
         }
+      }
+      // A thinking model sometimes reasons and then stops with nothing to show; that must not end the task.
+      const last = this.messages.at(-1)
+      const emptyReply = last !== undefined && 'role' in last && last.role === 'assistant'
+        && !(typeof last.content === 'string' && last.content.trim())
+        && !('tool_calls' in last && last.tool_calls?.length)
+      if (emptyReply && this.turnEmptyReplyNudges < MAX_EMPTY_REPLY_NUDGES) {
+        this.turnEmptyReplyNudges++
+        await this.continueTurn(cb, EMPTY_REPLY_FEEDBACK)
+        completionHandled = true
+        return
+      }
+      // Only items added or updated this turn: items abandoned in an earlier task must not nag every turn.
+      const openTodos = this.turnTodoNudged || !['build', 'auto'].includes(this.interactionMode)
+        ? []
+        : getTodos().filter((todo) => todo.status !== 'done' && this.turnTodoSnapshot.get(todo.id) !== todo.status)
+      if (openTodos.length > 0) {
+        this.turnTodoNudged = true
+        await this.continueTurn(cb, [
+          '[Completion check] These todo items are still open:',
+          ...openTodos.map((todo) => `- [${todo.status}] ${todo.id}: ${todo.title}`),
+          '',
+          "Finish them and mark each one done with the todo tool. If an item is no longer needed, mark it done and say why; if you need the user's input, ask and stop.",
+        ].join('\n'))
+        completionHandled = true
+        return
       }
       const displayedMessage = this.messages.at(-1)
       if (displayedMessage?.role === 'assistant' && typeof displayedMessage.content === 'string') {
@@ -2161,8 +2293,16 @@ export class Agent {
         await this.diffReviewHandler(review)
       }
       if (this.settings.git?.verifyAfterEdit !== false && this.verificationHandler && this.turnModifiedFiles.size > 0) {
-        await this.verificationHandler([...this.turnModifiedFiles])
+        const verification = await this.verificationHandler([...this.turnModifiedFiles])
+        if (verification && !verification.ok && this.turnVerificationRetries < MAX_VERIFICATION_RETRIES) {
+          this.turnVerificationRetries++
+          await this.continueTurn(cb, formatVerificationFeedback(verification, this.turnVerificationRetries))
+          completionHandled = true
+          return
+        }
       }
+      // Extract memory once the turn is really over, not on every gate re-entry.
+      this.syncTurn()
     } finally {
       if (!completionHandled) cb.onDone()
     }
@@ -2254,16 +2394,33 @@ export class Agent {
         cb.onToolResult(tc.function.name, blockMsg, parsedArgs)
         return { tc, result: blockMsg }
       }
-      const result = this.planSubmitHandler
-        ? await this.planSubmitHandler(planPath, summary)
-        : JSON.stringify({ approved: false, message: 'No plan approval handler available. Cannot auto-approve.' })
+      let result: string
+      try {
+        result = this.planSubmitHandler
+          ? await this.planSubmitHandler(planPath, summary)
+          : JSON.stringify({ approved: false, message: 'No plan approval handler available. Cannot auto-approve.' })
+      } catch {
+        // The approval dialog rejects only when the user aborts it: stop the turn like a denied tool
+        // instead of handing the model an error it would try to work around.
+        throw new DenyAbortError()
+      }
       cb.onToolResult(tc.function.name, result, parsedArgs)
       // Caller in runLoop pushes to this.messages — do NOT push here
       return { tc, result }
     }
 
+    // Auto mode has no reviewer: a submitted plan is approved so the turn keeps going instead of waiting.
+    if (tc.function.name === 'submit_plan' && this.interactionMode === 'auto') {
+      const result = JSON.stringify({ approved: true, message: 'Auto mode does not pause for plan review. Implement the plan now.' })
+      cb.onToolCall(tc.function.name, parsedArgs)
+      cb.onToolResult(tc.function.name, result, parsedArgs)
+      return { tc, result }
+    }
+
     // ── 0b. write_plan: inject __planFilePath before execution ─────────────────
     if (tc.function.name === 'write_plan') {
+      // Plan mode entered with Shift+Tab (or a revision after feedback) has no /plan-assigned file yet.
+      this.planFilePath ??= newPlanPath(this.lastUserMessage || 'plan', this.workspacePath)
       parsedArgs.__planFilePath = this.planFilePath
     }
 
@@ -2551,6 +2708,13 @@ export class Agent {
         }
       }
     }
+    const readRequired = await this.readBeforeEditError(tc.function.name, effectiveArgs)
+    if (readRequired) {
+      cb.onToolCall(tc.function.name, effectiveArgs)
+      cb.onToolResult(tc.function.name, readRequired, effectiveArgs)
+      return { tc, result: readRequired }
+    }
+
     // ── Undo snapshot (only for file-writing tools that passed all checks) ──
     if (['write_file', 'patch_file', 'edit_file'].includes(tc.function.name) && effectiveArgs.path) {
       const filePath = effectiveArgs.path as string
@@ -2580,7 +2744,10 @@ export class Agent {
     this.orchestrator.emit('tool_started', { tool: tc.function.name })
     auditLog({ type: 'tool_call', tool: tc.function.name, args: effectiveArgs })
     this.toolCallTotal++
-    const result = await this.executeTool(tc.function.name, effectiveArgs, riskResult?.requiresConfirmation === true, executionExternalPaths, cb)
+    this.turnToolCalls++
+    let result = await this.executeTool(tc.function.name, effectiveArgs, riskResult?.requiresConfirmation === true, executionExternalPaths, cb)
+    await this.recordFileSeen(tc.function.name, effectiveArgs, result)
+    result = this.noteRepeatedFailure(tc.function.name, effectiveArgs, result)
     auditLog({ type: 'tool_result', tool: tc.function.name, result: result.slice(0, 200), durationMs: Date.now() - t0 })
     this.orchestrator.emit('tool_finished', { tool: tc.function.name, durationMs: Date.now() - t0, result: result.slice(0, 200) })
 
@@ -2596,6 +2763,39 @@ export class Agent {
 
     cb.onToolResult(tc.function.name, result, effectiveArgs)
     return { tc, result }
+  }
+
+  /** Tells the model to change approach once the same call keeps failing within a turn. */
+  private noteRepeatedFailure(toolName: string, args: Record<string, unknown>, result: string): string {
+    const key = `${toolName} ${JSON.stringify(args)}`
+    const failed = /^(Error|\{"error")/.test(result) || /Command (exited with code [1-9]\d*|timed out)/.test(result)
+    if (!failed) {
+      this.turnFailedCalls.delete(key)
+      return result
+    }
+    const count = (this.turnFailedCalls.get(key) ?? 0) + 1
+    this.turnFailedCalls.set(key, count)
+    if (count < REPEATED_FAILURE_THRESHOLD) return result
+    return `${result}\n\n[Repeated failure] This exact call has failed ${count} times in this turn. Do not send it again unchanged: re-read the error, check the assumption it breaks, and try a different approach or ask the user.`
+  }
+
+  /** Rejects edits to existing files the agent has not read, or that changed on disk since it last saw them. */
+  private async readBeforeEditError(toolName: string, args: Record<string, unknown>): Promise<string | null> {
+    if (!FILE_WRITE_TOOLS.includes(toolName) || typeof args.path !== 'string' || !isEnabled('readBeforeEdit', loadFeatures())) return null
+    const filePath = resolve(this.workspacePath, args.path)
+    const modified = await stat(filePath).then((s) => s.mtimeMs, () => undefined)
+    if (modified === undefined) return null
+    const seen = this.fileSeenTimes.get(filePath)
+    if (seen === undefined) return `Error: read ${args.path} with read_file before ${toolName === 'write_file' ? 'overwriting' : 'editing'} it, so the change is based on its current content.`
+    if (seen !== modified) return `Error: ${args.path} changed on disk since you last read it. Read it again with read_file and base the change on the current content.`
+    return null
+  }
+
+  private async recordFileSeen(toolName: string, args: Record<string, unknown>, result: string): Promise<void> {
+    if ((toolName !== 'read_file' && !FILE_WRITE_TOOLS.includes(toolName)) || typeof args.path !== 'string' || /^(Error|\{"error")/.test(result)) return
+    const filePath = resolve(this.workspacePath, args.path)
+    const modified = await stat(filePath).then((s) => s.mtimeMs, () => undefined)
+    if (modified !== undefined) this.fileSeenTimes.set(filePath, modified)
   }
 
   /**
@@ -2672,6 +2872,7 @@ export class Agent {
       // ponytail: guard against non-thenable return (e.g. test mocks returning iterables)
       if (result && typeof result.then === 'function') {
         result.then((res: any) => {
+          this.recordResponseUsage(res.usage)
           const memory = parseAutoMemoryFact(res.choices?.[0]?.message?.content)
           if (memory) {
             this.orchestrator.memory.add(memory.kind === 'user_preference' ? 'user' : 'agent', memory.fact)

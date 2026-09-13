@@ -9,13 +9,17 @@ export interface Goal {
   timeUsedSeconds: number
   consecutiveBlockCount: number
   continuations: number
+  /** Consecutive goal turns without tool calls or file changes. */
+  idleTurns?: number
   blockReason?: string
   createdAt: string
   updatedAt: string
   startedAt: string
 }
 
-export const GOAL_MAX_CONTINUATIONS = 3
+export const GOAL_MAX_CONTINUATIONS = 10
+/** Goal turns in a row without tool calls or file changes before an active goal stops continuing by itself. */
+export const GOAL_MAX_IDLE_TURNS = 2
 
 let currentGoal: Goal | null = null
 
@@ -56,6 +60,17 @@ export function createGoal(objective: string, tokenBudget?: number, maxContinuat
   return goal
 }
 
+/**
+ * Records whether a goal turn did any work. Investigation, verification and reporting all use tools, so
+ * only a turn with no tool calls and no file changes counts as idle. Returns a block reason once stalled.
+ */
+export function recordGoalTurnProgress(worked: boolean): string | null {
+  if (!currentGoal) return null
+  const idleTurns = worked ? 0 : (currentGoal.idleTurns ?? 0) + 1
+  updateGoal({ idleTurns, updatedAt: new Date().toISOString() })
+  return idleTurns >= GOAL_MAX_IDLE_TURNS ? `no tool calls or file changes in the last ${idleTurns} goal turns` : null
+}
+
 export function markGoalComplete(): Goal {
   return updateGoal({ status: 'complete', updatedAt: new Date().toISOString() })
 }
@@ -80,6 +95,7 @@ export function resumeGoal(): Goal {
   return updateGoal({
     status: 'active',
     consecutiveBlockCount: 0,
+    idleTurns: 0,
     blockReason: undefined,
     startedAt: now,
     updatedAt: now,

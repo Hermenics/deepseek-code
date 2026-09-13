@@ -36,8 +36,19 @@ export async function detectVerificationCommand(cwd = process.cwd()): Promise<Ve
   return null
 }
 
+// Exact messages of runners that exit 1 only because no test files exist yet. Collection, configuration
+// and import errors print something else and keep failing.
+const NO_TESTS_FOUND = [
+  /^error: 0 test files matching\b/m, // bun
+  /No tests found, exiting with code 1/, // jest
+  /No test files found, exiting with code 1/, // vitest
+  /^Error: No test files found\b/m, // mocha
+]
+
 export async function runVerification(command: VerificationCommand, cwd = process.cwd()): Promise<VerificationResult> {
   const result = await execa(command.command, command.args, { cwd, reject: false, timeout: 120_000 })
   const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim()
-  return { command, ok: result.exitCode === 0, output: output || '(no output)' }
+  // An empty test suite says nothing about the change; reporting it as a failure sends the agent to "fix" it.
+  const ok = result.exitCode === 0 || (result.exitCode === 1 && NO_TESTS_FOUND.some((pattern) => pattern.test(output)))
+  return { command, ok, output: output || '(no output)' }
 }

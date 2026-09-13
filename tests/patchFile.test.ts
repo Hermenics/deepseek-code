@@ -63,6 +63,29 @@ describe('PatchFile tool', () => {
     expect(result).toContain('be more specific')
   })
 
+  it('aceita trecho LF num arquivo CRLF e preserva o CRLF', async () => {
+    const { PatchFile } = await import('../src/tools/PatchFile/PatchFile.js')
+    await fs.writeFile(cwdFile, 'a\r\nb\r\nc\r\n', 'utf-8')
+    await PatchFile.execute({ path: cwdFile, old_content: 'a\nb', new_content: 'a\nB' })
+    expect(await fs.readFile(cwdFile, 'utf-8')).toBe('a\r\nB\r\nc\r\n')
+  })
+
+  it('aponta a linha do trecho mais parecido quando old_content não é encontrado', async () => {
+    const { PatchFile } = await import('../src/tools/PatchFile/PatchFile.js')
+    await fs.writeFile(cwdFile, 'function x() {\n\treturn 1\n}\n', 'utf-8')
+    const whitespaceOnly = await PatchFile.execute({ path: cwdFile, old_content: '  return 1\n}', new_content: '' })
+    expect(whitespaceOnly).toContain('matches at line 2 if whitespace is ignored')
+    const firstLineOnly = await PatchFile.execute({ path: cwdFile, old_content: 'return 1\nreturn 2', new_content: '' })
+    expect(firstLineOnly).toContain('first line appears at line 2')
+  })
+
+  it('converte new_content multilinha para CRLF mesmo quando old_content tem uma linha só', async () => {
+    const { PatchFile } = await import('../src/tools/PatchFile/PatchFile.js')
+    await fs.writeFile(cwdFile, 'a\r\nb\r\n', 'utf-8')
+    await PatchFile.execute({ path: cwdFile, old_content: 'b', new_content: 'b\nc' })
+    expect(await fs.readFile(cwdFile, 'utf-8')).toBe('a\r\nb\r\nc\r\n')
+  })
+
   it('path fora do cwd lança erro de segurança', async () => {
     const { PatchFile } = await import('../src/tools/PatchFile/PatchFile.js')
     const outsidePath = path.join(path.dirname(process.cwd()), 'deepseek-outside-hosts')

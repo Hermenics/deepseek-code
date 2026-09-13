@@ -175,4 +175,22 @@ describe('EditFile tool', () => {
     expect(lines[2]).toBe('third')
     expect(lines[3]).toBe('fourth')
   })
+
+  it('returns the edited lines at their new numbers when a replacement adds lines', async () => {
+    const { EditFile } = await import('../src/tools/EditFile/EditFile.js')
+    const filePath = await writeTestFile('preview.txt', 'a\nb\nc\nd\ne\nf\ng\nh\n')
+
+    const result = await EditFile.execute({
+      path: filePath,
+      edits: [
+        { line: 2, old: ['b'], new: ['b1\nb2\nb3'] },
+        { line: 7, old: ['g'], new: ['G'] },
+      ],
+    })
+
+    const { after } = JSON.parse(result as string)
+    expect(after).toContain('2  b1\n3  b2\n4  b3')
+    expect(after).toContain('9  G')
+    expect(after).not.toContain('7  g')
+  })
 })

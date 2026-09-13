@@ -1,0 +1,70 @@
+{
+  "source": "https://api-docs.deepseek.com/quick_start/pricing",
+  "peakHoursUtc": {
+    "weekdays": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "ranges": [
+      [
+        "01:00",
+        "04:00"
+      ],
+      [
+        "06:00",
+        "10:00"
+      ]
+    ]
+  },
+  "models": [
+    {
+      "id": "deepseek-flash",
+      "version": "DeepSeek-V4.1-Flash",
+      "contextTokens": 1000000,
+      "maxOutputTokens": 384000,
+      "vision": true,
+      "concurrency": 2500,
+      "pricing": {
+        "offPeak": {
+          "cacheHit": 0.003,
+          "cacheMiss": 0.15,
+          "output": 0.6
+        },
+        "peak": {
+          "cacheHit": 0.006,
+          "cacheMiss": 0.3,
+          "output": 1.2
+        }
+      }
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "version": "DeepSeek-V4-Pro-0813",
+      "contextTokens": 1000000,
+      "maxOutputTokens": 384000,
+      "vision": false,
+      "concurrency": 500,
+      "pricing": {
+        "offPeak": {
+          "cacheHit": 0.022,
+          "cacheMiss": 0.66,
+          "output": 1.98
+        },
+        "peak": {
+          "cacheHit": 0.044,
+          "cacheMiss": 1.32,
+          "output": 3.96
+        }
+      }
+    }
+  ],
+  "legacyAliases": {
+    "deepseek-chat": "deepseek-flash",
+    "deepseek-reasoner": "deepseek-flash",
+    "deepseek-v4-flash": "deepseek-flash",
+    "deepseek-v4-flash-vision-exp": "deepseek-flash"
+  }
+}

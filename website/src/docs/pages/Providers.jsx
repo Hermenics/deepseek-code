@@ -1,4 +1,5 @@
 import { CodeBlock, Note, Toc, Icon } from "../Layout";
+import { ModelTable } from "../deepseekModels";
 
 const PROVIDERS = [
   { name: "DeepSeek API", badge: "default", auth: "API key from platform.deepseek.com", env: ["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"] },
@@ -9,7 +10,7 @@ const PROVIDERS = [
 
 // Default model + transport behavior per provider (src/agent/llmClient.ts)
 const DEFAULT_MODELS = [
-  { name: "DeepSeek API", model: "deepseek-v4-flash", streaming: "Yes", tools: "Native" },
+  { name: "DeepSeek API", model: "deepseek-flash", streaming: "Yes", tools: "Native" },
   { name: "Amazon Bedrock", model: "us.deepseek.r1-v1:0", streaming: "V3.x: yes · R1: no", tools: "V3.x: native · R1: emulated" },
   { name: "Google Vertex AI", model: "deepseek-ai/deepseek-r1", streaming: "No", tools: "Via OpenAI-compatible endpoint" },
   { name: "Local (Ollama / LM Studio)", model: "llama3", streaming: "Yes", tools: "Native (OpenAI-compatible)" },
@@ -87,23 +88,8 @@ export default function Providers() {
 
         <section id="models">
           <h2><span className="anchor">#</span>Models</h2>
-          <p className="lead">Three first-class DeepSeek models ship out of the box:</p>
-          <div className="doc-table-wrap">
-            <table className="doc-table">
-              <thead>
-                <tr>
-                  <th style={{ width: "30%" }}>Model ID</th>
-                  <th>Description</th>
-                  <th style={{ width: "14%" }}>Context</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr><td><code className="inline">deepseek-v4-flash</code> <span className="badge" style={{ marginLeft: 8, padding: "2px 8px", fontSize: 10 }}>default</span></td><td>Fast, general purpose</td><td><code className="inline">1M</code></td></tr>
-                <tr><td><code className="inline">deepseek-v4-pro</code></td><td>Advanced reasoning</td><td><code className="inline">1M</code></td></tr>
-                <tr><td><code className="inline">deepseek-v4-flash-vision-exp</code></td><td>Experimental vision</td><td><code className="inline">1M</code></td></tr>
-              </tbody>
-            </table>
-          </div>
+          <p className="lead">DeepSeek API models, synced daily from the official pricing page:</p>
+          <ModelTable />
           <p className="lead" style={{ marginTop: 24 }}>
             Each provider also defaults to a provider-specific model when{" "}
             <code className="inline">model.default</code> is not set:

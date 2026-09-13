@@ -77,7 +77,7 @@ export default function PromptRefinerGuide() {
           <CodeBlock lang="json">{`{
   "promptRefiner": {
     "enabled": true,
-    "model": "deepseek-v4-flash",
+    "model": "deepseek-flash",
     "minimumLength": 30,
     "excludeTypes": ["command"]
   }

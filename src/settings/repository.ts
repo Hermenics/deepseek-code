@@ -34,7 +34,7 @@ export const DEFAULT_SETTINGS: DeepSeekSettings = {
   },
   lsp: { servers: [], timeoutMs: 10_000 },
   mcp: { enabled: false },
-  goal: { maxContinuations: 3 },
+  goal: { maxContinuations: 10 },
   workflows: { enabled: true },
   interface: {
     theme: 'dark',

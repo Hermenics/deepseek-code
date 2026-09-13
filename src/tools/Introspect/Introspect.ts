@@ -129,8 +129,10 @@ DeepSeek Code registers 25 native tools. Tool schemas are the authority for para
 ### Change files and execute processes
 
 - \`write_file\` — Create a file or replace its complete content, creating parents if needed. Best for new files and deliberate full rewrites; avoid it for a tiny change to a dirty file.
-- \`edit_file\` — Make exact substring replacements on specified 1-indexed lines. Best for surgical edits from freshly read line context; a failed replacement means reread instead of broadening blindly.
-- \`patch_file\` — Atomically replace a unique exact text block. Include sufficient context to make the target unique and inspect the resulting diff.
+- \`edit_file\` — Make exact substring replacements on specified 1-indexed lines. Best for surgical edits from freshly read line context; a failed replacement means reread instead of broadening blindly. The result shows the edited lines at their new numbers, so a follow-up edit can use them after a replacement that added lines.
+- \`patch_file\` — Atomically replace a unique exact text block. Include sufficient context to make the target unique and inspect the resulting diff. LF snippets match CRLF files, and a failed match reports the line of the closest whitespace-insensitive candidate.
+
+By default (\`readBeforeEdit\` in \`/features\`), \`write_file\`, \`edit_file\` and \`patch_file\` reject changes to an existing file that has not been read in the session, or that changed on disk since it was last read or written; read it again and retry. New files are not affected.
 - \`shell\` — Run a real command with an optional timeout (30 seconds by default). Use it for tests, builds, formatters, diagnostics, and reproducible runtime checks; prefer dedicated read/search/Git tools for their domains. Worker-task shell calls are sandboxed to their workspace without inherited secrets or network.
 - \`git\` — Run structured Git actions: status, diff, log, add, commit, branch, stash, pull, and push. Use it instead of shell Git. Destructive or remote actions still need explicit user authority, and Review/Plan allow only status, diff, and log.
 
@@ -153,8 +155,8 @@ DeepSeek Code registers 25 native tools. Tool schemas are the authority for para
 
 ### Plan-mode protocol
 
-- \`write_plan\` — Write or replace only the runtime-designated Markdown plan file. It exists solely for Plan mode and cannot write arbitrary repository files.
-- \`submit_plan\` — Submit the designated completed plan for the approval dialog. After submission, Plan mode pauses execution until the user approves or supplies feedback.
+- \`write_plan\` — Write or replace only the runtime-designated Markdown plan file (under \`.plans/\`), available in Plan and Auto. \`/plan\` assigns the file; otherwise the first \`write_plan\` call assigns one. It cannot write arbitrary repository files.
+- \`submit_plan\` — Submit the designated completed plan for the approval dialog. After submission, Plan mode pauses execution until the user approves or supplies feedback; approval returns to the mode used before planning (Auto stays Auto). In Auto mode there is no review pause: the plan is treated as approved and work continues.
 
 ### Tool Permissions by Mode
 | Mode | Permitted native tools |
@@ -228,11 +230,13 @@ Memory is intentionally small and durable. In User scope it lives under \`~/.dee
 
 Sessions persist a transcript, modified-file list, selected provider/model, language, active agent, and optional goal under \`~/.deepseek/sessions/\`, partitioned by workspace. \`/sessions\` lists them and its export form redacts secrets before writing JSON or Markdown. Session retention defaults to 50 and can be changed in Settings. \`/checkpoint\` saves a point-in-time conversation/file-change record under \`~/.deepseek/checkpoints/\`; \`/undo\` uses file checkpoints to restore agent changes.
 
-Goals are explicit, session-scoped objectives, managed from \`/goal\` or the goal tools. They track status, elapsed time, token budget, continuations, and repeated blockers. Use a goal only when the user explicitly wants persistent objective tracking; a normal task does not need one. A blocked state requires the same real blocker to recur three consecutive times, while a complete state means the objective—not merely a plan or an attempted command—has been achieved.
+Goals are explicit, session-scoped objectives, managed from \`/goal\` or the goal tools. They track status, elapsed time, token budget, continuations, and repeated blockers. Use a goal only when the user explicitly wants persistent objective tracking; a normal task does not need one. A blocked state requires the same real blocker to recur three consecutive times, while a complete state means the objective—not merely a plan or an attempted command—has been achieved. In the terminal UI an active goal continues automatically for up to 10 turns by default (\`goal.maxContinuations\`, or \`/goal --turns N\`), and pauses as blocked after 2 consecutive turns that use no tools and change no files; \`/goal resume\` continues it.
 
 ## Context management, refinement, and audit trail
 
 The conversation keeps the active system prompt and the messages after the latest compaction boundary. Automatic compaction is configurable; \`/compact\` requests it manually, and \`/context\` reports an estimated composition of the current window. A compacted history is a summary, so reread source or runtime state when a detail is material and could be stale.
+
+Before a turn ends, the runtime can send the model back to work with a bracketed feedback message: \`[Verification failed]\` when the approved post-edit test command fails (at most two retries per turn; a project with no tests counts as passing), \`[Completion check]\` when todo items touched this turn are still open, \`[Empty response]\` when a reply has neither text nor tool calls, and \`[Output limit]\` when a reply was cut off at the output-token limit (up to three continuations). A tool call that fails identically three times in a turn gets a \`[Repeated failure]\` note. A turn that reaches 100 tool iterations stops with a notice instead of an error, and the user can send "continue".
 
 Prompt refinement is optional and disabled by default. When explicitly enabled, it may clarify sufficiently long coding requests but skips slash commands, short or self-explanatory messages, follow-ups, non-coding requests, and requests that name the native Dynamic Workflow feature. The original request remains visible and authoritative; generated clarification is secondary context.
 

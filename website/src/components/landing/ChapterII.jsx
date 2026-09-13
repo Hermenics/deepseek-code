@@ -148,7 +148,7 @@ export default function ChapterII() {
             <div className="space-y-2 text-white/70">
               <div className="flex justify-between"><span>active tasks</span><span className="text-neon-green">4 / 6</span></div>
               <div className="flex justify-between"><span>depth</span><span className="text-white">2</span></div>
-              <div className="flex justify-between"><span>reviewer</span><span className="text-neon-blue">deepseek-v4-flash</span></div>
+              <div className="flex justify-between"><span>reviewer</span><span className="text-neon-blue">deepseek-flash</span></div>
               <div className="flex justify-between"><span>cost</span><span className="text-neon-amber">$0.94 / $2.50</span></div>
             </div>
           </div>

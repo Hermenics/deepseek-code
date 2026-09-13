@@ -84,7 +84,7 @@ const BUILTINS = [
 ];
 
 const MOA_SETTINGS = [
-  ["referenceModels", "deepseek-v4-flash, deepseek-v4-pro"],
+  ["referenceModels", "deepseek-flash, deepseek-v4-pro"],
   ["aggregator", "deepseek-v4-pro @ temperature 0.4"],
   ["maxCandidates", "5"],
   ["timeoutMs / maxRetries", "60000 / 1"],
