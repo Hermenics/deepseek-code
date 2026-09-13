@@ -124,7 +124,7 @@ export default function Costs() {
 
         <section id="stats">
           <h2><span className="anchor">#</span>/cost and /stats</h2>
-          <CodeBlock lang="bash">{`/cost     # estimated session cost from token usage
+          <CodeBlock lang="bash">{`/cost     # estimated session cost, plus the real DeepSeek account balance
 /stats    # session statistics`}</CodeBlock>
           <p>
             Both read the same three counters, accumulated across the session:

@@ -108,7 +108,7 @@ const REST = [
   ["lsp.servers", "LspServerSettings[]", "name, command, args, extensions, languageId."],
   ["lsp.timeoutMs", "number", "Language-server request timeout."],
   ["mcp.enabled", "boolean", "User-scoped permission to load project MCP servers."],
-  ["goal.maxContinuations", "number", "Cap on automatic goal continuations."],
+  ["goal.maxContinuations", "number", "Cap on automatic goal continuations. Default 10."],
   ["workflows.enabled", "boolean", "false disables dynamic workflows."],
 ];
 

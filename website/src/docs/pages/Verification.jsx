@@ -25,8 +25,8 @@ const DETECTION = [
 
 const RESULT = [
   ["command", "VerificationCommand", "Exactly what ran, including the display string."],
-  ["ok", "boolean", "True only when the process exited 0."],
-  ["output", "string", "stdout and stderr joined, trimmed. '(no output)' when both are empty."],
+  ["ok", "boolean", "True when the process exited 0, or exited 1 only because the runner found no test files."],
+  ["output", "string", "stdout and stderr joined, color codes removed, trimmed. '(no output)' when both are empty."],
 ];
 
 const PRACTICES = [
@@ -63,6 +63,8 @@ export default function Verification() {
             Verification wires that in as a first-class step. After files change, DeepSeek Code can detect
             the project's test command, run it, and feed the result back into the conversation — so a
             failing suite becomes information the agent acts on rather than a surprise you find later.
+            A failure is sent back to the agent at most twice per turn; after that the turn ends without
+            another retry, so a suite the agent cannot fix does not loop forever.
           </p>
           <p>
             <b>One</b> command. <b>Existing</b>. <b>Never invented.</b> Detection will not scaffold a test
@@ -173,10 +175,15 @@ Verification failed (exit 1).`}</CodeBlock>
             </table>
           </div>
           <p>
-            <code className="inline">ok</code> is exit-code equality with zero and nothing else. No output
-            parsing, no scanning for the word "fail", no per-runner heuristics. Exit codes are the one
-            contract every test runner honors, and inferring success from text is how a broken pipeline
-            reports green.
+            <code className="inline">ok</code> is exit-code equality with zero, with one narrow exception. No
+            scanning for the word "fail": exit codes are the one contract every test runner honors, and
+            inferring success from text is how a broken pipeline reports green.
+          </p>
+          <p>
+            The exception is a project with no tests yet. bun, jest, vitest and mocha exit 1 when they find no
+            test files, which would turn every edit in a young project into a failed verification. Exit code 1
+            counts as passing only when the output matches one of those runners' exact "no tests found"
+            messages. Any other exit code, or exit 1 with an import or configuration error, still fails.
           </p>
           <p>
             The <code className="inline">'(no output)'</code> placeholder matters more than it looks. An empty

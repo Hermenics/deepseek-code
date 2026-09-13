@@ -25,7 +25,8 @@ const COVERAGE = [
   ["Main agent-loop responses", "Included when usage is returned", "Streaming usage events and non-streaming response usage update all primary counters."],
   ["Side questions (/btw)", "Included when usage is returned", "Their non-streaming response usage updates primary counters."],
   ["Prompt refinement", "Excluded", "The refinement request's usage is not added to primary counters."],
-  ["Manual or automatic compaction", "Excluded", "The summarization request's usage is not added."],
+  ["Manual or automatic compaction", "Included when usage is returned", "The summarization request's usage is added at the active model's rate."],
+  ["Automatic memory extraction", "Included when usage is returned", "The small background request that looks for durable facts after a turn is added when it completes."],
   ["Model-description generation", "Excluded", "Background description requests do not update counters."],
   ["Tool execution", "Excluded", "Filesystem, shell, MCP and external-service compute is not priced here."],
   ["Subagent and verifier requests", "Separate token accounting", "They do not increment the primary agent's counters."],
@@ -34,7 +35,7 @@ const COVERAGE = [
 const LIMITATIONS = [
   ["Estimate, not invoice", "The provider dashboard remains authoritative for billed usage and provider-specific adjustments."],
   ["Unknown is displayed like tiny", "Zero tracked cost formats as <$0.0001 even when usage metadata was unavailable."],
-  ["One active rate", "All accumulated primary usage is repriced with the currently selected model."],
+  ["Per-response rate", "Each response is priced at the model and peak/off-peak rate active when it arrived; switching model does not reprice earlier usage."],
   ["Fallback pricing", "Unknown, local, Bedrock and Vertex model IDs use flash rates in the estimator."],
   ["No headless field", "The pipe JSON envelope contains output and tool names, not usage or cost."],
 ];
@@ -63,9 +64,9 @@ export default function CostAccounting() {
             accumulated prompt, cache-hit and completion counts.
           </p>
           <p>
-            This is session-process accounting, not provider billing reconciliation. It does not query an
-            account, attach request IDs, persist a rate ledger per call, include every internal model request or
-            price external tool execution.
+            This is session-process accounting, not provider billing reconciliation. Apart from the account balance
+            shown for the official DeepSeek API, it does not attach request IDs, persist a rate ledger per call,
+            include every internal model request or price external tool execution.
           </p>
           <Note>
             A displayed estimate of <code className="inline">&lt;$0.0001</code> can mean genuinely tiny tracked
@@ -99,7 +100,14 @@ export default function CostAccounting() {
             Both commands read the same primary counters and the running cost estimate.
             <code className="inline">/cost</code> is the compact accounting view:
           </p>
-          <CodeBlock lang="text">{"Model: deepseek-flash\nTokens: 18,420 total\n  prompt: 17,900 (12,100 cached)\n  completion: 520\nEstimated cost: $0.0010"}</CodeBlock>
+          <CodeBlock lang="text">{"Model: deepseek-flash\nTokens: 18,420 total\n  prompt: 17,900 (12,100 cached)\n  completion: 520\nEstimated cost: $0.0010\nAccount balance: $4.74\nBalance change this session: -$0.01\n  (real, but in whole cents; DeepSeek can take a few minutes to update it, and other sessions using this key count too)"}</CodeBlock>
+          <p>
+            With the official DeepSeek API, <code className="inline">/cost</code> also reads the account balance from
+            DeepSeek&apos;s free <code className="inline">/user/balance</code> endpoint. The starting balance is captured
+            when the session&apos;s first message is sent, so the change line is real spend, but it has two-decimal
+            precision, can lag a few minutes and includes other sessions using the same key. Other providers, or
+            a balance request that fails, show only the estimate.
+          </p>
           <p>
             <code className="inline">/stats</code> adds duration, provider, user turns, tool calls, files modified
             and the most recent context-usage percentage. Its prompt line presents cache hits as a rounded

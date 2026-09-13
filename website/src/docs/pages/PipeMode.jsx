@@ -159,7 +159,11 @@ DEEPSEEK_BASE_URL=http://gateway.internal/v1 deepseek --pipe "list likely regres
             no tool calls. Read-only tool batches may run concurrently; mixed or mutating batches run in order.
           </p>
           <p>
-            The loop has a hard ceiling of 100 iterations. Provider requests retry status 429 and 503 up to
+            After 100 tool iterations in one turn the loop stops with a notice; the work so far is kept, and
+            sending "continue" resumes it. Before a turn ends, the
+            runtime can send the model back to work: a reply cut off at the output-token limit continues (up to
+            three times), a reply with no text and no tool calls is retried (up to twice), and todo items added or
+            updated during the turn are raised once. Provider requests retry status 429 and 503 up to
             three times with 1, 2 and 4 second delays. Prompt refinement may add a separate request before the
             main turn when enabled and the prompt meets its threshold.
           </p>

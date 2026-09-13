@@ -8,6 +8,7 @@ const TOC = [
   { id: "worddiff", label: "wordDiff in detail" },
   { id: "microcompact", label: "microCompact in detail" },
   { id: "fuzzy", label: "fuzzyFileSearch in detail" },
+  { id: "read-before-edit", label: "readBeforeEdit in detail" },
   { id: "file", label: "The features.json file" },
   { id: "filtering", label: "Why unknown keys are dropped" },
   { id: "vs-settings", label: "Flags vs settings" },
@@ -17,6 +18,8 @@ const FLAGS = [
   ["wordDiff", "Word Diff", "true", "Show word-level diffs instead of line-level"],
   ["microCompact", "Micro Compact", "true", "Aggressively compact short tool outputs"],
   ["fuzzyFileSearch", "Fuzzy File Search", "true", "Use fuzzy matching when searching for files"],
+  ["ghostReplies", "Suggested Replies", "true", "Suggest a reply to the assistant's latest question"],
+  ["readBeforeEdit", "Read Before Edit", "true", "Reject edits to files the agent has not read or that changed on disk since it read them"],
 ];
 
 const USAGE = [
@@ -44,7 +47,7 @@ export default function Features() {
         <div className="hero">
           <h1>Feature flags</h1>
           <p className="tagline">
-            Three experimental behaviors you can toggle per user — all on by default, each one opt-out,
+            Five experimental behaviors you can toggle per user — all on by default, each one opt-out,
             all global across projects.
           </p>
         </div>
@@ -60,7 +63,7 @@ export default function Features() {
             That default direction is a deliberate choice. Opt-in experimental features are experimental
             forever, because almost nobody discovers them; opt-out features get real usage and either mature
             or get removed. The cost is that a bad flag affects everyone until they turn it off — which is
-            why there are only three, and why each one degrades to the previous behavior rather than failing.
+            why there are only a handful, and why each one degrades to the previous behavior rather than failing.
           </p>
           <p>
             State is persisted in <code className="inline">~/.deepseek/features.json</code>, created on the
@@ -128,6 +131,8 @@ Experimental features:
   ✓ wordDiff — Show word-level diffs instead of line-level
   ✓ microCompact — Aggressively compact short tool outputs
   ✓ fuzzyFileSearch — Use fuzzy matching when searching for files
+  ✓ ghostReplies — Suggest a reply to the assistant's latest question
+  ✓ readBeforeEdit — Reject edits to files the agent has not read or that changed on disk since it read them
 
 Use /features <flag> on|off.`}</CodeBlock>
           <p>
@@ -159,7 +164,7 @@ Use /features <flag> on|off.`}</CodeBlock>
 Invalid value: yes. Use on/off
 
 > /features wordDif
-Unknown flag: wordDif. Available: wordDiff, microCompact, fuzzyFileSearch`}</CodeBlock>
+Unknown flag: wordDif. Available: wordDiff, microCompact, fuzzyFileSearch, ghostReplies, readBeforeEdit`}</CodeBlock>
           <p>
             The unknown-flag error lists every valid name. That is a small thing that removes a
             documentation lookup from the loop — you typo a flag, and the error tells you what you meant.
@@ -235,13 +240,30 @@ Unknown flag: wordDif. Available: wordDiff, microCompact, fuzzyFileSearch`}</Cod
           </p>
         </section>
 
+        <section id="read-before-edit">
+          <h2><span className="anchor">#</span>readBeforeEdit in detail</h2>
+          <p>
+            With <code className="inline">readBeforeEdit</code> on, <code className="inline">write_file</code>,{" "}
+            <code className="inline">edit_file</code> and <code className="inline">patch_file</code> reject a change to
+            an existing file that the agent has not read in the session, or that changed on disk since the agent last
+            read or wrote it. The rejection asks the agent to read the file again, so an edit is never based on content
+            from before a formatter, a shell command or another agent touched the file.
+          </p>
+          <p>
+            New files are unaffected, and compaction or <code className="inline">/clear</code> require a fresh read,
+            because the summary no longer holds the file contents. Turn it off if a workflow edits generated files that
+            the agent deliberately never reads.
+          </p>
+        </section>
+
         <section id="file">
           <h2><span className="anchor">#</span>The features.json file</h2>
           <CodeBlock lang="json">{`// ~/.deepseek/features.json
 {
   "wordDiff": true,
   "microCompact": true,
-  "fuzzyFileSearch": false
+  "fuzzyFileSearch": false,
+  "readBeforeEdit": true
 }`}</CodeBlock>
           <p>
             The file is written whole on every change and read at startup, merged over the defaults. Editing
