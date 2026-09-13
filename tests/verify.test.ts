@@ -34,6 +34,21 @@ describe('runVerification', () => {
     expect(result.output).toContain('0 test files matching')
   })
 
+  it('recognizes the no-tests message when the runner prints colors', async () => {
+    const dir = await bunProject({ 'src/a.ts': 'export const a = 1\n' })
+    const previous = process.env.FORCE_COLOR
+    process.env.FORCE_COLOR = '1'
+    try {
+      const result = await runVerification((await detectVerificationCommand(dir))!, dir)
+
+      expect(result.ok).toBe(true)
+      expect(result.output).not.toContain('\x1b[')
+    } finally {
+      if (previous === undefined) delete process.env.FORCE_COLOR
+      else process.env.FORCE_COLOR = previous
+    }
+  })
+
   it('reports a test file that fails to import as a failure', async () => {
     const dir = await bunProject({ 'test/a.test.ts': "import { missing } from '../src/nope'\nconsole.log(missing)\n" })
 

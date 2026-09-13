@@ -1,6 +1,7 @@
 import { existsSync } from 'fs'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
+import { stripVTControlCharacters } from 'node:util'
 import { execa } from 'execa'
 
 export interface VerificationCommand {
@@ -47,7 +48,9 @@ const NO_TESTS_FOUND = [
 
 export async function runVerification(command: VerificationCommand, cwd = process.cwd()): Promise<VerificationResult> {
   const result = await execa(command.command, command.args, { cwd, reject: false, timeout: 120_000 })
-  const output = [result.stdout, result.stderr].filter(Boolean).join('\n').trim()
+  // Runners color their output when the user's shell sets FORCE_COLOR; escape codes would break the
+  // message matching below and waste tokens when the output is fed back to the model.
+  const output = stripVTControlCharacters([result.stdout, result.stderr].filter(Boolean).join('\n')).trim()
   // An empty test suite says nothing about the change; reporting it as a failure sends the agent to "fix" it.
   const ok = result.exitCode === 0 || (result.exitCode === 1 && NO_TESTS_FOUND.some((pattern) => pattern.test(output)))
   return { command, ok, output: output || '(no output)' }
