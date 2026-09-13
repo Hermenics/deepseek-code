@@ -192,8 +192,12 @@ test('subagent status line executor does not run an untrusted workspace command'
 })
 
 test('subagent status line executor accepts JSONL from a trusted command', async () => {
+  // The command runs through cmd.exe on Windows, which has no printf and treats quotes literally.
+  const command = process.platform === 'win32'
+    ? 'echo {"id":"agent-1","content":"ready"}'
+    : "printf '%s\\n' '{\"id\":\"agent-1\",\"content\":\"ready\"}'"
   const result = await runSubagentStatusLine(
-    { type: 'command', command: "printf '%s\\n' '{\"id\":\"agent-1\",\"content\":\"ready\"}'" },
+    { type: 'command', command },
     { columns: 80, tasks: [{ id: 'agent-1', status: 'running' }] },
     { cwd: process.cwd(), trusted: true },
   )
