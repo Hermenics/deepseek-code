@@ -31,7 +31,8 @@ describe('runVerification', () => {
     const result = await runVerification(command!, dir)
 
     expect(result.ok).toBe(true)
-    expect(result.output).toContain('0 test files matching')
+    // Bun prints a different message inside AI agents than in a regular terminal.
+    expect(result.output).toMatch(/0 test files matching|No tests found!/)
   })
 
   it('recognizes the no-tests message when the runner prints colors', async () => {
