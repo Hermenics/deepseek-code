@@ -116,10 +116,17 @@ export default function InteractionModes() {
           <CodeBlock lang="bash">/plan <span className="k">add retry with backoff to the fetch wrapper</span></CodeBlock>
           <p>
             The model explores read-only, then writes its plan with <code className="inline">write_plan</code> —
-            the tool auto-injects the plan path, so the model only supplies content.{" "}
-            <code className="inline">write_plan</code> refuses to run if no plan path is set. When it's done,
+            the tool auto-injects the plan path, so the model only supplies content. When Plan mode was entered
+            with <code className="inline">Shift+Tab</code> rather than <code className="inline">/plan</code>, the first{" "}
+            <code className="inline">write_plan</code> assigns a plan file the same way. When it's done,
             the model calls <code className="inline">submit_plan</code>, which opens a <b>user approval
             dialog</b> showing the plan path, its content, and the model's summary.
+          </p>
+          <p>
+            Approving returns the session to the mode it was in before planning, so planning from Auto stays in
+            Auto. Aborting the dialog with <code className="inline">Esc</code> or <code className="inline">Ctrl+C</code>{" "}
+            stops the turn. In Auto mode, <code className="inline">submit_plan</code> does not pause for review: the
+            plan is treated as approved and the agent continues.
           </p>
           <p>
             The plan path is validated server-side: <code className="inline">submit_plan</code> with any path

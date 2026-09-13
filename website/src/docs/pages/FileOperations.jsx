@@ -14,8 +14,8 @@ const TOC = [
 const OPERATIONS = [
   ["read_file", "Inspect a known file", "First 200 numbered lines by default; request ranges for more."],
   ["read_folder", "Orient within a directory", "Optional recursion, five levels deep, at most 1,000 entries."],
-  ["edit_file", "Change exact substrings on known lines", "Smallest payload; all requested edits validate before the write."],
-  ["patch_file", "Replace one unique multi-line block", "Fails when the old block is missing or appears more than once."],
+  ["edit_file", "Change exact substrings on known lines", "Smallest payload; all requested edits validate before the write, and the result shows the edited lines at their new numbers."],
+  ["patch_file", "Replace one unique multi-line block", "Fails when the old block is missing (naming the closest match) or appears more than once."],
   ["write_file", "Create a file or replace it completely", "Creates parent directories; best for new files or intentional rewrites."],
 ];
 
@@ -62,6 +62,12 @@ Preserve unrelated working-tree edits, then show and verify the resulting diff.`
         <section id="edit">
           <h2><span className="anchor">#</span>Editing safely</h2>
           <p>
+            By default an existing file must be read in the session before it is edited or overwritten, and it
+            must not have changed on disk since the agent last read or wrote it. Otherwise the change is rejected
+            with a message asking the agent to read the file again, so edits are never based on stale content. New
+            files are not affected, and <code className="inline">/features readBeforeEdit off</code> disables the check.
+          </p>
+          <p>
             A line edit names a 1-indexed line plus exact old and new substrings. Multiple replacements on
             one line are applied left to right. Multiple lines can be changed in one call, but duplicate
             targets are rejected. Every line number and old substring is validated before any content is
@@ -70,7 +76,9 @@ Preserve unrelated working-tree edits, then show and verify the resulting diff.`
           <p>
             A block patch requires the old content to occur exactly once. Zero matches means the file has
             changed or the context is wrong; multiple matches mean the requested target is ambiguous. The
-            safe response is to reread and add context, not widen the replacement blindly.
+            safe response is to reread and add context, not widen the replacement blindly. When nothing matches, the
+            error names the line of the closest whitespace-insensitive candidate. In a file with CRLF line endings,
+            LF snippets are matched and the replacement is written with CRLF, so line endings never mix.
           </p>
           <p>
             A full write reads the previous contents for diffing, creates missing parents, then replaces the
@@ -132,7 +140,8 @@ Preserve unrelated working-tree edits, then show and verify the resulting diff.`
             Full writes and block patches return structured line changes used by the transcript and diff
             viewer. For files above 5,000 lines on either side, detailed in-memory diff construction is
             skipped to avoid excessive memory use; the write succeeds and returns only a size summary.
-            Targeted line edits report affected line numbers instead.
+            Targeted line edits report affected line numbers and a numbered view of the edited lines, with two lines
+            of context, at their positions after the edit.
           </p>
         </section>
 

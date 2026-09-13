@@ -160,16 +160,17 @@ export default function Goals() {
           </p>
           <ol>
             <li>Adds the turn's tokens to <code className="inline">tokensUsed</code>.</li>
+            <li>Pauses the goal as <code className="inline">blocked</code> after 2 consecutive turns that used no tools and changed no files; <code className="inline">/goal resume</code> continues it.</li>
             <li>Stops with <code className="inline">budget_limited</code> if the continuation count reached the max, or if <code className="inline">tokensUsed</code> reached the <code className="inline">tokenBudget</code>.</li>
             <li>Otherwise increments the count and schedules the next turn ~200&nbsp;ms later.</li>
           </ol>
           <p>
-            The default max is <b>3 goal continuations</b> (<code className="inline">GOAL_MAX_CONTINUATIONS</code>,
+            The default max is <b>10 goal continuations</b> (<code className="inline">GOAL_MAX_CONTINUATIONS</code>,
             overridable via <code className="inline">settings.goal.maxContinuations</code> or{" "}
             <code className="inline">--turns</code>). Each continuation is driven by{" "}
             <code className="inline">buildContinuationPrompt</code>, which injects a message like:
           </p>
-          <CodeBlock lang="text">{`[Goal continuation 2/3]
+          <CodeBlock lang="text">{`[Goal continuation 2/10]
 
 Continue working toward the goal:
 "Add a dark theme to the TUI"

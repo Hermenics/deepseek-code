@@ -36,7 +36,13 @@ export default function TodoList() {
           </p>
           <p>
             Todos are coordination hints, not proof. An item marked done should correspond to actual changes
-            and verification, but the checklist itself does not run checks or enforce completion criteria.
+            and verification, but the checklist itself does not run checks.
+          </p>
+          <p>
+            It does get one reminder. In Build and Auto modes, if the agent tries to end a turn while items it added or updated during
+            that turn are still pending or in progress, the runtime sends it back once with a completion check
+            listing them, so it either finishes the work or explains why it stopped. Items left over from earlier
+            turns do not trigger it.
           </p>
         </section>
 

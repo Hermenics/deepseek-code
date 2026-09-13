@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.7.3
+
+- Added: Completion checks before a turn ends: a failed post-edit verification is fed back to the model (up to two retries per turn), todo items added or updated during the turn are raised once in Build and Auto modes, a reply with no text and no tool calls is sent back for another attempt, and a reply cut off at the output-token limit continues automatically (up to three times)
+- Added: `readBeforeEdit` feature flag, on by default, rejects `write_file`, `edit_file` and `patch_file` changes to an existing file the agent has not read or that changed on disk since it was read
+- Added: `/cost` shows the real DeepSeek account balance and how much it moved during the session, next to the local estimate
+- Added: DeepSeek models, context limits and prices are synced from the official pricing page into one data file used by `/cost`, context accounting and the website, with a daily workflow that opens a pull request when they change
+- Added: Agent quality eval (`scripts/eval/run.ts`) with hidden-check tasks, per-run and total budgets, real balance tracking and saved transcripts of failed runs
+- Enhanced: Cost estimates use peak and off-peak rates, price each response at the model active when it arrived, and include compaction and automatic memory extraction
+- Enhanced: A tool call that fails identically three times in a turn tells the model to change approach, and reaching 100 tool iterations stops the turn with a notice that keeps the work and says how to resume
+- Enhanced: Goals continue for up to 10 turns by default and pause after 2 consecutive turns without tool calls or file changes
+- Enhanced: `edit_file` returns the edited lines at their new numbers; `patch_file` matches LF snippets in CRLF files and points at the closest match when `old_content` is not found
+- Enhanced: The system prompt asks the agent to state its hypothesis before editing, review its own diff, and ask the user early and in batches
+- Fixed: Aborting the plan approval dialog stops the turn instead of letting the agent keep working, and approving a plan returns to the previous mode, so Auto stays Auto
+- Fixed: `write_plan` works in Plan mode entered with `Shift+Tab`, and `submit_plan` no longer pauses an Auto-mode session
+- Fixed: Verification treats a project without tests as passing for bun, jest, vitest and mocha, inside AI agents and regular terminals and with colored output, while import and configuration errors still fail
+- Fixed: Automatic memory extraction runs once per turn instead of on every runtime check
+- Docs: Website model, limit and pricing tables are generated from the synced data, and the goals, file operations, interaction modes, feature flags, verification, pipe mode and cost accounting pages describe the new behavior
+- Tests: Add coverage for completion checks, read-before-edit, plan tools, balance and cost reporting, pricing-page parsing, goal progress, verification output formats and CRLF patches
+
 ## 0.7.2
 
 - Added: Image attachments in the prompt — paste clipboard images with `Ctrl+V` or bracketed paste (Linux, macOS and Windows clipboard readers) and they appear as atomic `[Image #n]` placeholders that are deleted as one unit
