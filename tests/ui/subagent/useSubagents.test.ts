@@ -351,20 +351,25 @@ describe('useSubagents', () => {
       expect(typeof hook.agents[0].completedAt).toBe('number')
     })
 
-    it('should reset execution metadata when a terminal task becomes active again', async () => {
+    it('should reset execution metadata when a terminal task becomes active again', () => {
       const hook = createHook()
-      hook.onSubagentStart({ id: 'a1', task: 'first task' })
-      hook.onSubagentDone({ id: 'a1', result: 'old result' })
-      const firstStartedAt = hook.agents[0].startedAt
-      hook.agents[0].error = 'old error'
-      await Bun.sleep(1)
-
-      hook.onSubagentState({ id: 'a1', status: 'running', task: 'second task' })
+      const originalNow = Date.now
+      let now = 1000
+      Date.now = () => now
+      try {
+        hook.onSubagentStart({ id: 'a1', task: 'first task' })
+        hook.onSubagentDone({ id: 'a1', result: 'old result' })
+        hook.agents[0].error = 'old error'
+        now = 2000
+        hook.onSubagentState({ id: 'a1', status: 'running', task: 'second task' })
+      } finally {
+        Date.now = originalNow
+      }
 
       expect(hook.agents[0]).toMatchObject({
         status: 'running', completedAt: null, error: null, result: null, durationMs: null,
       })
-      expect(hook.agents[0].startedAt).toBeGreaterThan(firstStartedAt)
+      expect(hook.agents[0].startedAt).toBe(2000)
     })
   })
 
