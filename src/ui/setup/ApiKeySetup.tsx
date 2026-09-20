@@ -15,6 +15,7 @@ export type { ThemeName, ProviderName, ProviderConfig } from '../../types/provid
 import type { ThemeName, ProviderName, ProviderConfig } from '../../types/provider.js'
 import { readClipboardSync } from '../../utils/platform.js'
 import { checkOfficialDeepSeekApi } from './deepseekHealth.js'
+import { loadProviderProfiles, migrateLegacyProviderProfile, saveProviderProfiles, type ProviderProfile } from '../../utils/providerProfiles.js'
 
 export const PROVIDERS: { label: string; value: ProviderName; hint: string }[] = [
   { value: 'deepseek', label: 'DeepSeek API',          hint: 'platform.deepseek.com/api_keys' },
@@ -42,30 +43,26 @@ export async function saveConfig(data: Record<string, string>): Promise<void> {
 export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfig | null; theme: ThemeName; language: string | null; enchant: boolean }> {
   try {
     const [cfg, settings] = await Promise.all([loadFullConfig(), loadMergedSettings()])
-    const provider = (settings.provider?.name ?? cfg.PROVIDER ?? 'deepseek') as ProviderName
-    const providerConfig: ProviderConfig = { provider }
-    if (provider === 'deepseek' && cfg.DEEPSEEK_API_KEY) {
-      providerConfig.apiKey = cfg.DEEPSEEK_API_KEY
-      providerConfig.baseURL = settings.provider?.endpoint ?? cfg.DEEPSEEK_BASE_URL
+    let profiles = await loadProviderProfiles()
+    if (profiles.length === 0) {
+      const legacy = migrateLegacyProviderProfile(settings, cfg)
+      if (legacy) {
+        profiles = [legacy]
+        await saveProviderProfiles(profiles)
+      }
     }
-    if (provider === 'bedrock') {
-      providerConfig.awsRegion = settings.provider?.region ?? cfg.AWS_REGION
-      providerConfig.awsProfile = settings.provider?.profile ?? cfg.AWS_PROFILE
+    let profile = profiles.find(entry => entry.id === settings.provider?.activeProfileId)
+    if (!profile && profiles.length) {
+      profile = profiles[0]
+      if (profile) await saveUserSettings({ provider: { activeProfileId: profile.id } })
     }
-    if (provider === 'vertex') {
-      providerConfig.gcpProject = settings.provider?.projectId ?? cfg.GCP_PROJECT
-      providerConfig.gcpLocation = settings.provider?.location ?? cfg.GCP_LOCATION
-      providerConfig.gcpCredentials = cfg.GCP_CREDENTIALS
-    }
-    if (provider === 'local') {
-      providerConfig.localBaseUrl = settings.provider?.endpoint ?? cfg.LOCAL_BASE_URL
-      providerConfig.localModel = cfg.LOCAL_MODEL
-    }
+    const providerConfig: ProviderConfig | null = profile ? { ...profile, profileId: profile.id } : null
+    const provider = providerConfig?.provider ?? 'deepseek'
     const isReady =
-      (provider === 'deepseek' && !!providerConfig.apiKey) ||
-      (provider === 'bedrock' && !!providerConfig.awsRegion) ||
-      (provider === 'vertex' && !!providerConfig.gcpProject && !!providerConfig.gcpCredentials) ||
-      (provider === 'local' && !!providerConfig.localBaseUrl)
+      (provider === 'deepseek' && !!providerConfig?.apiKey) ||
+      (provider === 'bedrock' && !!providerConfig?.awsRegion) ||
+      (provider === 'vertex' && !!providerConfig?.gcpProject && !!providerConfig.gcpCredentials) ||
+      (provider === 'local' && !!providerConfig?.localBaseUrl)
     return {
       providerConfig: isReady ? providerConfig : null,
       theme: (settings.interface?.theme ?? cfg.THEME ?? 'dark') as ThemeName,
@@ -126,11 +123,20 @@ export function ApiKeySetup({ onDone }: Props) {
   const completeSetup = (updated: Record<string, string>) => {
     if (saving) return
     setSaving(true)
+    const profile: ProviderProfile = {
+      id: 'legacy-default', name: `${selectedProvider} (current)`, provider: selectedProvider,
+      apiKey: updated['DEEPSEEK_API_KEY'], baseURL: updated['DEEPSEEK_BASE_URL'],
+      awsRegion: updated['AWS_REGION'], awsProfile: updated['AWS_PROFILE'],
+      gcpProject: updated['GCP_PROJECT'], gcpLocation: updated['GCP_LOCATION'], gcpCredentials: updated['GCP_CREDENTIALS'],
+      localBaseUrl: updated['LOCAL_BASE_URL'], localModel: updated['LOCAL_MODEL'], model: updated['LOCAL_MODEL'],
+    }
     Promise.all([
       saveConfig(Object.fromEntries(Object.entries(updated).filter(([key]) => key === 'DEEPSEEK_API_KEY' || key === 'GCP_CREDENTIALS'))),
+      loadProviderProfiles().then(existing => saveProviderProfiles([...existing.filter(entry => entry.id !== profile.id), profile])),
       saveUserSettings({
         provider: {
           name: selectedProvider,
+          activeProfileId: profile.id,
           endpoint: updated['DEEPSEEK_BASE_URL'] || updated['LOCAL_BASE_URL'] || undefined,
           region: updated['AWS_REGION'] || undefined,
           profile: updated['AWS_PROFILE'] || undefined,

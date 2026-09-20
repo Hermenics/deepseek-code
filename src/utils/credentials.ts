@@ -102,7 +102,7 @@ export async function logout(
   const configDir = dirname(configPath)
   const legacyEnvPath = join(configDir, '.env')
 
-  for (const filePath of [configPath, legacyEnvPath]) {
+  for (const filePath of [configPath, legacyEnvPath, join(configDir, 'provider-profiles.json')]) {
     try {
       await rm(filePath)
       deleted.push(filePath)

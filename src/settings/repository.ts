@@ -293,6 +293,7 @@ export function validateSettings(settings: DeepSeekSettings, level?: SettingsLev
   if (minimum !== undefined && (!Number.isInteger(minimum) || minimum < 1)) add('promptRefiner.minimumLength', 'Must be a positive integer')
   const timeout = settings.provider?.timeoutMs
   if (timeout !== undefined && (!Number.isFinite(timeout) || timeout < 100)) add('provider.timeoutMs', 'Must be at least 100 milliseconds')
+  if (settings.provider?.activeProfileId !== undefined && (typeof settings.provider.activeProfileId !== 'string' || !settings.provider.activeProfileId.trim())) add('provider.activeProfileId', 'Must be a non-empty profile id')
   const largeLines = settings.risk?.thresholds?.largeFileLines
   if (largeLines !== undefined && (!Number.isInteger(largeLines) || largeLines < 1)) add('risk.thresholds.largeFileLines', 'Must be a positive integer')
   const burstCount = settings.risk?.thresholds?.burstCount
@@ -381,6 +382,9 @@ export function validateSettings(settings: DeepSeekSettings, level?: SettingsLev
       add('permissions.allow', 'Project allow rules are ignored; configure trusted allow rules at User or Local scope', 'warning')
     }
   }
+  if (level !== undefined && level !== 'user' && settings.provider?.activeProfileId !== undefined) {
+    add('provider.activeProfileId', 'Provider profiles are user-scoped; this value is ignored outside User scope', 'warning')
+  }
   if (level !== 'user' && settings.interaction?.defaultMode === 'auto') add('interaction.defaultMode', 'Auto can only be selected at User scope')
   if (level !== 'user' && settings.hooks && Object.keys(settings.hooks).length > 0) add('hooks', 'Executable hooks are ignored outside User scope', 'warning')
   if (level !== 'user' && settings.lsp && Object.keys(settings.lsp).length > 0) add('lsp', 'Language-server commands are ignored outside User scope', 'warning')
@@ -415,6 +419,10 @@ export async function loadSettingsSnapshot(cwd?: string): Promise<SettingsSnapsh
       const timeoutMs = safe.provider.timeoutMs
       safe.provider = timeoutMs === undefined ? undefined : { timeoutMs }
       if (!safe.provider) delete safe.provider
+    }
+    if (level === 'local' && safe.provider?.activeProfileId !== undefined) {
+      delete safe.provider.activeProfileId
+      if (Object.keys(safe.provider).length === 0) delete safe.provider
     }
     if (level === 'project' && safe.permissions) {
       // A checked-out project may deny capabilities, but cannot grant them.
@@ -506,7 +514,8 @@ export function resolveSetting(snapshot: SettingsSnapshot, path: string): Settin
     ...LEVELS.flatMap(level => {
     const value = getAtPath(snapshot.levels[level].data, path)
     if (level !== 'user' && path === 'interaction.defaultMode' && value === 'auto') return []
-    if (level === 'project' && /^provider\.(name|endpoint|region|profile|projectId|location)$/.test(path)) return []
+    if ((level === 'project' && /^provider\.(name|endpoint|region|profile|projectId|location)$/.test(path)) ||
+      (level !== 'user' && path === 'provider.activeProfileId')) return []
     if (level === 'project' && path === 'permissions.allow') return []
     if (level !== 'user' && (path.startsWith('hooks.') || path === 'lsp' || path.startsWith('lsp.') || path === 'mcp' || path.startsWith('mcp.'))) return []
     if (level !== 'user' && (path === 'interface.subagentStatusLine' || path.startsWith('interface.subagentStatusLine.'))) return []

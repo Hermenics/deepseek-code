@@ -707,14 +707,12 @@ export class Agent {
 
   constructor(providerConfig?: ProviderConfig, options: AgentOptions = {}) {
     const resolvedProvider = providerConfig ?? { provider: 'deepseek' }
-    this.client = createLLMClient(resolvedProvider)
-    if (providerConfig) {
-      this.provider = providerConfig.provider
-      this.providerConfig = providerConfig
-      this.model = (providerConfig.provider === 'local' && providerConfig.localModel
-        ? providerConfig.localModel
-        : defaultModel(providerConfig.provider)) as Model
-    }
+    this.provider = resolvedProvider.provider
+    this.providerConfig = resolvedProvider
+    this.model = (resolvedProvider.model ?? (resolvedProvider.provider === 'local' && resolvedProvider.localModel
+      ? resolvedProvider.localModel
+      : defaultModel(resolvedProvider.provider))) as Model
+    this.client = createLLMClient(resolvedProvider, this.model)
     this.workspacePath = resolve(options.projectRoot ?? process.cwd())
     this.additionalDirectories = new AdditionalDirectories(this.workspacePath)
     const orchestrationSessionId = options.sessionId ?? randomUUID()
@@ -762,7 +760,7 @@ export class Agent {
 
       // Apply settings overrides
       const configuredModel = typeof settings.model === 'string' ? settings.model : settings.model?.default
-      if (configuredModel && !this.providerConfig.localModel) {
+      if (configuredModel && !this.providerConfig.profileId && !this.providerConfig.model && !this.providerConfig.localModel) {
         this.model = configuredModel as Model
         this.contextLimit = getContextLimit(this.provider, this.model)
       }
@@ -1038,7 +1036,7 @@ export class Agent {
     this.settings = settings
     this.autoCompactConfig = createAutoCompactConfig(settings, CONTEXT_COMPACT_THRESHOLD)
     const configuredModel = typeof settings.model === 'string' ? settings.model : settings.model?.default
-    if (configuredModel && !this.providerConfig.localModel) this.setModel(configuredModel as Model)
+    if (configuredModel && !this.providerConfig.profileId && !this.providerConfig.model && !this.providerConfig.localModel) this.setModel(configuredModel as Model)
     this.orchestrator.configure({ settings, model: this.model, limits: taskLimitsFromSettings(settings) })
     this.workflows.configure({ settings, model: this.model, providerConfig: this.providerConfig })
     setSessionRetention(settings.sessions?.retention ?? 50)
@@ -1093,21 +1091,8 @@ export class Agent {
     }
   }
 
-  async testProviderSettings(settings: DeepSeekSettings, credentials: Record<string, string>): Promise<string[]> {
-    const provider = settings.provider?.name ?? this.provider
-    const cfg: ProviderConfig = {
-      provider,
-      apiKey: credentials.DEEPSEEK_API_KEY,
-      baseURL: provider === 'deepseek' ? settings.provider?.endpoint : undefined,
-      awsRegion: settings.provider?.region,
-      awsProfile: settings.provider?.profile,
-      gcpProject: settings.provider?.projectId,
-      gcpLocation: settings.provider?.location,
-      gcpCredentials: credentials.GCP_CREDENTIALS,
-      localBaseUrl: provider === 'local' ? settings.provider?.endpoint : undefined,
-      localModel: typeof settings.model === 'object' ? settings.model.default : settings.model,
-    }
-    const timeoutMs = settings.provider?.timeoutMs ?? 10_000
+  async testProviderConfig(cfg: ProviderConfig, timeoutMs = 10_000): Promise<string[]> {
+    const provider = cfg.provider
     const operation = async (): Promise<string[]> => {
       if (provider === 'bedrock') return listBedrockDeepSeekModels(cfg.awsRegion ?? 'us-east-1', cfg.awsProfile ?? 'default')
       if (provider === 'vertex') return listVertexDeepSeekModels(cfg.gcpProject ?? '', cfg.gcpLocation ?? 'us-central1', cfg.gcpCredentials ?? '')
@@ -1322,6 +1307,22 @@ export class Agent {
     this.contextLimit = this.getModelContextLimit(m)
     this.orchestrator.configure({ model: m })
     this.workflows.configure({ model: m })
+  }
+
+  setProviderConfig(config: ProviderConfig): void {
+    const configuredModel = typeof this.settings.model === 'string' ? this.settings.model : this.settings.model?.default
+    const model = (config.model ?? (config.provider === 'local' && config.localModel
+      ? config.localModel
+      : !config.profileId && configuredModel ? configuredModel : defaultModel(config.provider))) as Model
+    const client = createLLMClient(config, model)
+    this.client = client
+    this.providerConfig = structuredClone(config)
+    this.provider = config.provider
+    this.model = model
+    this.modelContextLimits.clear()
+    this.contextLimit = getContextLimit(this.provider, model)
+    this.orchestrator.configure({ providerConfig: this.providerConfig, model })
+    this.workflows.configure({ providerConfig: this.providerConfig, model })
   }
 
   getModelContextLimit(model: string): number {

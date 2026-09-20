@@ -23,6 +23,7 @@ import { StatusBar } from './layout/StatusBar.js'
 import { ModelSelector } from './setup/ModelSelector.js'
 import { EffortSelector } from './setup/EffortSelector.js'
 import ConfigMenu from './setup/ConfigMenu.js'
+import type { ProviderProfile } from '../utils/providerProfiles.js'
 import MobileQRCode from './MobileQRCode.js'
 import { resolveCommand, HELP_TEXT, REVIEW_PROMPT } from '../commands.js'
 import { FEATURES, loadFeatures, saveFeatures, type FeatureName } from '../features.js'
@@ -537,6 +538,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [queuedMessages, setQueuedMessages] = useState<PromptInput[]>([])
   const [btw, setBtw] = useState<BtwState | null>(null)
   const [agent] = useState(() => new Agent(providerConfig ?? undefined, { sessionId, projectRoot: projectRootRef.current }))
+  const pendingProviderSwitchRef = useRef<{ profile: ProviderProfile; completion: Promise<'queued'>; resolve(value: 'queued'): void; reject(error: unknown): void } | null>(null)
   const workflowRuns = useWorkflowRuns(agent.workflows)
   const activeWorkflowRuns = useActiveWorkflowRuns(agent.workflows)
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
@@ -593,6 +595,41 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const thinkingStartedAtRef = useRef<number | null>(null)
   const turnStartedAtRef = useRef<number | null>(null)
   const askUserResolverRef = useRef<((answers: AskUserAnswers | null) => void) | null>(null)
+
+  const activateProviderProfile = useCallback(async (profile: ProviderProfile): Promise<'active' | 'queued'> => {
+    await agent.readyPromise
+    if (!isLoading) {
+      agent.setProviderConfig({ ...profile, profileId: profile.id })
+      setContextPct(Math.round((agent.contextUsage / Math.max(1, agent.contextLimit)) * 100))
+      return 'active'
+    }
+    if (pendingProviderSwitchRef.current) throw new Error('A provider switch is already waiting for this turn to finish')
+    let resolve!: (value: 'queued') => void
+    let reject!: (error: unknown) => void
+    const completion = new Promise<'queued'>((complete, fail) => {
+      resolve = complete
+      reject = fail
+    })
+    pendingProviderSwitchRef.current = { profile, completion, resolve, reject }
+    return completion
+  }, [agent, isLoading])
+
+  useEffect(() => {
+    const pending = pendingProviderSwitchRef.current
+    if (!pending || isLoading) return
+    pendingProviderSwitchRef.current = null
+    try {
+      agent.setProviderConfig({ ...pending.profile, profileId: pending.profile.id })
+      setContextPct(Math.round((agent.contextUsage / Math.max(1, agent.contextLimit)) * 100))
+      pending.resolve('queued')
+    } catch (error) { pending.reject(error) }
+  }, [agent, isLoading])
+
+  useEffect(() => () => {
+    const pending = pendingProviderSwitchRef.current
+    pendingProviderSwitchRef.current = null
+    pending?.reject(new Error('Application closed before the provider switch completed'))
+  }, [])
 
   const statusLineConfig = interfaceSettings.subagentStatusLine
   // The CLI's explicit bit is the only trust source for the initial render.
@@ -1459,7 +1496,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       setIsLoading(false)
       setAgentPhase('idle')
       setSubagentTick((t) => t + 1)
-      const provider = providerConfig?.provider ?? 'deepseek'
+      const provider = agent.provider
       const message = e instanceof Error
         ? formatChatError(e, provider)
         : String(e)
@@ -1544,6 +1581,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   const handleSubmit = useCallback(async (text: string, images: PromptImage[] = []) => {
     if (!text.trim()) return
+    const pendingProviderSwitch = pendingProviderSwitchRef.current?.completion
+    if (pendingProviderSwitch) await pendingProviderSwitch.catch(() => undefined)
 
     // While focused on a subagent, plain text goes to that subagent via its
     // mailbox ('question' messages are drained by the executor each iteration);
@@ -1573,7 +1612,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     }
 
     const cmd = await resolveCommand(text, agent.getWorkingDirectory())
-    const liveWorkflowControl = cmd?.type === 'workflows' || cmd?.type === 'background' || (cmd?.type === 'workflow' && ['pause', 'resume', 'stop'].includes(cmd.action))
+    const liveWorkflowControl = cmd?.type === 'config' || cmd?.type === 'workflows' || cmd?.type === 'background' || (cmd?.type === 'workflow' && ['pause', 'resume', 'stop'].includes(cmd.action))
     if (isLoading && !liveWorkflowControl) {
       if (images.length > 0) handleQueue(text, images)
       return
@@ -2650,7 +2689,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setCurrentLanguage(settings.interface?.language ?? null)
           if (settings.interface?.vim !== undefined) setVimEnabled(settings.interface.vim)
         }}
-        onTestConnection={(settings, credentials) => agent.testProviderSettings(settings, credentials)}
+        onTestConnection={() => agent.getAvailableModels()}
+        onActivateProviderProfile={activateProviderProfile}
+        onTestProviderProfile={profile => agent.testProviderConfig(profile, agent.settings.provider?.timeoutMs ?? 10_000)}
         onPreviewRefiner={async (prompt) => {
           const preview = await agent.previewPromptRefiner(prompt)
           if (preview.status === 'skip') return `SKIP · original preserved: ${preview.original}`
@@ -2697,7 +2738,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             streamRole={streamRole}
             theme={theme}
             activeAgent={focusedSubagent ? (focusedSubagent.agentName ?? 'subagent') : activeAgent}
-            headerProvider={headerProvider}
+            headerProvider={agent.provider ?? headerProvider}
             headerAgent={focusedSubagent ? '@' + (focusedSubagent.agentName ?? 'subagent') : headerAgent}
             showToolCalls={interfaceSettings.showToolCalls}
             showDiffs={interfaceSettings.showDiffs}
