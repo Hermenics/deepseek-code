@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { getToolsForRole, inferRole } from '../src/tools/SubAgent/permissions.js'
+import { DEFAULT_SUBAGENT_ROLE, getToolsForRole } from '../src/tools/SubAgent/permissions.js'
 import type { Tool } from '../src/tools/types.js'
 
 // Minimal mock tools covering all names referenced by ROLE_TOOLS
@@ -50,24 +50,19 @@ describe('getToolsForRole', () => {
   })
 })
 
-describe('inferRole', () => {
-  test('"review this code" → reviewer', () => {
-    expect(inferRole('review this code')).toBe('reviewer')
+describe('default role', () => {
+  test('an unnamed role is read-only', () => {
+    expect(DEFAULT_SUBAGENT_ROLE).toBe('reader')
   })
 
-  test('"write a function" → writer', () => {
-    expect(inferRole('write a function that parses JSON')).toBe('writer')
-  })
-
-  test('"run the tests" → executor', () => {
-    expect(inferRole('run the tests')).toBe('executor')
-  })
-
-  test('"find all usages" → reader', () => {
-    expect(inferRole('find all usages of this function')).toBe('reader')
-  })
-
-  test('ambiguous task → reader (least privilege)', () => {
-    expect(inferRole('do the thing')).toBe('reader')
+  // The role used to be inferred from the task text. Both of these were
+  // wrong, in opposite directions, and neither announced itself: the first
+  // matched the execute keywords and handed out a shell, the second matched
+  // no write keyword and left the agent unable to edit anything.
+  test('the narrowest role grants no shell and no writes', () => {
+    const granted = names(getToolsForRole(DEFAULT_SUBAGENT_ROLE, ALL_TOOLS))
+    expect(granted).not.toContain('shell')
+    expect(granted).not.toContain('write_file')
+    expect(granted).not.toContain('patch_file')
   })
 })

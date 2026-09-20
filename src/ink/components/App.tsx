@@ -161,9 +161,21 @@ export default class App extends PureComponent<Props, State> {
   // Initialized to now so startup doesn't false-trigger.
   lastStdinTime = Date.now();
 
+  /**
+   * Set the first time the termios ioctl refuses.
+   *
+   * `stdin.isTTY` is decided when the stream is constructed and never
+   * revised, so it keeps answering "yes" for a terminal that has since gone
+   * away — a closed window, a dropped SSH session, a recycled pty. It
+   * describes what stdin was, not what can be done with it now. The ioctl is
+   * the only thing that actually knows, and the way it tells us is by
+   * throwing EIO.
+   */
+  rawModeRevoked = false;
+
   // Determines if TTY is supported on the provided stdin
   isRawModeSupported(): boolean {
-    return this.props.stdin.isTTY;
+    return this.props.stdin.isTTY === true && !this.rawModeRevoked;
   }
   override render() {
     return <TerminalSizeContext.Provider value={{
@@ -224,6 +236,11 @@ export default class App extends PureComponent<Props, State> {
     const {
       stdin
     } = this.props;
+    // A terminal that disappeared is not the same mistake as being handed a
+    // stdin that was never a terminal. Nothing the caller did was wrong and
+    // there is nothing left to switch, so this stays quiet and lets the app
+    // wind down through its normal path instead of throwing.
+    if (this.rawModeRevoked) return;
     if (!this.isRawModeSupported()) {
       if (stdin === process.stdin) {
         throw new Error('Raw mode is not supported on the current process.stdin, which Ink uses as input stream by default.\nRead about how to prevent this error on https://github.com/vadimdemedes/ink/#israwmodesupported');
@@ -241,7 +258,19 @@ export default class App extends PureComponent<Props, State> {
         // The buffered text is preserved for REPL.tsx via consumeEarlyInput().
         stopCapturingEarlyInput();
         stdin.ref();
-        stdin.setRawMode(true);
+        // This throws EIO on a revoked pty and EBADF once the fd is gone.
+        // Every component reaches raw mode through here, and most of them
+        // from inside an effect, so an uncaught failure does not degrade
+        // input — it unmounts the whole render tree and the user gets a
+        // stack trace where their session used to be.
+        try {
+          stdin.setRawMode(true);
+        } catch (error) {
+          this.rawModeRevoked = true;
+          stdin.unref();
+          logForDebugging(`setRawMode(true) failed (${(error as NodeJS.ErrnoException).code ?? 'unknown'}); continuing without raw input`);
+          return;
+        }
         stdin.addListener('readable', this.handleReadable);
         // Enable bracketed paste mode
         this.props.stdout.write(EBP);
@@ -281,13 +310,31 @@ export default class App extends PureComponent<Props, State> {
 
     // Disable raw mode only when no components left that are using it
     if (--this.rawModeEnabledCount === 0) {
-      this.props.stdout.write(DISABLE_MODIFY_OTHER_KEYS);
-      this.props.stdout.write(DISABLE_KITTY_KEYBOARD);
-      // Disable terminal focus reporting (DECSET 1004)
-      this.props.stdout.write(DFE);
-      // Disable bracketed paste mode
-      this.props.stdout.write(DBP);
-      stdin.setRawMode(false);
+      // Restoring the terminal runs on the way out, including from
+      // componentWillUnmount, and the terminal being gone is one of the
+      // reasons we are on the way out. Nothing here may throw past this
+      // point, and the two halves are kept apart on purpose: output and
+      // input can fail independently, and a stdout that has gone away
+      // (a closed pipe, say) must not cost us the chance to take a live
+      // terminal back out of raw mode. Leaving a shell in raw mode is the
+      // worst outcome available here.
+      try {
+        this.props.stdout.write(DISABLE_MODIFY_OTHER_KEYS);
+        this.props.stdout.write(DISABLE_KITTY_KEYBOARD);
+        // Disable terminal focus reporting (DECSET 1004)
+        this.props.stdout.write(DFE);
+        // Disable bracketed paste mode
+        this.props.stdout.write(DBP);
+      } catch (error) {
+        logForDebugging(`could not write the terminal reset sequences (${(error as NodeJS.ErrnoException).code ?? 'unknown'})`);
+      }
+      try {
+        stdin.setRawMode(false);
+      } catch (error) {
+        // Only stdin failing means the input side is really gone.
+        this.rawModeRevoked = true;
+        logForDebugging(`leaving raw mode failed (${(error as NodeJS.ErrnoException).code ?? 'unknown'}); the terminal is already gone`);
+      }
       stdin.removeListener('readable', this.handleReadable);
       stdin.unref();
     }

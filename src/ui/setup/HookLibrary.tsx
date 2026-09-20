@@ -184,7 +184,7 @@ export default function HookLibrary({ scope, theme, onBack }: Props) {
         </Box>
         {selected ? <Box flexDirection="column" flexGrow={1} paddingLeft={2}><Text bold>{selected.event}</Text><Text dimColor>ID: {selected.command.id ?? 'legacy · assigned on reload'}</Text><Text dimColor>Matcher: {selected.matcher} · Timeout: {selected.command.timeout ?? 30}s</Text><Box marginTop={1}><Text wrap="wrap">{selected.command.command}</Text></Box></Box> : null}
       </Box>
-      {confirmTest ? <Box flexDirection="column"><Text color={colors.warning}>{status}</Text><Text>1 Confirm once · 2 Confirm for session · c Cancel</Text></Box> : editMode ? <Box flexDirection="column"><Text color={colors.primary}>{status}</Text><Text>{input || '…'}<Text color={colors.primary}>█</Text></Text><Text dimColor>Enter save · Esc cancel</Text></Box> : <><Text color={status.startsWith('Error') ? colors.error : colors.textDim} wrap="truncate-end">{status}</Text><Text dimColor>↑↓ navigate · n new · e command · m matcher · x timeout · v event · Space toggle · t test · d delete · Esc back</Text></>}
+      {confirmTest ? <Box flexDirection="column"><Text color={colors.warning}>{status}</Text><Text>1 Confirm once · 2 Confirm for session · c Cancel</Text></Box> : editMode ? <Box flexDirection="column"><Text color={colors.primary}>{status}</Text><Text>{input}<Text color={colors.primary}>█</Text></Text><Text dimColor>Enter save · Esc cancel</Text></Box> : <><Text color={status.startsWith('Error') ? colors.error : colors.textDim} wrap="truncate-end">{status}</Text><Text dimColor>↑↓ navigate · n new · e command · m matcher · x timeout · v event · Space toggle · t test · d delete · Esc back</Text></>}
     </Box>
   )
 }

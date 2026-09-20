@@ -11,7 +11,21 @@ import { createProviderProfile, loadProviderProfiles, saveProviderProfiles, type
 const PROVIDERS: ProviderName[] = ['deepseek', 'bedrock', 'vertex', 'local']
 type Field = { key: keyof ProviderProfile; label: string; secret?: boolean; kind?: 'provider' }
 const PROVIDER_LABELS: Record<ProviderName, string> = {
-  deepseek: 'DeepSeek API', bedrock: 'AWS Bedrock', vertex: 'Google Vertex AI', local: 'Local OpenAI-compatible',
+  deepseek: 'DeepSeek API', bedrock: 'AWS Bedrock', vertex: 'Google Vertex AI', local: 'Local model (no API key)',
+}
+
+/**
+ * Both 'deepseek' and 'local' speak the OpenAI protocol, and both are
+ * commonly pointed at localhost, so naming either one after where it runs
+ * tells nobody anything. What separates them is whether a credential goes
+ * out with the request: 'local' deliberately sends none, which is right for
+ * Ollama and wrong for any proxy that answers 401.
+ */
+const PROVIDER_HINTS: Record<ProviderName, string> = {
+  deepseek: 'DeepSeek, or any OpenAI-compatible endpoint that needs an API key — set Base URL for a proxy.',
+  bedrock: 'DeepSeek models hosted on AWS Bedrock, authenticated through your AWS profile.',
+  vertex: 'DeepSeek models on Google Vertex AI, authenticated with a service account.',
+  local: 'A server that needs no credentials, such as Ollama or LM Studio. No API key is sent.',
 }
 
 function hintFor(field?: Field): string {
@@ -19,14 +33,14 @@ function hintFor(field?: Field): string {
     case 'name': return 'Use a short name you will recognize, such as Work or Local.'
     case 'provider': return 'Enter cycles through supported provider types.'
     case 'model': return 'Optional. Leave empty to use this provider’s default model.'
-    case 'apiKey': return 'API key from your DeepSeek account.'
-    case 'baseURL': return 'Optional OpenAI-compatible API base URL.'
+    case 'apiKey': return 'API key from your DeepSeek account, or the key your OpenAI-compatible proxy expects.'
+    case 'baseURL': return 'Optional. Point at an OpenAI-compatible proxy; a host with no path is treated as /v1.'
     case 'awsRegion': return 'AWS Bedrock region, for example us-east-1.'
     case 'awsProfile': return 'Optional AWS CLI profile name; defaults to default.'
     case 'gcpProject': return 'Google Cloud project ID.'
     case 'gcpLocation': return 'Vertex AI location, for example us-central1.'
     case 'gcpCredentials': return 'Path to the service account JSON file.'
-    case 'localBaseUrl': return 'OpenAI-compatible endpoint, for example http://localhost:11434/v1.'
+    case 'localBaseUrl': return 'Endpoint that needs no credentials, for example http://localhost:11434/v1.'
     case 'localModel': return 'Optional model ID exposed by the local server.'
     default: return ''
   }
@@ -49,7 +63,7 @@ function profileProblem(profile: ProviderProfile): string | null {
   if (profile.provider === 'deepseek' && !profile.apiKey) return 'Add a DeepSeek API key before activation or testing'
   if (profile.provider === 'bedrock' && !profile.awsRegion) return 'Add an AWS region before activation or testing'
   if (profile.provider === 'vertex' && (!profile.gcpProject || !profile.gcpCredentials)) return 'Add a GCP project and service account path before activation or testing'
-  if (profile.provider === 'local' && !profile.localBaseUrl) return 'Add a local provider base URL before activation or testing'
+  if (profile.provider === 'local' && !profile.localBaseUrl) return 'Add a base URL before activation or testing'
   return null
 }
 
@@ -223,22 +237,33 @@ export default function ProviderProfiles({ theme, activeProfileId, onBack, onAct
       <Text dimColor>Credentials stay in ~/.deepseek/provider-profiles.json with private file permissions.</Text>
       {selectingProvider ? <Box flexDirection="column" marginTop={1}>
         {PROVIDERS.map((provider, i) => <Text key={provider} bold={i === providerIndex} color={i === providerIndex ? colors.primary : colors.text}>{i === providerIndex ? '› ' : '  '}{PROVIDER_LABELS[provider]}</Text>)}
+        <Text dimColor wrap="truncate-end">{PROVIDER_HINTS[PROVIDERS[providerIndex]!]}</Text>
       </Box> : draft ? <Box flexDirection="column" marginTop={1}>
-        {draftFields.map((field, i) => <Box key={field.key} justifyContent="space-between"><Text bold={i === fieldIndex} color={i === fieldIndex ? colors.primary : colors.text}>{i === fieldIndex ? '› ' : '  '}{field.label}</Text><Text color={i === fieldIndex ? colors.primary : colors.textDim}>{field.secret && !editing ? valueFor(draft, field) : i === fieldIndex && editing ? 'editing' : valueFor(draft, field)}</Text></Box>)}
-        <Text dimColor wrap="truncate-end">{hintFor(draftField)}</Text>
-        {editing && draftField ? <Box flexDirection="column" marginTop={1}><Text color={colors.primary}>{draftField.label}</Text><Text>{(draftField.secret ? '•'.repeat(input.length) || '…' : input || '…').slice(-(Math.max(12, width - 8)))}<Text color={colors.primary}>█</Text></Text><Text dimColor>Enter save field · Esc cancel field</Text></Box> : null}
-        <Text dimColor>Provider field cycles types · Enter edits · s saves · Esc cancels</Text>
+        {draftFields.map((field, i) => <Box key={field.key} justifyContent="space-between"><Text bold={i === fieldIndex} color={i === fieldIndex ? colors.primary : colors.text}>{i === fieldIndex ? '› ' : '  '}{field.label}</Text><Text color={i === fieldIndex ? colors.primary : colors.textDim} flexShrink={0} wrap="truncate-end">{`  ${field.secret && !editing ? valueFor(draft, field) : i === fieldIndex && editing ? 'editing' : valueFor(draft, field)}`}</Text></Box>)}
+        <Text dimColor wrap="truncate-end">{draftField?.key === 'provider' ? PROVIDER_HINTS[draft.provider] : hintFor(draftField)}</Text>
+        {/* While a field is open, 's' is a character being typed, not a
+            save key. Every hint about the surrounding form is therefore
+            wrong in this state, so the form's line steps aside for the
+            editor rather than stacking above it. */}
+        {editing && draftField
+          ? <Box flexDirection="column" marginTop={1}><Text color={colors.primary}>{draftField.label}</Text><Text>{(draftField.secret ? '•'.repeat(input.length) : input).slice(-(Math.max(12, width - 8)))}<Text color={colors.primary}>█</Text></Text></Box>
+          : <Box marginTop={1}><Text dimColor wrap="truncate-end">Provider field cycles types · Enter edits · s saves · Esc cancels</Text></Box>}
       </Box> : <Box marginTop={1} flexGrow={1}>
         <Box flexDirection="column" width={width < 72 ? Math.max(1, width - 2) : Math.min(38, Math.max(24, Math.floor(width * .42)))}>
           {start > 0 ? <Text dimColor>↑ {start} above</Text> : null}
-          {visible.map((profile, offset) => { const active = start + offset === index; return <Box key={profile.id} width="100%" justifyContent="space-between"><Text bold={active} color={active ? colors.primary : colors.text} wrap="truncate-end">{active ? '› ' : '  '}{profile.name}</Text><Text dimColor>{profile.id === selectedActiveId ? 'active' : PROVIDER_LABELS[profile.provider]}</Text></Box> })}
+          {visible.map((profile, offset) => { const active = start + offset === index; return <Box key={profile.id} width="100%" justifyContent="space-between"><Text bold={active} color={active ? colors.primary : colors.text} wrap="truncate-end">{active ? '› ' : '  '}{profile.name}</Text><Text dimColor flexShrink={0} wrap="truncate-end">{`  ${profile.id === selectedActiveId ? 'active' : PROVIDER_LABELS[profile.provider]}`}</Text></Box> })}
           {profiles.length === 0 ? <Text dimColor>No profiles yet · press n to add one</Text> : null}
           {start + visible.length < profiles.length ? <Text dimColor>↓ {profiles.length - start - visible.length} below</Text> : null}
         </Box>
         {width >= 72 && selected ? <Box flexDirection="column" flexGrow={1} paddingLeft={2}><Text bold>{selected.name}</Text><Text>Provider: {PROVIDER_LABELS[selected.provider]} · Model: {selected.model ?? selected.localModel ?? 'provider default'}</Text><Text dimColor>Endpoint: {selected.baseURL ?? selected.localBaseUrl ?? 'provider default'}</Text></Box> : null}
       </Box>}
-      <Text color={status.startsWith('Error') || status.includes('failed') ? colors.error : colors.textDim} wrap="truncate-end">{status}</Text>
-      <Text dimColor wrap="truncate-end">{selectingProvider ? '↑↓ choose provider · Enter continue · Esc cancel' : draft ? '↑↓ fields · Enter edit · s save · Esc cancel' : '↑↓ select · n new · e edit · a activate · t test · d delete · Esc back'}</Text>
+      {editing ? null : <Text color={status.startsWith('Error') || status.includes('failed') ? colors.error : colors.textDim} wrap="truncate-end">{status}</Text>}
+      <Text dimColor wrap="truncate-end">{
+        selectingProvider ? '↑↓ choose provider · Enter continue · Esc cancel'
+        : editing ? 'Enter save field · Esc cancel field'
+        : draft ? '↑↓ fields · Enter edit · s save · Esc cancel'
+        : '↑↓ select · n new · e edit · a activate · t test · d delete · Esc back'
+      }</Text>
     </Box>
   )
 }
