@@ -95,6 +95,22 @@ describe('SettingsRepository', () => {
     expect(validateSettings({ interaction: { defaultMode: 'auto' } }, 'project')[0]?.message).toContain('User scope')
   })
 
+  it('keeps provider profile selection user-scoped', async () => {
+    const cwd = await project()
+    const fakeHome = await project()
+    const homedirSpy = spyOn(os, 'homedir').mockReturnValue(fakeHome)
+    try {
+      const repository = new SettingsRepository(cwd)
+      await repository.set('project', 'provider.activeProfileId', 'project-profile')
+      await repository.set('local', 'provider.activeProfileId', 'local-profile')
+      await repository.set('user', 'provider.activeProfileId', 'user-profile')
+
+      const snapshot = await repository.reload()
+      expect(snapshot.effective.provider?.activeProfileId).toBe('user-profile')
+      expect(snapshot.issues.filter(issue => issue.path === 'provider.activeProfileId').length).toBeGreaterThanOrEqual(2)
+    } finally { homedirSpy.mockRestore() }
+  })
+
   it('reports legacy values as explicit overrides over defaults', async () => {
     const snapshot = await loadSettingsSnapshot(await project())
     for (const level of ['user', 'project', 'local'] as const) {

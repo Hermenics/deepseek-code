@@ -5,10 +5,9 @@ import { dirname, join } from 'path'
 import useInput from '../../ink/hooks/use-input.js'
 import type { Key } from '../../ink/events/input-event.js'
 import { invalidateInkFrame, withInkPaused } from '../../ink/root.js'
-import type { ThemeName } from '../../types/provider.js'
+import type { ProviderConfig, ThemeName } from '../../types/provider.js'
 import type { DeepSeekSettings, SettingOrigin, SettingsLevel, SettingsSnapshot } from '../../settings/types.js'
 import { DEFAULT_SETTINGS, SettingsRepository, getCredentialsPath, resolveSetting } from '../../settings/repository.js'
-import { loadFullConfig, saveFullConfig } from '../../utils/credentials.js'
 import { loadMemory } from '../../agent/memory.js'
 import { listSessions } from '../../agent/session.js'
 import { getThemeColors } from '../theme.js'
@@ -19,8 +18,10 @@ import AgentLibrary from './AgentLibrary.js'
 import HookLibrary from './HookLibrary.js'
 import { editPromptMarkdown } from './promptEditor.js'
 import { resolvePermission } from '../../permissions/index.js'
+import ProviderProfiles from './ProviderProfiles.js'
+import type { ProviderProfile } from '../../utils/providerProfiles.js'
 
-type Kind = 'boolean' | 'enum' | 'number' | 'text' | 'list' | 'json' | 'secret' | 'action'
+type Kind = 'boolean' | 'enum' | 'number' | 'text' | 'list' | 'json' | 'action'
 
 interface SettingDefinition {
   path: string
@@ -28,10 +29,9 @@ interface SettingDefinition {
   description: string
   kind: Kind
   options?: string[]
-  credentialKey?: string
   aliases?: string[]
   restart?: boolean
-  action?: 'test-provider' | 'preview-refiner' | 'preview-permission' | 'agents' | 'permissions-help' | 'clear-approvals' | 'hooks' | 'clear-memory' | 'clear-sessions-project' | 'clear-sessions-global' | 'reload' | 'open-scope' | 'open-credentials' | 'export' | 'reset-scope' | 'diagnostics'
+  action?: 'provider-profiles' | 'test-provider' | 'preview-refiner' | 'preview-permission' | 'agents' | 'permissions-help' | 'clear-approvals' | 'hooks' | 'clear-memory' | 'clear-sessions-project' | 'clear-sessions-global' | 'reload' | 'open-scope' | 'open-credentials' | 'export' | 'reset-scope' | 'diagnostics'
 }
 
 const MODEL_SETTING_PATHS = new Set(['model.default', 'promptRefiner.model', 'agents.subagentModel'])
@@ -46,18 +46,11 @@ interface Category {
 
 const CATEGORIES: Category[] = [
   {
-    id: 'provider', label: 'Provider & Model', short: 'Provider', description: 'Backend, endpoints, credentials and model defaults.',
+    id: 'provider', label: 'Provider & Model', short: 'Provider', description: 'Named provider connections and model defaults.',
     items: [
-      { path: 'provider.name', label: 'Provider', description: 'DeepSeek API, AWS Bedrock, Google Vertex AI or a local OpenAI-compatible server. Project-scope values are ignored.', kind: 'enum', options: ['deepseek', 'bedrock', 'vertex', 'local'], restart: true, aliases: ['backend'] },
-      { path: 'model.default', label: 'Default model', description: 'Model used by the primary agent. Applies immediately when compatible with this provider.', kind: 'enum', aliases: ['llm'] },
-      { path: 'provider.endpoint', label: 'Endpoint', description: 'Optional API base URL. Project-scope values are ignored so saved credentials cannot follow a repository endpoint.', kind: 'text', restart: true, aliases: ['base url'] },
+      { path: '$action.provider-profiles', label: 'Provider profiles', description: 'Add, edit, test and switch between private named provider configurations.', kind: 'action', action: 'provider-profiles' },
+      { path: 'model.default', label: 'Legacy default model', description: 'Model fallback for configurations that do not use a saved provider profile. Set a preferred model on each profile instead.', kind: 'enum', aliases: ['llm'] },
       { path: 'provider.timeoutMs', label: 'Connection timeout', description: 'Maximum provider request time in milliseconds.', kind: 'number' },
-      { path: 'provider.region', label: 'AWS region', description: 'AWS Bedrock region.', kind: 'text', restart: true },
-      { path: 'provider.profile', label: 'AWS profile', description: 'Named AWS credentials profile.', kind: 'text', restart: true },
-      { path: 'provider.projectId', label: 'GCP project', description: 'Google Cloud project for Vertex AI.', kind: 'text', restart: true },
-      { path: 'provider.location', label: 'GCP location', description: 'Vertex AI region, such as us-central1.', kind: 'text', restart: true },
-      { path: '$secret.DEEPSEEK_API_KEY', credentialKey: 'DEEPSEEK_API_KEY', label: 'DeepSeek API key', description: 'Stored only in ~/.deepseek/config.json. Enter replaces it; Backspace on an empty editor removes it.', kind: 'secret' },
-      { path: '$secret.GCP_CREDENTIALS', credentialKey: 'GCP_CREDENTIALS', label: 'GCP credentials', description: 'Path or credential value stored only in the credentials file.', kind: 'secret' },
       { path: '$action.test-provider', label: 'Test connection', description: 'Checks latency and asks the active provider for available models.', kind: 'action', action: 'test-provider' },
     ],
   },
@@ -222,7 +215,9 @@ interface ConfigMenuProps {
   onClose(): void
   onThemeChange?(t: ThemeName): void
   onSettingsChanged?(settings: DeepSeekSettings, snapshot: SettingsSnapshot): void | Promise<void>
-  onTestConnection?(settings: DeepSeekSettings, credentials: Record<string, string>): Promise<string[]>
+  onTestConnection?(): Promise<string[]>
+  onActivateProviderProfile?(profile: ProviderProfile): Promise<'active' | 'queued'>
+  onTestProviderProfile?(profile: ProviderConfig): Promise<string[]>
   onClearApprovals?(): void
   onPermissionsHelp?(): string
   onPreviewRefiner?(prompt: string): Promise<string>
@@ -255,7 +250,6 @@ export function getNextSettingOption(current: unknown, options: string[]): strin
 export default function ConfigMenu(props: ConfigMenuProps) {
   const [repository] = useState(() => new SettingsRepository())
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null)
-  const [credentials, setCredentials] = useState<Record<string, string>>({})
   const [scope, setScope] = useState<SettingsLevel>('user')
   const [categoryIndex, setCategoryIndex] = useState(0)
   const [itemIndex, setItemIndex] = useState(0)
@@ -269,7 +263,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
   const [busy, setBusy] = useState(false)
   const [apiModels, setApiModels] = useState<string[]>([])
   const [confirmAction, setConfirmAction] = useState<'reset-scope' | 'clear-memory' | 'clear-sessions-project' | 'clear-sessions-global' | null>(null)
-  const [library, setLibrary] = useState<'agents' | 'hooks' | null>(null)
+  const [library, setLibrary] = useState<'agents' | 'hooks' | 'profiles' | null>(null)
   const firstPaint = useRef(true)
 
   const width = process.stdout.columns || 80
@@ -280,9 +274,8 @@ export default function ConfigMenu(props: ConfigMenuProps) {
   const reload = async (message = 'Settings reloaded') => {
     setBusy(true)
     try {
-      const [next, nextCredentials] = await Promise.all([repository.reload(), loadFullConfig()])
+      const next = await repository.reload()
       setSnapshot(next)
-      setCredentials(nextCredentials)
       await props.onSettingsChanged?.(next.effective, next)
       setStatus(message)
     } catch (error) {
@@ -314,7 +307,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
   const category = filtered[Math.min(categoryIndex, Math.max(0, filtered.length - 1))]
   const item = category?.items[Math.min(itemIndex, Math.max(0, category.items.length - 1))]
   const effectiveValue = item && snapshot
-    ? item.kind === 'secret' ? credentials[item.credentialKey!] : valueAt(snapshot.effective, item.path)
+    ? valueAt(snapshot.effective, item.path)
     : undefined
 
   const saveValue = async (definition: SettingDefinition, raw: string) => {
@@ -329,13 +322,6 @@ export default function ConfigMenu(props: ConfigMenuProps) {
         if (separator >= 0 && raw.slice(separator + 1).trim()) args = JSON.parse(raw.slice(separator + 1)) as Record<string, unknown>
         const decision = resolvePermission(snapshot?.effective.permissions, tool, args)
         setStatus(`Permission preview · ${tool}: ${decision.toUpperCase()}`)
-      } else if (definition.kind === 'secret') {
-        const next = { ...credentials }
-        if (raw) next[definition.credentialKey!] = raw
-        else delete next[definition.credentialKey!]
-        await saveFullConfig(next)
-        setCredentials(next)
-        setStatus(raw ? 'Credential replaced' : 'Credential removed')
       } else {
         let value: unknown = raw
         if (definition.kind === 'boolean') value = raw === 'true'
@@ -383,7 +369,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
         setBusy(true)
         const started = Date.now()
         try {
-          const models = await props.onTestConnection(snapshot!.effective, credentials)
+          const models = await props.onTestConnection()
           setApiModels(models)
           setStatus(`Connected in ${Date.now() - started}ms · ${models.length} model${models.length === 1 ? '' : 's'} found`)
         } catch (error) { setStatus(`Connection failed: ${(error as Error).message}`) }
@@ -433,6 +419,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
       case 'clear-sessions-global': setConfirmAction('clear-sessions-global'); setStatus('Press y to delete ALL saved sessions, or n to cancel'); break
       case 'agents': setLibrary('agents'); break
       case 'hooks': setLibrary('hooks'); break
+      case 'provider-profiles': setLibrary('profiles'); break
       default: setStatus('Unknown settings action')
     } } catch (error) { setStatus(`Error: ${(error as Error).message}`) }
   }
@@ -461,7 +448,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
         if (!models.length) {
           setBusy(true)
           setStatus('Loading provider models…')
-          try { models = await props.onTestConnection?.(snapshot.effective, credentials) ?? [] }
+          try { models = await props.onTestConnection?.() ?? [] }
           catch (error) { setStatus(`Model list failed: ${(error as Error).message}`); return }
           finally { setBusy(false) }
           if (!models.length) { setStatus('No models found · check Provider › Test connection'); return }
@@ -473,8 +460,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
       return
     }
     setEditing(definition)
-    if (definition.kind === 'secret') setEditorValue('')
-    else if (definition.kind === 'json') setEditorValue(effectiveValue ? JSON.stringify(effectiveValue) : '[]')
+    if (definition.kind === 'json') setEditorValue(effectiveValue ? JSON.stringify(effectiveValue) : '[]')
     else setEditorValue(Array.isArray(effectiveValue) ? effectiveValue.join(', ') : effectiveValue === undefined ? '' : String(effectiveValue))
   }
 
@@ -611,9 +597,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
         {itemWindow.values.map((entry, offset) => {
           const index = itemWindow.start + offset
           const selected = index === itemIndex && (layout === 'narrow' ? narrowPage === 'items' : focus === 'items')
-          const value = entry.kind === 'secret'
-            ? (credentials[entry.credentialKey!] ? '••••••••' : 'not set')
-            : entry.kind === 'action' ? 'open'
+          const value = entry.kind === 'action' ? 'open'
             : entry.path === 'interface.subagentStatusLine' && scope !== 'user' ? 'ignored'
             : displayValue(snapshot ? valueAt(snapshot.effective, entry.path) : undefined)
           return (
@@ -634,8 +618,8 @@ export default function ConfigMenu(props: ConfigMenuProps) {
       <Box marginTop={layout === 'medium' ? 0 : 1}><Text wrap={layout === 'medium' ? 'truncate-end' : 'wrap'}>{item.description}</Text></Box>
       <Box marginTop={layout === 'medium' ? 0 : 1} flexDirection="column">
         {statusLineRestricted ? <Text color={colors.warning}>Ignored outside User scope · only a User value can be active</Text> : resolution ? <Text dimColor>{layout === 'narrow'
-          ? `Effective: ${item.kind === 'secret' ? (effectiveValue ? '•••••••• configured' : 'not configured') : displayValue(effectiveValue)} · ${scope}${scopeValue === undefined ? ' inherited' : ' override'}`
-          : `Effective: ${item.kind === 'secret' ? (effectiveValue ? '•••••••• configured' : 'not configured') : displayValue(effectiveValue)} · Origin: ${origin} · editing: ${scope}${scopeValue === undefined ? ' (inherited)' : ' (override)'}`}</Text> : <Text dimColor>{`Effective: ${item.kind === 'secret' ? (effectiveValue ? '•••••••• configured' : 'not configured') : displayValue(effectiveValue)}`}</Text>}
+          ? `Effective: ${displayValue(effectiveValue)} · ${scope}${scopeValue === undefined ? ' inherited' : ' override'}`
+          : `Effective: ${displayValue(effectiveValue)} · Origin: ${origin} · editing: ${scope}${scopeValue === undefined ? ' (inherited)' : ' (override)'}`}</Text> : <Text dimColor>{`Effective: ${displayValue(effectiveValue)}`}</Text>}
         {layout !== 'medium' && defaultValue !== undefined ? <Text dimColor>Default: {displayValue(defaultValue)}</Text> : null}
         {layout !== 'medium' && resolution && resolution.overrides.length > 1 ? <Text dimColor>Chain: {resolution.overrides.map(entry => entry.level).join(' → ')}</Text> : null}
         {statusLineRestricted ? null : item.restart ? <Text color={colors.warning}>△ Applies next session</Text> : item.kind !== 'action' ? <Text color={colors.success}>✓ Applies immediately</Text> : null}
@@ -654,8 +638,8 @@ export default function ConfigMenu(props: ConfigMenuProps) {
     <Box flexDirection="column" flexShrink={0}>
       {editing ? (
         <Box flexDirection="column">
-          <Text color={colors.primary}>{editing.kind === 'secret' ? 'New secret (hidden)' : `Edit ${editing.label}`}</Text>
-          <Text>{editing.kind === 'secret' ? '•'.repeat(editorValue.length) || '…' : editorValue || '…'}<Text color={colors.primary}>█</Text></Text>
+          <Text color={colors.primary}>{`Edit ${editing.label}`}</Text>
+          <Text>{editorValue || '…'}<Text color={colors.primary}>█</Text></Text>
           <Text dimColor>Enter save · Esc cancel</Text>
         </Box>
       ) : (
@@ -672,6 +656,21 @@ export default function ConfigMenu(props: ConfigMenuProps) {
   }
   if (library === 'hooks') {
     return <HookLibrary scope={scope} theme={props.currentTheme} onBack={() => { setLibrary(null); void reload('Hooks reloaded') }} />
+  }
+  if (library === 'profiles') {
+    return <ProviderProfiles
+      theme={props.currentTheme}
+      activeProfileId={snapshot?.effective.provider?.activeProfileId}
+      onBack={() => { setLibrary(null); void reload('Provider profiles reloaded') }}
+      onActivate={async profile => {
+        if (!props.onActivateProviderProfile) throw new Error('Provider switching is unavailable')
+        return props.onActivateProviderProfile(profile)
+      }}
+      onTest={async profile => {
+        if (!props.onTestProviderProfile) throw new Error('Provider connection test is unavailable')
+        return props.onTestProviderProfile(profile)
+      }}
+    />
   }
 
   return (

@@ -48,6 +48,8 @@ export interface PermissionsConfig {
 
 export interface ProviderSettings {
   name?: ProviderName
+  /** User-scoped id of the selected private provider profile. */
+  activeProfileId?: string
   endpoint?: string
   region?: string
   profile?: string

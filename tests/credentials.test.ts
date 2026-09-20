@@ -6,6 +6,7 @@ import {
   loadFullConfig,
   saveFullConfig,
   migrateConfigIfNeeded,
+  logout,
 } from '../src/utils/credentials'
 
 let tempDir: string
@@ -135,5 +136,19 @@ describe('migrateConfigIfNeeded', () => {
 
     const exists = await Bun.file(configPath).exists()
     expect(exists).toBe(false)
+  })
+})
+
+describe('logout', () => {
+  it('removes the private provider profile store with the legacy credentials', async () => {
+    const profilePath = join(configDir, 'provider-profiles.json')
+    await Bun.write(configPath, '{}')
+    await Bun.write(profilePath, '{"version":1,"profiles":[]}')
+
+    const deleted = await logout(configPath)
+
+    expect(deleted).toContain(configPath)
+    expect(deleted).toContain(profilePath)
+    expect(await Bun.file(profilePath).exists()).toBe(false)
   })
 })
