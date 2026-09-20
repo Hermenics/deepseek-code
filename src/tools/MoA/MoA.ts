@@ -1,6 +1,7 @@
 import type { Tool, ToolCallbacks } from '../types.js'
 import { executeMoA } from './executor.js'
 import { DEFAULT_MOA_CONFIG } from './defaults.js'
+import { budgetProfile, moaPanelSize } from '../../settings/budget.js'
 import type { MoAConfig, MoAExecutionError, MoACallbacks, MoALayerResult, MoAReferenceModel } from './types.js'
 
 function progressArgs(stage: string, values: Record<string, unknown> = {}): Record<string, unknown> {
@@ -64,9 +65,23 @@ export const MoATool: Tool = {
     const refModelsOverride = args.referenceModels as MoAReferenceModel[] | undefined
     const aggModelOverride = args.aggregatorModel as string | undefined
 
+    // One query here is one call per reference model plus the aggregator,
+    // which makes it the most expensive thing a single turn can do. The
+    // budget level decides how wide the panel gets, and at the cheapest
+    // level the tool says no out loud rather than quietly answering with
+    // one model under a name that promises several.
+    const budget = context?.session?.runtimeSnapshot().settings.budget
+    const requested = refModelsOverride ?? DEFAULT_MOA_CONFIG.referenceModels
+    const panel = moaPanelSize(budget, requested.length)
+    if (panel === 0) {
+      throw new Error(
+        `Mixture-of-agents is off at the "${budgetProfile(budget).label}" budget level, because it costs one model call per reference plus the aggregator. Raise the level in /config, or ask a single model directly.`,
+      )
+    }
+
     const config: MoAConfig = {
       ...DEFAULT_MOA_CONFIG,
-      ...(refModelsOverride ? { referenceModels: refModelsOverride } : {}),
+      referenceModels: requested.slice(0, panel),
       aggregator: aggModelOverride
         ? { ...DEFAULT_MOA_CONFIG.aggregator, model: aggModelOverride }
         : DEFAULT_MOA_CONFIG.aggregator,

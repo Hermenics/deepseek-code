@@ -17,6 +17,7 @@ import { loadSteering, loadDeepSeekMd, loadAgentsMd } from './steering.js'
 import { setSessionRetention } from './session.js'
 import { loadMergedSettings } from '../settings/index.js'
 import type { DeepSeekSettings } from '../settings/types.js'
+import { budgetProfile, isBudgetLevel } from '../settings/budget.js'
 import type { EffortLevel } from '../commands/types.js'
 import { createLLMClient, defaultModel } from './llmClient.js'
 import { listBedrockDeepSeekModels, modelSupportsChatCompletions } from './providers/bedrock.js'
@@ -538,6 +539,12 @@ export class Agent {
   private allowedTools: string[] | '*' | null = null
   public interactionMode: InteractionMode = DEFAULT_MODE
   public effortLevel: EffortLevel = 'high'
+  /**
+   * Set once `/effort` is used. After that the budget level stops steering
+   * effort: choosing a level describes a wallet, not a decision to undo one
+   * the person made out loud this session.
+   */
+  private effortPinnedByUser = false
   private currentLanguage: string | null = null
   public settings: DeepSeekSettings = {}
   private compactState: CompactState = createCompactState()
@@ -788,6 +795,12 @@ export class Agent {
       this.systemPrompt = this.baseSystemPrompt
       this.baseSystemPrompt = this.systemPrompt
       this.messages = this.createSeedMessages()
+      // After the prompt and the seed messages exist, not before. This
+      // appends the effort guidance to the system prompt and rebuilds the
+      // message list around it, so running it earlier writes into a prompt
+      // that the two lines above then overwrite: the API parameters would
+      // still follow the level while the text explaining it had vanished.
+      this.applyBudgetEffort(settings)
 
       await runClaudeHookEvent(settings.hooks as HooksConfig, 'Setup', this.hookSessionId, {
         cwd: this.workspacePath, model: this.model, trigger: 'init',
@@ -1033,7 +1046,14 @@ export class Agent {
   }
 
   async applySettings(settings: DeepSeekSettings): Promise<void> {
+    // Construction starts a settings load of its own. Without this wait it
+    // can land after an explicit applySettings and quietly put the old
+    // values back — the caller sees a setting revert seconds after start,
+    // only sometimes, depending on who wins a disk read. Every other public
+    // mutator here already waits; this one was the gap.
+    await this.readyPromise
     this.settings = settings
+    this.applyBudgetEffort(settings)
     this.autoCompactConfig = createAutoCompactConfig(settings, CONTEXT_COMPACT_THRESHOLD)
     const configuredModel = typeof settings.model === 'string' ? settings.model : settings.model?.default
     if (configuredModel && !this.providerConfig.profileId && !this.providerConfig.model && !this.providerConfig.localModel) this.setModel(configuredModel as Model)
@@ -1419,6 +1439,21 @@ export class Agent {
   }
 
   setEffortLevel(level: EffortLevel): void {
+    this.effortPinnedByUser = true
+    this.effortLevel = level
+    this.rebuildSystemPromptEffort()
+  }
+
+  /**
+   * Thinking depth follows the budget level, because it is the single
+   * largest thing a session spends on itself: at the cheapest level the
+   * provider is told not to think at all, and the output ceiling drops with
+   * it. An explicit `/effort` outranks this.
+   */
+  private applyBudgetEffort(settings: DeepSeekSettings): void {
+    if (this.effortPinnedByUser) return
+    const level = budgetProfile(isBudgetLevel(settings.budget) ? settings.budget : undefined).effort
+    if (level === this.effortLevel) return
     this.effortLevel = level
     this.rebuildSystemPromptEffort()
   }

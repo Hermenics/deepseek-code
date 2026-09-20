@@ -178,7 +178,7 @@ export default function AgentLibrary({ scope, theme, onBack, onChanged }: Props)
           <Box marginTop={1} flexDirection="column"><Text dimColor>Protected protocol</Text><Text color={colors.textDim}>summary · confidence · filesRead · filesChanged · issuesFound · suggestions · metadata</Text></Box>
         </Box> : <Text dimColor>No agents match these filters.</Text>}
       </Box>
-      {promptMode ? <Box flexDirection="column"><Text color={colors.primary}>{status}</Text><Text>{input || '…'}<Text color={colors.primary}>█</Text></Text><Text dimColor>Enter save · Esc cancel</Text></Box> : <><Text color={status.startsWith('Error') ? colors.error : colors.textDim} wrap="truncate-end">{status}</Text><Text dimColor>↑↓ navigate · n new · e JSON · p prompt · c copy · d disable/delete · r restore · Esc back</Text></>}
+      {promptMode ? <Box flexDirection="column"><Text color={colors.primary}>{status}</Text><Text>{input}<Text color={colors.primary}>█</Text></Text><Text dimColor>Enter save · Esc cancel</Text></Box> : <><Text color={status.startsWith('Error') ? colors.error : colors.textDim} wrap="truncate-end">{status}</Text><Text dimColor>↑↓ navigate · n new · e JSON · p prompt · c copy · d disable/delete · r restore · Esc back</Text></>}
     </Box>
   )
 }

@@ -43,33 +43,20 @@ export function getToolsForRole(role: SubAgentRole, tools: Tool[]): Tool[] {
 }
 
 /**
- * Infer the narrowest role justified by the task description.
- * Ambiguous delegation stays read-only; execution must be explicit.
+ * The role a delegation gets when the caller names none.
+ *
+ * This used to be inferred by matching keywords against the task description,
+ * which decided a privilege boundary by reading prose that the model itself
+ * usually wrote. It failed in both directions: "check if the build passes"
+ * matched both the read list and the execute list and came out `executor`,
+ * while "fix the typo" matched no write keyword at all and came out `reader`,
+ * leaving the agent unable to do the one thing it was asked to do.
+ *
+ * A privilege is now something a caller states. Omitting it is not a hint to
+ * be interpreted, it is the absence of a request, and the answer to that is
+ * the narrowest role.
  */
-export function inferRole(task: string): SubAgentRole {
-  const lower = task.toLowerCase()
-
-  // Read-only patterns
-  if (/\b(read|analyze|inspect|list|find|search|check|look|review|audit|summarize|count)\b/.test(lower) &&
-      !/\b(write|create|fix|update|modify|change|refactor|delete|run|execute|install|build)\b/.test(lower)) {
-    // If it mentions review/audit specifically, use reviewer (even more restricted)
-    if (/\b(review|audit|check for)\b/.test(lower)) return 'reviewer'
-    return 'reader'
-  }
-
-  // Write patterns without shell execution
-  if (/\b(write|create|add|update|modify|refactor|rename)\b/.test(lower) &&
-      !/\b(run|execute|install|build|test|deploy|npm|pip|cargo)\b/.test(lower)) {
-    return 'writer'
-  }
-
-  if (/\b(run|execute|install|build|test|deploy|npm|bun|pnpm|yarn|pip|cargo)\b/.test(lower)) {
-    return 'executor'
-  }
-
-  // Ambiguous delegation starts read-only; writers must be explicit.
-  return 'reader'
-}
+export const DEFAULT_SUBAGENT_ROLE: SubAgentRole = 'reader'
 
 /**
  * Human-readable description of what a role can do.

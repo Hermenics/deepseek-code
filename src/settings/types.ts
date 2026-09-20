@@ -1,5 +1,6 @@
 import type { HooksConfig } from '../hooks/types.js'
 import type { RiskConfig } from '../permissions/types.js'
+import type { BudgetLevel } from './budget.js'
 import type { ProviderName, ThemeName } from '../types/provider.js'
 import type { InteractionMode } from '../ui/interactionMode.js'
 
@@ -102,6 +103,13 @@ export interface AgentsSettings {
   retryBackoffMs?: number
   maxTokens?: number
   maxCostUsd?: number
+  /**
+   * Shell command a subagent's changes must survive, e.g. `bun run typecheck`.
+   * Runs in the subagent's workspace whenever it changed a file, and a
+   * non-zero exit refutes the result before any model reviews it. Unset
+   * means the project is never built or tested as part of verification.
+   */
+  verifyCommand?: string
 }
 
 export interface MemorySettings {
@@ -184,6 +192,12 @@ export interface InterfaceSettings {
 }
 
 export interface DeepSeekSettings {
+  /**
+   * How much the session may spend on itself. Moves several cost knobs at
+   * once, and always from below: anything set explicitly in a settings file
+   * still wins. See settings/budget.ts for the table.
+   */
+  budget?: BudgetLevel
   provider?: ProviderSettings
   model?: string | ModelSettings
   interaction?: InteractionSettings

@@ -21,7 +21,7 @@ export const PROVIDERS: { label: string; value: ProviderName; hint: string }[] =
   { value: 'deepseek', label: 'DeepSeek API',          hint: 'platform.deepseek.com/api_keys' },
   { value: 'bedrock',  label: 'Amazon Bedrock',         hint: 'AWS profile from ~/.aws/credentials' },
   { value: 'vertex',   label: 'Google Vertex AI',       hint: 'GCP project + service account JSON' },
-  { value: 'local',    label: 'Local model (Ollama / LM Studio)', hint: 'Any OpenAI-compatible endpoint' },
+  { value: 'local',    label: 'Local model, no API key (Ollama / LM Studio)', hint: 'Sends no credentials. A proxy that authenticates needs DeepSeek API with a Base URL' },
 ]
 
 const THEMES: { label: string; value: ThemeName }[] = [

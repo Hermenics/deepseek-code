@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'crypto'
+import { BUDGET_LEVELS, budgetProfile, DEFAULT_BUDGET_LEVEL, isBudgetLevel } from './budget.js'
 import { mkdir, readFile, rename, rm, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import { homedir } from 'os'
@@ -15,6 +16,7 @@ import type {
 const LEVELS: SettingsLevel[] = ['user', 'project', 'local']
 
 export const DEFAULT_SETTINGS: DeepSeekSettings = {
+  budget: DEFAULT_BUDGET_LEVEL,
   provider: { name: 'deepseek', timeoutMs: 30_000 },
   interaction: { defaultMode: 'build' },
   compaction: { enabled: true, threshold: 0.9 },
@@ -53,7 +55,7 @@ export const DEFAULT_SETTINGS: DeepSeekSettings = {
 const KNOWN_TOP_LEVEL = new Set([
   'provider', 'model', 'interaction', 'compaction', 'promptRefiner',
   'permissions', 'risk', 'agents', 'memory', 'sessions', 'git', 'lsp', 'mcp', 'interface',
-  'hooks', 'goal', 'workflows', 'keybindings', 'theme', 'language', 'autoCompact', 'autoCompactThreshold',
+  'hooks', 'goal', 'workflows', 'keybindings', 'budget', 'theme', 'language', 'autoCompact', 'autoCompactThreshold',
 ])
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -280,6 +282,8 @@ export function validateSettings(settings: DeepSeekSettings, level?: SettingsLev
       add(`${path}.${action}`, 'Must be a non-empty key string, a non-empty array of key strings, or null')
     }
   }
+  const budget = settings.budget as unknown
+  if (budget !== undefined && !isBudgetLevel(budget)) add('budget', `Must be one of ${BUDGET_LEVELS.join(', ')}`)
   const threshold = settings.compaction?.threshold
   if (threshold !== undefined && (typeof threshold !== 'number' || threshold < 0.7 || threshold > 0.95)) add('compaction.threshold', 'Must be between 0.70 and 0.95')
   const concurrency = settings.agents?.concurrency
@@ -435,7 +439,13 @@ export async function loadSettingsSnapshot(cwd?: string): Promise<SettingsSnapsh
   const safeProject = safeScopedLevel(levels.project.data, 'project')
   const safeLocal = safeScopedLevel(levels.local.data, 'local')
   const mergeLevels = [legacy, levels.user.data, safeProject, safeLocal]
-  const effective = legacyCompatibility(mergeSettings(DEFAULT_SETTINGS, ...mergeLevels))
+  // The budget level is resolved first so its profile can be laid down
+  // between the defaults and the user's files. Underneath, never on top:
+  // a limit someone wrote by hand outranks a mood setting, and picking
+  // "I'm broke" must not quietly discard it.
+  const chosenBudget = mergeSettings(DEFAULT_SETTINGS, ...mergeLevels).budget
+  const budgetLayer = budgetProfile(isBudgetLevel(chosenBudget) ? chosenBudget : undefined).settings
+  const effective = legacyCompatibility(mergeSettings(DEFAULT_SETTINGS, budgetLayer, ...mergeLevels))
   applyPermissionSuppressions(mergeLevels, effective)
   normalizeHooks(effective)
   const origins = collectOrigins(levels)

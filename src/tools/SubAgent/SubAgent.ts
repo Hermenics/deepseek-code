@@ -12,7 +12,9 @@ import { loadMergedSettings } from '../../settings/loader.js'
 import { runSubAgentLoop } from './executor.js'
 import { formatResultForParent, StructuredOutputError, validateSubAgentResult, type SubAgentResult } from './contracts.js'
 import { buildVerifierPrompt, formatVerificationForUser, shouldVerify, validateVerificationResult, type VerificationResult } from './verification.js'
-import { describeRole, getToolNamesForProfile, getToolsForRole, inferRole, type SubAgentRole } from './permissions.js'
+import { DEFAULT_SUBAGENT_ROLE, describeRole, getToolNamesForProfile, getToolsForRole, type SubAgentRole } from './permissions.js'
+import { dirtyPaths, groundResult } from './grounding.js'
+import { verifierAllowed, verifierForced } from '../../settings/budget.js'
 import { runClaudeHookEvent, runSubagentStartHooks, runSubagentStopHooks } from '../../hooks/lifecycle.js'
 
 export interface SubAgentCallbacks {
@@ -166,7 +168,7 @@ async function spawnAgentTask(
   const selected = loaded?.config
   const genericName = selected ? undefined : session.nextGenericAgentName()
   const agentName = selected?.name ?? genericName
-  const role = selected?.role ?? (args.role as SubAgentRole | undefined) ?? inferRole(task)
+  const role = selected?.role ?? (args.role as SubAgentRole | undefined) ?? DEFAULT_SUBAGENT_ROLE
   const profile = roleProfile(role, selected)
   const parent = context?.taskId ? session.registry.getStatus(context.taskId) : undefined
   const allowedTools = effectiveToolAllowlist(profile, selected?.tools, parent)
@@ -209,6 +211,10 @@ async function spawnAgentTask(
     metadata: { origin, task: typeof args.label === 'string' ? args.label : task, prompt: task, agentName, role, model: modelName },
   }, async runContext => {
     const lease = await session.acquireWorkspace(runContext.taskId, profile, runContext.signal)
+    // Captured before the agent runs: whatever is already dirty here is not
+    // its doing, and without this every pre-existing edit reads as an
+    // undeclared write.
+    const dirtyBefore = await dirtyPaths(lease.workspace.path, runContext.signal)
     const toolContext = session.toolContext({
       taskId: runContext.taskId, workspacePath: lease.workspace.path, workspaceIsolation: lease.workspace.isolation, signal: runContext.signal,
       permissionProfile: profile, allowedTools: session.registry.getStatus(runContext.taskId).allowedTools,
@@ -276,31 +282,72 @@ async function spawnAgentTask(
       runContext.setPartial(structured)
       let verification: VerificationResult | undefined
       let verifierTokens = 0
-      if (!workflowTerminal && shouldVerify(task, structured as SubAgentResult, args.verify as boolean | undefined)) {
-        try {
-          const verifierPrompt = buildVerifierPrompt(task, structured as SubAgentResult)
-          const verifierAllowedTools = effectiveToolAllowlist('researcher-readonly', undefined, parent)
-          const verifier = await runSubAgentLoop<VerificationResult>(
-            verifierPrompt.systemPrompt, verifierPrompt.userPayload, `${runContext.taskId}-v`,
-            getToolsForRole('reviewer', available), runtime.providerConfig, modelName,
-            {
-              context: { ...toolContext, permissionProfile: 'researcher-readonly', allowedTools: verifierAllowedTools },
-              terminal: {
-                name: 'submit_verification', description: 'Submit the independent verification classification.',
-                schema: VERIFICATION_RESULT_SCHEMA, maxValidationRetries: 1, transform: validateVerificationResult,
-              },
-            },
+      if (!workflowTerminal) {
+        // Unconditional, and that is the whole point. These checks exist to
+        // catch the agent that edited a file it never mentioned, so gating
+        // them on the same self-reported fields would let exactly that
+        // agent opt out: report nothing changed, nothing found, high
+        // confidence, and the one check that could contradict you never
+        // runs. They cost no tokens, share no blind spot with the model,
+        // and can refute on their own — so nothing above decides whether
+        // they happen.
+        const grounding = await groundResult({
+          workspace: lease.workspace.path,
+          baseline: dirtyBefore,
+          result: structured as SubAgentResult,
+          verifyCommand: settings.agents?.verifyCommand,
+          signal: runContext.signal,
+        })
+        if (grounding.refuted) {
+          throw new TaskRuntimeError(
+            'VERIFICATION_REFUTED',
+            `[Verification: REFUTED] ${grounding.issues.join('; ')}${grounding.evidence.length > 0 ? ` — ${grounding.evidence.join(' ')}` : ''}`,
+            false,
           )
-          verification = verifier.terminalResult!
-          verifierTokens = verifier.totalTokens
-        } catch (error) {
-          throw new TaskRuntimeError('VERIFICATION_INCONCLUSIVE', `Verifier failed: ${(error as Error).message}`, false)
         }
-        if (!verification.verified) {
-          const code = verification.status === 'REFUTED' ? 'VERIFICATION_REFUTED' : 'VERIFICATION_INCONCLUSIVE'
-          throw new TaskRuntimeError(code, formatVerificationForUser(verification), false)
+        // Paying a second model to review the first one is the expensive
+        // half, and the only half anything gets to decline. Risk decides
+        // whether it is worth asking; the budget decides whether it can be
+        // afforded; asking explicitly overrules both.
+        const worthReviewing = shouldVerify(structured as SubAgentResult, args.verify as boolean | undefined)
+          || verifierForced(settings.budget)
+        const affordable = args.verify === true || verifierAllowed(settings.budget)
+        if (!worthReviewing || !affordable) {
+          ;(structured as SubAgentResult).metadata.verification = {
+            status: 'MECHANICAL_ONLY',
+            verified: true,
+            reason: worthReviewing
+              ? 'Checked against the workspace; no model review at this budget level.'
+              : 'Checked against the workspace; the result did not warrant a model review.',
+            issues: [],
+            evidence: grounding.evidence,
+          }
+        } else {
+          try {
+            const verifierPrompt = buildVerifierPrompt(task, structured as SubAgentResult, grounding.evidence)
+            const verifierAllowedTools = effectiveToolAllowlist('researcher-readonly', undefined, parent)
+            const verifier = await runSubAgentLoop<VerificationResult>(
+              verifierPrompt.systemPrompt, verifierPrompt.userPayload, `${runContext.taskId}-v`,
+              getToolsForRole('reviewer', available), runtime.providerConfig, modelName,
+              {
+                context: { ...toolContext, permissionProfile: 'researcher-readonly', allowedTools: verifierAllowedTools },
+                terminal: {
+                  name: 'submit_verification', description: 'Submit the independent verification classification.',
+                  schema: VERIFICATION_RESULT_SCHEMA, maxValidationRetries: 1, transform: validateVerificationResult,
+                },
+              },
+            )
+            verification = verifier.terminalResult!
+            verifierTokens = verifier.totalTokens
+          } catch (error) {
+            throw new TaskRuntimeError('VERIFICATION_INCONCLUSIVE', `Verifier failed: ${(error as Error).message}`, false)
+          }
+          if (!verification.verified) {
+            const code = verification.status === 'REFUTED' ? 'VERIFICATION_REFUTED' : 'VERIFICATION_INCONCLUSIVE'
+            throw new TaskRuntimeError(code, formatVerificationForUser(verification), false)
+          }
+          ;(structured as SubAgentResult).metadata.verification = { ...verification, mechanicalEvidence: grounding.evidence }
         }
-        ;(structured as SubAgentResult).metadata.verification = verification
       }
       const totalTokens = loop.totalTokens + verifierTokens
       session.registry.updateMetrics(runContext.taskId, {
@@ -401,7 +448,12 @@ export const SubAgent: Tool = {
     type: 'object', additionalProperties: false,
     properties: {
       task: { type: 'string', minLength: 1, description: 'Focused, self-contained task.' },
-      model: { type: 'string' }, role: { enum: ['reader', 'writer', 'executor', 'reviewer', 'unrestricted'] },
+      model: { type: 'string' },
+      role: {
+        enum: ['reader', 'writer', 'executor', 'reviewer', 'unrestricted'],
+        description:
+          "Tools the task may use. Defaults to 'reader' (read-only) when omitted, so a task that has to edit files needs 'writer', and one that has to run commands needs 'executor'. Ask for the narrowest that does the job — the wrong guess fails visibly, an over-broad one does not.",
+      },
       verify: { type: 'boolean' }, agent: { type: 'string' }, mode: { enum: ['foreground', 'background'] },
       context: { enum: ['fresh', 'fork'] }, dependencies: { type: 'array', items: { type: 'string' } },
       timeoutMs: { type: 'number', minimum: 1 },

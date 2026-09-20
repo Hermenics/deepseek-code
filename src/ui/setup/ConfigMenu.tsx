@@ -19,6 +19,7 @@ import HookLibrary from './HookLibrary.js'
 import { editPromptMarkdown } from './promptEditor.js'
 import { resolvePermission } from '../../permissions/index.js'
 import ProviderProfiles from './ProviderProfiles.js'
+import { BUDGET_LEVELS, budgetProfile, isBudgetLevel } from '../../settings/budget.js'
 import type { ProviderProfile } from '../../utils/providerProfiles.js'
 
 type Kind = 'boolean' | 'enum' | 'number' | 'text' | 'list' | 'json' | 'action'
@@ -55,8 +56,9 @@ const CATEGORIES: Category[] = [
     ],
   },
   {
-    id: 'behavior', label: 'Agent Behavior', short: 'Behavior', description: 'Default interaction mode and prompt refinement.',
+    id: 'behavior', label: 'Agent Behavior', short: 'Behavior', description: 'Spending level, default interaction mode and prompt refinement.',
     items: [
+      { path: 'budget', label: 'Spending level', description: 'How much this session may spend on itself. Moves thinking depth, delegation width, review and compaction together. Anything you set by hand still wins.', kind: 'enum', options: [...BUDGET_LEVELS], aliases: ['budget', 'cost', 'tokens', 'money', 'broke', 'cheap'] },
       { path: 'interaction.defaultMode', label: 'Default mode', description: 'Build, Plan, Review or Auto. Auto may only be set at User scope.', kind: 'enum', options: ['build', 'plan', 'review', 'auto'] },
       { path: 'promptRefiner.enabled', label: 'Prompt refinement', description: 'Refine sufficiently long coding requests before execution.', kind: 'boolean' },
       { path: 'promptRefiner.model', label: 'Refiner model', description: 'Optional model override; empty inherits the primary model.', kind: 'enum' },
@@ -200,6 +202,26 @@ export type SettingsLayout = 'wide' | 'medium' | 'narrow'
 export function getSettingsLayout(width: number): SettingsLayout {
   return width >= 110 ? 'wide' : width >= 72 ? 'medium' : 'narrow'
 }
+
+/** The category list holds short labels; 25 columns already fits them all. */
+const CATEGORY_COLUMN = 25
+
+/**
+ * How much room the settings list gets in the wide layout.
+ *
+ * This was pinned at 38 columns, which is where a roomy terminal still
+ * clipped "Legacy default model" and cut a category description off
+ * mid-word while a third of the screen sat empty. It follows the terminal
+ * now, but only so far: the rows are laid out with `space-between`, so
+ * every extra column goes into the gap between a label and its value, and
+ * past a point the two stop reading as one row. The ceiling covers the
+ * longest label in the menu (26 characters) plus a generous value.
+ */
+export function itemsColumnWidth(terminalWidth: number): number {
+  // Outer padding, the category column and the divider are already spoken for.
+  const available = terminalWidth - CATEGORY_COLUMN - 4
+  return Math.max(38, Math.min(60, available))
+}
 export function getSettingsNavigationHeight(height: number): number {
   return Math.max(6, Math.min(9, height - 13))
 }
@@ -269,6 +291,10 @@ export default function ConfigMenu(props: ConfigMenuProps) {
   const width = process.stdout.columns || 80
   const height = process.stdout.rows || 24
   const layout = getSettingsLayout(width)
+  const categoryColumn = layout === 'wide' ? CATEGORY_COLUMN : layout === 'medium' ? 17 : undefined
+  const itemsColumn = layout === 'wide'
+    ? itemsColumnWidth(width)
+    : layout === 'medium' ? Math.max(44, width - 20) : undefined
   const colors = getThemeColors(props.currentTheme)
 
   const reload = async (message = 'Settings reloaded') => {
@@ -576,7 +602,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
   )
 
   const Categories = () => (
-    <Box flexDirection="column" width={layout === 'wide' ? 25 : layout === 'medium' ? 17 : undefined} paddingRight={1}>
+    <Box flexDirection="column" width={categoryColumn} paddingRight={1}>
       <Text dimColor>{categoryWindow.before ? '  ↑ more' : ' '}</Text>
       {categoryWindow.values.map((entry, offset) => {
         const index = categoryWindow.start + offset
@@ -589,7 +615,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
   )
 
   const Items = () => category ? (
-    <Box flexDirection="column" width={layout === 'wide' ? 38 : layout === 'medium' ? Math.max(44, width - 20) : undefined} paddingX={layout === 'wide' ? 1 : 0}>
+    <Box flexDirection="column" width={itemsColumn} paddingX={layout === 'wide' ? 1 : 0}>
       <Text bold flexShrink={0}>{category.label}</Text>
       <Text dimColor wrap="truncate-end" flexShrink={0}>{category.description}</Text>
       <Box marginTop={1} flexDirection="column" flexShrink={0}>
@@ -597,13 +623,22 @@ export default function ConfigMenu(props: ConfigMenuProps) {
         {itemWindow.values.map((entry, offset) => {
           const index = itemWindow.start + offset
           const selected = index === itemIndex && (layout === 'narrow' ? narrowPage === 'items' : focus === 'items')
+          const rawValue = snapshot ? valueAt(snapshot.effective, entry.path) : undefined
           const value = entry.kind === 'action' ? 'open'
+            : entry.path === 'budget' && isBudgetLevel(rawValue) ? budgetProfile(rawValue).label
             : entry.path === 'interface.subagentStatusLine' && scope !== 'user' ? 'ignored'
             : displayValue(snapshot ? valueAt(snapshot.effective, entry.path) : undefined)
           return (
             <Box key={entry.path} width="100%" justifyContent="space-between" flexShrink={0}>
               <Text bold={selected} color={selected ? colors.primary : colors.text} wrap={layout === 'narrow' ? 'wrap' : 'truncate-end'} flexShrink={1}>{selected ? '› ' : '  '}{entry.label}</Text>
-              <Text color={selected ? colors.primary : colors.textDim} wrap={layout === 'narrow' ? 'wrap' : 'truncate-middle'} flexShrink={0}>{value}</Text>
+              {/* A long label and its value can meet exactly at the row edge
+                  and read as one word ("Legacy default modeldeepseek-flash").
+                  The gutter lives in the string rather than in a margin
+                  because the layout engine drops margins and padding once a
+                  row is tight, which is the case that needs it most; two
+                  leading characters survive, since truncation eats the end.
+                  Measured in tests/ink/settings-row-gutter.test.tsx. */}
+              <Text color={selected ? colors.primary : colors.textDim} wrap={layout === 'narrow' ? 'wrap' : 'truncate-end'} flexShrink={0}>{`  ${value}`}</Text>
             </Box>
           )
         })}
@@ -624,13 +659,25 @@ export default function ConfigMenu(props: ConfigMenuProps) {
         {layout !== 'medium' && resolution && resolution.overrides.length > 1 ? <Text dimColor>Chain: {resolution.overrides.map(entry => entry.level).join(' → ')}</Text> : null}
         {statusLineRestricted ? null : item.restart ? <Text color={colors.warning}>△ Applies next session</Text> : item.kind !== 'action' ? <Text color={colors.success}>✓ Applies immediately</Text> : null}
       </Box>
+      {item.path === 'budget' ? (() => {
+        const profile = budgetProfile(isBudgetLevel(effectiveValue) ? effectiveValue : undefined)
+        return (
+          <Box marginTop={layout === 'medium' ? 0 : 1} flexDirection="column">
+            <Text color={colors.primary}>{profile.label} — {profile.tagline}</Text>
+            {profile.effects.length === 0
+              ? <Text dimColor>Nothing is held back at this level.</Text>
+              : profile.effects.map(effect => <Text key={effect} dimColor wrap="wrap">{`  · ${effect}`}</Text>)}
+          </Box>
+        )
+      })() : null}
       {layout !== 'medium' && item.path === 'agents.basePrompt' ? (
         <Box marginTop={1} flexDirection="column">
           <Text dimColor>Protected executor protocol</Text>
           <Text color={colors.textDim}>JSON result fields: summary, confidence, filesRead, filesChanged, issuesFound, suggestions, metadata.</Text>
         </Box>
       ) : null}
-      <Box marginTop={layout === 'medium' ? 0 : 1}><Text dimColor>{item.kind === 'boolean' ? 'Enter toggles' : MODEL_SETTING_PATHS.has(item.path) ? (apiModels.length ? `Enter cycles: ${item.path === 'model.default' ? '' : 'inherit · '}${apiModels.join(' · ')}` : 'Enter loads and cycles provider models') : item.path === 'agents.basePrompt' ? 'Enter opens Markdown editor · r restores inherited value' : item.kind === 'enum' ? `Enter cycles: ${item.options?.join(' · ')}` : item.kind === 'action' ? 'Enter runs action' : 'Enter edits · r restores inherited value'}</Text></Box>
+      <Box marginTop={layout === 'medium' ? 0 : 1}><Text dimColor>{item.kind === 'boolean' ? 'Enter toggles' : MODEL_SETTING_PATHS.has(item.path) ? (apiModels.length ? `Enter cycles: ${item.path === 'model.default' ? '' : 'inherit · '}${apiModels.join(' · ')}` : 'Enter loads and cycles provider models') : item.path === 'agents.basePrompt' ? 'Enter opens Markdown editor · r restores inherited value' : item.path === 'budget' ? `Enter cycles: ${BUDGET_LEVELS.map(level => budgetProfile(level).label).join(' · ')}`
+        : item.kind === 'enum' ? `Enter cycles: ${item.options?.join(' · ')}` : item.kind === 'action' ? 'Enter runs action' : 'Enter edits · r restores inherited value'}</Text></Box>
     </Box>
   ) : <Text dimColor>No setting matches this search.</Text>
 
@@ -639,7 +686,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
       {editing ? (
         <Box flexDirection="column">
           <Text color={colors.primary}>{`Edit ${editing.label}`}</Text>
-          <Text>{editorValue || '…'}<Text color={colors.primary}>█</Text></Text>
+          <Text>{editorValue}<Text color={colors.primary}>█</Text></Text>
           <Text dimColor>Enter save · Esc cancel</Text>
         </Box>
       ) : (
