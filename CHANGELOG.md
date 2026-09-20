@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.5
+
+- Added: A spending level (`budget`) in Settings / Agent Behavior — "I'm broke", "I'm comfortable" and "I'm loaded" — moving thinking depth, delegation width, model review and compaction together, so the choice is about the wallet instead of six separate knobs
+- Added: The middle level is exactly the behaviour the build already had, and every level merges underneath your own settings files, so a limit you wrote by hand is never undone by picking a level
+- Added: Mechanical verification of delegated work — the real `git` diff compared against what the subagent declared, the existence of every path it cited, and an optional `agents.verifyCommand` that its changes must survive
+- Added: The mechanical checks cost no tokens, run at every spending level, and can refute a result on their own, so no model's approval sits on top of a failing build or an edit that was never mentioned
+- Enhanced: A subagent's role is an explicit parameter defaulting to read-only, replacing keyword matching over the task description, which granted a shell for "check if the build passes" and withheld writes for "fix the typo"
+- Enhanced: Verification is chosen by what the agent did rather than by the confidence it reported, so a result that is certain and wrong is still checked
+- Enhanced: The verifier receives the mechanical findings and every claim the candidate made, and is asked to read the changed files itself rather than trust the summary
+- Enhanced: A base URL with no path is treated as an OpenAI-compatible server and reaches `/v1`; DeepSeek's own host and any path you wrote are left as they are
+- Enhanced: Provider types are named after what actually differs between them — "Local model (no API key)" sends no credentials, and an authenticating proxy belongs under DeepSeek API with a base URL
+- Fixed: A terminal that disappears mid-session — a closed window, a dropped SSH connection, a recycled pty — no longer takes the whole interface down with `setRawMode failed with errno: 5`
+- Fixed: Restoring the terminal on the way out no longer skips leaving raw mode when the reset sequences cannot be written, which could leave a shell unusable
+- Fixed: Settings applied immediately after startup are no longer reverted by the load the session begins with
+- Fixed: Empty setup fields no longer render a literal `…` that reads as text waiting to be deleted
+- Fixed: The settings list follows the terminal width instead of a fixed 38 columns, so labels and category descriptions stop being clipped on a roomy terminal, and a label never runs into its value
+- Fixed: While a settings field is open for editing, only the keys that actually work there are listed, instead of four stacked lines offering keys that would be typed into the field
+- Tests: Coverage for budget resolution and its precedence rules, mechanical grounding against a real repository, base URL normalization, raw mode on a revoked terminal, and settings column layout
+
+## 0.7.4
+
+- Added: Provider profiles — save, edit, test and switch between named provider configurations, kept in `~/.deepseek/provider-profiles.json` with private file permissions
+- Added: `provider.activeProfileId` selects the active profile and is accepted only at User scope; a provider change requested during a turn applies once that turn finishes
+- Enhanced: `testProviderSettings` became `testProviderConfig` and takes a provider configuration directly, so a profile can be tested before it is activated
+- Fixed: Hook commands, `!` shell commands and the subagent status line run verbatim through `cmd.exe` on Windows; the default argument escaping turned a command's own quotes into `\"` and `cmd /s` then ran a mangled command
+- Tests: Cross-platform CI fixes — background shell tests skip without bubblewrap, the Bedrock mock no longer leaks `fromEnv` into the MoA tests through the process-wide module mock, and the tool-call error boundary test waits for initialization instead of relying on platform timing
+
 ## 0.7.3
 
 - Added: Completion checks before a turn ends: a failed post-edit verification is fed back to the model (up to two retries per turn), todo items added or updated during the turn are raised once in Build and Auto modes, a reply with no text and no tool calls is sent back for another attempt, and a reply cut off at the output-token limit continues automatically (up to three times)
@@ -30,6 +57,16 @@
 - Fixed: Prompts queued during a turn are still submitted when that turn ends with an error
 - Fixed: Relaunching after an update hands the terminal to the new process immediately, so two processes no longer read the same input stream
 - Tests: Add regression coverage for clipboard image decoding, dropped-path normalization, image placeholder remapping and deletion, multimodal prompt content, compaction serialization and `deepseek-flash` pricing
+
+## 0.7.1
+
+- Added: Context limits are discovered from the provider's own model metadata (`context_length`, `context_window`, `max_input_tokens` and the like), so a model the build has never heard of still compacts at the right point
+- Added: An official model catalog is consulted for descriptions before asking a model to research an unknown ID, and context sizes are shown as `1M context` or `400k context` in the model selector
+- Enhanced: Model IDs carrying a provider prefix (`vendor/model`) resolve to the same entry as the bare ID for both context limits and descriptions
+- Enhanced: A cached model description is kept only when it carries an `http(s)` source URL and says something specific; generic filler such as "AI model variant" or "context window unknown" is discarded rather than shown
+- Fixed: Dropdowns render opaque, so the text underneath no longer shows through the command and file suggestion lists
+- Fixed: The command dropdown keys rows by position, so duplicate command names no longer collide during rendering
+- Tests: Coverage for context-limit discovery, model description filtering and prefixed model IDs
 
 ## 0.7.0
 
