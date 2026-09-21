@@ -4,10 +4,11 @@
  *
  * Runs each task in a throwaway git repo with the real Agent from src/ (not dist/), then copies
  * the task's hidden checks in and runs `bun test`. A run passes when that exits 0 and the run finished within
- * its time limit and both budgets.
+ * its time limit and both budgets. `outcome` splits the failures by cause (see compare.ts classifyOutcome)
+ * and `hiddenPass` records the hidden checks alone, for diagnosis only. Compare labels with compare.ts.
  *
  *   bun scripts/eval/run.ts [--tasks a,b] [--runs 3] [--label baseline] [--model id] [--mode build] [--timeout 10] [--keep]
- *                           [--official] [--budget 1] [--run-budget 0.3]
+ *                           [--official] [--budget 1] [--run-budget 0.3] [--effort low|high|max]
  *
  * --official ignores settings.json (endpoint, default model) and uses the official DeepSeek API with
  * deepseek-flash. --budget stops the suite once the estimated spend reaches it (USD); --run-budget
@@ -17,11 +18,14 @@
  * repo/test/ (singular) so the main `bun test tests` filter never picks them up.
  * Results append to scripts/eval/results/<label>.jsonl (git-ignored).
  *
- * Headless like --pipe: no ask_user_questions, destructive shell commands denied, paths outside the task
- * repo denied, post-edit verification always approved, every other approval granted per session.
+ * Headless like --pipe: no ask_user_questions, paths outside the task repo rejected (the model gets a path
+ * error and keeps going), post-edit verification always approved, and every other approval, risky shell
+ * commands included, granted per session. Memory is off (DEEPSEEK_DISABLE_MEMORY) so runs do not learn
+ * from each other.
  */
 import { appendFile, cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { createHash } from 'node:crypto'
 import { join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { execa } from 'execa'
@@ -43,6 +47,7 @@ const { values: opts } = parseArgs({
     official: { type: 'boolean', default: false },
     budget: { type: 'string', default: '1' },
     'run-budget': { type: 'string', default: '0.3' },
+    effort: { type: 'string' },
   },
 })
 
@@ -55,13 +60,18 @@ const label = opts.label!.replace(/[^\w.-]/g, '_')
 const budgetUsd = Number(opts.budget)
 const runBudgetUsd = Number(opts['run-budget'])
 if (!(budgetUsd > 0) || !(runBudgetUsd > 0)) throw new Error('--budget and --run-budget must be positive USD amounts')
+const EFFORTS = ['low', 'high', 'max'] as const
+type Effort = typeof EFFORTS[number]
+if (opts.effort !== undefined && !EFFORTS.includes(opts.effort as Effort)) throw new Error(`--effort must be one of ${EFFORTS.join(', ')}`)
 
 // Keep eval conversations out of the user's real history.
 process.env.DEEPSEEK_HISTORY_PATH = join(tmpdir(), `deepseek-eval-history-${process.pid}.json`)
+process.env.DEEPSEEK_DISABLE_MEMORY = '1'
 const { Agent } = await import('../../src/agent/agent.js')
 const { loadSavedConfig } = await import('../../src/ui/setup/ApiKeySetup.js')
 const { setShellConfirmHandler } = await import('../../src/tools/Shell/Shell.js')
 const { detectVerificationCommand, runVerification } = await import('../../src/agent/verify.js')
+const { classifyOutcome, fixedCostUsd } = await import('./compare.js')
 
 const saved = (await loadSavedConfig()).providerConfig
 const officialKey = saved?.apiKey ?? process.env.DEEPSEEK_API_KEY
@@ -69,6 +79,11 @@ if (opts.official && !officialKey) throw new Error('--official needs DEEPSEEK_AP
 const providerConfig = opts.official ? { provider: 'deepseek' as const, apiKey: officialKey, baseURL: OFFICIAL_BASE_URL } : saved
 if (!providerConfig && !process.env.DEEPSEEK_API_KEY) throw new Error('No saved provider config and DEEPSEEK_API_KEY is not set')
 const model = opts.model ?? (opts.official ? 'deepseek-flash' : undefined)
+// Host only: the key and any path or query never reach the results file.
+const baseURLHost = (() => {
+  const url = providerConfig?.baseURL ?? process.env.DEEPSEEK_BASE_URL
+  try { return url ? new URL(url).host : 'default' } catch { return 'invalid' }
+})()
 setShellConfirmHandler(async () => false)
 
 /** Real account balance (free endpoint); undefined when not using --official or the call fails. */
@@ -109,7 +124,8 @@ async function runOnce(task: string, run: number) {
   await agent.readyPromise
   if (model) agent.setModel(model as Parameters<typeof agent.setModel>[0])
   agent.interactionMode = opts.mode as typeof agent.interactionMode
-  agent.setToolPermissionHandler(async (request) => (request.reason === 'outside_workspace' ? 'deny' : 'session'))
+  if (opts.effort) agent.setEffortLevel(opts.effort as Effort)
+  agent.setToolPermissionHandler(async (request) => (request.reason === 'outside_workspace' ? 'reject' : 'session'))
   // Headless stand-in for the TUI's "Run verification?" prompt, answered yes.
   agent.setVerificationHandler(async () => {
     const command = await detectVerificationCommand(dir)
@@ -119,6 +135,7 @@ async function runOnce(task: string, run: number) {
   const tools: Record<string, number> = {}
   let error: string | undefined
   let timedOut = false
+  let denyAborted = false
   const started = Date.now()
   let overBudget = false
   const timer = setTimeout(() => { timedOut = true; agent.abort() }, timeoutMs)
@@ -132,6 +149,7 @@ async function runOnce(task: string, run: number) {
         onToolCall(name) { tools[name] = (tools[name] ?? 0) + 1 },
         onToolResult() {},
         onDone: done,
+        onDenyAbort() { denyAborted = true },
       }).then(() => done(), fail)
     })
     const stuck = new Promise<never>((_, fail) => {
@@ -151,10 +169,17 @@ async function runOnce(task: string, run: number) {
   const finalMessage = transcript
     .flatMap((m) => ('role' in m && m.role === 'assistant' && typeof m.content === 'string' && m.content.trim() ? [m.content] : []))
     .at(-1)?.slice(-1500)
+  const effort = agent.effortLevel
+  const budgetLevel = agent.settings.budget ?? 'default'
   await agent.shutdown()
 
+  // Hash of everything the agent changed, so identical outputs across runs are visible.
+  await git('add', '-A')
+  const diff = await git('diff', '--cached', '--binary', 'HEAD')
+  const diffHash = createHash('sha256').update(diff.stdout).digest('hex').slice(0, 16)
   await cp(join(TASKS_DIR, task, 'check'), join(dir, '__eval_check__'), { recursive: true })
   const check = await execa('bun', ['test'], { cwd: dir, reject: false, all: true, timeout: 120_000 })
+  const hidden = await execa('bun', ['test', './__eval_check__'], { cwd: dir, reject: false, timeout: 120_000 })
   // Usage recorded after the last budget poll can still push a run over, so check the final cost too.
   const withinBudget = stats.costUsd <= runBudgetUsd && spentUsd + stats.costUsd <= budgetUsd
   const pass = check.exitCode === 0 && !timedOut && !overBudget && withinBudget
@@ -165,8 +190,11 @@ async function runOnce(task: string, run: number) {
     await mkdir(join(EVAL_DIR, 'results', label), { recursive: true })
     await writeFile(transcriptPath, JSON.stringify(transcript, null, 2))
   }
+  const outcome = classifyOutcome({ pass, timedOut, overBudget, error, finalMessage, denyAborted })
   const record = {
-    label, task, run, pass, timedOut, overBudget, error, durationMs, model: usedModel, mode: opts.mode, finalMessage, commit, dirty, tools, ...stats,
+    label, task, run, pass, outcome, hiddenPass: hidden.exitCode === 0, timedOut, overBudget, denyAborted, error, durationMs,
+    model: usedModel, mode: opts.mode, effort, budgetLevel, baseURLHost, diffHash, finalMessage, commit, dirty, tools, ...stats,
+    fixedCostUsd: fixedCostUsd(stats),
     checkOutput: pass ? undefined : tail(check.all ?? ''),
     transcriptPath,
   }
@@ -192,7 +220,7 @@ suite: for (const task of tasks) {
     const r = await runOnce(task, run)
     records.push(r)
     spentUsd += r.costUsd
-    console.log(`${r.pass ? 'PASS' : 'FAIL'} ${Math.round(r.durationMs / 1000)}s ${r.tokenCount} tok $${r.costUsd.toFixed(4)}${r.timedOut ? ' (timeout)' : ''}${r.overBudget ? ' (run budget)' : ''}${r.error ? ` · error: ${r.error}` : ''}`)
+    console.log(`${r.pass ? 'PASS' : `FAIL (${r.outcome})`} ${Math.round(r.durationMs / 1000)}s ${r.tokenCount} tok $${r.costUsd.toFixed(4)}${r.timedOut ? ' (timeout)' : ''}${r.overBudget ? ' (run budget)' : ''}${r.error ? ` · error: ${r.error}` : ''}`)
   }
 }
 

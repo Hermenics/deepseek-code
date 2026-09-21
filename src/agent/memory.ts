@@ -27,7 +27,8 @@ export class MemoryStore {
   constructor(cwd = process.cwd()) { this.cwd = resolve(cwd) }
 
   async configure(config: MemoryConfig, cwd = this.cwd): Promise<void> {
-    this.enabled = config.enabled !== false
+    // DEEPSEEK_DISABLE_MEMORY=1 turns memory off for one process (the eval harness) without touching settings.
+    this.enabled = config.enabled !== false && process.env.DEEPSEEK_DISABLE_MEMORY !== '1'
     this.scope = config.scope ?? 'user'
     this.cwd = resolve(cwd)
     if (!this.enabled || this.directoryOverride) return
