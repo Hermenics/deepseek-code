@@ -56,5 +56,7 @@ describe('environment context', () => {
     expect(text).toContain('Model: deepseek-v4-flash via deepseek')
     expect(text).toContain("Today's date: 2026-09-05")
     expect(info.shell.length).toBeGreaterThan(0)
+    expect(formatEnvironmentInfo({ ...info, platform: 'linux' })).toContain('shell commands see the working directory at /mnt')
+    expect(formatEnvironmentInfo({ ...info, platform: 'darwin' })).not.toContain('/mnt')
   })
 })

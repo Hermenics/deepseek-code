@@ -61,6 +61,9 @@ export function formatEnvironmentInfo(info: EnvironmentInfo): string {
     `Platform: ${info.platform}`,
     `OS version: ${info.osVersion}`,
     `Shell: ${info.shell}${info.platform === 'win32' ? ' (use Unix shell syntax; forward slashes in paths)' : ''}`,
+    // ponytail: tells the model about the bwrap mount; the upgrade path is binding cwd at its real path
+    // (reorder --tmpfs /tmp in Shell.ts runSandboxed and update tests/orchestration-workspace.test.ts).
+    ...(info.platform === 'linux' ? [`Shell sandbox: shell commands see the working directory at /mnt (pwd prints /mnt); file tools use the real path above, so never pass /mnt paths to them.`] : []),
     `Model: ${info.model} via ${info.provider}`,
     `Today's date: ${info.date}`,
   ]
