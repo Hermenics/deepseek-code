@@ -1,0 +1,1 @@
+Customers paying in yen get invoices that are 100× too high: an item priced ¥1,500 shows up as ¥150,000 on the invoice produced by `renderInvoice` in `src/reports/invoice.ts`. Fix it and add a regression test.
