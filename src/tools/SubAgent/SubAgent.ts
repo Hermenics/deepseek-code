@@ -282,6 +282,7 @@ async function spawnAgentTask(
       runContext.setPartial(structured)
       let verification: VerificationResult | undefined
       let verifierTokens = 0
+      let verifierCostUsd = 0
       if (!workflowTerminal) {
         // Unconditional, and that is the whole point. These checks exist to
         // catch the agent that edited a file it never mentioned, so gating
@@ -339,6 +340,7 @@ async function spawnAgentTask(
             )
             verification = verifier.terminalResult!
             verifierTokens = verifier.totalTokens
+            verifierCostUsd = verifier.costUsd
           } catch (error) {
             throw new TaskRuntimeError('VERIFICATION_INCONCLUSIVE', `Verifier failed: ${(error as Error).message}`, false)
           }
@@ -352,6 +354,7 @@ async function spawnAgentTask(
       const totalTokens = loop.totalTokens + verifierTokens
       session.registry.updateMetrics(runContext.taskId, {
         model: modelName, provider: runtime.providerConfig.provider, tokens: totalTokens,
+        costUsd: loop.costUsd + verifierCostUsd,
         usageAvailable: totalTokens > 0,
       })
       if (!workflowTerminal) {
