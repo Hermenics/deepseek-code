@@ -282,3 +282,73 @@ describe('read before edit', () => {
     }
   })
 })
+
+describe('outside-workspace refusal (A5)', () => {
+  const toolCallResponse = (name: string, args: object) => () => (async function* () {
+    yield { choices: [{ delta: { tool_calls: [{ index: 0, id: `call-${name}`, function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: 'tool_calls' }] }
+  })()
+  const denyTracking = () => {
+    const cb = {
+      done: 0, denyAborted: 0, calls: [] as string[],
+      onToken() {}, onToolResult() {}, onDone() { cb.done++ }, onDenyAbort() { cb.denyAborted++ },
+      onToolCall(name: string) { cb.calls.push(name) },
+    }
+    return cb
+  }
+
+  it("'deny' still ends the turn silently, but the denied call is now reported", async () => {
+    const { agent, requests } = await scriptedAgent([toolCallResponse('read_file', { path: '/mnt/x/src/a.ts' })])
+    agent.setToolPermissionHandler(async () => 'deny')
+    const cb = denyTracking()
+
+    await agent.run('read the file', cb)
+
+    expect(requests).toHaveLength(1)
+    expect(cb.denyAborted).toBe(1)
+    expect(cb.calls).toEqual(['read_file'])
+  })
+
+  it("'reject' hands the model a path error and the turn continues to a final answer", async () => {
+    const { agent, requests } = await scriptedAgent([
+      toolCallResponse('read_file', { path: '/mnt/x/src/a.ts' }),
+      () => textResponse('Used the workspace path instead.'),
+    ])
+    agent.setToolPermissionHandler(async (request) => (request.reason === 'outside_workspace' ? 'reject' : 'session'))
+    const cb = denyTracking()
+
+    await agent.run('read the file', cb)
+
+    expect(requests).toHaveLength(2)
+    expect(lastMessage(requests[1])).toContain('outside the workspace')
+    expect(cb.denyAborted).toBe(0)
+    expect(cb.done).toBe(1)
+  })
+
+  it("'reject' for any other reason fails closed like 'deny'", async () => {
+    const reasons: string[] = []
+    const rejectAll = async (request: { reason: string }) => { reasons.push(request.reason); return 'reject' as const }
+
+    for (const [name, args, setup] of [
+      ['read_file', { path: 'package.json' }, (i: Record<string, unknown>) => { (i.settings as Record<string, unknown>).permissions = { allow: ['grep'] } }],
+      ['shell', { command: 'rm -rf ./__never_exists__' }, () => {}],
+      ['read_file', { path: 'package.json' }, (i: Record<string, unknown>) => { i.allowedTools = '*' }],
+    ] as const) {
+      const { agent, requests } = await scriptedAgent([toolCallResponse(name, args)])
+      setup(agent as unknown as Record<string, unknown>)
+      agent.setToolPermissionHandler(rejectAll)
+      const cb = denyTracking()
+      await agent.run('go', cb)
+      expect(requests).toHaveLength(1)
+      expect(cb.denyAborted).toBe(1)
+    }
+    expect(reasons).toEqual(['permission', 'risk', 'agent_config'])
+
+    const agent = new Agent()
+    await agent.readyPromise.catch(() => {})
+    agent.interactionMode = 'build'
+    agent.setToolPermissionHandler(rejectAll)
+    await expect(agent.startWorkflow({ script: 'return 1' })).rejects.toThrow('Workflow execution denied')
+    expect(reasons.at(-1)).toBe('workflow')
+    await agent.shutdown()
+  })
+})

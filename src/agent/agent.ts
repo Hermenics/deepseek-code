@@ -404,7 +404,12 @@ interface PendingAgentNote {
   text: string
 }
 
-export type ToolPermissionResult = 'once' | 'session' | 'directory' | 'always' | 'deny'
+/**
+ * 'deny' cancels the whole turn (the TUI's explicit stop). 'reject' is for headless callers: on an
+ * outside_workspace request it hands the model a path error and the turn continues; for any other
+ * reason it fails closed exactly like 'deny'.
+ */
+export type ToolPermissionResult = 'once' | 'session' | 'directory' | 'always' | 'deny' | 'reject'
 export type ToolPermissionReason = 'outside_workspace' | 'risk' | 'permission' | 'agent_config' | 'workflow'
 
 export interface ToolPermissionRequest {
@@ -428,6 +433,9 @@ const PATH_TOOL_ARGUMENTS: Record<string, { key: 'path' | 'cwd'; isDirectory: bo
 }
 
 const READ_ONLY_PATH_TOOLS = new Set(['read_file', 'read_folder', 'grep', 'glob'])
+
+/** Every decision point except outside_workspace treats 'reject' as 'deny', so it can never approve. */
+const refuses = (decision: ToolPermissionResult) => decision === 'deny' || decision === 'reject'
 
 function isPathContained(root: string, target: string): boolean {
   const pathRelative = relative(root, target)
@@ -685,7 +693,7 @@ export class Agent {
       toolName: 'workflow', args, reason: 'workflow',
       riskDescription: 'This runs a generated coordination program and may start multiple agents.',
     })
-    if (decision === 'deny') throw new DenyAbortError()
+    if (refuses(decision)) throw new DenyAbortError()
     if (decision === 'always') await approvals.approve(scriptHash)
   }
 
@@ -2387,7 +2395,11 @@ export class Agent {
     try {
       return await this.executeToolWithChecks(tc, parsedArgs, guardedCallbacks, lifecycle)
     } catch (error: unknown) {
-      if (error instanceof DenyAbortError) throw error
+      if (error instanceof DenyAbortError) {
+        // A denied call never reached the execute step, so callers would not see it at all.
+        if (!emittedCall) cb.onToolCall(tc.function.name, calledArgs)
+        throw error
+      }
 
       const message = error instanceof Error ? error.message : String(error)
       const result = `Error: ${message}`
@@ -2569,6 +2581,9 @@ export class Agent {
               externalDirectory,
               riskDescription: riskResult?.requiresConfirmation ? `${riskResult.level} risk: ${riskResult.description}` : undefined,
             })
+            if (decision === 'reject') {
+              throw new Error(`Path '${requestedPath}' is outside the workspace (${this.workspacePath}) and access was refused. Use a path inside the workspace.`)
+            }
             if (decision === 'deny') {
               auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied_external_path: externalDirectory } })
               throw new DenyAbortError()
@@ -2643,7 +2658,7 @@ export class Agent {
             reason: 'risk',
             riskDescription: `${riskResult.level} risk: ${riskResult.description}`,
           })
-          if (userDecision === 'deny') {
+          if (refuses(userDecision)) {
             auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied_risk: riskResult.level } })
             throw new DenyAbortError()
           }
@@ -2684,7 +2699,7 @@ export class Agent {
           return { tc, result: blockMsg }
         }
         const userDecision = await handler({ toolName: tc.function.name, args: effectiveArgs, reason: 'permission' })
-        if (userDecision === 'deny') {
+        if (refuses(userDecision)) {
           auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied: true } })
           throw new DenyAbortError()
         }
@@ -2735,7 +2750,7 @@ export class Agent {
           return { tc, result: blockMsg }
         }
         const decision = await handler({ toolName: tc.function.name, args: effectiveArgs, reason: 'agent_config' })
-        if (decision === 'deny') {
+        if (refuses(decision)) {
           auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied: true } })
           throw new DenyAbortError()
         }
