@@ -496,6 +496,8 @@ export class Agent {
   private tokenUsage: TokenUsage = { promptTokens: 0, completionTokens: 0, cachedTokens: 0 }
   /** Each response is priced when it arrives, at its model and peak/off-peak rate. */
   private costUsd = 0
+  /** Latest reported cost per subagent task, so /cost and budgets include delegated spend. */
+  private subagentCostUsd = new Map<string, number>()
   /** Real account balance when the session's first turn started, for the spend shown by /cost. */
   private sessionStartBalance: Promise<AccountBalance | undefined> | null = null
   private lastUserMessage: string | null = null
@@ -738,6 +740,10 @@ export class Agent {
       model: this.model,
       logFile: options.logFile,
       snapshotFile: options.snapshotFile !== undefined ? options.snapshotFile : options.sessionId ? taskSnapshotFile(orchestrationSessionId) : null,
+    })
+    this.orchestrator.subscribe((event) => {
+      const cost = (event.payload.metrics as { costUsd?: unknown } | undefined)?.costUsd
+      if (event.type === 'metrics_updated' && event.taskId && typeof cost === 'number') this.subagentCostUsd.set(event.taskId, cost)
     })
     this.workflows = new WorkflowManager({
       sessionId: orchestrationSessionId,
@@ -1150,8 +1156,15 @@ export class Agent {
     this.costUsd += estimateCost(this.model, { promptTokens, completionTokens, cachedTokens })
   }
 
+  /** The session's own requests plus everything its subagents spent. */
+  private get totalCostUsd(): number {
+    let total = this.costUsd
+    for (const cost of this.subagentCostUsd.values()) total += cost
+    return total
+  }
+
   getCostSummary(): string {
-    const cost = this.costUsd
+    const cost = this.totalCostUsd
     return [
       `Model: ${this.model}`,
       `Tokens: ${this.tokenCount.toLocaleString()} total`,
@@ -1200,7 +1213,7 @@ export class Agent {
       contextLimit: this.contextLimit,
       toolCalls: this.toolCallTotal,
       filesModified: this.filesModified.size,
-      costUsd: this.costUsd,
+      costUsd: this.totalCostUsd,
     }
   }
 
@@ -1209,7 +1222,7 @@ export class Agent {
     const minutes = Math.floor(elapsed / 60_000)
     const seconds = Math.floor((elapsed % 60_000) / 1000)
     const duration = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`
-    const cost = this.costUsd
+    const cost = this.totalCostUsd
     const userTurns = this.messages.filter((m) => !isBoundaryMarker(m) && (m as ChatCompletionMessageParam).role === 'user' && !isProjectContextMessage(m)).length
     const cacheHitPct = this.tokenUsage.promptTokens > 0
       ? Math.round((this.tokenUsage.cachedTokens / this.tokenUsage.promptTokens) * 100)

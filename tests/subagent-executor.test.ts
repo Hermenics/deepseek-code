@@ -5,6 +5,8 @@ import { runSubAgentLoop } from '../src/tools/SubAgent/executor.js'
 import { StructuredOutputError, validateSubAgentResult, type SubAgentResult } from '../src/tools/SubAgent/contracts.js'
 import { OrchestratorSession } from '../src/orchestration/index.js'
 import type { TaskEventType } from '../src/orchestration/types.js'
+import { estimateCost } from '../src/agent/cost.js'
+import { Agent } from '../src/agent/agent.js'
 
 const provider = { provider: 'local' as const, localModel: 'fake' }
 const valid: SubAgentResult = {
@@ -333,5 +335,60 @@ describe('subagent terminal protocol', () => {
     expect(calls).toBeGreaterThanOrEqual(2)
     // The late question reached the second completion's prompt.
     expect(captured[1]!.messages).toContainEqual({ role: 'user', content: 'late' })
+  })
+})
+
+describe('subagent cost', () => {
+  const usage = { total_tokens: 1_500_000, prompt_tokens: 1_000_000, prompt_cache_hit_tokens: 400_000, completion_tokens: 500_000 }
+  const pricedClient = (bodies: Array<Record<string, unknown>> = []) => ({
+    chat: { completions: { create: async (body: Record<string, unknown>) => { bodies.push(body); return { choices: [{ message: terminalArgs(valid) }], usage } } } },
+  }) as any
+  const context = (extra: Record<string, unknown> = {}) => ({
+    sessionId: 's', workspacePath: process.cwd(), projectRoot: process.cwd(), permissionProfile: 'researcher-readonly' as const, ...extra,
+  })
+
+  it('prices the full usage with the shared cost table', async () => {
+    const result = await runSubAgentLoop('system', 'task', 'id', [], provider, 'deepseek-flash', { client: pricedClient(), terminal })
+    const expected = estimateCost('deepseek-flash', { promptTokens: 1_000_000, cachedTokens: 400_000, completionTokens: 500_000 })
+    expect(result.costUsd).toBeGreaterThan(0)
+    expect(result.costUsd).toBeCloseTo(expected, 8)
+  })
+
+  it('stops a subagent that goes over maxCostUsd and records what it spent', async () => {
+    const session = new OrchestratorSession({ sessionId: 'cost', projectRoot: process.cwd() })
+    session.registry.spawn({ taskId: 'cost-task', maxCostUsd: 0.01 }, async () => 'unused')
+    await session.registry.awaitIdle()
+    const record = { taskId: 'cost-task' }
+    await expect(runSubAgentLoop('system', 'task', 'id', [], provider, 'deepseek-flash', {
+      client: pricedClient(), terminal,
+      context: context({ maxCostUsd: 0.01, taskId: record.taskId, session }),
+    })).rejects.toMatchObject({ code: 'COST_BUDGET_EXCEEDED' })
+    expect(session.registry.getStatus(record.taskId).metrics.costUsd).toBeGreaterThan(0.01)
+  })
+
+  it('stays under a generous maxCostUsd', async () => {
+    const result = await runSubAgentLoop('system', 'task', 'id', [], provider, 'deepseek-flash', { client: pricedClient(), terminal, context: context({ maxCostUsd: 10 }) })
+    expect(result.terminalResult).toEqual(valid)
+  })
+
+  it('asks the official DeepSeek API for the same output ceiling as the parent', async () => {
+    const bodies: Array<Record<string, unknown>> = []
+    const deepseek = { provider: 'deepseek' as const, apiKey: 'test' }
+    await runSubAgentLoop('system', 'task', 'id', [], deepseek, 'deepseek-flash', { client: pricedClient(bodies), terminal })
+    await runSubAgentLoop('system', 'task', 'id', [], deepseek, 'deepseek-flash', { client: pricedClient(bodies), terminal, effort: 'low' })
+    await runSubAgentLoop('system', 'task', 'id', [], provider, 'fake', { client: pricedClient(bodies), terminal })
+    expect(bodies.map((b) => b.max_tokens)).toEqual([32768, 8192, undefined])
+  })
+
+  it('adds subagent spend to the parent session cost', async () => {
+    const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key-for-unit-tests' }, { logFile: null, snapshotFile: null })
+    await agent.readyPromise.catch(() => {})
+    const before = agent.getSessionStats().costUsd
+    const events = (agent as unknown as { orchestrator: OrchestratorSession }).orchestrator.events
+    events.emit('metrics_updated', { metrics: { tokens: 10, costUsd: 0.2 } }, 'task-a')
+    events.emit('metrics_updated', { metrics: { tokens: 20, costUsd: 0.3 } }, 'task-a')
+    events.emit('metrics_updated', { metrics: { tokens: 5, costUsd: 0.05 } }, 'task-b')
+    expect(agent.getSessionStats().costUsd).toBeCloseTo(before + 0.35, 8)
+    await agent.shutdown()
   })
 })
