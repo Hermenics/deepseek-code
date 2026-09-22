@@ -63,6 +63,11 @@ const XTVERSION_RE = /^\x1bP>\|(.*?)(?:\x07|\x1b\\)$/s
 // Button 32=left-drag (0x20 | motion-bit). Plain 0/1/2 = left/mid/right click.
 // eslint-disable-next-line no-control-regex
 const SGR_MOUSE_RE = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/
+// An SGR report cut before its final byte. Nobody types `ESC [ <`, so this is
+// always a report whose rest is still in flight.
+const PARTIAL_SGR_MOUSE_RE = /^\x1b\[<[\d;]*$/
+// SGR/X10 mouse tail at the start of a text token (its ESC was flushed alone).
+const ORPHAN_MOUSE_TAIL_RE = /^(?:\[<\d+;\d+;\d+[Mm]|\[M[\x60-\x7f][\x20-\uffff]{2})/
 
 /** Wraps bracketed-paste content as a single key event with `isPasted: true`. */
 function createPasteKey(content: string): ParsedKey {
@@ -223,6 +228,13 @@ export function parseMultipleKeypresses(
   // Get or create tokenizer
   const tokenizer = prevState._tokenizer ?? createTokenizer({ x10Mouse: true })
 
+  // Flushing a half-received mouse report would emit its tail (`2;10M`) as
+  // typed text. Keep it buffered; App re-arms the timer while `incomplete`
+  // is set, and the next read completes it.
+  if (isFlush && PARTIAL_SGR_MOUSE_RE.test(tokenizer.buffer())) {
+    return [[], { ...prevState, _tokenizer: tokenizer }]
+  }
+
   // Tokenize the input
   const tokens = isFlush ? tokenizer.flush() : tokenizer.feed(inputString)
 
@@ -262,10 +274,7 @@ export function parseMultipleKeypresses(
     } else if (token.type === 'text') {
       if (inPaste) {
         pasteBuffer += token.value
-      } else if (
-        /^\[<\d+;\d+;\d+[Mm]$/.test(token.value) ||
-        /^\[M[\x60-\x7f][\x20-\uffff]{2}$/.test(token.value)
-      ) {
+      } else if (ORPHAN_MOUSE_TAIL_RE.test(token.value)) {
         // Orphaned SGR/X10 mouse tail (fullscreen only — mouse tracking is off
         // otherwise). A heavy render blocked the event loop past App's 50ms
         // flush timer, so the buffered ESC was flushed as a lone Escape and
@@ -277,9 +286,13 @@ export function parseMultipleKeypresses(
         // range would match typed input like `[MAX]` batched into one read
         // and silently drop it as a phantom click. Click/drag orphans leak
         // as visible garbage instead; deletable garbage beats silent loss.
-        const resynthesized = '\x1b' + token.value
+        // Text typed in the same read after the tail is kept.
+        const tail = ORPHAN_MOUSE_TAIL_RE.exec(token.value)![0]
+        const resynthesized = '\x1b' + tail
         const mouse = parseMouseEvent(resynthesized)
         keys.push(mouse ?? parseKeypress(resynthesized))
+        const rest = token.value.slice(tail.length)
+        if (rest) keys.push(parseKeypress(rest))
       } else {
         keys.push(parseKeypress(token.value))
       }
