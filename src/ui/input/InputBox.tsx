@@ -372,13 +372,9 @@ export function InputBox({
       return
     }
 
+    // Tab only fills the input with the suggestion; Enter sends it, so it can be edited first.
     if (suggestedReply && cursor.text.length === 0 && action === 'acceptCompletion') {
-      onSubmit(suggestedReply)
-      onSuggestedReplyDismiss?.()
-      updateCursor(Cursor.fromText('', cols))
-      setPastedTexts([])
-      setPastedImages([])
-      historyRef.current.reset()
+      updateCursor(Cursor.fromText(suggestedReply, cols, suggestedReply.length))
       return
     }
 
@@ -519,6 +515,22 @@ export function InputBox({
       ? 'Context almost full. Try /compact'
       : 'What do you want me to do? ↵')
 
+  const dropdown = showDropdown
+    ? <CommandDropdown
+        matches={matches}
+        selectedIdx={selectedIdx}
+        columns={cols}
+        descriptions={{ ...getCustomCommandDescriptions(), ...getWorkflowCommandDescriptions(), ...COMMAND_DESCRIPTIONS }}
+      />
+    : showFileDropdown
+      ? <FileDropdown
+          files={fileMatches}
+          selectedIdx={fileSelectedIdx}
+          columns={cols}
+          query={getAtMention(cursor.text, cursor.offset)?.query ?? ''}
+        />
+      : null
+
   return (
     <Box flexDirection="column">
       {fullscreenHintVisible && showFullscreenHint && isFullscreenActive() && (
@@ -537,7 +549,7 @@ export function InputBox({
         >
           <InputLine
             cursor={cursor}
-            columns={cols}
+            columns={cols - 4 /* rounded border + paddingX of InputChrome */}
             placeholder={placeholder}
             ghostText={ghost?.text}
             prefix={''}
@@ -554,27 +566,10 @@ export function InputBox({
           )}
         </InputChrome>
 
-        {showDropdown && (
-          <Box position="absolute" bottom="100%" width="100%" opaque>
-            <CommandDropdown
-              matches={matches}
-              selectedIdx={selectedIdx}
-              columns={cols}
-              descriptions={{ ...getCustomCommandDescriptions(), ...getWorkflowCommandDescriptions(), ...COMMAND_DESCRIPTIONS }}
-            />
-          </Box>
-        )}
-
-        {showFileDropdown && (
-          <Box position="absolute" bottom="100%" width="100%" opaque>
-            <FileDropdown
-              files={fileMatches}
-              selectedIdx={fileSelectedIdx}
-              columns={cols}
-              query={getAtMention(cursor.text, cursor.offset)?.query ?? ''}
-            />
-          </Box>
-        )}
+        {/* Fullscreen overlays the transcript; inline mode has no rows above the input to spare (an empty chat would cover the header), so the list goes in flow below it. */}
+        {dropdown && (isFullscreenActive()
+          ? <Box position="absolute" bottom="100%" width="100%" opaque>{dropdown}</Box>
+          : dropdown)}
       </Box>
     </Box>
   )

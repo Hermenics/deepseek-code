@@ -11,6 +11,7 @@ import pkg from '../../../package.json' with { type: 'json' }
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 import { useClock } from '../clock.js'
+import { isFullscreenActive } from '../../utils/fullscreen.js'
 
 /** Splits a stored tool message into display name, argument preview and raw output; JSON `{arg, output}` details are unpacked, other JSON is summarized, and previews are clipped to 60 chars unless `full`. */
 export function formatToolLine(rawName: string, detail: string, full = false): { display: string; arg: string; output: string } {
@@ -61,12 +62,26 @@ export function formatWorkedDuration(workedMs: number): string {
   return `${seconds}s`
 }
 
-/** `─ Worked for 1m 5s ────` rule (preceded by a blank line) padded to the terminal width. */
-export function workedLine(workedMs: number, width = process.stdout.columns ?? 80): string {
-  const targetWidth = Math.max(1, width - 1)
-  const prefix = `
-  ─ Worked for ${formatWorkedDuration(workedMs)} `
-  return prefix + '─'.repeat(Math.max(1, targetWidth - prefix.length))
+/** `∿∿ 1m 5s · 2 tools ∿∿∿∿` sonar wave (preceded by a blank line) filling `width` columns; the tool count is omitted when zero. */
+export function workedLine(workedMs: number, width = transcriptWidth(), toolCount = 0): string {
+  const tools = toolCount > 0 ? ` · ${toolCount} tool${toolCount === 1 ? '' : 's'}` : ''
+  // Clip the label on narrow terminals so the row never wraps.
+  const label = `  ∿∿ ${formatWorkedDuration(workedMs)}${tools} `.slice(0, Math.max(0, width))
+  return '\n' + label + '∿'.repeat(Math.max(0, width - label.length))
+}
+
+/** Columns the transcript can draw into: the whole terminal, minus the fullscreen scrollbar column. */
+function transcriptWidth(): number {
+  return (process.stdout.columns ?? 80) - (isFullscreenActive() ? 1 : 0)
+}
+
+/** Number of tool messages in the turn that ends at `index` (back to the previous user message). */
+export function turnToolCount(messages: Message[], index: number): number {
+  let count = 0
+  for (let i = index - 1; i >= 0 && messages[i]!.role !== 'user'; i--) {
+    if (messages[i]!.role === 'tool') count++
+  }
+  return count
 }
 
 /** Full-width horizontal rule with an optional label centered in it. */
@@ -184,7 +199,7 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = t
       if (!showDiffs) {
         return (
           <Box flexDirection="row" paddingLeft={2} gap={1}>
-            <Text color={colors.success}>{STATUS_ICONS.assistant}</Text>
+            <Text color={colors.primary}>{STATUS_ICONS.tool}</Text>
             <Text color={colors.textDim}>{m.content.startsWith('✓ patch_file') ? 'patch' : 'write'} {diff.path} (+{diff.added} −{diff.removed}) · diff hidden</Text>
           </Box>
         )
@@ -197,13 +212,14 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = t
       const labelTrunc = label.length > 60 ? label.slice(0, 60) + '...' : label
       return (
         <Box flexDirection="row" paddingLeft={2} gap={1}>
-          <Text color={isDone ? colors.success : colors.warning}>{STATUS_ICONS.assistant}</Text>
+          <Text color={isDone ? colors.primary : colors.warning}>{STATUS_ICONS.tool}</Text>
           <Text color={isDone ? colors.textDim : colors.warning}>
             {labelTrunc || 'Agent'}{!isDone ? ' working...' : ''}
           </Text>
         </Box>
       )
     }
+    const failed = m.content.startsWith(STATUS_ICONS.error)
     const raw = m.content.slice(2)
     const sep = raw.indexOf(' → ')
     const toolName = sep >= 0 ? raw.slice(0, sep) : raw
@@ -216,10 +232,15 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = t
     const style = TOOL_STYLE[display] || { icon: '▸', color: colors.textDim }
     return (
       <Box flexDirection="column" paddingLeft={2}>
-        <Box flexDirection="row" gap={1}>
-          <Text color={colors.success}>{STATUS_ICONS.assistant}</Text>
-          <Text color={style.color}>{display}</Text>
-          {arg ? <Text color={colors.textSubtle}>{arg}</Text> : null}
+        <Box flexDirection="row" justifyContent="space-between" paddingRight={1}>
+          <Box flexDirection="row" gap={1} flexShrink={1}>
+            <Text color={colors.primary}>{STATUS_ICONS.tool}</Text>
+            <Text color={style.color}>{display}</Text>
+            {arg ? <Text color={colors.textSubtle}>{arg}</Text> : null}
+          </Box>
+          {failed
+            ? <Text color={colors.error}>{STATUS_ICONS.error}</Text>
+            : <Text color={colors.success}>{STATUS_ICONS.success}</Text>}
         </Box>
         {trimmed.map((line, i) => (
           <Box key={i} paddingLeft={3}>
@@ -287,7 +308,7 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = t
 }
 
 /** Transcript header with mascot, version, provider, active agent and cwd; collapses to a text-only header under 60 columns. */
-function Header({ provider, agentName, theme = 'dark' }: { provider: string; agentName: string | null; theme?: ThemeName }) {
+export function Header({ provider, agentName, theme = 'dark' }: { provider: string; agentName: string | null; theme?: ThemeName }) {
   const colors = getThemeColors(theme)
   const cols = process.stdout.columns ?? 80
   const isNarrow = cols < 60
@@ -307,13 +328,13 @@ function Header({ provider, agentName, theme = 'dark' }: { provider: string; age
 
   return (
     <Box flexDirection="row" gap={2} marginLeft={1} marginTop={1}>
-      <Box flexDirection="column">
+      <Box flexDirection="column" flexShrink={0}>
         <Text color={colors.primary}>{'  ▄▄███▄▄'}</Text>
         <Text color={colors.h2}>{' ▄█ ◉    ██▄'}</Text>
         <Text color={colors.primary}>{'█          ~~█'}</Text>
         <Text color={colors.h2}>{' ▀▄▄█▄▄▄▄█▀'}</Text>
       </Box>
-      <Box flexDirection="column">
+      <Box flexDirection="column" flexShrink={1}>
         <Box flexDirection="row" gap={1}>
           <Text color={colors.primary}>{STATUS_ICONS.agent + ' DeepSeek Code'}</Text>
           <Text color={colors.textDim}>{'v' + pkg.version}</Text>
@@ -335,7 +356,7 @@ function Header({ provider, agentName, theme = 'dark' }: { provider: string; age
 }
 
 /** Renders the conversation: header, messages (collapsing each turn's tool work to a "Work truncated" divider unless fullMode), a changed-files summary, live thinking and the currently streaming reply. */
-export function MessageList({ messages, streamText, thinkingText, streamRole = 'assistant', theme, activeAgent, headerProvider, headerAgent, showToolCalls = true, showDiffs = true, showWordDiff = true, density = 'comfortable', fullMode = false, thinkingStartedAt = null, onOpenDiff }: {
+export function MessageList({ messages, streamText, thinkingText, streamRole = 'assistant', theme, activeAgent, headerProvider, headerAgent, showHeader = true, showToolCalls = true, showDiffs = true, showWordDiff = true, density = 'comfortable', fullMode = false, thinkingStartedAt = null, onOpenDiff }: {
   messages: Message[]
   streamText: string
   thinkingText?: string
@@ -343,6 +364,8 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
   theme: ThemeName
   activeAgent?: string | null
   headerProvider?: string
+  /** False when the caller pins the header outside the scrolling transcript. */
+  showHeader?: boolean
   headerAgent?: string | null
   showToolCalls?: boolean
   showDiffs?: boolean
@@ -370,7 +393,7 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
 
   return (
     <Box flexDirection="column" marginBottom={density === 'compact' ? 0 : 1}>
-      <Header provider={headerProvider ?? 'deepseek'} agentName={headerAgent ?? null} theme={theme} />
+      {showHeader && <Header provider={headerProvider ?? 'deepseek'} agentName={headerAgent ?? null} theme={theme} />}
       {displayMessages.map((item) => {
         if (item.kind === 'truncated') {
           return <Box key={`truncated-${item.index}`} marginTop={1}><Text color={colors.textSubtle}>{dividerLine(WORK_TRUNCATED_LABEL)}</Text></Box>
@@ -383,7 +406,7 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
             {showDivider && <WorkDivider theme={theme} />}
             <MessageItem message={message} theme={theme} agentLabel={agentLabel} showDiffs={showDiffs} showWordDiff={showWordDiff} compact={showDivider || density === 'compact'} fullMode={fullMode} onOpenDiff={onOpenDiff} />
             {message.role === 'assistant' && message.workedMs != null && (
-              <Text color={colors.textSubtle}>{workedLine(message.workedMs)}</Text>
+              <Text color={colors.textSubtle}>{workedLine(message.workedMs, undefined, turnToolCount(messages, index))}</Text>
             )}
           </Box>
         )
@@ -417,17 +440,32 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
           )}
         </Box>
       ) : null}
-      {fullMode && (
-        <Box flexDirection="column" marginTop={1}>
-          <Text color={colors.textSubtle}>{dividerLine()}</Text>
-          <Box flexDirection="row" justifyContent="space-between" paddingLeft={1} paddingRight={1}>
-            <Text color={colors.textSubtle}>{'Full mode · ctrl+o to toggle'}</Text>
-            <Text color={colors.textSubtle}>{'verbose'}</Text>
-          </Box>
-        </Box>
-      )}
     </Box>
   )
+}
+
+/** Full-mode indicator shown under the input box while ctrl+o full mode is on, with a divider separating it from the status bar below. */
+export function FullModeBar({ theme }: { theme: ThemeName }) {
+  const colors = getThemeColors(theme)
+  return (
+    <Box flexDirection="column">
+      <Box flexDirection="row" justifyContent="space-between" paddingLeft={1} paddingRight={1}>
+        <Text color={colors.textSubtle}>{'Full mode · ctrl+o to toggle'}</Text>
+        <Text color={colors.textSubtle}>{'verbose'}</Text>
+      </Box>
+      <Text color={colors.textSubtle}>{dividerLine()}</Text>
+    </Box>
+  )
+}
+
+// Braille mini-sine: one dot per column following a triangle wave, the right
+// column one step ahead of the left, so the curve seems to travel in one cell.
+const WAVE_FRAMES = ['⠑', '⠢', '⢄', '⡠', '⠔', '⠊']
+
+/** A single braille glyph that undulates like a wave, one frame every other clock tick (160ms); `tick` comes from the caller's useClock(). */
+export function Wave({ tick, theme }: { tick: number; theme: ThemeName }) {
+  const colors = getThemeColors(theme)
+  return <Text color={colors.primary}>{WAVE_FRAMES[Math.floor(tick / 2) % WAVE_FRAMES.length]}</Text>
 }
 
 /** Live reasoning indicator: the full thinking text in fullMode, otherwise a "Thinking for N seconds..." counter. */
@@ -438,13 +476,13 @@ function LiveThinking({ content, fullMode, startedAt, theme }: {
   theme: ThemeName
 }) {
   const colors = getThemeColors(theme)
-  // Read the clock tick each render so the live counter advances as time passes
-  useClock()
+  // The clock tick drives both the wave and the live seconds counter
+  const tick = useClock()
   if (fullMode) {
     return (
       <Box flexDirection="column" marginTop={1} marginLeft={2}>
         <Box flexDirection="row" gap={1}>
-          <Text color={colors.textSubtle}>{STATUS_ICONS.thinking}</Text>
+          <Wave tick={tick} theme={theme} />
           <Text color={colors.textSubtle} italic>{'Thinking'}</Text>
         </Box>
         <Box marginLeft={1} paddingLeft={1} paddingRight={1} paddingTop={1} paddingBottom={1} backgroundColor={colors.thinkingBg}>
@@ -460,7 +498,7 @@ function LiveThinking({ content, fullMode, startedAt, theme }: {
     // calculating from epoch zero (would show billions of seconds).
     return (
       <Box flexDirection="row" marginTop={1} marginLeft={2} gap={1}>
-        <Text color={colors.textSubtle}>{STATUS_ICONS.thinking}</Text>
+        <Wave tick={tick} theme={theme} />
         <Text color={colors.textSubtle}>{'Thinking...'}</Text>
       </Box>
     )
@@ -468,7 +506,7 @@ function LiveThinking({ content, fullMode, startedAt, theme }: {
   const seconds = Math.floor((Date.now() - startedAt) / 1000)
   return (
     <Box flexDirection="row" marginTop={1} marginLeft={2} gap={1}>
-      <Text color={colors.textSubtle}>{STATUS_ICONS.thinking}</Text>
+      <Wave tick={tick} theme={theme} />
       <Text color={colors.textSubtle}>{'Thinking for ' + seconds + ' seconds...'}</Text>
     </Box>
   )

@@ -157,3 +157,40 @@ test('renders a suggested reply while the input is empty', async () => {
     instance.cleanup()
   }
 })
+
+test('Tab moves the suggested reply into the input without submitting it', async () => {
+  const stdin = new FakeTerminal()
+  const stdout = new FakeTerminal()
+  const submitted: string[] = []
+  const instance = renderSync(
+    <InputBox
+      onSubmit={(text) => { submitted.push(text) }}
+      isLoading={false}
+      toolCallCount={0}
+      workingDirectory={process.cwd()}
+      suggestedReply="sim, pode fazer a revisão."
+    />,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stderr: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  )
+
+  try {
+    await Bun.sleep(100)
+    stdin.write('\t')
+    await Bun.sleep(100)
+    expect(submitted).toEqual([])
+
+    stdin.write('\r')
+    await Bun.sleep(100)
+    expect(submitted).toEqual(['sim, pode fazer a revisão.'])
+  } finally {
+    stdout.isTTY = false
+    instance.unmount()
+    instance.cleanup()
+  }
+})

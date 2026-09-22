@@ -3,7 +3,8 @@ import Box from '../../../ink/components/Box.js'
 import Text from '../../../ink/components/Text.js'
 import { useThemeColors } from '../../design-system/ThemeProvider.js'
 
-const SPINNER = ['✻', '✼', '✽', '✾', '✿', '❀', '✿', '✾', '✽', '✽', '✼']
+// Sonar pulse, echoing the whale mascot.
+const SPINNER = ['◌', '○', '◎', '◉', '◎', '○']
 
 const REFINING_MSGS = [
   'Prompt-engineering your prompt...',
