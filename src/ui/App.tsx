@@ -1,5 +1,4 @@
 import { existsSync } from 'fs'
-import { resolve } from 'path'
 import { useState, useCallback, useEffect, useRef } from 'react'
 import useInput from '../ink/hooks/use-input.js'
 import { execa } from 'execa'
@@ -514,12 +513,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const goalContinuationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const queuedSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveSessionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const guiProcessRef = useRef<ReturnType<typeof Bun.spawn> | null>(null)
-  const stopGuiProcess = useCallback(() => {
-    const child = guiProcessRef.current
-    guiProcessRef.current = null
-    child?.kill()
-  }, [])
   const sessionTitleRef = useRef<string | null>(initialSession?.title ?? null)
   const titleRequestedRef = useRef(Boolean(initialSession?.title))
   const [messages, setMessages] = useState<Message[]>([])
@@ -757,9 +750,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   useEffect(() => () => {
     btwAbortRef.current?.abort()
     if (compactBadgeTimerRef.current) clearTimeout(compactBadgeTimerRef.current)
-    stopGuiProcess()
     void agent.shutdown()
-  }, [agent, stopGuiProcess])
+  }, [agent])
 
   useEffect(() => {
     const subs = subagentsRef.current
@@ -1620,7 +1612,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     if (cmd) {
       switch (cmd.type) {
         case 'quit':
-          stopGuiProcess()
           if (onExit) {
             onExit()
             return
@@ -1726,39 +1717,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         }
         case 'mobile': {
           setShowMobileQR(true)
-          return
-        }
-        case 'gui': {
-          if (guiProcessRef.current && guiProcessRef.current.exitCode === null) {
-            setMessages((m) => [...m, { role: 'assistant', content: 'The GUI is already running.' }])
-            return
-          }
-          const entrypoint = process.argv[1]
-          if (!entrypoint) {
-            setMessages((m) => [...m, { role: 'assistant', content: 'Could not determine the DeepSeek entrypoint.' }])
-            return
-          }
-          const absoluteEntrypoint = resolve(process.cwd(), entrypoint)
-          let child: ReturnType<typeof Bun.spawn> | null = null
-          try {
-            child = Bun.spawn([process.execPath, absoluteEntrypoint, '--web'], {
-              cwd: agent.getWorkingDirectory(),
-              stdin: 'ignore',
-              stdout: 'ignore',
-              stderr: 'ignore',
-              detached: true,
-            })
-            guiProcessRef.current = child
-            setMessages((m) => [...m, { role: 'assistant', content: 'Opening the DeepSeek Code GUI in your browser…' }])
-            const exitCode = await child.exited
-            if (guiProcessRef.current !== child) return
-            guiProcessRef.current = null
-            if (exitCode !== 0) setMessages((m) => [...m, { role: 'assistant', content: `The GUI process exited with code ${exitCode}.` }])
-          } catch (error) {
-            if (child && guiProcessRef.current !== child) return
-            if (guiProcessRef.current === child) guiProcessRef.current = null
-            setMessages((m) => [...m, { role: 'assistant', content: `Could not start the GUI: ${(error as Error).message}` }])
-          }
           return
         }
         case 'files': {

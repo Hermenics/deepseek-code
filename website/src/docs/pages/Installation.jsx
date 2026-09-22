@@ -86,8 +86,8 @@ export default function Installation() {
               <thead><tr><th style={{ width: "20%" }}>Platform</th><th style={{ width: "28%" }}>Install/update</th><th>Platform-specific notes</th></tr></thead>
               <tbody>
                 <tr><td><b>Linux</b></td><td><code className="inline">npm install -g</code> or <code className="inline">bun add -g</code></td><td>Uses <code className="inline">$SHELL</code>; Ctrl+V can use xclip, xsel or wl-paste.</td></tr>
-                <tr><td><b>macOS</b></td><td><code className="inline">npm install -g</code> or <code className="inline">bun add -g</code></td><td>Clipboard reads use <code className="inline">pbpaste</code>; browser launch uses <code className="inline">open</code>.</td></tr>
-                <tr><td><b>Windows</b></td><td>PowerShell installer, npm or Bun</td><td>Commands use <code className="inline">COMSPEC</code>; clipboard reads use PowerShell; browser launch uses <code className="inline">start</code>.</td></tr>
+                <tr><td><b>macOS</b></td><td><code className="inline">npm install -g</code> or <code className="inline">bun add -g</code></td><td>Clipboard reads use <code className="inline">pbpaste</code>.</td></tr>
+                <tr><td><b>Windows</b></td><td>PowerShell installer, npm or Bun</td><td>Commands use <code className="inline">COMSPEC</code>; clipboard reads use PowerShell.</td></tr>
               </tbody>
             </table>
           </div>
@@ -97,11 +97,6 @@ export default function Installation() {
             <code className="inline">DEEPSEEK_INSTALL_PACKAGE_MANAGER=bun</code>, and refuses a Bun install below 1.1.
           </p>
           <CodeBlock lang="powershell">{'.\\install.ps1 latest\n.\\install.ps1 0.6.18\n$env:DEEPSEEK_INSTALL_PACKAGE_MANAGER = "bun"\n.\\install.ps1 stable'}</CodeBlock>
-          <Note>
-            Windows support does not make the browser workspace remote or multi-user. The{" "}
-            <a href="/docs/browser-workspace">Browser Workspace</a> still binds to localhost and inherits the
-            permissions of the local process.
-          </Note>
         </section>
 
         <section id="global">

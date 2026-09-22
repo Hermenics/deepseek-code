@@ -35,7 +35,6 @@ import task from './task/index.js'
 import cwd from './cwd/index.js'
 import worktree from './worktree/index.js'
 import mobile from './mobile/index.js'
-import gui from './gui/index.js'
 import logout from './logout/index.js'
 import features from './features/index.js'
 import { resolveCustomCommand } from './custom.js'
@@ -84,7 +83,6 @@ const commands: Command[] = [
   cwd,
   worktree,
   mobile,
-  gui,
   logout,
   goal,
   workflow,

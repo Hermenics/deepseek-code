@@ -95,7 +95,6 @@ const INSPECT = [
 
 const MISC = [
   ["/mobile", "—", "QR code to download the DeepSeek mobile app."],
-  ["/gui", "—", "Open the local browser workspace; the TUI owns and cleans up the child process."],
 ];
 
 function CmdTable({ rows }) {
@@ -198,7 +197,7 @@ Inspect the current diff and focus on $ARGUMENTS.`}</CodeBlock>
           </p>
           <Note>
             Built-in commands take precedence over saved workflows, and saved workflows take precedence over custom
-            commands. Custom commands are available in the Browser Workspace through the shared resolver.
+            commands. Custom commands use the same resolver as built-in commands.
           </Note>
         </section>
 

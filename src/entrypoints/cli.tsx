@@ -6,12 +6,6 @@ if (process.argv.includes('--pipe')) {
   process.exit(Number(process.exitCode ?? 0))
 }
 
-if (process.argv.includes('--web')) {
-  const { default: runWeb } = await import('./web.js')
-  await runWeb()
-  process.exit(Number(process.exitCode ?? 0))
-}
-
 // Suppress noisy react-reconciler dev warnings ASAP — before any imports.
 // These fire during reconciler initialization and pollute the TUI output.
 const _origConsoleError = console.error.bind(console)
@@ -166,7 +160,6 @@ Usage:
   deepseek agent <name>             Load a custom agent
   deepseek agent <name> "message"   Load agent with initial message
   deepseek --resume <session-id>    Resume a previous session
-  deepseek --web [--port <port>]    Open the local browser workspace
   deepseek doctor                   Diagnose local setup
   deepseek update                   Update to latest version
   deepseek logout                   Remove saved credentials

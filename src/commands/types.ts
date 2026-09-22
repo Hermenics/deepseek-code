@@ -74,7 +74,6 @@ export type CommandResult =
   | { type: 'logout' }
   | { type: 'cwd'; path?: string }
   | { type: 'mobile' }
-  | { type: 'gui' }
   | { type: 'goal'; action: 'show' }
   | { type: 'goal'; action: 'set'; objective: string; maxContinuations?: number }
   | { type: 'goal'; action: 'edit' }
