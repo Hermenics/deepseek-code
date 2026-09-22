@@ -15,7 +15,14 @@
 - Fixed: Subagent and verifier spend is added to the session cost shown by `/cost` and used by budgets
 - Fixed: Subagents on the official DeepSeek API request the same output ceiling as the main agent instead of the 4K default that truncates long file writes
 - Fixed: The eval runner's header promised that destructive shell commands were denied; it grants them per session, and now says so
-- Tests: `reject` failing closed at the permission, risk, agent-config and workflow prompts, a free repro of the silent turn end on an outside-workspace deny, subagent cost enforcement and aggregation, and the compare statistics
+- Enhanced: The TUI has its own "Sonar" look instead of a Claude Code-like one — a rounded input box with the agent label in its border, a user bar, an assistant diamond, tool lines with their status on the right, a sonar-pulse spinner, a braille wave while thinking, and an end-of-turn wave line with the duration and tool count
+- Enhanced: Fullscreen keeps the header pinned above the scrolling conversation, and the ctrl+o full-mode bar sits under the input box
+- Fixed: Raw mouse coordinates (like `2;10M`) no longer leak into the prompt when a mouse report arrives split across reads
+- Fixed: Closing the terminal (or its tmux session) now exits the app; it used to keep running forever with no terminal, rendering in the background, and ignored `kill`
+- Fixed: The published bundle is a production build; it used to run as a development build that wrote `~/.deepseek/logs/dev.log`, silently swallowed every uncaught exception and shipped React's development renderer. An uncaught exception now restores the terminal, prints the error and exits, and unhandled rejections are recorded in the session log
+- Fixed: In inline mode the `/` and `@` dropdowns open below the input instead of covering the header of an empty chat
+- Fixed: Tab on a suggested reply only puts it in the input for editing; Enter sends it
+- Tests: `reject` failing closed at the permission, risk, agent-config and workflow prompts, a free repro of the silent turn end on an outside-workspace deny, subagent cost enforcement and aggregation, and the compare statistics; mouse reports split across reads, the launcher exiting on SIGTERM/SIGHUP, and the Tab suggested-reply path
 
 ## 0.7.5
 
