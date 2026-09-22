@@ -18,8 +18,7 @@ export const BATCH_LIMITS = Object.freeze({
  * `src/commands/index.ts` (import/list), `src/commands/types.ts` (the
  * `{ type: 'batch'; prompts: string[] }` union member), and the command
  * dispatch switch in `src/ui/App.tsx` (call `executeBatchCommand` with the
- * existing `agent.workflows`). The web dispatcher needs the same case in
- * `src/web/commands.ts` if browser support is wanted.
+ * existing `agent.workflows`).
  *
  * `WorkflowManager.start()` creates the bounded `OrchestratorSession`, so this
  * module only owns parsing and the adapter contract; it does not create a

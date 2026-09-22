@@ -43,8 +43,8 @@ describe('parseCommand — extended coverage', () => {
       expect(parseCommand('/sessions')).toEqual({ type: 'sessions' })
     })
 
-    it('should parse /gui', () => {
-      expect(parseCommand('/gui')).toEqual({ type: 'gui' })
+    it('should reject the removed /gui command', () => {
+      expect(parseCommand('/gui')).toEqual({ type: 'unknown', input: 'Unknown command: /gui. Use /help to see available commands.' })
     })
   })
 

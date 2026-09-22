@@ -1222,7 +1222,7 @@ export class Agent {
     this.recordUsage(usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0, usage.prompt_cache_hit_tokens ?? 0)
   }
 
-  /** Structured live telemetry for UIs; shape-matches web/protocol.ts SessionStats. */
+  /** Structured session telemetry for diagnostics and integrations. */
   getSessionStats() {
     return {
       tokenCount: this.tokenCount,

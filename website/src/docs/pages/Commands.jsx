@@ -42,7 +42,6 @@ const GROUPS = [
     title: "Customize",
     items: [
       ["/config · /settings", "Open the fullscreen settings center"],
-      ["/gui", "Launch the local browser workspace in a separate web process and open it in the system browser"],
       ["/vim", "Toggle vim keybindings in the TUI"],
       ["/features · /experimental [flag] [on|off]", "List, toggle, or set experimental feature flags"],
       ["/mobile · /ios · /android", "Show a QR code to download the DeepSeek mobile app"],
@@ -102,14 +101,14 @@ export default function Commands() {
         <div className="hero">
           <h1>Commands</h1>
           <p className="tagline">
-            Everything you can do from inside the DeepSeek Code TUI or Browser Workspace, grouped by intent.
+            Everything you can do from inside the DeepSeek Code TUI, grouped by intent.
           </p>
         </div>
 
         <section id="palette">
           <h2><span className="anchor">#</span>Command palette</h2>
           <p>
-            Type <code className="inline">/</code> in the TUI or Browser Workspace composer to open the command palette
+            Type <code className="inline">/</code> in the TUI to open the command palette
             and browse available commands. Commands are matched as you type, so you can jump to what you need without
             remembering the exact name.
           </p>
@@ -122,9 +121,8 @@ export default function Commands() {
           <p>
             In addition to the built-in set below, saved workflows and Markdown prompts in{" "}
             <code className="inline">.deepseek/commands/</code> or{" "}
-            <code className="inline">~/.deepseek/commands/</code> can add slash-command suggestions. The Browser
-            Workspace and TUI use the same resolver, so a discovered command has the same name and argument expansion
-            in both interfaces.
+            <code className="inline">~/.deepseek/commands/</code> can add slash-command suggestions. A discovered
+            command keeps the same name and argument expansion wherever it is used in the TUI.
           </p>
           <p>
             Built-ins win name collisions, followed by saved workflows and then custom commands. Custom command files
