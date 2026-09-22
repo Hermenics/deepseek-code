@@ -114,6 +114,7 @@ const tail = (text: string, lines = 40) => text.split('\n').slice(-lines).join('
 async function runOnce(task: string, run: number) {
   const dir = await mkdtemp(join(tmpdir(), `deepseek-eval-${task}-`))
   await cp(join(TASKS_DIR, task, 'repo'), dir, { recursive: true })
+  /** Runs git inside the task repository. */
   const git = (...args: string[]) => execa('git', args, { cwd: dir })
   await git('init', '-q')
   await git('add', '-A')

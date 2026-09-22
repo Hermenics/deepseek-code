@@ -13,6 +13,7 @@ export const PRODUCTS: Product[] = [
   { sku: 'POT-03', name: 'Cast iron pot', prices: { USD: '45.99', EUR: '42.00', JPY: '6800', KWD: '14.125' } },
 ]
 
+/** Product by SKU; throws for an unknown one. */
 export function findProduct(sku: string): Product {
   const product = PRODUCTS.find((p) => p.sku === sku)
   if (!product) throw new Error(`unknown sku: ${sku}`)

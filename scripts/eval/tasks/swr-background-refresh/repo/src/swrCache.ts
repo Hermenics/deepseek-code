@@ -19,6 +19,7 @@ export class SwrCache<V> {
     this.now = options.now ?? Date.now
   }
 
+  /** Value for the key, from the cache or the fetcher. */
   async get(key: string): Promise<V> {
     const entry = this.entries.get(key)
     if (entry && this.now() - entry.fetchedAt < this.options.ttlMs) return entry.value

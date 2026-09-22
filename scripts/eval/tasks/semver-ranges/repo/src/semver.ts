@@ -7,6 +7,7 @@ export interface SemVer {
 
 const VERSION = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/
 
+/** Parses a semver string; throws for an invalid one. */
 export function parse(text: string): SemVer {
   const match = VERSION.exec(text.trim())
   if (!match) throw new Error(`invalid version: ${text}`)
@@ -38,6 +39,7 @@ export function compare(a: SemVer, b: SemVer): number {
 
 const COMPARATOR = /^(<=|>=|<|>|=)?(.+)$/
 
+/** Whether the version satisfies one comparator such as `>=1.2.3`. */
 function test(version: SemVer, comparator: string): boolean {
   const [, op = '=', rest] = COMPARATOR.exec(comparator)!
   const order = compare(version, parse(rest!))
@@ -50,6 +52,7 @@ function test(version: SemVer, comparator: string): boolean {
   }
 }
 
+/** Whether the version satisfies the range. */
 export function satisfies(version: string, range: string): boolean {
   const v = parse(version)
   return range.trim().split(/\s+/).every((comparator) => test(v, comparator))

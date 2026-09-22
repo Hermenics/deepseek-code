@@ -1,10 +1,12 @@
 import { MINOR_UNITS, SYMBOLS } from '../config/currencies'
 import type { Money } from './types'
 
+/** Adds thousands separators to a string of digits. */
 function group(whole: string): string {
   return whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')
 }
 
+/** Formats an amount with its currency symbol and decimal places. */
 export function formatMoney(money: Money): string {
   const digits = MINOR_UNITS[money.currency]
   const sign = money.minor < 0 ? '-' : ''

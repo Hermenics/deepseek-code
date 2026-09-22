@@ -26,6 +26,7 @@ export class MemoryStore {
 
   constructor(cwd = process.cwd()) { this.cwd = resolve(cwd) }
 
+  /** Applies memory settings; DEEPSEEK_DISABLE_MEMORY=1 turns memory off for this process. */
   async configure(config: MemoryConfig, cwd = this.cwd): Promise<void> {
     // DEEPSEEK_DISABLE_MEMORY=1 turns memory off for one process (the eval harness) without touching settings.
     this.enabled = config.enabled !== false && process.env.DEEPSEEK_DISABLE_MEMORY !== '1'
@@ -108,6 +109,7 @@ export class MemoryStore {
     })
   }
 
+  /** Agent and user memory rendered for the system prompt; empty while memory is disabled. */
   async snapshot(): Promise<string> {
     if (!this.enabled) return ''
     const [agent, user] = await Promise.all([this.load('agent'), this.load('user')])
@@ -119,6 +121,7 @@ export class MemoryStore {
       : ''
   }
 
+  /** Deletes the stored memory for a target; does nothing while memory is disabled. */
   clear(target?: MemoryTarget): Promise<void> {
     if (!this.enabled) return Promise.resolve()
     return this.mutate(() => target ? rm(this.file(target), { force: true }) : rm(this.getDirectory(), { recursive: true, force: true }))

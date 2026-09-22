@@ -22,6 +22,7 @@ const fakeAgent: WebAgent = {
   abort() {},
   getToolInfo: () => [{ name: 'read_file', description: 'Read a file from the workspace.' }],
   getSessionStats: () => ({ ...fakeStats }),
+  /** Fake agent turn that records its prompt. */
   async run(_userMessage, cb) {
     cb.onPhaseChange?.('executing')
     cb.onToken?.('olá')
@@ -197,6 +198,7 @@ describe('web server', () => {
     const agent: WebAgent = {
       abort() {},
       getToolInfo: () => runtimeTools,
+      /** Fake turn that reports a call and result for every runtime tool. */
       async run(_userMessage, cb) {
         for (const tool of runtimeTools) {
           cb.onToolCall(tool.name, {})
@@ -237,6 +239,7 @@ describe('web server', () => {
     const agent: WebAgent = {
       abort() {},
       getToolInfo: () => runtimeTools,
+      /** Fake turn that reports a call and result for every runtime tool. */
       async run(_userMessage, cb) {
         for (const tool of runtimeTools) {
           cb.onToolCall(tool.name, {})

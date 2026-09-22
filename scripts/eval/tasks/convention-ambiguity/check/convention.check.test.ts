@@ -4,6 +4,7 @@ import type { Logger } from '../src/logger'
 import { AccountService } from '../src/services/accounts'
 import { AccountStore } from '../src/store'
 
+/** Service over three accounts (one frozen) with a logger that records events. */
 function setup() {
   const events: string[] = []
   const logger: Logger = { info: (e) => { events.push(e) }, warn: (e) => { events.push(e) } }
@@ -15,6 +16,7 @@ function setup() {
   const service = new AccountService(store, logger) as AccountService & {
     transfer(from: string, to: string, amountCents: number): { ok: boolean; error?: string; value?: unknown }
   }
+  /** Current balances of accounts a, b and z. */
   const balances = () => ['a', 'b', 'z'].map((id) => store.find(id)!.balanceCents)
   return { service, balances, events }
 }
@@ -27,6 +29,7 @@ it('moves money between two accounts', () => {
 
 it('returns the repository error codes instead of throwing', () => {
   const { service, balances } = setup()
+  /** Calls transfer, failing the check if it throws, and returns its result. */
   const call = (from: string, to: string, amount: number) => {
     let result
     expect(() => { result = service.transfer(from, to, amount) }).not.toThrow()

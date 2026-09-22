@@ -1,6 +1,7 @@
 import { ROUTES } from './generated/routes'
 import type { RouteMatch } from './types'
 
+/** First route matching the path, with its decoded parameters, or null. */
 export function matchRoute(path: string): RouteMatch | null {
   for (const route of ROUTES) {
     const match = route.pattern.exec(path)

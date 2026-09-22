@@ -202,9 +202,11 @@ describe('subagent terminal protocol', () => {
       parameters: { type: 'object', additionalProperties: false, properties: { path: { type: 'string' }, content: { type: 'string' } }, required: ['path', 'content'] },
       async execute() { executions++; return 'written' },
     }
+    /** Fake write tool that records its arguments. */
     const write = (args: object, id: string) => ({
       content: null, tool_calls: [{ id, type: 'function', function: { name: 'write_file', arguments: JSON.stringify(args) } }],
     })
+    /** Minimal read-only execution context. */
     const context = {
       sessionId: 's', taskId: 't', workspacePath: process.cwd(), projectRoot: process.cwd(),
       permissionProfile: 'researcher-readonly' as const,
@@ -340,9 +342,11 @@ describe('subagent terminal protocol', () => {
 
 describe('subagent cost', () => {
   const usage = { total_tokens: 1_500_000, prompt_tokens: 1_000_000, prompt_cache_hit_tokens: 400_000, completion_tokens: 500_000 }
+  /** Client that answers with a valid terminal result and a large priced usage, recording each request body. */
   const pricedClient = (bodies: Array<Record<string, unknown>> = []) => ({
     chat: { completions: { create: async (body: Record<string, unknown>) => { bodies.push(body); return { choices: [{ message: terminalArgs(valid) }], usage } } } },
   }) as any
+  /** Read-only execution context, extended with task-specific fields. */
   const context = (extra: Record<string, unknown> = {}) => ({
     sessionId: 's', workspacePath: process.cwd(), projectRoot: process.cwd(), permissionProfile: 'researcher-readonly' as const, ...extra,
   })

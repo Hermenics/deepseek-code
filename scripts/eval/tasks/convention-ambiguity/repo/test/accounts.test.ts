@@ -3,6 +3,7 @@ import { silentLogger } from '../src/logger'
 import { AccountService } from '../src/services/accounts'
 import { AccountStore } from '../src/store'
 
+/** Service over one account holding $100. */
 const service = () => new AccountService(new AccountStore([
   { id: 'a', owner: 'Ana', balanceCents: 10_000, frozen: false },
 ]), silentLogger)

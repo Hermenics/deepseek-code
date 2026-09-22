@@ -3,6 +3,7 @@ import { parseToolCallArguments } from '../src/agent/agent.js'
 import { truncateShellOutput } from '../src/tools/Shell/Shell.js'
 import { collectEnvironmentInfo, formatEnvironmentInfo } from '../src/agent/environment.js'
 
+/** write_file tool call carrying the given raw arguments. */
 const call = (args: string) => ({ id: 'call-1', type: 'function' as const, function: { name: 'write_file', arguments: args } })
 
 describe('parseToolCallArguments', () => {

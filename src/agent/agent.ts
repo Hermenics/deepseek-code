@@ -83,6 +83,7 @@ const MAX_EMPTY_REPLY_NUDGES = 2
 const EMPTY_REPLY_FEEDBACK = '[Empty response] Your last response had no text and no tool calls, so the turn would end with the task unfinished and nothing reported. Continue the task; when it is truly done, reply with a short summary of what changed.'
 const OUTPUT_LIMIT_FEEDBACK = '[Output limit] Your previous response was cut off at the output-token limit. Continue exactly where it stopped, without repeating what you already wrote. If you were writing a large file or block, split the rest into smaller steps.'
 
+/** Feedback message for a failed post-edit verification, with its attempt count and output. */
 function formatVerificationFeedback(result: VerificationResult, attempt: number): string {
   const output = result.output.length > 4_000 ? `…${result.output.slice(-4_000)}` : result.output
   return [
@@ -403,6 +404,7 @@ export function canonicalResearchUrl(value: unknown): string | null {
   }
 }
 
+/** Canonical research URLs mentioned in a piece of text. */
 export function evidenceUrls(text: string): Set<string> {
   const urls = new Set<string>()
   for (const match of text.matchAll(/https?:\/\/[^\s<>"'`]+/gi)) {
@@ -462,6 +464,7 @@ export interface AgentOptions {
   snapshotFile?: string | null
 }
 
+/** Task limits configured under `agents`, leaving out the ones that are not set. */
 function taskLimitsFromSettings(settings: DeepSeekSettings): Partial<TaskLimits> {
   return Object.fromEntries(Object.entries({
     concurrency: settings.agents?.concurrency,
@@ -695,6 +698,7 @@ export class Agent {
     }, toolName)
   }
 
+  /** Asks for approval to run a workflow script unless it was approved before or the mode is auto; 'deny' and 'reject' both refuse. */
   private async authorizeWorkflow(script: string, args: object): Promise<void> {
     if (this.settings.workflows?.enabled === false || process.env.DEEPSEEK_DISABLE_WORKFLOWS === '1') throw new Error('Dynamic Workflows are disabled')
     const scriptHash = hashWorkflowValue(script)
@@ -719,6 +723,7 @@ export class Agent {
     return this.workflows.start(input)
   }
 
+  /** Starts a new run from the saved input of an earlier one. */
   async restartWorkflow(runId: string): Promise<WorkflowHandle> {
     return this.startWorkflow(await this.workflows.loadRunInput(runId))
   }
@@ -1162,6 +1167,7 @@ export class Agent {
 
   // ── Cost ───────────────────────────────────────────────────────────────────
 
+  /** Adds one response's tokens to the session totals and prices it at the current model's rate. */
   private recordUsage(promptTokens: number, completionTokens: number, cachedTokens: number): void {
     this.tokenUsage.promptTokens += promptTokens
     this.tokenUsage.completionTokens += completionTokens
@@ -1176,6 +1182,7 @@ export class Agent {
     return total
   }
 
+  /** Model, token totals and estimated cost for /cost, including subagent spend. */
   getCostSummary(): string {
     const cost = this.totalCostUsd
     return [
@@ -1230,6 +1237,7 @@ export class Agent {
     }
   }
 
+  /** Human-readable session statistics for /stats. */
   getStats(): string {
     const elapsed = Date.now() - this.sessionStartTime
     const minutes = Math.floor(elapsed / 60_000)
@@ -1762,6 +1770,7 @@ export class Agent {
     this.clearHistory()
   }
 
+  /** Runs one user turn to completion, reporting progress through the callbacks. */
   async run(userMessage: string | PromptInput, cb: AgentCallbacks) {
     // Wait for settings, snapshots and project context before resetting turn state.
     await this.readyPromise
@@ -1889,17 +1898,21 @@ export class Agent {
     return this.withRetry(async () => {
       const idleMs = streamIdleTimeoutMs()
       const attempt = new AbortController()
+      /** Aborts this attempt when the turn is aborted. */
       const forwardAbort = () => attempt.abort(turnSignal.reason)
       turnSignal.addEventListener('abort', forwardAbort, { once: true })
       let timer: ReturnType<typeof setTimeout> | undefined
+      /** Restarts the idle timer. */
       const arm = () => {
         clearTimeout(timer)
         timer = setTimeout(() => attempt.abort(new StreamIdleError(idleMs)), idleMs)
       }
+      /** Stops the idle timer and detaches from the turn signal. */
       const release = () => {
         clearTimeout(timer)
         turnSignal.removeEventListener('abort', forwardAbort)
       }
+      /** The StreamIdleError that aborted this attempt, unless the turn itself was aborted. */
       const idleError = () => (attempt.signal.reason instanceof StreamIdleError && !turnSignal.aborted ? attempt.signal.reason : undefined)
       // Race every read against the abort: a response body that ignores its signal must not hold the turn.
       const aborted = new Promise<never>((_, reject) => {
@@ -1913,6 +1926,7 @@ export class Agent {
           aborted,
         ])
         const iterator = stream[Symbol.asyncIterator]()
+        /** Next chunk, or the abort reason if the attempt is aborted first. */
         const read = () => Promise.race([iterator.next(), aborted])
         let first: IteratorResult<any>
         try { first = await read() } catch (error) { void iterator.return?.()?.catch(() => {}); throw error }
@@ -1975,6 +1989,7 @@ export class Agent {
     return process.env.DEEPSEEK_NO_STREAM !== '1'
   }
 
+  /** Model and tool loop for one turn: streams a response, runs its tool calls, and repeats until the model answers. */
   private async runLoop(cb: AgentCallbacks) {
     const MAX_AGENT_ITERATIONS = 100
     let iterations = 0
@@ -2347,6 +2362,7 @@ export class Agent {
     await this.runLoop(cb)
   }
 
+  /** Completion gates before a turn may end: Stop hooks, empty replies, open todos and post-edit verification. */
   private async completeTurn(cb: AgentCallbacks): Promise<void> {
     let completionHandled = false
     try {

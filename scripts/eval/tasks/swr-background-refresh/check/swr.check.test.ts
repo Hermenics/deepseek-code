@@ -2,14 +2,18 @@ import { expect, it } from 'bun:test'
 import { readdirSync, readFileSync } from 'node:fs'
 import { SwrCache } from '../src/swrCache'
 
+/** A wrong implementation can leave a caller waiting forever; fail the check instead of hanging it. */
 function within<T>(promise: Promise<T>, ms = 1_000): Promise<T> {
   return Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('call did not settle')), ms))])
 }
+/** Lets pending promise callbacks and timers run. */
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 
+/** Fetcher whose requests stay pending until the test resolves or rejects them. */
 function controlled() {
   const calls: string[] = []
   const pending: Array<{ resolve: (v: string) => void; reject: (e: Error) => void }> = []
+  /** Records the key and returns a promise the test settles. */
   const fetcher = (key: string) => {
     calls.push(key)
     return new Promise<string>((resolve, reject) => pending.push({ resolve, reject }))
@@ -17,6 +21,7 @@ function controlled() {
   return { calls, pending, fetcher }
 }
 
+/** Cache already holding v1 for key k, fetched at time 0, with a settable clock. */
 async function primed(opts = { ttlMs: 100, maxStaleMs: 1_000 }) {
   let time = 0
   const c = controlled()

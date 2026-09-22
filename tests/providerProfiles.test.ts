@@ -6,6 +6,7 @@ import { createProviderProfile, loadProviderProfiles, migrateLegacyProviderProfi
 import { Agent } from '../src/agent/agent.js'
 
 const temporary: string[] = []
+/** Temporary directory removed after the test. */
 async function tempDir(): Promise<string> {
   const path = await mkdtemp(join(tmpdir(), 'deepseek-provider-profiles-'))
   temporary.push(path)
