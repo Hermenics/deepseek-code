@@ -14,6 +14,7 @@ interface ListDirState {
   ignoreRoot: string
 }
 
+/** Depth-limited walk that appends entries to `state.results`, skipping .deepseekignore matches and recording unreadable directories inline. Stops once MAX_ENTRIES is reached. */
 async function listDir(
   dir: string,
   recursive: boolean,
@@ -54,6 +55,7 @@ async function listDir(
   }
 }
 
+/** Read-only tool listing a directory, optionally recursive up to 5 levels and 1000 entries. The dir must pass `assertSafeDir`. */
 export const ReadFolder: Tool = {
   name: 'read_folder',
   description: 'List files and directories.',

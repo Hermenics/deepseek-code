@@ -58,14 +58,17 @@ const KNOWN_TOP_LEVEL = new Set([
   'hooks', 'goal', 'workflows', 'keybindings', 'budget', 'theme', 'language', 'autoCompact', 'autoCompactThreshold',
 ])
 
+/** True for plain non-null, non-array objects. */
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
+/** Deep copy via a JSON round-trip; only safe for JSON-serialisable settings data. */
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
 
+/** Reads a dot-separated path (e.g. `git.worktree`); an empty path returns the source itself. */
 function getAtPath(source: unknown, path: string): unknown {
   if (!path) return source
   return path.split('.').reduce<unknown>((value, key) => {
@@ -73,6 +76,7 @@ function getAtPath(source: unknown, path: string): unknown {
   }, source)
 }
 
+/** Writes a value at a dot-separated path, replacing any non-object intermediate with a fresh object. */
 function setAtPath(target: Record<string, unknown>, path: string, value: unknown): void {
   const parts = path.split('.')
   let cursor = target
@@ -83,6 +87,7 @@ function setAtPath(target: Record<string, unknown>, path: string, value: unknown
   cursor[parts.at(-1)!] = value
 }
 
+/** Deletes the key at a dot-separated path and prunes parent objects left empty by the deletion. */
 function unsetAtPath(target: Record<string, unknown>, path: string): void {
   const parts = path.split('.')
   const parents: Array<{ object: Record<string, unknown>; key: string }> = []
@@ -98,6 +103,7 @@ function unsetAtPath(target: Record<string, unknown>, path: string): void {
   }
 }
 
+/** Settings paths whose arrays accumulate across levels (permission rules, risk rules, hooks, disabled builtins) instead of being replaced. */
 function shouldConcat(path: string): boolean {
   return [
     'permissions.allow', 'permissions.deny', 'permissions.suppress',
@@ -114,6 +120,10 @@ function shouldConcat(path: string): boolean {
   ].includes(path)
 }
 
+/**
+ * Deep-merges settings levels left to right: later objects override earlier keys, arrays are replaced,
+ * except paths listed in `shouldConcat`, which are concatenated and de-duplicated by JSON value.
+ */
 export function mergeSettings(...levels: DeepSeekSettings[]): DeepSeekSettings {
   const merge = (base: unknown, next: unknown, path: string): unknown => {
     if (next === undefined) return base
@@ -135,6 +145,7 @@ export function mergeSettings(...levels: DeepSeekSettings[]): DeepSeekSettings {
   return levels.reduce<DeepSeekSettings>((result, level) => merge(result, level, '') as DeepSeekSettings, {})
 }
 
+/** Maps deprecated top-level keys (`theme`, `language`, `autoCompact*`, string `model`) onto their current nested locations without overwriting newer values. */
 function legacyCompatibility(raw: DeepSeekSettings): DeepSeekSettings {
   const migrated: DeepSeekSettings = clone(raw)
   const interfaceSettings = { ...(isObject(raw.interface) ? raw.interface : {}) }
@@ -150,6 +161,10 @@ function legacyCompatibility(raw: DeepSeekSettings): DeepSeekSettings {
   return migrated
 }
 
+/**
+ * Recomputes the effective allow/deny/suppress lists level by level so that a `suppress` rule
+ * removes an `allow` rule granted by an earlier level; later levels may still re-allow it.
+ */
 function applyPermissionSuppressions(levels: DeepSeekSettings[], effective: DeepSeekSettings): void {
   let allow: string[] = []
   let deny: string[] = []
@@ -167,10 +182,12 @@ function applyPermissionSuppressions(levels: DeepSeekSettings[], effective: Deep
   effective.permissions = { ...(isObject(effective.permissions) ? effective.permissions : {}), allow, deny, suppress }
 }
 
+/** Deterministic short hook id derived from its position and command, so hooks without an explicit id keep the same id across reloads. */
 function stableHookId(parts: unknown[]): string {
   return `hook-${createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 12)}`
 }
 
+/** Drops malformed hook entries in place and fills in missing `id` and `enabled` (default true) for matcher-based and plain command hook events. */
 function normalizeHooks(settings: DeepSeekSettings): void {
   if (!isObject(settings.hooks)) { settings.hooks = undefined; return }
   for (const event of ['PreToolUse', 'PostToolUse', 'PermissionRequest', 'SubagentStart', 'SubagentStop',
@@ -206,6 +223,7 @@ function normalizeHooks(settings: DeepSeekSettings): void {
   }
 }
 
+/** Reads preference keys (THEME, MODEL, PROVIDER, ...) from the legacy `~/.deepseek/config.json` as the lowest-priority settings layer; any failure yields `{}`. */
 async function loadLegacyPreferences(): Promise<DeepSeekSettings> {
   try {
     const raw = JSON.parse(await readFile(join(homedir(), '.deepseek', 'config.json'), 'utf8')) as Record<string, unknown>
@@ -230,16 +248,19 @@ async function loadLegacyPreferences(): Promise<DeepSeekSettings> {
   }
 }
 
+/** File path of a settings level: user `~/.deepseek/settings.json`, project `.deepseek/settings.json`, local `.deepseek/settings.local.json`. */
 export function getSettingsPath(level: SettingsLevel, cwd = process.cwd()): string {
   if (level === 'user') return join(homedir(), '.deepseek', 'settings.json')
   if (level === 'project') return join(cwd, '.deepseek', 'settings.json')
   return join(cwd, '.deepseek', 'settings.local.json')
 }
 
+/** Path of the private config file that holds credentials (`~/.deepseek/config.json`), kept out of the settings files. */
 export function getCredentialsPath(): string {
   return join(homedir(), '.deepseek', 'config.json')
 }
 
+/** Loads one settings level; a missing file is empty data, while unreadable or non-object JSON is reported via `error` instead of throwing. */
 async function readLevel(level: SettingsLevel, cwd?: string) {
   const path = getSettingsPath(level, cwd)
   try {
@@ -252,6 +273,7 @@ async function readLevel(level: SettingsLevel, cwd?: string) {
   }
 }
 
+/** Maps every leaf setting path to the highest-priority level that defines it. */
 function collectOrigins(
   levels: SettingsSnapshot['levels'],
   prefix = '',
@@ -270,6 +292,7 @@ function collectOrigins(
   return result
 }
 
+/** Validates one level's raw settings and returns errors plus scope warnings (e.g. options that are ignored outside User scope). */
 export function validateSettings(settings: DeepSeekSettings, level?: SettingsLevel): ValidationIssue[] {
   const issues: ValidationIssue[] = []
   const add = (path: string, message: string, severity: 'error' | 'warning' = 'error') => issues.push({ path, level, message, severity })
@@ -400,6 +423,11 @@ export function validateSettings(settings: DeepSeekSettings, level?: SettingsLev
   return issues
 }
 
+/**
+ * Loads all levels and builds the effective settings: defaults, then the budget profile, then legacy, user,
+ * project and local data. Project and local levels are sanitised first so a checked-out repo cannot add
+ * hooks, LSP/MCP servers, status-line commands, provider routing, permission grants or auto mode.
+ */
 export async function loadSettingsSnapshot(cwd?: string): Promise<SettingsSnapshot> {
   const loaded = await Promise.all(LEVELS.map(level => readLevel(level, cwd)))
   const levels = Object.fromEntries(loaded.map(item => [item.level, item])) as SettingsSnapshot['levels']
@@ -458,6 +486,7 @@ export async function loadSettingsSnapshot(cwd?: string): Promise<SettingsSnapsh
   return { effective, legacy, levels, origins, issues, unknownPaths, loadedAt: new Date().toISOString() }
 }
 
+/** Writes settings JSON with mode 0600 through a temp file and rename, so readers never see a partial file. */
 async function atomicWrite(path: string, data: DeepSeekSettings): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
@@ -470,6 +499,7 @@ async function atomicWrite(path: string, data: DeepSeekSettings): Promise<void> 
   }
 }
 
+/** Read-modify-write of one level: refuses invalid existing JSON, validates the result, writes atomically and returns a fresh snapshot. */
 async function mutateLevel(level: SettingsLevel, cwd: string | undefined, mutation: (data: Record<string, unknown>) => void): Promise<SettingsSnapshot> {
   const current = await readLevel(level, cwd)
   if (current.error) throw new Error(`Cannot update invalid JSON at ${current.path}: ${current.error}`)
@@ -481,6 +511,7 @@ async function mutateLevel(level: SettingsLevel, cwd: string | undefined, mutati
   return loadSettingsSnapshot(cwd)
 }
 
+/** Sets one dot-path value at a level; rejects anything that looks like a secret. */
 export async function setSetting(level: SettingsLevel, path: string, value: unknown, cwd?: string): Promise<SettingsSnapshot> {
   assertNoSecrets(path, value)
   return mutateLevel(level, cwd, data => setAtPath(data, path, value))
@@ -488,16 +519,19 @@ export async function setSetting(level: SettingsLevel, path: string, value: unkn
 
 const SECRET_NAME = /api.?key|token|secret|credential|password/i
 
+/** Recursively checks whether any object key in the value looks like a secret name. */
 function containsSecretKey(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(containsSecretKey)
   if (!isObject(value)) return false
   return Object.entries(value).some(([key, child]) => SECRET_NAME.test(key) || containsSecretKey(child))
 }
 
+/** Throws when a path or value looks like a secret, since secrets belong in the private config file, not in settings. */
 function assertNoSecrets(path: string, value: unknown): void {
   if (SECRET_NAME.test(path) || containsSecretKey(value)) throw new Error('Secrets must be stored in ~/.deepseek/config.json')
 }
 
+/** Sets several dot-path values at a level in one atomic write; rejects secrets. */
 export async function setSettings(level: SettingsLevel, entries: Array<[string, unknown]>, cwd?: string): Promise<SettingsSnapshot> {
   for (const [path, value] of entries) assertNoSecrets(path, value)
   return mutateLevel(level, cwd, data => {
@@ -505,10 +539,12 @@ export async function setSettings(level: SettingsLevel, entries: Array<[string, 
   })
 }
 
+/** Removes one dot-path value from a level, pruning parents left empty. */
 export async function unsetSetting(level: SettingsLevel, path: string, cwd?: string): Promise<SettingsSnapshot> {
   return mutateLevel(level, cwd, data => unsetAtPath(data, path))
 }
 
+/** Clears a single path, or empties the whole level file when no path is given. */
 export async function resetSettings(level: SettingsLevel, path?: string, cwd?: string): Promise<SettingsSnapshot> {
   if (path) return unsetSetting(level, path, cwd)
   const current = await readLevel(level, cwd)
@@ -517,6 +553,7 @@ export async function resetSettings(level: SettingsLevel, path?: string, cwd?: s
   return loadSettingsSnapshot(cwd)
 }
 
+/** Explains a setting: its effective value, the level it comes from and each level's override, omitting values that level is not allowed to set. */
 export function resolveSetting(snapshot: SettingsSnapshot, path: string): SettingResolution {
   const legacyValue = getAtPath(snapshot.legacy, path)
   const overrides: SettingResolution['overrides'] = [
@@ -537,6 +574,7 @@ export function resolveSetting(snapshot: SettingsSnapshot, path: string): Settin
   return { path, value, origin, overrides }
 }
 
+/** Recursively drops keys that look like secrets so exports are safe to share. */
 function stripSecrets(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripSecrets)
   if (!isObject(value)) return value
@@ -548,6 +586,7 @@ function stripSecrets(value: unknown): unknown {
   return clean
 }
 
+/** Builds a versioned, secret-free export of the effective settings plus optional memory and sessions data. */
 export function createSettingsExport(snapshot: SettingsSnapshot, extra: Pick<SettingsExport, 'memory' | 'sessions'> = {}): SettingsExport {
   return {
     version: 1,
@@ -558,6 +597,7 @@ export function createSettingsExport(snapshot: SettingsSnapshot, extra: Pick<Set
   }
 }
 
+/** Settings access bound to one working directory that caches the latest snapshot after every load or write. */
 export class SettingsRepository {
   private snapshot?: SettingsSnapshot
   constructor(private readonly cwd = process.cwd()) {}

@@ -199,6 +199,7 @@ const CATEGORIES: Category[] = [
 ]
 
 export type SettingsLayout = 'wide' | 'medium' | 'narrow'
+/** Breakpoints for the settings menu: wide at 110+ columns, medium at 72+, narrow below. */
 export function getSettingsLayout(width: number): SettingsLayout {
   return width >= 110 ? 'wide' : width >= 72 ? 'medium' : 'narrow'
 }
@@ -222,6 +223,7 @@ export function itemsColumnWidth(terminalWidth: number): number {
   const available = terminalWidth - CATEGORY_COLUMN - 4
   return Math.max(38, Math.min(60, available))
 }
+/** Rows available to the settings list: the terminal height minus the menu chrome, clamped to 6..9. */
 export function getSettingsNavigationHeight(height: number): number {
   return Math.max(6, Math.min(9, height - 13))
 }
@@ -245,6 +247,7 @@ interface ConfigMenuProps {
   onPreviewRefiner?(prompt: string): Promise<string>
 }
 
+/** Formats a setting value for the list: `—` when unset, ON/OFF for booleans, comma-joined arrays, JSON for objects. */
 function displayValue(value: unknown): string {
   if (value === undefined || value === null || value === '') return '—'
   if (typeof value === 'boolean') return value ? 'ON' : 'OFF'
@@ -253,10 +256,12 @@ function displayValue(value: unknown): string {
   return String(value)
 }
 
+/** Reads a dotted path (e.g. `interface.theme`) out of the settings object, returning undefined when any segment is missing. */
 function valueAt(settings: DeepSeekSettings, path: string): unknown {
   return path.split('.').reduce<unknown>((value, key) => value && typeof value === 'object' ? (value as Record<string, unknown>)[key] : undefined, settings)
 }
 
+/** Visible page of settings rows that only scrolls once the selection passes the last visible row, with flags for hidden rows above and below. */
 export function getSettingsWindow<T>(items: T[], selected: number, max: number): { before: boolean; after: boolean; start: number; values: T[] } {
   if (items.length <= max) return { before: false, after: false, start: 0, values: items }
   // Keep the current page still until the selection reaches its last visible row.
@@ -265,10 +270,12 @@ export function getSettingsWindow<T>(items: T[], selected: number, max: number):
   return { before: start > 0, after: start + max < items.length, start, values: items.slice(start, start + max) }
 }
 
+/** Cycles to the option after the current value, wrapping around (and starting at the first when the value is not an option). */
 export function getNextSettingOption(current: unknown, options: string[]): string {
   return options[(options.indexOf(String(current ?? '')) + 1) % options.length] ?? ''
 }
 
+/** The `/config` settings screen: browses setting categories per scope (user, project or local) with search, inline editing and actions, and opens the agent, hook and provider-profile libraries; layout adapts to wide, medium and narrow terminals. */
 export default function ConfigMenu(props: ConfigMenuProps) {
   const [repository] = useState(() => new SettingsRepository())
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null)

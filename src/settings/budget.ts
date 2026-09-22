@@ -115,6 +115,7 @@ export const BUDGET_PROFILES: Record<BudgetLevel, BudgetProfile> = {
   },
 }
 
+/** Returns the profile for a budget level, using the default level when none is set. */
 export function budgetProfile(level: BudgetLevel | undefined): BudgetProfile {
   return BUDGET_PROFILES[level ?? DEFAULT_BUDGET_LEVEL]
 }

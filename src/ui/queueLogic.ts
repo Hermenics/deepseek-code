@@ -6,11 +6,13 @@ import { parseCommand } from '../commands.js'
 
 export const MAX_QUEUE_SIZE = 10
 
+/** Appends a message to the queue, silently returning the original queue unchanged once it holds MAX_QUEUE_SIZE items. */
 export function enqueue<T>(queue: T[], msg: T): T[] {
   if (queue.length >= MAX_QUEUE_SIZE) return queue
   return [...queue, msg]
 }
 
+/** Splits the queue into its first message (null when empty) and the remaining items. */
 export function dequeue<T>(queue: T[]): { next: T | null; remaining: T[] } {
   if (queue.length === 0) return { next: null, remaining: [] }
   const [first, ...rest] = queue

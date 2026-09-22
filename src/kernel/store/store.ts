@@ -9,6 +9,7 @@ export interface StoreOptions {
   memory?: boolean
 }
 
+/** Thin wrapper over a bun:sqlite database (default `~/.deepseek/kernel.db`) opened with WAL, a 5s busy timeout, foreign keys and secure delete enabled. */
 export class Store {
   readonly db: Database
   readonly path: string
@@ -32,10 +33,12 @@ export class Store {
     this.db.exec('PRAGMA secure_delete = ON')
   }
 
+  /** Applies any migrations not yet recorded in `_schema_version`. */
   migrate(migrations: Migration[]): void {
     runMigrations(this.db, migrations)
   }
 
+  /** Executes raw SQL with no parameters (multiple statements allowed). */
   exec(sql: string): void {
     this.db.exec(sql)
   }

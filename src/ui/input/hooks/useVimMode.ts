@@ -13,6 +13,7 @@ type VimResult =
   | { type: 'action'; action: 'submit' | 'historyUp' | 'historyDown' }
   | { type: 'noop' }
 
+/** Initial vim state: insert mode, with no pending operator, key, count or register. */
 export function createVimState(): VimState {
   return { mode: 'insert', pendingOperator: null, register: '', count: null, pendingKey: null, textObjectModifier: null }
 }
@@ -37,6 +38,7 @@ export function processVimTextChunk(cursor: Cursor, input: string, state: VimSta
   return { cursor: nextCursor, state: nextState }
 }
 
+/** Prefers the single raw character over the parsed key name so case-sensitive commands (A, I, D, G, P) are told apart. */
 function keyName(key: KeyEvent): string {
   if (key.raw && key.raw.length === 1) return key.raw
   return key.name ?? ''
@@ -56,6 +58,14 @@ function cursorWith(base: Cursor, text: string, offset: number): Cursor {
   return Cursor.fromText(text, cols + 1, offset)
 }
 
+/**
+ * Pure vim key handler for insert, normal and operator-pending modes: counts,
+ * h/l/w/b/e/0/$/G/gg/f/t motions, d/c/y with motions or text objects, dd/cc/yy,
+ * x/D, p/P from the internal register, and i/a/I/A/o. In normal mode k/j and
+ * up/down are history actions, not cursor moves. In insert mode every key except
+ * Esc/Enter returns `noop` so the caller falls back to plain text input.
+ * The caller must store `nextState` when present.
+ */
 export function processVimKey(cursor: Cursor, key: KeyEvent, state: VimState): VimResult & { nextState?: VimState } {
   const k = keyName(key)
 

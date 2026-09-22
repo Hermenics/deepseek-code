@@ -1,9 +1,11 @@
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 
+/** Pseudo-role marking where /compact cut the history; never sent to a provider. */
 export const COMPACT_BOUNDARY_ROLE = '__compact_boundary__' as const
 export type CompactBoundaryMarker = { role: typeof COMPACT_BOUNDARY_ROLE }
 export type MessageOrBoundary = ChatCompletionMessageParam | CompactBoundaryMarker
 
+/** Creates a marker to insert into history at a compaction point. */
 export function createBoundaryMarker(): CompactBoundaryMarker {
   return { role: COMPACT_BOUNDARY_ROLE }
 }
@@ -12,6 +14,7 @@ export function isBoundaryMarker(m: MessageOrBoundary): m is CompactBoundaryMark
   return m.role === COMPACT_BOUNDARY_ROLE
 }
 
+/** Returns the messages to send to the provider: the system prompt plus everything after the last compact boundary, with markers removed. */
 export function getMessagesAfterBoundary(
   messages: MessageOrBoundary[]
 ): ChatCompletionMessageParam[] {

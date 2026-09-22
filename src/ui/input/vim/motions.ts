@@ -111,6 +111,7 @@ function findCharTill(text: string, cursor: number, ch: string): [number, number
   return [cursor, cursor]
 }
 
+/** Returns the motion for a vim key, or for the second key of a gg / f<char> / t<char> sequence when `prevKey` is given; null for unknown keys. */
 export function getMotion(key: string, prevKey?: string): MotionFn | null {
   // Two-key sequences
   if (prevKey === 'g' && key === 'g') return moveTextStart

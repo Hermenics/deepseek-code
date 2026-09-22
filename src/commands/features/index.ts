@@ -4,6 +4,7 @@ import type { FeatureName } from '../../features.js'
 
 const FLAG_NAMES = Object.keys(FEATURES) as FeatureName[]
 
+/** `/features [flag] [on|off]` (alias `/experimental`): lists experimental flags, or toggles/sets one by case-insensitive name. */
 const command: Command = {
   name: 'features',
   aliases: ['experimental'],

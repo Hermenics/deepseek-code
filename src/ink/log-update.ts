@@ -40,6 +40,7 @@ type Options = {
 const CARRIAGE_RETURN = { type: 'carriageReturn' } as const
 const NEWLINE = { type: 'stdout', content: '\n' } as const
 
+/** Turns successive frames into a minimal list of terminal patches (cursor moves, style transitions, writes), using only relative cursor motion because the absolute cursor position is unknown in the main screen. */
 export class LogUpdate {
   private state: State
 
@@ -49,6 +50,7 @@ export class LogUpdate {
     }
   }
 
+  /** Produces the final patches when rendering ends: re-shows the cursor if the last frame hid it. Non-TTY output just gets a trailing newline. */
   renderPreviousOutput_DEPRECATED(prevFrame: Frame): Diff {
     if (!this.options.isTTY) {
       // Non-TTY output is no longer supported (string output was removed)
@@ -62,6 +64,7 @@ export class LogUpdate {
     this.state.previousOutput = ''
   }
 
+  /** Serializes a whole frame to a single styled string (hyperlinks and styles closed at each line end, trailing spaces trimmed). Used for non-TTY output where diffing is impossible. */
   private renderFullFrame(frame: Frame): Diff {
     const { screen } = frame
     const lines: string[] = []
@@ -120,6 +123,7 @@ export class LogUpdate {
     return []
   }
 
+  /** Diffs `prev` against `next` and returns the patches that update the terminal. Falls back to a full clear-and-redraw (flicker) on viewport shrink/width change or when changed rows have scrolled into unreachable scrollback, and uses a DECSTBM hardware scroll for ScrollBox scrolls in alt-screen when `decstbmSafe`. */
   render(
     prev: Frame,
     next: Frame,
@@ -467,6 +471,7 @@ export class LogUpdate {
   }
 }
 
+/** Pushes an OSC 8 hyperlink change onto `diff` when `target` differs from `current`, returning the now-active link. */
 function transitionHyperlink(
   diff: Diff,
   current: Hyperlink,
@@ -479,6 +484,7 @@ function transitionHyperlink(
   return current
 }
 
+/** Pushes the pooled SGR transition from `currentId` to `targetId` onto `diff` (if non-empty) and returns `targetId`. */
 function transitionStyle(
   diff: Diff,
   stylePool: StylePool,
@@ -492,6 +498,7 @@ function transitionStyle(
   return targetId
 }
 
+/** Reads row `y` of a screen as plain text (no styles), trailing whitespace trimmed. Used for debug info on full resets. */
 function readLine(screen: Screen, y: number): string {
   let line = ''
   for (let x = 0; x < screen.width; x++) {
@@ -500,6 +507,7 @@ function readLine(screen: Screen, y: number): string {
   return line.trimEnd()
 }
 
+/** Builds a clear-terminal patch followed by a full redraw of `frame`. Visibly flickers, so it is only used when an incremental diff cannot reach the changed rows. */
 function fullResetSequence_CAUSES_FLICKER(
   frame: Frame,
   reason: FlickerReason,
@@ -690,6 +698,7 @@ function writeCellWithStyleStr(
   return true
 }
 
+/** Queues a relative cursor move to (targetX, targetY). Uses a carriage return first when changing lines or when the cursor is in the pending-wrap state past the last column. */
 function moveCursorTo(screen: VirtualScreen, targetX: number, targetY: number) {
   screen.txn(prev => {
     const dx = targetX - prev.x
@@ -749,6 +758,7 @@ function needsWidthCompensation(char: string): boolean {
   return false
 }
 
+/** Tracks the simulated cursor position while patches are accumulated, so later moves can be expressed relative to where earlier patches left the cursor. */
 class VirtualScreen {
   // Public for direct mutation by writeCellWithStyleStr (avoids txn overhead).
   // File-private class — not exposed outside log-update.ts.
@@ -762,6 +772,7 @@ class VirtualScreen {
     this.cursor = { ...origin }
   }
 
+  /** Runs `fn` with the current cursor, appends the patches it returns and advances the cursor by its delta. */
   txn(fn: (prev: Point) => [patches: Diff, next: Delta]): void {
     const [patches, next] = fn(this.cursor)
     for (const patch of patches) {

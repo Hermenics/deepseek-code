@@ -3,6 +3,7 @@ import stringWidth from 'string-width'
 type Position = { line: number; column: number }
 type WordBoundary = { start: number; end: number; isWordLike: boolean }
 
+/** Text plus wrap width with precomputed grapheme and word boundaries (Intl.Segmenter) for cursor math. The text is NFC-normalized, so offsets refer to the normalized string. */
 export class MeasuredText {
   readonly text: string
   readonly columns: number
@@ -44,6 +45,7 @@ export class MeasuredText {
     this.wordBoundaries = words
   }
 
+  /** Returns the grapheme boundary after `offset` (the text length at the end). */
   nextOffset(offset: number): number {
     const target = this.snapToGraphemeBoundary(offset)
     let lo = 0
@@ -57,6 +59,7 @@ export class MeasuredText {
     return this.graphemeBoundaries[Math.min(lo, this.graphemeBoundaries.length - 1)] ?? this.text.length
   }
 
+  /** Returns the grapheme boundary before `offset` (0 at the start). */
   prevOffset(offset: number): number {
     const target = this.snapToGraphemeBoundary(offset)
     let lo = 0
@@ -70,6 +73,7 @@ export class MeasuredText {
     return this.graphemeBoundaries[Math.max(0, hi)] ?? 0
   }
 
+  /** Rounds `offset` down to the nearest grapheme boundary, clamped to the text. */
   snapToGraphemeBoundary(offset: number): number {
     if (offset <= 0) return 0
     if (offset >= this.text.length) return this.text.length
@@ -89,11 +93,13 @@ export class MeasuredText {
     return [...this.wordBoundaries]
   }
 
+  /** Terminal display width of `text` up to `index`. */
   stringIndexToDisplayWidth(text: string, index: number): number {
     const i = Math.max(0, Math.min(index, text.length))
     return stringWidth(text.slice(0, i))
   }
 
+  /** Largest index into `text` whose prefix fits within `targetWidth` columns, never splitting a grapheme. */
   displayWidthToStringIndex(text: string, targetWidth: number): number {
     if (targetWidth <= 0) return 0
     let width = 0
@@ -107,6 +113,7 @@ export class MeasuredText {
     return index
   }
 
+  /** Splits on newlines and hard-wraps each line at `columns` display width on grapheme boundaries (not word-aware). Cached per instance. */
   getWrappedText(): string[] {
     if (this.wrappedTextCache) return this.wrappedTextCache
 
@@ -140,10 +147,12 @@ export class MeasuredText {
     return this.wrappedTextCache
   }
 
+  /** Number of visual lines after wrapping (not newline count). */
   get lineCount(): number {
     return this.getWrappedText().length
   }
 
+  /** Converts an offset to { line, column } using newline-separated lines (not wrapped ones), with the column measured in display width. */
   getPositionFromOffset(offset: number): Position {
     const clamped = Math.max(0, Math.min(offset, this.text.length))
     const before = this.text.slice(0, clamped)
@@ -153,6 +162,7 @@ export class MeasuredText {
     return { line, column: stringWidth(lineText) }
   }
 
+  /** Converts a { line, column } position back to an offset, clamping the column to the line. Lines are newline-separated lines, matching getPositionFromOffset, except for newline-free text on its last wrapped line. */
   getOffsetFromPosition(position: Position): number {
     const wrapped = this.getWrappedText()
     const line = Math.max(0, Math.min(position.line, wrapped.length - 1))
@@ -175,6 +185,7 @@ export class MeasuredText {
     return base + this.displayWidthToStringIndex(lineText, position.column)
   }
 
+  /** Display width of wrapped line `line` (0 when out of range). */
   getLineLength(line: number): number {
     const wrapped = this.getWrappedText()
     const text = wrapped[line] ?? ''

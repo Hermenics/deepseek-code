@@ -26,6 +26,7 @@ async function exists(path: string): Promise<boolean> {
   try { await lstat(path); return true } catch { return false }
 }
 
+/** Collects `.deepseek/commands` directories from `start` upward, stopping at the git root (or filesystem root); nearest directory first. */
 async function projectDirectories(start: string): Promise<string[]> {
   const directories: string[] = []
   let current = resolve(start)
@@ -48,6 +49,7 @@ function stripQuotes(value: string): string {
     : value
 }
 
+/** Splits a command file into an optional frontmatter `description` and the prompt body; returns null for empty bodies or unterminated frontmatter. */
 function parseCommandFile(content: string): { description: string; prompt: string } | null {
   const lines = content.split('\n')
   let bodyStart = 0
@@ -66,6 +68,7 @@ function parseCommandFile(content: string): { description: string; prompt: strin
   return { description: description || 'Custom prompt command', prompt }
 }
 
+/** Loads `*.md` command files from one directory, skipping symlinked directories, files that resolve outside it, oversized files and invalid names. */
 async function readDirectory(directory: string, source: CustomCommand['source']): Promise<CustomCommand[]> {
   let root: string
   try {
@@ -91,6 +94,7 @@ async function readDirectory(directory: string, source: CustomCommand['source'])
   }))).filter((command): command is CustomCommand => Boolean(command))
 }
 
+/** Finds project and user (`~/.deepseek/commands`) custom commands; on name clashes the nearest project command wins over the user one. */
 export async function discoverCustomCommands(cwd: string): Promise<CustomCommand[]> {
   const directories = await projectDirectories(cwd)
   const groups = [
@@ -102,18 +106,22 @@ export async function discoverCustomCommands(cwd: string): Promise<CustomCommand
   return [...selected.values()]
 }
 
+/** Rescans custom commands for `cwd` and replaces the module-level cache used by the suggestion helpers. */
 export async function refreshCustomCommands(cwd: string): Promise<void> {
   cached = new Map((await discoverCustomCommands(cwd)).map(command => [command.name, command]))
 }
 
+/** Slash-prefixed names of custom commands from the last refresh. */
 export function getCustomCommandSuggestions(): string[] {
   return [...cached.keys()].map(name => `/${name}`)
 }
 
+/** Descriptions of custom commands from the last refresh, keyed by slash-prefixed name. */
 export function getCustomCommandDescriptions(): Record<string, string> {
   return Object.fromEntries([...cached.values()].map(command => [`/${command.name}`, command.description]))
 }
 
+/** Substitutes `$ARGUMENTS` and `$1..$n` in the prompt; if it uses neither placeholder, the arguments are appended at the end instead. */
 function expandPrompt(prompt: string, args: string): string {
   const positional = args ? args.split(/\s+/) : []
   let expanded = prompt.replace(/\$ARGUMENTS\b/g, args)
@@ -123,6 +131,7 @@ function expandPrompt(prompt: string, args: string): string {
     : expanded
 }
 
+/** Resolves `/name args` to a custom prompt command, refreshing the cache first; returns null when no such command exists. */
 export async function resolveCustomCommand(input: string, cwd: string): Promise<CommandResult | null> {
   const match = /^\/([a-z0-9][a-z0-9-]{0,63})(?:\s+([\s\S]*))?$/.exec(input.trim())
   if (!match) return null

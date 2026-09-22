@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/worktree` (alias `/wt`): creates (default), enters, exits, lists or reports status of isolated worktree copies of the project; `exit keep` preserves the copy. */
 const command: Command = {
   name: 'worktree',
   aliases: ['wt'],

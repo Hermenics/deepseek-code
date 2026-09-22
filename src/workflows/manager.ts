@@ -123,6 +123,7 @@ interface ActiveRun {
   startupCompletion: Promise<void>
 }
 
+/** Builds the caller-facing result for a run, including its script and journal paths. */
 function resultOf(run: WorkflowRun, store: WorkflowStore): WorkflowResult {
   return {
     runId: run.runId, status: run.status, result: run.result ?? null, ...(run.error ? { error: run.error } : {}),
@@ -131,6 +132,7 @@ function resultOf(run: WorkflowRun, store: WorkflowStore): WorkflowResult {
   }
 }
 
+/** Type- and range-checks the options a script passes to agent(); unknown keys pass through untouched. */
 function validateAgentOptions(value: unknown): WorkflowAgentOptions {
   if (value === undefined) return {}
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('agent options must be an object')
@@ -150,11 +152,13 @@ function validateAgentOptions(value: unknown): WorkflowAgentOptions {
   return options as WorkflowAgentOptions
 }
 
+/** True when `target` is `root` or lies inside it; purely path-based, callers resolve symlinks first. */
 function contained(root: string, target: string): boolean {
   const child = relative(root, target)
   return child === '' || (!child.startsWith('..') && !isAbsolute(child))
 }
 
+/** Runs Dynamic Workflows for one session: each run gets its own OrchestratorSession, a persisted journal used for replay, and a heartbeat lease that proves it is live to other sessions. */
 export class WorkflowManager {
   private store: WorkflowStore
   private readonly active = new Map<string, ActiveRun>()
@@ -165,12 +169,14 @@ export class WorkflowManager {
     this.store = new WorkflowStore(options)
   }
 
+  /** Updates provider, model or settings for runs started afterwards; falsy values are ignored. */
   configure(values: { providerConfig?: ProviderConfig; model?: string; settings?: DeepSeekSettings }): void {
     if (values.providerConfig) this.options.providerConfig = values.providerConfig
     if (values.model) this.options.model = values.model
     if (values.settings) this.options.settings = values.settings
   }
 
+  /** True while any run owned by this manager is queued, running or paused. */
   hasActiveRuns(): boolean {
     return [...this.active.values()].some(active => isWorkflowRunActive(active.record))
   }
@@ -180,6 +186,7 @@ export class WorkflowManager {
     return this.store.projectDirectory
   }
 
+  /** Finds a subagent task across this manager's active runs, along with the workflow phase it was spawned in. */
   findTask(taskId: string): { workflowRunId: string; task: TaskRecordV1; workflowPhase: string | null } | undefined {
     for (const active of this.active.values()) {
       try {
@@ -191,12 +198,14 @@ export class WorkflowManager {
     return undefined
   }
 
+  /** Points the manager and its store at another project; refused while a run is active. */
   changeProjectRoot(projectRoot: string): void {
     if (this.hasActiveRuns()) throw new Error('Cannot change project root while a workflow is active')
     this.options.projectRoot = projectRoot
     this.store = new WorkflowStore(this.options)
   }
 
+  /** Cancels every active run and waits for each to finish its cleanup. */
   async shutdown(reason = 'Workflow manager shutdown'): Promise<void> {
     const runs = [...this.active.values()].filter(active => isWorkflowRunActive(active.record))
     await Promise.all(runs.map(async active => {
@@ -209,21 +218,25 @@ export class WorkflowManager {
     }))
   }
 
+  /** Registers a run/runtime event listener and returns its unsubscribe function. */
   subscribe(listener: (event: WorkflowManagerEvent) => void): () => void {
     this.listeners.add(listener)
     return () => this.listeners.delete(listener)
   }
 
+  /** Installs orchestrator callbacks on the manager and on every active run's session; null clears them. */
   setCallbacks(callbacks: OrchestratorCallbacks | null): void {
     this.callbacks = callbacks ?? {}
     for (const active of this.active.values()) active.session.setCallbacks(this.callbacks)
   }
 
+  /** Emits a cloned snapshot of the run to all listeners, optionally with a runtime event or the id of a changed task. */
   private publish(active: ActiveRun, event?: WorkflowEvent, taskId?: string): void {
     const payload: WorkflowManagerEvent = { type: event ? 'runtime' : 'run', run: structuredClone(active.record), ...(event ? { event } : {}), ...(taskId ? { taskId } : {}) }
     for (const listener of this.listeners) listener(payload)
   }
 
+  /** Records the current phase and appends it to phaseHistory, persisting in the background; persist failures go to onError instead of throwing. */
   private setPhase(active: ActiveRun, phase: string): void {
     const changed = active.record.phase !== phase
     active.record.phase = phase
@@ -234,6 +247,7 @@ export class WorkflowManager {
     })
   }
 
+  /** Queues a write of run.json and the journal behind the previous one so saves never interleave; an earlier failure does not block later writes. */
   private persist(active: ActiveRun): Promise<void> {
     active.persistChain = active.persistChain.catch(() => undefined).then(async () => {
       await Promise.all([active.store.writeRun(active.record), active.store.writeJournal(active.record.runId, active.journal)])
@@ -241,6 +255,7 @@ export class WorkflowManager {
     return active.persistChain
   }
 
+  /** Records a new run, acquires its lease, starts the heartbeat and launches execution. Resolves once the run is running, not when it finishes; a startup failure is persisted as a failed run and rethrown. */
   async start(input: StartWorkflowInput): Promise<WorkflowHandle> {
     if (this.options.settings?.workflows?.enabled === false || process.env.DEEPSEEK_DISABLE_WORKFLOWS === '1') {
       throw new Error('Dynamic Workflows are disabled')
@@ -389,6 +404,7 @@ export class WorkflowManager {
     return readFile(real, 'utf8')
   }
 
+  /** Executes the script and maps the outcome to a terminal status (completed, budget_exhausted, failed, cancelled, timed_out), then shuts down the session, persists the record and releases the lease. */
   private async run(active: ActiveRun, input: StartWorkflowInput): Promise<WorkflowResult> {
     try {
       active.execution = executeWorkflowScript({
@@ -445,6 +461,7 @@ export class WorkflowManager {
     return resultOf(active.record, active.store)
   }
 
+  /** Blocks while the run is paused; rejects if the run is aborted in the meantime. */
   private async waitIfPaused(active: ActiveRun): Promise<void> {
     while (active.record.status === 'paused') {
       await new Promise<void>((resolve, reject) => {
@@ -455,6 +472,7 @@ export class WorkflowManager {
     }
   }
 
+  /** Returns the cached journal entry for call `index` when it matches; the first mismatch disables replay for the rest of the run. */
   private replayEntry(active: ActiveRun, index: number, fingerprint: string): WorkflowJournalEntry | undefined {
     if (!active.replayValid) return undefined
     const entry = active.replay?.entries[index]
@@ -467,6 +485,7 @@ export class WorkflowManager {
     return entry
   }
 
+  /** Services one agent()/workflow() RPC from the script: replays a matching journal entry when possible, otherwise runs it live and journals the outcome. */
   private async handleCall(active: ActiveRun, method: 'agent' | 'workflow', args: unknown[], input: StartWorkflowInput): Promise<WorkflowRpcResult> {
     await this.waitIfPaused(active)
     if (active.controller.signal.aborted) throw active.controller.signal.reason
@@ -505,11 +524,13 @@ export class WorkflowManager {
     }
   }
 
+  /** True once the run's recorded tokens or cost reached its configured limit. */
   private budgetReached(active: ActiveRun, input: StartWorkflowInput): boolean {
     return (input.maxTokens !== undefined && active.record.usage.tokens >= input.maxTokens) ||
       (input.maxCostUsd !== undefined && active.record.usage.costUsd >= input.maxCostUsd)
   }
 
+  /** Spawns one subagent for an agent() call. Budget exhaustion and agent failures return null instead of throwing; exceeding the agent cap or invalid options are structural errors that fail the whole run. */
   private async runAgent(active: ActiveRun, args: unknown[], input: StartWorkflowInput, callIndex: number): Promise<WorkflowAgentResponse> {
     if (this.budgetReached(active, input)) { active.budgetExhausted = true; this.publish(active); return { value: null } }
     if (active.record.usage.agents >= MAX_AGENTS) {
@@ -560,6 +581,7 @@ export class WorkflowManager {
     }
   }
 
+  /** Runs a child workflow (saved name or scriptPath) with the parent's signal and budget, scoping its phases under `▸ name`. Outside Auto mode the child script must already be approved, and children cannot start further workflows. */
   private async runChild(active: ActiveRun, args: unknown[], input: StartWorkflowInput, callIndex: number): Promise<WorkflowRpcResult> {
     const ref = args[0] as WorkflowRef
     const byPath = typeof ref === 'object' && ref !== null && typeof ref.scriptPath === 'string'
@@ -597,12 +619,14 @@ export class WorkflowManager {
     return { value: result.value, usage: { agents: active.record.usage.agents - initialAgents, tokens: result.usage.tokens, costUsd: result.usage.costUsd } }
   }
 
+  /** Loads a saved workflow's source by name through the injected loader or discovery; undefined when not found. */
   private async loadWorkflow(name: string): Promise<string | undefined> {
     if (this.options.workflowLoader) return this.options.workflowLoader(name)
     const workflow = (await discoverWorkflows(this.options.projectRoot)).find(item => item.meta.name === name)
     return workflow ? readFile(workflow.path, 'utf8') : undefined
   }
 
+  /** Resolves a full or unique-prefix run id; undefined for malformed, unknown or ambiguous input. */
   private async resolveRunId(runId: string): Promise<string | undefined> {
     if (!RUN_ID_INPUT.test(runId)) return undefined
     if (this.active.has(runId) || await this.store.readRun(runId)) return runId
@@ -610,6 +634,7 @@ export class WorkflowManager {
     return matches.length === 1 ? matches[0] : undefined
   }
 
+  /** Marks a running run paused so its next agent()/workflow() call waits; calls already in flight continue. Returns false unless the run was running. */
   async pause(runId: string): Promise<boolean> {
     const active = this.active.get(await this.resolveRunId(runId) ?? '')
     if (!active || active.record.status !== 'running') return false
@@ -619,6 +644,7 @@ export class WorkflowManager {
     return true
   }
 
+  /** Resumes a paused run, releasing the waiting calls on the next tick after the new status is persisted. */
   async resume(runId: string): Promise<boolean> {
     const active = this.active.get(await this.resolveRunId(runId) ?? '')
     if (!active || active.record.status !== 'paused') return false
@@ -630,6 +656,7 @@ export class WorkflowManager {
     return true
   }
 
+  /** Aborts an active run and its execution; returns false when the run is not active in this manager. */
   async cancel(runId: string, reason = 'Workflow cancelled by user'): Promise<boolean> {
     const active = this.active.get(await this.resolveRunId(runId) ?? '')
     if (!active || !isWorkflowRunActive(active.record)) return false
@@ -645,6 +672,7 @@ export class WorkflowManager {
     return this.start({ ...await this.loadRunInput(runId), ...(resolved ? { resumeFromRunId: resolved } : {}) })
   }
 
+  /** Rebuilds the start input (script, args, options) of a persisted run. */
   async loadRunInput(runId: string): Promise<StartWorkflowInput> {
     const resolved = await this.resolveRunId(runId)
     if (!resolved) throw new Error(`Workflow run '${runId}' not found`)
@@ -653,6 +681,7 @@ export class WorkflowManager {
     return { script, args, ...run.options }
   }
 
+  /** Saves a run's script as `.deepseek/workflows/<name>.js` under the new name. Refuses symlinked directories or targets, paths escaping the project, and existing files. */
   async save(runId: string, name: string): Promise<string> {
     if (!isWorkflowName(name)) throw new Error('Invalid workflow name')
     const resolved = await this.resolveRunId(runId)
@@ -677,11 +706,13 @@ export class WorkflowManager {
     return path
   }
 
+  /** Returns a run by full or prefix id, preferring the live in-memory record over the persisted one. */
   async get(runId: string): Promise<WorkflowRun | undefined> {
     const resolved = await this.resolveRunId(runId)
     return resolved ? this.active.get(resolved)?.record ?? this.store.readRun(resolved) : undefined
   }
 
+  /** Active in-memory runs followed by persisted history that is not active here. */
   async list(): Promise<WorkflowRun[]> {
     const persisted = await this.store.listRuns()
     return [...this.active.values()].map(active => active.record).concat(persisted.filter(run => !this.active.has(run.runId)))
@@ -718,6 +749,7 @@ export class WorkflowManager {
     return [...activity, ...active.filter(run => !historyIds.has(run.runId))]
   }
 
+  /** Renders all runs as a plain-text summary, one line per run. */
   async formatRuns(): Promise<string> {
     const runs = await this.list()
     if (!runs.length) return 'No workflow runs.'
@@ -728,6 +760,7 @@ export class WorkflowManager {
   }
 }
 
+/** Spawns a SubAgent task for an agent() call and waits for its result. In plan/review mode the agent runs as a reader, and agent types that are not read-only are rejected. */
 async function defaultAgentRunner(request: WorkflowAgentRequest): Promise<WorkflowAgentResponse> {
   const { spawnWorkflowAgentTask } = await import('../tools/SubAgent/SubAgent.js')
   const readOnly = request.interactionMode === 'plan' || request.interactionMode === 'review'

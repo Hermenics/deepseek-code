@@ -46,6 +46,7 @@ function hintFor(field?: Field): string {
   }
 }
 
+/** Editable fields for a profile: name/provider/model plus the credential fields specific to its provider type. */
 function fieldsFor(profile: ProviderProfile): Field[] {
   const common: Field[] = [
     { key: 'name', label: 'Profile name' },
@@ -58,6 +59,7 @@ function fieldsFor(profile: ProviderProfile): Field[] {
   return [...common, { key: 'localBaseUrl', label: 'Base URL' }, { key: 'localModel', label: 'Local model' }]
 }
 
+/** Returns the first validation error that blocks activating or testing the profile (missing name or required credentials), or null when it is usable. */
 function profileProblem(profile: ProviderProfile): string | null {
   if (!profile.name.trim()) return 'Profile name is required'
   if (profile.provider === 'deepseek' && !profile.apiKey) return 'Add a DeepSeek API key before activation or testing'
@@ -75,6 +77,7 @@ interface Props {
   onTest(profile: ProviderConfig): Promise<string[]>
 }
 
+/** Settings screen listing saved provider profiles, where the user can add, edit, test the connection of and activate a profile. */
 export default function ProviderProfiles({ theme, activeProfileId, onBack, onActivate, onTest }: Props) {
   const colors = getThemeColors(theme)
   const [profiles, setProfiles] = useState<ProviderProfile[]>([])

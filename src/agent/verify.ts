@@ -47,6 +47,7 @@ const NO_TESTS_FOUND = [
   /^Error: No test files found\b/m, // mocha
 ]
 
+/** Runs the detected test command (2 min timeout) and reports pass/fail with ANSI-stripped output; an empty test suite counts as passing. */
 export async function runVerification(command: VerificationCommand, cwd = process.cwd()): Promise<VerificationResult> {
   const result = await execa(command.command, command.args, { cwd, reject: false, timeout: 120_000 })
   // Runners color their output when the user's shell sets FORCE_COLOR; escape codes would break the

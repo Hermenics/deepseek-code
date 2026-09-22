@@ -80,6 +80,7 @@ export interface WorkflowMonitorProps {
   canControlWorkflow?(run: WorkflowRun): boolean
 }
 
+/** Full-screen `/workflows` browser that drills from the run list into a run's phases, a phase's agents and one agent's transcript; supports pause/resume (p), stop (x), restart (r) and save (s) on runs this session may control. */
 export function WorkflowMonitor({
   runs, agents = [], initialRunId, theme = 'dark', onClose, onPause, onResume, onStop, onRestart, onSave,
   canControlWorkflow = () => true,
@@ -295,6 +296,7 @@ export function formatWorkflowListRow(run: WorkflowRun, width: number, now = Dat
   return formatWorkflowRunRow(run, width, now)
 }
 
+/** Single-line `icon name · status · 1m18s` row, truncated to `width`. */
 export function formatCompactWorkflowRow(run: WorkflowRun, width: number, now = Date.now()): string {
   return truncate(`${runIcon(run.status)} ${run.meta.name} · ${run.status} · ${formatCompactDuration(workflowDurationMs(run, now))}`, width)
 }

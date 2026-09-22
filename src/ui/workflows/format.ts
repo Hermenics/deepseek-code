@@ -40,6 +40,7 @@ export function isAgentActive(status: string): boolean {
   return ACTIVE_AGENTS.has(status)
 }
 
+/** Clips a string to `width` columns, replacing the last visible character with `…` when it overflows. */
 export function truncate(value: string, width: number): string {
   if (width <= 0) return ''
   return value.length <= width ? value : `${value.slice(0, Math.max(0, width - 1))}…`
@@ -57,6 +58,7 @@ export function formatCompactDuration(ms: number): string {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m${seconds % 60}s`
 }
 
+/** Compacts a token count to `950`, `1.2k`, `113k` or `1.4m`. */
 export function formatTokens(tokens: number): string {
   if (tokens >= 1_000_000) return `${(tokens / 1_000_000).toFixed(1)}m`
   if (tokens >= 1_000) {
@@ -67,6 +69,7 @@ export function formatTokens(tokens: number): string {
   return `${tokens}`
 }
 
+/** Elapsed time of a run from its start (or creation) to completion, or to `now` while it is still going; 0 on unparseable timestamps. */
 export function workflowDurationMs(run: WorkflowRun, now = Date.now()): number {
   const started = Date.parse(run.startedAt ?? run.createdAt)
   const ended = run.completedAt ? Date.parse(run.completedAt) : now
@@ -152,10 +155,12 @@ export function workflowListHint(status: WorkflowStatus | undefined, controllabl
   return actions.join(' · ')
 }
 
+/** Alias of workflowListHint for callers that always have a status. */
 export function workflowControlHint(status: WorkflowStatus, controllable = true): string {
   return workflowListHint(status, controllable)
 }
 
+/** Returns the slice of at most `maxRows` rows that keeps `selected` visible (scrolling only once the selection passes the bottom), plus its start index. */
 export function windowRows<T>(rows: T[], selected: number, maxRows: number): { rows: T[]; start: number } {
   const size = Math.max(1, maxRows)
   const start = Math.min(Math.max(0, selected - size + 1), Math.max(0, rows.length - size))

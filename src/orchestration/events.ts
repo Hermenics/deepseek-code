@@ -5,6 +5,7 @@ import type { TaskEventType, TaskEventV1 } from './types.js'
 
 const SECRET_KEY = /(api[_-]?key|authorization|cookie|credential|password|private[_-]?key|secret|(?:^|[_-])(?:access|auth|refresh|session)?token$)/i
 
+/** Deep-copy a value, replacing values under secret-looking keys and secret patterns inside strings (private keys, GitHub/AWS/`sk-` tokens, bearer headers, `key=value` credentials) with redaction markers. */
 export function redactSecrets(value: unknown, key = ''): unknown {
   if (SECRET_KEY.test(key)) return '[REDACTED]'
   if (Array.isArray(value)) return value.map(item => redactSecrets(item))
@@ -24,6 +25,7 @@ export function redactSecrets(value: unknown, key = ''): unknown {
 
 export type TaskEventListener = (event: TaskEventV1) => void
 
+/** Session event log: keeps events in memory, fans them out to subscribers and optionally appends them as JSONL to a log file. */
 export class TaskEventSink {
   private readonly listeners = new Set<TaskEventListener>()
   private readonly memory: TaskEventV1[] = []
@@ -32,6 +34,7 @@ export class TaskEventSink {
 
   constructor(readonly sessionId: string, private readonly logFile?: string) {}
 
+  /** Create a redacted event, record it, notify listeners (their errors are swallowed) and queue the log-file append. Returns the event. */
   emit(type: TaskEventType, payload: Record<string, unknown>, taskId?: string, parentTaskId?: string, correlationId: string = randomUUID()): TaskEventV1 {
     const event: TaskEventV1 = {
       schemaVersion: 1,
@@ -62,10 +65,12 @@ export class TaskEventSink {
     return () => this.listeners.delete(listener)
   }
 
+  /** Return cloned copies of recorded events, optionally only those of one task. */
   list(taskId?: string): TaskEventV1[] {
     return this.memory.filter(event => !taskId || event.taskId === taskId).map(event => structuredClone(event))
   }
 
+  /** Wait for pending log appends and rethrow the last write failure, if any. */
   async flush(): Promise<void> {
     await this.writeChain
     if (this.writeError) throw this.writeError

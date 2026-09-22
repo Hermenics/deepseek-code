@@ -24,6 +24,7 @@ export interface AgentMessage {
 
 // ── Message Router ──────────────────────────────────────────────────
 
+/** Persistent agent-to-agent messaging keyed by task, with idempotent sends and delivery notifications via the event bus. */
 export class MessageRouter {
   private readonly pendingDeliveries = new Map<string, AgentMessage>()
 
@@ -205,6 +206,7 @@ export class MessageRouter {
   }
 }
 
+/** Decodes a stored JSON payload, wrapping unparseable strings as `{ raw }` instead of throwing. */
 function parsePayload(payload: string | Record<string, unknown>): Record<string, unknown> {
   if (typeof payload === 'string') {
     try { return JSON.parse(payload) } catch { return { raw: payload } }

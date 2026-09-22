@@ -1,5 +1,6 @@
 import type { Command, CommandResult } from '../types.js'
 
+/** Parses `/catalog [mcp|plugin|skill]`, normalising the optional kind filter to its display casing. */
 export function parseCatalogCommand(args: string[]): CommandResult {
   const kind = args[0]?.toUpperCase()
   if (!kind) return { type: 'catalog' }
@@ -9,6 +10,7 @@ export function parseCatalogCommand(args: string[]): CommandResult {
   return { type: 'unknown', input: 'Usage: /catalog [mcp|plugin|skill]' }
 }
 
+/** `/catalog` (alias `/marketplace`): shows curated MCP servers, plugins and skills. */
 const command: Command = {
   name: 'catalog',
   aliases: ['marketplace'],

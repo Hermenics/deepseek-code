@@ -36,6 +36,7 @@ export const MAX_HOOK_RUNTIME_RUNS = 500
 
 // ── Default handlers ────────────────────────────────────────────────
 
+/** Parses a hook's JSON decision. Empty or invalid output and unknown decision values fail open to `allow`. */
 function parseDecisionOutput(text: string): HookDecisionResult {
   try {
     const parsed = JSON.parse(text) as HookDecisionResult
@@ -48,6 +49,7 @@ function parseDecisionOutput(text: string): HookDecisionResult {
   }
 }
 
+/** Builds the `command`/`shell` hook handler: spawns the process with the event JSON on stdin, caps captured output at 100 KB, SIGKILLs on timeout (default 30s) and parses stdout as the decision. Non-zero exit or timeout rejects, which `execute` treats as `block`. */
 function runProcessHandler(useShell: boolean): HookHandler {
   return async (def, ctx) => {
     const config = def.handler_config as { command?: string; argv?: string[] }
@@ -100,6 +102,7 @@ function runProcessHandler(useShell: boolean): HookHandler {
   }
 }
 
+/** POSTs the event (without tool input) to the configured URL and parses the response as the decision. Missing URL, transport errors, timeouts and non-2xx responses all yield `block`. */
 const runHttpHandler: HookHandler = async (def, ctx) => {
   const config = def.handler_config as { url?: string; method?: string; headers?: Record<string, string> }
   if (!config.url) return { decision: 'block', reason: 'http handler requires a url' }
@@ -138,6 +141,7 @@ const runHttpHandler: HookHandler = async (def, ctx) => {
 
 // ── Hook Runtime ────────────────────────────────────────────────────
 
+/** Registry and executor for lifecycle hooks. Project/local hooks run only after being trusted, and trust is pinned to a content hash so edited hooks must be re-trusted. */
 export class HookRuntime {
   private readonly definitions = new Map<string, HookDefinition>()
   private readonly trustStore = new Map<string, string>()
@@ -151,10 +155,14 @@ export class HookRuntime {
   }
 
   registerHandler(type: HookHandlerType, handler: HookHandler): void { this.handlers.set(type, handler) }
+  /** Stores (or replaces) a hook definition, stamping its content hash. */
   register(def: HookDefinition): void { def.content_hash = this.computeHash(def); this.definitions.set(def.id, def); this.events.emit('HookRegistered', { hook_id: def.id, event: def.event, scope: def.scope }, {}) }
+  /** Pins trust to the hook's current content hash; returns false for unknown hooks. */
   trust(hookId: string): boolean { const d = this.definitions.get(hookId); if (!d?.content_hash) return false; this.trustStore.set(hookId, d.content_hash); this.events.emit('HookTrusted', { hook_id: hookId, hash: d.content_hash }, {}); return true }
+  /** True only if the hook's current content hash equals the trusted one. */
   isTrusted(hookId: string): boolean { const d = this.definitions.get(hookId); const t = this.trustStore.get(hookId); return !!(d && t && d.content_hash === t) }
 
+  /** Enabled hooks for the event (or `*`) whose matcher accepts the tool, excluding untrusted project/local hooks. A matcher is ignored when no tool name is given. */
   getMatching(event: string, toolName?: string): HookDefinition[] {
     const m: HookDefinition[] = []
     for (const d of this.definitions.values()) {
@@ -167,6 +175,7 @@ export class HookRuntime {
     return m
   }
 
+  /** Runs matching hooks in order, chaining any `modified_input` into later hooks and recording each run. Stops at the first `block` or `stop`; handler errors count as `block`. Otherwise returns `allow`. */
   async execute(event: string, toolName: string | undefined, toolInput: Record<string, unknown> | undefined, context: { session_id: string; cwd: string }): Promise<{ decision: HookDecision; modifiedInput?: Record<string, unknown>; runs: HookRunResult[] }> {
     const hooks = this.getMatching(event, toolName)
     const results: HookRunResult[] = []
@@ -202,14 +211,19 @@ export class HookRuntime {
     return { decision: 'allow', modifiedInput: currentInput !== toolInput ? currentInput : undefined, runs: results }
   }
 
+  /** Recent in-memory hook runs (last 50 by default), optionally filtered by hook or event. */
   getRuns(filter?: { hook_id?: string; event?: string; limit?: number }): HookRunResult[] {
     let r = this.runs; if (filter?.hook_id) r = r.filter(x => x.hook_id === filter.hook_id); if (filter?.event) r = r.filter(x => x.event === filter.event); return r.slice(-(filter?.limit ?? 50))
   }
 
+  /** Lists trusted hooks whose definition changed since trust was granted. */
   checkTrustInvalidation(): Array<{ hook_id: string; trusted_hash: string; current_hash: string }> { const inv: Array<{ hook_id: string; trusted_hash: string; current_hash: string }> = []; for (const [id, t] of this.trustStore) { const d = this.definitions.get(id); if (d?.content_hash && d.content_hash !== t) inv.push({ hook_id: id, trusted_hash: t, current_hash: d.content_hash }) }; return inv }
 
+  /** Appends a run, keeping only the newest `MAX_HOOK_RUNTIME_RUNS`. */
   private pushRun(r: HookRunResult): void { this.runs.push(r); if (this.runs.length > MAX_HOOK_RUNTIME_RUNS) this.runs.splice(0, this.runs.length - MAX_HOOK_RUNTIME_RUNS) }
+  /** Hashes the behaviour-relevant fields of a hook (not id, scope or enabled) for trust pinning. */
   private computeHash(def: HookDefinition): string { return createHash('sha256').update(JSON.stringify({ event: def.event, matcher: def.matcher, handler_type: def.handler_type, handler_config: def.handler_config, timeout_ms: def.timeout_ms })).digest('hex').slice(0, 32) }
 }
 
+/** Matches a tool name against a `|`-separated, case-insensitive list; empty or `*` matches everything. */
 function matchesPattern(pattern: string, toolName: string): boolean { return !pattern || pattern === '*' || pattern.split('|').map(p => p.trim().toLowerCase()).includes(toolName.toLowerCase()) }

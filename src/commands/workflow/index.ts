@@ -2,6 +2,7 @@ import type { Command } from '../types.js'
 
 const CONTROLS = new Set(['pause', 'resume', 'stop', 'restart'])
 
+/** `/workflow`: runs a named Dynamic Workflow, pauses/resumes/stops/restarts a run, or saves a run under a name. */
 const command: Command = {
   name: 'workflow', aliases: [], description: 'Run or control a Dynamic Workflow',
   parse(args) {

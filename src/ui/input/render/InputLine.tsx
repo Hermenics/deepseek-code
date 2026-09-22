@@ -1,6 +1,7 @@
 import type { Cursor } from '../cursor/index.js'
 import Box from '../../../ink/components/Box.js'
 import Text from '../../../ink/components/Text.js'
+import { useThemeColors } from '../../design-system/ThemeProvider.js'
 
 interface InputLineProps {
   cursor: Cursor
@@ -41,6 +42,7 @@ function wrapLine(line: string, maxWidth: number): { text: string; startOffset: 
   return segments
 }
 
+/** Renders the input text with a block cursor, word-wrapped to the terminal width and scrolled so the cursor stays inside a viewport of `maxVisibleLines` (default 10), with counts of hidden lines above/below. Empty input shows the ghost text or placeholder; otherwise ghost text trails the text (on multi-line input only when the cursor is on the last line). */
 export function InputLine({
   cursor,
   columns,
@@ -50,6 +52,7 @@ export function InputLine({
   prefix = '',
   prefixColor = 'cyan',
 }: InputLineProps) {
+  const colors = useThemeColors()
   const value = cursor.text
   const cursorPos = cursor.offset
   const prefixLen = prefix.length
@@ -60,8 +63,8 @@ export function InputLine({
     return (
       <>
         {prefix && <Text color={prefixColor}>{prefix}</Text>}
-        <Text color="white" backgroundColor="white">{' '}</Text>
-        <Text color={ghostText ? '#555555' : '#888888'}>{ghostText ?? placeholder}</Text>
+        <Text color={colors.inputCursorText} backgroundColor={colors.inputCursorBg}>{' '}</Text>
+        <Text color={ghostText ? colors.textInactive : colors.textDim}>{ghostText ?? placeholder}</Text>
       </>
     )
   }
@@ -101,9 +104,9 @@ export function InputLine({
       <>
         {prefix && <Text color={prefixColor}>{prefix}</Text>}
         <Text>{beforeCursor}</Text>
-        <Text color="black" backgroundColor="white">{atCursor}</Text>
+        <Text color={colors.inputCursorText} backgroundColor={colors.inputCursorBg}>{atCursor}</Text>
         <Text>{afterCursor}</Text>
-        {ghostText && <Text color="#555555">{ghostText}</Text>}
+        {ghostText && <Text color={colors.textInactive}>{ghostText}</Text>}
       </>
     )
   }
@@ -131,7 +134,7 @@ export function InputLine({
   return (
     <Box flexDirection="column">
       {hiddenAbove > 0 && (
-        <Text color="#888888">{`  ↑ ${hiddenAbove} more line${hiddenAbove > 1 ? 's' : ''}`}</Text>
+        <Text color={colors.textDim}>{`  ↑ ${hiddenAbove} more line${hiddenAbove > 1 ? 's' : ''}`}</Text>
       )}
       {visibleLines.map((vl, vi) => {
         const globalVi = viewStart + vi
@@ -160,14 +163,14 @@ export function InputLine({
           <Box key={globalVi} flexDirection="row">
             {linePrefix && <Text color={linePrefixColor}>{linePrefix}</Text>}
             <Text>{before}</Text>
-            <Text color="black" backgroundColor="white">{at}</Text>
+            <Text color={colors.inputCursorText} backgroundColor={colors.inputCursorBg}>{at}</Text>
             <Text>{after}</Text>
             {isLastVisualLine && ghostText && <Text color="#555555">{ghostText}</Text>}
           </Box>
         )
       })}
       {hiddenBelow > 0 && (
-        <Text color="#888888">{`  ↓ ${hiddenBelow} more line${hiddenBelow > 1 ? 's' : ''}`}</Text>
+        <Text color={colors.textDim}>{`  ↓ ${hiddenBelow} more line${hiddenBelow > 1 ? 's' : ''}`}</Text>
       )}
     </Box>
   )

@@ -51,6 +51,7 @@ export interface AgentSpec {
   metadata: Record<string, unknown>
 }
 
+/** Conservative defaults: read-only researcher on the shared workspace, fresh context, no delegation. */
 export const DEFAULT_AGENT_SPEC: Omit<AgentSpec, 'agent_id' | 'name' | 'system_prompt'> = {
   role: 'reader',
   provider: 'deepseek',
@@ -88,6 +89,7 @@ export function validateAgentSpec(spec: AgentSpec): { valid: boolean; errors: st
   return { valid: errors.length === 0, errors }
 }
 
+/** Pushes an error unless `value` is an integer within `[min, max]`. */
 function assertFiniteInteger(
   value: unknown,
   name: string,

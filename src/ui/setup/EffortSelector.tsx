@@ -25,6 +25,7 @@ interface Props {
   onCancel(): void
 }
 
+/** Horizontal low/high/max reasoning-effort slider with an animated gradient marker; left/right move, Enter selects, Esc cancels. */
 export function EffortSelector({ currentLevel, onSelect, onCancel }: Props) {
   const [idx, setIdx] = useState(() => {
     const i = LEVELS.findIndex((o) => o.level === currentLevel)

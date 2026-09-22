@@ -9,6 +9,7 @@ import Text from '../../ink/components/Text.js'
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
+/** One-line tool call status: spinner and elapsed seconds while running, then a success/error dot with a summarized result; subagent calls show the first line of their task. */
 export function ToolUseDisplay({ tool, theme = 'dark' }: { tool: ToolStatus; theme?: ThemeName }) {
   const colors = getThemeColors(theme)
   const display = TOOL_DISPLAY[tool.name] ?? tool.name

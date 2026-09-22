@@ -2,6 +2,7 @@ import type { Command } from '../types.js'
 
 const ACTIONS = new Set(['status', 'cancel', 'resume', 'result', 'message', 'integrate', 'cleanup'])
 
+/** `/task <id> [action]`: inspects or controls one task (status by default; also cancel, resume, result, message, integrate, cleanup). */
 const command: Command = {
   name: 'task',
   aliases: [],

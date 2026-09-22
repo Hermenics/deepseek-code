@@ -86,6 +86,7 @@ export function createSelectionState(): SelectionState {
   }
 }
 
+/** Begins a drag selection at (col, row) on mouse-down, resetting all per-selection state. Focus stays null until the first drag motion, so a bare click never selects anything. */
 export function startSelection(
   s: SelectionState,
   col: number,
@@ -107,6 +108,7 @@ export function startSelection(
   s.lastPressHadAlt = false
 }
 
+/** Moves the selection focus while dragging. The first motion event on the anchor cell itself is ignored so terminal jitter doesn't turn a click into a 1-cell selection. */
 export function updateSelection(
   s: SelectionState,
   col: number,
@@ -123,12 +125,14 @@ export function updateSelection(
   s.focus = { col, row }
 }
 
+/** Ends the drag on mouse-up while keeping anchor/focus, so the highlight stays visible and can still be copied. */
 export function finishSelection(s: SelectionState): void {
   s.isDragging = false
   // Keep anchor/focus so highlight stays visible and text can be copied.
   // Clear via clearSelection() on Esc or after copy.
 }
 
+/** Drops the selection entirely, including scrolled-off text accumulators and virtual clamp rows. */
 export function clearSelection(s: SelectionState): void {
   s.anchor = null
   s.focus = null
@@ -687,6 +691,7 @@ export function shiftSelectionForFollow(
   return false
 }
 
+/** True once a selection has both an anchor and a focus (i.e. a drag actually moved). */
 export function hasSelection(s: SelectionState): boolean {
   return s.anchor !== null && s.focus !== null
 }

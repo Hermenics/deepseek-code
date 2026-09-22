@@ -21,6 +21,7 @@ export interface UseSubagentsReturn {
   clearResolved: () => void
 }
 
+/** Creates a plain mutable subagent store (not React state; callers must re-render themselves) whose callbacks update agents in place as subagent lifecycle events arrive. clearResolved drops finished standalone agents but keeps workflow agents. */
 export function useSubagents(): UseSubagentsReturn {
   const hook: UseSubagentsReturn = {
     agents: [],

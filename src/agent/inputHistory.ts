@@ -25,6 +25,7 @@ function stylePath(): string {
   return join(process.env.HOME || homedir(), '.deepseek', 'writing_style.json')
 }
 
+/** Loads the persisted writing-style profile, defaulting missing fields (or a missing file) to zero counts. */
 export async function loadWritingStyle(): Promise<WritingStyleProfile> {
   try {
     const value = await readJson<Partial<WritingStyleProfile>>(stylePath())
@@ -34,6 +35,7 @@ export async function loadWritingStyle(): Promise<WritingStyleProfile> {
   }
 }
 
+/** Summarises the profile as a Portuguese prompt fragment; a trait is reported when it appears in at least 60% of samples. */
 export function describeWritingStyle(profile: WritingStyleProfile): string {
   if (profile.samples === 0) return 'Ainda não há dados suficientes sobre o estilo do usuário.'
   const ratio = (value: number) => value / profile.samples >= 0.6
@@ -46,6 +48,7 @@ export function describeWritingStyle(profile: WritingStyleProfile): string {
   ].join('; ')
 }
 
+/** Folds one user message into the running writing-style counters; slash and shell (`!`) commands are ignored. */
 async function updateWritingStyle(message: string): Promise<void> {
   const trimmed = message.trim()
   if (!trimmed || trimmed.startsWith('/') || trimmed.startsWith('!')) return
@@ -64,6 +67,7 @@ async function updateWritingStyle(message: string): Promise<void> {
   await writeJson(stylePath(), next)
 }
 
+/** Returns the saved prompt history (oldest first), or an empty list when none exists. */
 export async function loadInputHistory(): Promise<string[]> {
   try {
     return await readJson<string[]>(getHistoryPath())
@@ -72,6 +76,10 @@ export async function loadInputHistory(): Promise<string[]> {
   }
 }
 
+/**
+ * Appends a prompt to the persisted history (capped at MAX_ENTRIES, consecutive duplicates skipped) and updates
+ * the writing-style profile. Slash and shell (`!`) commands are never recorded.
+ */
 export async function appendInputHistory(entry: string): Promise<void> {
   const trimmed = entry.trim()
   if (trimmed.startsWith('/') || trimmed.startsWith('!')) return

@@ -1,6 +1,7 @@
 import { Tool } from '../types.js'
 import { getGoal } from '../../agent/goal.js'
 
+/** Read-only tool reporting the current goal's status, token and time usage, and remaining budget. */
 export const GetGoal: Tool = {
   name: 'get_goal',
   description:

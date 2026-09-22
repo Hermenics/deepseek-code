@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/plan <task>`: explores read-only and proposes an implementation plan for approval before any edits. */
 const command: Command = {
   name: 'plan',
   aliases: [],

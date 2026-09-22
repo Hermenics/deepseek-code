@@ -169,6 +169,7 @@ onmessage = async event => {
 };
 `
 
+/** Runs a workflow script in a fresh module Worker whose body executes in a capability-less vm context; agent()/workflow() calls are forwarded to `onCall`. The result rejects on cancel, abort, overall timeout or worker error, and the worker is terminated once it settles. */
 export function executeWorkflowScript(options: WorkflowRuntimeOptions): WorkflowExecution {
   const parsed = parseWorkflowSource(options.script, options.name)
   const events: WorkflowEvent[] = []

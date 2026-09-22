@@ -12,6 +12,7 @@ import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 import { useClock } from '../clock.js'
 
+/** Splits a stored tool message into display name, argument preview and raw output; JSON `{arg, output}` details are unpacked, other JSON is summarized, and previews are clipped to 60 chars unless `full`. */
 export function formatToolLine(rawName: string, detail: string, full = false): { display: string; arg: string; output: string } {
   const display = TOOL_DISPLAY[rawName] ?? rawName
   if (rawName === 'ask_user_questions') {
@@ -49,6 +50,7 @@ export function shouldShowWorkDivider(messages: Message[], index: number): boole
 
 export const WORK_TRUNCATED_LABEL = 'Work truncated (ctrl+o to expand)'
 
+/** Formats elapsed work time as `12s`, `3m 5s` or `1h 2m 3s`. */
 export function formatWorkedDuration(workedMs: number): string {
   const totalSeconds = Math.max(0, Math.round(workedMs / 1000))
   const hours = Math.floor(totalSeconds / 3600)
@@ -59,6 +61,7 @@ export function formatWorkedDuration(workedMs: number): string {
   return `${seconds}s`
 }
 
+/** `─ Worked for 1m 5s ────` rule (preceded by a blank line) padded to the terminal width. */
 export function workedLine(workedMs: number, width = process.stdout.columns ?? 80): string {
   const targetWidth = Math.max(1, width - 1)
   const prefix = `
@@ -66,6 +69,7 @@ export function workedLine(workedMs: number, width = process.stdout.columns ?? 8
   return prefix + '─'.repeat(Math.max(1, targetWidth - prefix.length))
 }
 
+/** Full-width horizontal rule with an optional label centered in it. */
 export function dividerLine(label = '', width = process.stdout.columns ?? 80): string {
   const targetWidth = Math.max(1, width - 1)
   const visibleLabel = label.slice(0, targetWidth)
@@ -120,6 +124,7 @@ export interface DiffPayload {
   lines: DiffLine[]
 }
 
+/** Parses the diff JSON embedded in a `✓ write_file →` / `✓ patch_file →` tool message, returning null unless it is a well-formed `__diff` payload. */
 export function getDiffPayload(content: string): DiffPayload | null {
   const prefix = content.startsWith('✓ write_file →') ? '✓ write_file → '
     : content.startsWith('✓ patch_file →') ? '✓ patch_file → '
@@ -147,6 +152,7 @@ export function getDiffPayload(content: string): DiffPayload | null {
   }
 }
 
+/** Renders one transcript message by role (user, tool call with output preview and optional diff, terminal, thinking, assistant markdown); `fullMode` shows complete tool output and thinking. */
 function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = true, showWordDiff = true, compact = false, fullMode = false, onOpenDiff }: {
   message: Message
   theme: ThemeName
@@ -280,6 +286,7 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = t
   )
 }
 
+/** Transcript header with mascot, version, provider, active agent and cwd; collapses to a text-only header under 60 columns. */
 function Header({ provider, agentName, theme = 'dark' }: { provider: string; agentName: string | null; theme?: ThemeName }) {
   const colors = getThemeColors(theme)
   const cols = process.stdout.columns ?? 80
@@ -292,7 +299,7 @@ function Header({ provider, agentName, theme = 'dark' }: { provider: string; age
           <Text color={colors.primary}>{STATUS_ICONS.agent + ' DeepSeek Code'}</Text>
           <Text color={colors.textDim}>{'v' + pkg.version}</Text>
         </Box>
-        {agentName && <Text color={colors.primary}>{'[' + agentName + ']'}</Text>}
+        {agentName && <Text color={colors.h3}>{'[' + agentName + ']'}</Text>}
         <Text color={colors.textDim}>{'/help  ·  /quit to exit'}</Text>
       </Box>
     )
@@ -302,9 +309,9 @@ function Header({ provider, agentName, theme = 'dark' }: { provider: string; age
     <Box flexDirection="row" gap={2} marginLeft={1} marginTop={1}>
       <Box flexDirection="column">
         <Text color={colors.primary}>{'  ▄▄███▄▄'}</Text>
-        <Text color={colors.primary}>{' ▄█ ◉    ██▄'}</Text>
+        <Text color={colors.h2}>{' ▄█ ◉    ██▄'}</Text>
         <Text color={colors.primary}>{'█          ~~█'}</Text>
-        <Text color={colors.primary}>{' ▀▄▄█▄▄▄▄█▀'}</Text>
+        <Text color={colors.h2}>{' ▀▄▄█▄▄▄▄█▀'}</Text>
       </Box>
       <Box flexDirection="column">
         <Box flexDirection="row" gap={1}>
@@ -314,12 +321,12 @@ function Header({ provider, agentName, theme = 'dark' }: { provider: string; age
           <Text color={colors.textDim}>{provider}</Text>
           {agentName && <>
             <Text color={colors.textDim}>{'·'}</Text>
-            <Text color={colors.primary}>{'[' + agentName + ']'}</Text>
+            <Text color={colors.h3}>{'[' + agentName + ']'}</Text>
           </>}
         </Box>
         <Box flexDirection="row" gap={1}>
           <Text color={colors.textDim}>cwd:</Text>
-          <Text color={colors.primary}>{process.cwd()}</Text>
+          <Text color={colors.info}>{process.cwd()}</Text>
         </Box>
         <Text color={colors.textDim}>{'/help for commands  ·  /quit to exit'}</Text>
       </Box>
@@ -327,6 +334,7 @@ function Header({ provider, agentName, theme = 'dark' }: { provider: string; age
   )
 }
 
+/** Renders the conversation: header, messages (collapsing each turn's tool work to a "Work truncated" divider unless fullMode), a changed-files summary, live thinking and the currently streaming reply. */
 export function MessageList({ messages, streamText, thinkingText, streamRole = 'assistant', theme, activeAgent, headerProvider, headerAgent, showToolCalls = true, showDiffs = true, showWordDiff = true, density = 'comfortable', fullMode = false, thinkingStartedAt = null, onOpenDiff }: {
   messages: Message[]
   streamText: string
@@ -422,6 +430,7 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
   )
 }
 
+/** Live reasoning indicator: the full thinking text in fullMode, otherwise a "Thinking for N seconds..." counter. */
 function LiveThinking({ content, fullMode, startedAt, theme }: {
   content: string
   fullMode: boolean

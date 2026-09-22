@@ -28,6 +28,7 @@ export type RenderOptions = {
 
 export type Renderer = (options: RenderOptions) => Frame
 
+/** Creates the per-frame renderer for a root node: paints the laid-out tree into the back buffer (blitting unchanged regions from the front frame when safe) and returns the new frame. The Output instance is reused across frames to keep its caches warm. */
 export default function createRenderer(
   node: DOMElement,
   stylePool: StylePool,

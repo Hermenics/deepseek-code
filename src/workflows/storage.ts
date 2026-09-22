@@ -23,6 +23,7 @@ export interface WorkflowRunLease {
   heartbeatAt: string
 }
 
+/** True for queued, running or paused runs, regardless of whether their owner process is still alive. */
 export function isWorkflowRunActive(run: Pick<WorkflowRun, 'status'>): boolean {
   return WORKFLOW_ACTIVE_STATUSES.has(run.status)
 }
@@ -59,6 +60,7 @@ interface WorkflowStoreOptions {
   baseDirectory?: string
 }
 
+/** Deterministic JSON-like serialisation with sorted object keys (undefined becomes null), so equal values always hash equally. */
 function stable(value: unknown): string {
   if (value === undefined) return 'null'
   if (value === null || typeof value !== 'object') return JSON.stringify(value)
@@ -109,6 +111,7 @@ async function privateText(path: string, value: string): Promise<void> {
   await renameReplacing(temporary, path)
 }
 
+/** Reads and parses a JSON file, returning undefined when it is missing or malformed. */
 async function readJson<T>(path: string): Promise<T | undefined> {
   try { return JSON.parse(await readFile(path, 'utf8')) as T } catch { return undefined }
 }
@@ -120,6 +123,7 @@ async function withLeaseLock<T>(path: string, action: () => Promise<T>): Promise
   finally { await lock.release() }
 }
 
+/** Serialises approval-file read/modify/write sequences within this process only; other processes are not excluded. */
 async function withApprovalFileLock<T>(file: string, action: () => Promise<T>): Promise<T> {
   const previous = approvalFileLocks.get(file) ?? Promise.resolve()
   let release = () => {}
@@ -133,6 +137,7 @@ async function withApprovalFileLock<T>(file: string, action: () => Promise<T>): 
   }
 }
 
+/** Persists workflow runs (script, args, run.json, journal, lease) under ~/.deepseek/projects/<project>/<session>/workflows and reads runs from sibling sessions of the same project. `baseDirectory` replaces the whole layout with one flat root. */
 export class WorkflowStore {
   readonly root: string
   /** Project-wide state directory; run scripts from earlier sessions of the same project live below it. */
@@ -145,6 +150,7 @@ export class WorkflowStore {
     this.root = options.baseDirectory ?? join(this.projectDirectory, sessionKey, 'workflows')
   }
 
+  /** Path of a run in this session's root; runs from earlier sessions are located with findRunDirectory instead. */
   runDirectory(runId: string): string {
     return join(this.root, runId)
   }
@@ -161,6 +167,7 @@ export class WorkflowStore {
     return join(this.runDirectory(runId), 'lease.json')
   }
 
+  /** Creates the run directory and writes its script, args, run.json and an empty journal. */
   async createRun(run: WorkflowRun, script: string, args: unknown): Promise<void> {
     const directory = this.runDirectory(run.runId)
     await mkdir(directory, { recursive: true, mode: 0o700 })
@@ -172,6 +179,7 @@ export class WorkflowStore {
     ])
   }
 
+  /** Atomically rewrites run.json in this session's run directory. */
   async writeRun(run: WorkflowRun): Promise<void> {
     await atomicJson(join(this.runDirectory(run.runId), 'run.json'), run)
   }
@@ -263,6 +271,7 @@ export class WorkflowStore {
     return undefined
   }
 
+  /** Run ids from any session of this project whose directory name starts with `prefix`. */
   async findRunIdsByPrefix(prefix: string): Promise<string[]> {
     const ids = new Set<string>()
     for (const root of await this.sessionRoots()) {
@@ -272,26 +281,31 @@ export class WorkflowStore {
     return [...ids]
   }
 
+  /** Reads run.json from whichever session of the project holds the run. */
   async readRun(runId: string): Promise<WorkflowRun | undefined> {
     const directory = await this.findRunDirectory(runId)
     return directory ? readJson<WorkflowRun>(join(directory, 'run.json')) : undefined
   }
 
+  /** Reads a run's persisted script from whichever session holds it; undefined when missing. */
   async readScript(runId: string): Promise<string | undefined> {
     const directory = await this.findRunDirectory(runId)
     if (!directory) return undefined
     try { return await readFile(join(directory, 'workflow.js'), 'utf8') } catch { return undefined }
   }
 
+  /** Reads a run's persisted args, falling back to `{}` when absent. */
   async readArgs(runId: string): Promise<unknown> {
     const directory = await this.findRunDirectory(runId)
     return (directory ? await readJson(join(directory, 'args.json')) : undefined) ?? {}
   }
 
+  /** Atomically writes the journal into this session's run directory. */
   async writeJournal(runId: string, journal: WorkflowJournal): Promise<void> {
     await atomicJson(this.journalPath(runId), journal)
   }
 
+  /** Reads a run's journal, returning undefined when it is missing or its entries are malformed. */
   async readJournal(runId: string): Promise<WorkflowJournal | undefined> {
     const directory = await this.findRunDirectory(runId)
     const journal = directory ? await readJson<WorkflowJournal>(join(directory, 'journal.json')) : undefined
@@ -299,6 +313,7 @@ export class WorkflowStore {
     return journal
   }
 
+  /** Reads every run.json across this project's sessions, newest first. */
   private async scanRuns(): Promise<WorkflowRun[]> {
     const roots = await this.sessionRoots()
     const entries = await Promise.all(roots.map(async root => ({ root, entries: await readdir(root, { withFileTypes: true }).catch(() => []) })))
@@ -307,6 +322,7 @@ export class WorkflowStore {
     return runs.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   }
 
+  /** The most recent runs across sessions, capped at MAX_REPLAY_RUNS. */
   async listRuns(): Promise<WorkflowRun[]> {
     return (await this.scanRuns()).slice(0, MAX_REPLAY_RUNS)
   }
@@ -316,6 +332,7 @@ export class WorkflowStore {
     return (await this.scanRuns()).filter(isWorkflowRunActive)
   }
 
+  /** Finds the journal of a finished run with identical script, args and options hashes: a fully completed journal wins immediately, otherwise the one with the longest completed prefix. Active runs are never replayed. */
   async findReplay(scriptHash: string, argsHash: string, optionsHash: string, excludeRunId?: string): Promise<WorkflowJournal | undefined> {
     let best: WorkflowJournal | undefined
     let bestPrefix = -1
@@ -332,6 +349,7 @@ export class WorkflowStore {
   }
 }
 
+/** Type guard for the shape of a parsed lease.json. */
 function isWorkflowLease(value: unknown): value is WorkflowRunLease {
   if (!value || typeof value !== 'object') return false
   const candidate = value as Partial<WorkflowRunLease>
@@ -342,6 +360,7 @@ function isWorkflowLease(value: unknown): value is WorkflowRunLease {
     typeof candidate.heartbeatAt === 'string' && Number.isFinite(Date.parse(candidate.heartbeatAt))
 }
 
+/** True when `left` is a valid lease for the same run, session and owner token. */
 function sameLeaseOwner(left: WorkflowRunLease | undefined, right: Pick<WorkflowRunLease, 'runId' | 'sessionId' | 'token'>): left is WorkflowRunLease {
   return Boolean(isWorkflowLease(left) && left.runId === right.runId && left.sessionId === right.sessionId && left.token === right.token)
 }
@@ -351,6 +370,7 @@ interface ApprovalFile {
   projects: Record<string, string[]>
 }
 
+/** Per-project allow-list of approved workflow script hashes, stored in ~/.deepseek/workflow-approvals.json. */
 export class WorkflowApprovalStore {
   private readonly projectKey: string
 
@@ -358,11 +378,13 @@ export class WorkflowApprovalStore {
     this.projectKey = hashWorkflowValue(resolve(projectRoot))
   }
 
+  /** True when this exact script hash was approved for this project. */
   async isApproved(scriptHash: string): Promise<boolean> {
     const state = await readJson<ApprovalFile>(this.file)
     return state?.projects[this.projectKey]?.includes(scriptHash) ?? false
   }
 
+  /** Records a script hash as approved for this project; idempotent. */
   async approve(scriptHash: string): Promise<void> {
     await withApprovalFileLock(this.file, async () => {
       const state = await readJson<ApprovalFile>(this.file) ?? { schemaVersion: 1 as const, projects: {} }

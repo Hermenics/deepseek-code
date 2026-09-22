@@ -13,6 +13,7 @@ export interface DialogProps {
   cancelLabel?: string
 }
 
+/** Rounded confirmation box with title, optional subtitle and body; Enter confirms and Esc cancels. */
 export function Dialog({ title, subtitle, onConfirm, onCancel, confirmLabel = 'Yes', cancelLabel = 'No', children }: PropsWithChildren<DialogProps>) {
   const colors = useThemeColors()
 

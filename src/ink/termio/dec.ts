@@ -35,10 +35,15 @@ export function decreset(mode: number): string {
 
 // Pre-generated sequences for common modes
 export const BSU = decset(DEC.SYNCHRONIZED_UPDATE)
+/** End synchronized update (pairs with BSU). */
 export const ESU = decreset(DEC.SYNCHRONIZED_UPDATE)
+/** Enable bracketed paste. */
 export const EBP = decset(DEC.BRACKETED_PASTE)
+/** Disable bracketed paste. */
 export const DBP = decreset(DEC.BRACKETED_PASTE)
+/** Enable focus in/out reporting. */
 export const EFE = decset(DEC.FOCUS_EVENTS)
+/** Disable focus in/out reporting. */
 export const DFE = decreset(DEC.FOCUS_EVENTS)
 export const SHOW_CURSOR = decset(DEC.CURSOR_VISIBLE)
 export const HIDE_CURSOR = decreset(DEC.CURSOR_VISIBLE)

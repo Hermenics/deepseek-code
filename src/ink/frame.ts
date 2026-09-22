@@ -19,6 +19,7 @@ export type Frame = {
   readonly scrollDrainPending?: boolean
 }
 
+/** Creates a blank 0x0 frame for the given viewport, used as the "previous frame" before the first render or after a reset. */
 export function emptyFrame(
   rows: number,
   columns: number,

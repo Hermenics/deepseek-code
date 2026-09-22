@@ -20,6 +20,7 @@ function lcs(a: string[], b: string[]): number[][] {
   return dp
 }
 
+/** Recursively walks the LCS table from (i, j) back to the origin, emitting old-side (same/removed) and new-side (same/added) segments in order. Recursion depth is i + j tokens. */
 function backtrack(dp: number[][], a: string[], b: string[], i: number, j: number): { removed: DiffSegment[]; added: DiffSegment[] } {
   if (i === 0 && j === 0) return { removed: [], added: [] }
   if (i === 0) {
@@ -48,6 +49,7 @@ function backtrack(dp: number[][], a: string[], b: string[], i: number, j: numbe
   return rest
 }
 
+/** Word-level diff of two lines via token LCS (whitespace kept as tokens), returning the old line's segments and the new line's segments for highlighting. */
 export function computeWordDiff(oldText: string, newText: string): { removed: DiffSegment[]; added: DiffSegment[] } {
   const a = tokenize(oldText)
   const b = tokenize(newText)

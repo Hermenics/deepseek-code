@@ -20,6 +20,7 @@ export interface Checkpoint {
   filesModified: string[]
 }
 
+/** Persists a conversation checkpoint (messages + modified files) as JSON, prunes old ones, and returns its id. */
 export async function saveCheckpoint(
   messages: MessageOrBoundary[],
   filesModified: string[],
@@ -40,6 +41,7 @@ export async function saveCheckpoint(
   return id
 }
 
+/** Returns all readable conversation checkpoints, newest first; unreadable files are skipped. */
 export async function listCheckpoints(): Promise<Checkpoint[]> {
   try {
     const dir = getDir()
@@ -54,11 +56,13 @@ export async function listCheckpoints(): Promise<Checkpoint[]> {
   }
 }
 
+/** Loads a checkpoint by id; ids not matching the `<ms>-<hex6>` format are rejected so they cannot address other paths. */
 export async function loadCheckpoint(id: string): Promise<Checkpoint | null> {
   if (!CHECKPOINT_ID.test(id)) return null
   try { return await readJson<Checkpoint>(join(getDir(), `${id}.json`)) } catch { return null }
 }
 
+/** Deletes the oldest checkpoint files beyond CHECKPOINT_MAX. Best-effort; errors are ignored. */
 async function prune() {
   try {
     const dir = getDir()

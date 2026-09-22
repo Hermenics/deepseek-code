@@ -16,12 +16,14 @@ export interface SessionRow {
   updated_at: string
 }
 
+/** CRUD access to the `sessions` table; creation emits `SessionCreated`. */
 export class SessionRepo {
   constructor(
     private readonly store: Store,
     private readonly events: EventBus,
   ) {}
 
+  /** Inserts a session with fresh timestamps and emits `SessionCreated`. */
   create(session: Omit<SessionRow, 'created_at' | 'updated_at'>): SessionRow {
     const now = new Date().toISOString()
     const row: SessionRow = { ...session, created_at: now, updated_at: now }
@@ -40,6 +42,7 @@ export class SessionRepo {
     return rows[0]
   }
 
+  /** Updates only the provided (non-undefined) fields and bumps `updated_at`. */
   update(id: string, fields: Partial<Pick<SessionRow, 'title' | 'model' | 'provider' | 'language' | 'active_agent'>>): void {
     const now = new Date().toISOString()
     const sets: string[] = ['updated_at = ?']
@@ -58,6 +61,7 @@ export class SessionRepo {
     this.store.run('DELETE FROM sessions WHERE id = ?', id)
   }
 
+  /** Most recently updated sessions first. */
   list(limit = 50): SessionRow[] {
     return this.store.query<SessionRow>('SELECT * FROM sessions ORDER BY updated_at DESC LIMIT ?', limit)
   }
@@ -109,12 +113,14 @@ const GOAL_COLUMNS = [
   'created_at', 'updated_at', 'paused_at', 'resumed_at', 'completed_at', 'cancelled_at',
 ].join(', ')
 
+/** Persists goals and their completion criteria, scoped to the event bus's current session. Goal writes use optimistic revision checks and emit goal events. */
 export class GoalRepo {
   constructor(
     private readonly store: Store,
     private readonly events: EventBus,
   ) {}
 
+  /** Creates an active goal (default 3 max continuations) in the current session and emits `GoalCreated`. */
   create(input: {
     goal_id?: string
     thread_id: string
@@ -162,6 +168,7 @@ export class GoalRepo {
     return this.store.query<GoalRow>('SELECT * FROM goals WHERE goal_id = ?', goalId)[0]
   }
 
+  /** Newest goal for the thread in the current session that is not complete, failed or cancelled. */
   getActive(threadId: string): GoalRow | undefined {
     return this.store.query<GoalRow>(
       `SELECT * FROM goals WHERE session_id = ? AND thread_id = ?
@@ -207,6 +214,7 @@ export class GoalRepo {
     this.events.emit('GoalUpdated', { goal_id: goalId, status: merged.status }, { goal_id: goalId, thread_id: merged.thread_id })
   }
 
+  /** Adds a pending completion criterion to a goal. */
   addCriteria(input: Omit<GoalCriteriaRow, 'id' | 'status' | 'result' | 'evaluated_at'>): GoalCriteriaRow {
     const row: GoalCriteriaRow = {
       ...input,
@@ -222,10 +230,12 @@ export class GoalRepo {
     return row
   }
 
+  /** Criteria for a goal in evaluation order. */
   listCriteria(goalId: string): GoalCriteriaRow[] {
     return this.store.query<GoalCriteriaRow>('SELECT * FROM goal_criteria WHERE goal_id = ? ORDER BY sequence', goalId)
   }
 
+  /** Records a criterion's pass/fail outcome and evaluation time. */
   updateCriteria(id: string, fields: { status: 'passed' | 'failed'; result?: string }): void {
     const now = new Date().toISOString()
     this.store.run(
@@ -234,6 +244,7 @@ export class GoalRepo {
     )
   }
 
+  /** Goals in the current session, newest first, optionally filtered by thread and status. */
   list(options: { thread_id?: string; status?: GoalStatus; limit?: number } = {}): GoalRow[] {
     const conditions: string[] = ['session_id = ?']
     const params: unknown[] = [this.events.sessionId]

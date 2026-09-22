@@ -8,6 +8,7 @@ interface LineEdit {
   new: string[]
 }
 
+/** Replace each `olds[i]` with `news[i]` in order, searching left to right from the end of the previous match; returns null if any substring is missing. */
 function applyLineReplacements(lineContent: string, olds: string[], news: string[]): string | null {
   let cursor = 0
   const parts: string[] = []
@@ -46,6 +47,7 @@ function previewEditedLines(lines: string[], originalLines: number[], spans: Map
   return shown.join('\n')
 }
 
+/** Tool for line-addressed substring replacements. Paths go through `assertSafePath`, and every edit is validated before an atomic write, so a bad edit changes nothing. */
 export const EditFile: Tool = {
   name: 'edit_file',
   description:

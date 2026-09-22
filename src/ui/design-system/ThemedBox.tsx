@@ -11,12 +11,14 @@ export type ThemedBoxProps = Omit<InkBoxProps, 'borderColor' | 'backgroundColor'
   backgroundColor?: ColorProp
 }
 
+/** Maps a theme color key (e.g. `primary`) to its value from the active palette; rgb(), hex and ansi literals and unknown names pass through unchanged. */
 function resolveColor(color: ColorProp | undefined, colors: ThemeColors): string | undefined {
   if (!color) return undefined
   if (color.startsWith('rgb(') || color.startsWith('#') || color.startsWith('ansi')) return color
   return (colors as unknown as Record<string, string>)[color] ?? color
 }
 
+/** Ink Box whose border and background colors accept theme color keys as well as literal colors. */
 export function ThemedBox({ borderColor, backgroundColor, children, ...rest }: ThemedBoxProps) {
   const colors = useThemeColors()
   return (

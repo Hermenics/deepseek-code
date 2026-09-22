@@ -1,6 +1,7 @@
 export type DeepSeekHealth = 'ok' | 'auth-error' | 'service-error' | 'unreachable'
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
 
+/** Probes api.deepseek.com/models with the key (8s timeout) and classifies the outcome as ok, auth-error (401/403), service-error or unreachable. */
 export async function checkOfficialDeepSeekApi(
   apiKey: string,
   fetchImpl: FetchLike = globalThis.fetch,

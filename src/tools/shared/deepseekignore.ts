@@ -69,6 +69,7 @@ interface CacheEntry {
 const cache = new Map<string, CacheEntry>()
 const promptedIgnoreRoots = new Set<string>()
 
+/** Build (or reuse, keyed by root and file mtime) the ignore matcher: the .deepseekignore content if present, otherwise DEFAULT_IGNORE_LINES, plus the SAFETY_LINES that are always applied. */
 function loadMatcher(root: string): CacheEntry {
   const filePath = path.join(root, IGNORE_FILE_NAME)
   let mtimeMs = -1
@@ -182,6 +183,7 @@ export function ignoreFileStatus(root: string): IgnoreFileStatus {
   return { exists: true, missingDefaults: missing }
 }
 
+/** Global `~/.deepseek/ignore-prompts.json` recording which workspaces were already asked about materializing the defaults. */
 function ignorePromptStatePath(): string {
   return path.join(homedir(), '.deepseek', IGNORE_PROMPT_STATE_FILE)
 }
@@ -200,6 +202,7 @@ export function shouldOfferIgnoreDefaults(root: string): boolean {
   }
 }
 
+/** Record that this workspace was asked about the defaults, in memory and in the global state file. Write failures are swallowed; this process still won't ask again. */
 export function markIgnoreDefaultsPrompted(root: string): void {
   const workspace = path.resolve(root)
   promptedIgnoreRoots.add(workspace)
@@ -239,6 +242,7 @@ const EDITOR_FOLDERS: Record<EditorKind, string> = {
   kiro: 'Kiro',
 }
 
+/** Guess the VS Code-family editor hosting this terminal from TERM_PROGRAM and VS Code env vars; null when there's no evidence. */
 function detectEditor(env: NodeJS.ProcessEnv): EditorKind | null {
   const terminal = env.TERM_PROGRAM?.toLowerCase()
   if (terminal === 'cursor') return 'cursor'
@@ -323,10 +327,12 @@ export function writeEditorAssociation(_root: string, options: EditorAssociation
   fs.writeFileSync(filePath, JSON.stringify(settings, null, 2) + '\n', 'utf8')
 }
 
+/** Parse VS Code-style JSONC (comments and trailing commas allowed). */
 function parseJsonc(text: string): unknown {
   return JSON.parse(removeTrailingCommas(stripJsonComments(text)))
 }
 
+/** Drop commas that directly precede `}` or `]`, leaving string contents untouched. */
 function removeTrailingCommas(text: string): string {
   let out = ''
   let inString = false

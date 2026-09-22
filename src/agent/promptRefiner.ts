@@ -30,6 +30,7 @@ The original user message remains authoritative and will be provided separately.
 
 Return ONLY the optional clarification or the word SKIP. No preamble, no explanation, no markdown wrapper.`
 
+/** Detects mentions of the native Dynamic Workflows feature (English, typo-tolerant, or Portuguese) so refinement never reinterprets them. */
 function mentionsNativeDynamicWorkflow(message: string): boolean {
   const normalized = message.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
   return /\b(?:d[a-z]{4,7}ic|dinamic[oa]s?) workflows?\b/.test(normalized) || /\bworkflows? dinamic[oa]s?\b/.test(normalized)
@@ -48,6 +49,10 @@ export function combineOriginalWithRefinement(original: string, refined: string)
   return original + '\n\n<optional-request-clarification>\n' + refined + '\n</optional-request-clarification>'
 }
 
+/**
+ * Asks the model for an optional clarification of the user's message. Short messages, slash commands and
+ * Dynamic Workflow requests are skipped without a call; API failures are reported as `error`, never thrown.
+ */
 export async function previewPromptRefinement(
   client: OpenAI,
   model: string,

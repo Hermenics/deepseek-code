@@ -1,5 +1,6 @@
 type TextObjectFn = (text: string, cursor: number) => [number, number]
 
+/** [start, end) of the word under the cursor, or just the single character when the cursor is on whitespace or punctuation. */
 function findWordBounds(text: string, cursor: number): [number, number] {
   if (cursor >= text.length) return [cursor, cursor]
 
@@ -22,6 +23,7 @@ function innerWord(text: string, cursor: number): [number, number] {
   return findWordBounds(text, cursor)
 }
 
+/** Word bounds plus one trailing whitespace character, or one leading one when there is no trailing whitespace. */
 function aroundWord(text: string, cursor: number): [number, number] {
   const [start, end] = findWordBounds(text, cursor)
   // Include trailing space if present
@@ -31,6 +33,7 @@ function aroundWord(text: string, cursor: number): [number, number] {
   return [start, end]
 }
 
+/** Finds the nearest `open` at or before the cursor and `close` at or after it (not nesting-aware); `inner` excludes the delimiters. Empty range when either is missing. */
 function findPairBounds(
   text: string,
   cursor: number,
@@ -52,6 +55,7 @@ function findPairBounds(
   return [start, end + 1]
 }
 
+/** Builds a text object for the quote pair around the cursor, treating a cursor on a quote as the opening one; empty range when unmatched. */
 function makeQuoteObject(quote: string, inner: boolean): TextObjectFn {
   return (text, cursor) => {
     // Find the quote pair containing cursor — include cursor position in opening search
@@ -66,6 +70,7 @@ function makeQuoteObject(quote: string, inner: boolean): TextObjectFn {
   }
 }
 
+/** Returns the text object for the key typed after i/a in operator-pending mode (w, quotes, brackets), or null. */
 export function getTextObject(
   key: string,
   modifier: 'i' | 'a'

@@ -4,6 +4,7 @@ import Text from '../../ink/components/Text.js'
 import type { WorkflowManager } from '../../workflows/manager.js'
 import type { WorkflowRun } from '../../workflows/types.js'
 import { isWorkflowRunActive } from '../../workflows/storage.js'
+import { useThemeColors } from '../design-system/ThemeProvider.js'
 
 const WORKFLOW_POLL_MS = 1_000
 
@@ -12,6 +13,7 @@ export interface WorkflowRunListOptions {
   activeOnly?: boolean
 }
 
+/** Subscribes to the manager's workflow runs, merging live events with a 1s poll so runs started or finished by other TUI processes also show up; `activeOnly` switches to the lease-aware active list. */
 export function useWorkflowRuns(manager: WorkflowManager, options: WorkflowRunListOptions = {}): WorkflowRun[] {
   const [runs, setRuns] = useState<WorkflowRun[]>([])
   const activeOnly = options.activeOnly ?? false
@@ -56,6 +58,7 @@ export function useActiveWorkflowRuns(manager: WorkflowManager): WorkflowRun[] {
   return useWorkflowRuns(manager, { activeOnly: true })
 }
 
+/** One-line text summary of a run: short id, name, status, phase, duration, agents, tokens (and budget), cost and worktree count. */
 export function formatWorkflowRun(run: WorkflowRun, now = Date.now()): string {
   const started = Date.parse(run.startedAt ?? run.createdAt)
   const ended = run.completedAt ? Date.parse(run.completedAt) : now
@@ -67,7 +70,9 @@ export function formatWorkflowRun(run: WorkflowRun, now = Date.now()): string {
   return `  ${run.runId.slice(0, 8)}  ${run.meta.name} · ${run.status}${phase} · ${duration}s · ${run.usage.agents} agents · ${tokens}${cost}${worktrees}`
 }
 
+/** Renders the "Dynamic Workflows" block listing active runs (paused ones in warning color), ticking every second; renders nothing when no run is active. */
 export function WorkflowList({ manager }: { manager: WorkflowManager }) {
+  const colors = useThemeColors()
   const runs = useActiveWorkflowRuns(manager)
   const [, setClock] = useState(0)
 
@@ -82,9 +87,9 @@ export function WorkflowList({ manager }: { manager: WorkflowManager }) {
 
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text color="magenta">{'◆ Dynamic Workflows'}</Text>
+      <Text color={colors.h3}>{'◆ Dynamic Workflows'}</Text>
       {active.map(run => (
-        <Text key={run.runId} color={run.status === 'paused' ? 'yellow' : 'cyan'}>{formatWorkflowRun(run)}</Text>
+        <Text key={run.runId} color={run.status === 'paused' ? colors.warning : colors.info}>{formatWorkflowRun(run)}</Text>
       ))}
     </Box>
   )

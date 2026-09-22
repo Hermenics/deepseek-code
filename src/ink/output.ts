@@ -111,6 +111,7 @@ function intersectClip(parent: Clip | undefined, child: Clip): Clip {
   }
 }
 
+/** Max of two optional bounds, where `undefined` means unbounded (the other value wins). */
 function maxDefined(
   a: number | undefined,
   b: number | undefined,
@@ -120,6 +121,7 @@ function maxDefined(
   return Math.max(a, b)
 }
 
+/** Min of two optional bounds, where `undefined` means unbounded (the other value wins). */
 function minDefined(
   a: number | undefined,
   b: number | undefined,
@@ -167,6 +169,7 @@ type NoSelectOperation = {
   region: Rectangle
 }
 
+/** Collects drawing operations (write, blit, shift, clear, clip, noSelect) for one frame and replays them into a Screen buffer in `get()`. Reused across frames to keep its grapheme-clustering cache warm. */
 export default class Output {
   width: number
   height: number
@@ -238,6 +241,7 @@ export default class Output {
     this.operations.push({ type: 'noSelect', region })
   }
 
+  /** Queues a text write at (x, y); the text may contain ANSI styles and newlines. `softWrap` marks which lines are continuations of a wrapped line. Empty strings are ignored. */
   write(x: number, y: number, text: string, softWrap?: boolean[]): void {
     if (!text) {
       return
@@ -252,6 +256,7 @@ export default class Output {
     })
   }
 
+  /** Pushes a clip region; it is intersected with the enclosing clip when applied, and writes/blits outside it are dropped until `unclip()`. */
   clip(clip: Clip) {
     this.operations.push({
       type: 'clip',
@@ -265,6 +270,7 @@ export default class Output {
     })
   }
 
+  /** Replays the queued operations in order into the screen buffer (damage for clears, then clipped blits, shifts, writes and noSelect marks) and returns the finished screen. */
   get(): Screen {
     const screen = this.screen
     const screenWidth = this.width
@@ -532,6 +538,7 @@ export default class Output {
   }
 }
 
+/** Compares two ANSI style lists by their code strings, with a reference-equality fast path. */
 function stylesEqual(a: AnsiCode[], b: AnsiCode[]): boolean {
   if (a === b) return true // Reference equality fast path
   const len = a.length
@@ -584,6 +591,7 @@ function styledCharsWithGraphemeClustering(
   return result
 }
 
+/** Splits one same-style run into grapheme clusters and appends them to `out`, computing the pooled style id and OSC 8 hyperlink once for the whole run (OSC 8 codes are stripped from the stored style). */
 function flushBuffer(
   buffer: string,
   styles: AnsiCode[],

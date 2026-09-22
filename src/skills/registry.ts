@@ -21,6 +21,7 @@ function registryPath(skillsDir: string): string {
   return join(skillsDir, REGISTRY_FILE)
 }
 
+/** Reads `.registry.json` from `skillsDir`; a missing file yields an empty registry, a malformed one throws. */
 export function readRegistry(skillsDir: string): SkillRegistry {
   try {
     const content = readFileSync(registryPath(skillsDir), 'utf-8')
@@ -36,17 +37,20 @@ export function readRegistry(skillsDir: string): SkillRegistry {
   }
 }
 
+/** Writes the registry to `skillsDir/.registry.json`, creating the directory if needed. */
 export function writeRegistry(skillsDir: string, registry: SkillRegistry): void {
   mkdirSync(skillsDir, { recursive: true })
   writeFileSync(registryPath(skillsDir), JSON.stringify(registry, null, 2))
 }
 
+/** Inserts or replaces a skill entry keyed by name. */
 export function addToRegistry(skillsDir: string, entry: SkillEntry): void {
   const registry = readRegistry(skillsDir)
   registry.skills[entry.name] = entry
   writeRegistry(skillsDir, registry)
 }
 
+/** Deletes a skill entry; no-op (and no write) when absent. */
 export function removeFromRegistry(skillsDir: string, name: string): void {
   const registry = readRegistry(skillsDir)
   if (!(name in registry.skills)) return

@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/cwd [path]` (alias `/cd`): shows the working directory, or changes it when a path is given. */
 const command: Command = {
   name: 'cwd',
   aliases: ['cd'],

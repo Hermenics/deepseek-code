@@ -1,10 +1,12 @@
 import { join } from 'path'
 import { randomBytes } from 'node:crypto'
 
+/** Returns the directory where plan-mode plans are written (`.plans/` under the project root). */
 export function getPlanDir(projectRoot = process.cwd()): string {
   return join(projectRoot, '.plans')
 }
 
+/** Builds a unique plan file path from a slug of the task (max 40 chars) plus a random hex suffix. */
 export function newPlanPath(task: string, projectRoot?: string): string {
   const slug = task
     .toLowerCase()
@@ -15,6 +17,7 @@ export function newPlanPath(task: string, projectRoot?: string): string {
   return join(getPlanDir(projectRoot), `${slug}-${id}.md`)
 }
 
+/** Builds the prompt that puts the agent in read-only plan mode, listing allowed tools and the required plan sections. */
 export function buildPlanModeInjection(task: string, planPath: string): string {
   return `/plan ${task}
 

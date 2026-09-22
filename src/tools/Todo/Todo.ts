@@ -1,6 +1,7 @@
 import type { Tool } from '../types.js'
 import { addTodo, updateTodo, clearTodos, getTodos, type TodoStatus } from '../../agent/todoStore.js'
 
+/** Tool that adds, updates, clears or lists items in the in-memory todo store shown in the UI. */
 export const Todo: Tool = {
   name: 'todo',
   description: `Manage a TODO list visible to the user in the UI. Use this to track your plan and progress on complex tasks.

@@ -41,6 +41,7 @@ export interface EventQueryFilters {
   limit?: number
 }
 
+/** Session-scoped event log: every event is persisted to the `events` table with a monotonic `event_seq`, then fanned out to in-process subscribers whose errors are swallowed. */
 export class EventBus {
   private readonly listeners = new Set<EventListener>()
   private readonly store: Store
@@ -145,6 +146,7 @@ export class EventBus {
     return result[0]?.count ?? 0
   }
 
+  /** Decodes the JSON `payload` column of raw event rows. */
   private mapRows(rows: Record<string, unknown>[]): EventEnvelope[] {
     return rows.map(row => ({
       ...row,

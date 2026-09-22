@@ -64,11 +64,13 @@ export function setSubAgentCallbacks(callbacks: SubAgentCallbacks | null): void 
   syncLegacyCallbacks()
 }
 
+/** Register (or clear with null) the note callback used by the legacy module-level session, and push it to that session. */
 export function setLegacyAgentNoteCallback(callback: ((agentName: string, text: string) => void) | null): void {
   legacy.noteCallback = callback ?? undefined
   syncLegacyCallbacks()
 }
 
+/** The context's OrchestratorSession, or a lazily created module-level legacy session for callers without one. */
 export function getSubAgentSession(context?: ToolExecutionContext): OrchestratorSession {
   if (context?.session) return context.session
   if (!legacy.session) {
@@ -82,6 +84,7 @@ function syncLegacyCallbacks(): void {
   legacy.session?.setCallbacks({ ...legacy.callbacks, onNote: legacy.noteCallback })
 }
 
+/** Map a delegation role (or the selected agent's explicit profile) to an orchestration permission profile. Delegated workers can never get coordinator-integrator, and anything that isn't read-only defaults to writer-worktree. */
 function roleProfile(role: SubAgentRole, selected?: AgentConfig): PermissionProfile {
   if (selected?.permissionProfile === 'coordinator-integrator') {
     throw new Error(`Agent '${selected.name}' cannot use coordinator-integrator as a delegated worker`)
@@ -452,6 +455,7 @@ export async function spawnWorkflowAgentTask(
   return spawnAgentTask(args, context, 'subagent', { schema })
 }
 
+/** Tool that spawns a bounded specialist task. Foreground calls wait and return the formatted result plus any verification verdict; background calls return a task handle. The role defaults to read-only. */
 export const SubAgent: Tool = {
   name: 'subagent',
   description: 'Spawn a bounded specialist task. Foreground waits for a typed result; background returns a controllable task handle.',

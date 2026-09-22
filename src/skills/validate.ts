@@ -4,10 +4,12 @@ export interface SkillManifest {
   metadata?: { author?: string; version?: string; license?: string }
 }
 
+/** Skill names must be kebab-case: lowercase alphanumerics separated by single hyphens. */
 export function validateSkillName(name: string): boolean {
   return /^[a-z0-9]+(-[a-z0-9]+)*$/.test(name)
 }
 
+/** Parses SKILL.md frontmatter into a manifest, requiring kebab-case `name` and non-empty `description`. Returns `{ error }` instead of throwing. */
 export function parseSkillManifest(content: string): SkillManifest | { error: string } {
   if (!content || !content.trim()) {
     return { error: 'Empty file: no frontmatter found' }
@@ -61,10 +63,12 @@ export function parseSkillManifest(content: string): SkillManifest | { error: st
   return manifest
 }
 
+/** Rejects keys that could pollute object prototypes when copied into parsed results. */
 function isSafeKey(key: string): boolean {
   return key !== '__proto__' && key !== 'prototype' && key !== 'constructor'
 }
 
+/** Minimal frontmatter parser: flat `key: value` pairs plus one level of indented nested blocks. Not a full YAML implementation (no lists, multi-line strings or deeper nesting). */
 function parseYaml(text: string): Record<string, any> {
   const result: Record<string, any> = {}
   const lines = text.split('\n')

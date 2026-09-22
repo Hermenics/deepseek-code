@@ -61,6 +61,7 @@ export class AdditionalDirectories {
     return this.approved.delete(canonical) ? canonical : undefined
   }
 
+  /** Builds a throwaway tool context rooted at the workspace, used only to resolve and safety-check candidate paths. */
   private validationContext(): ToolExecutionContext {
     return {
       sessionId: 'additional-directories-validation',
@@ -78,12 +79,14 @@ function validateInput(directoryPath: string): string {
   return directoryPath.trim()
 }
 
+/** Rejects any input containing a `..` segment before it is resolved, so approvals cannot climb out via relative paths. */
 function rejectTraversal(directoryPath: string): void {
   if (directoryPath.replace(/\\/g, '/').split('/').includes('..')) {
     throw new Error(`Path '${directoryPath}' contains traversal and cannot be approved`)
   }
 }
 
+/** Resolves symlinks to a canonical path and throws a user-facing error unless it exists and is a directory. */
 async function existingDirectory(target: string, displayPath: string): Promise<string> {
   let canonical: string
   try {
@@ -100,6 +103,7 @@ async function existingDirectory(target: string, displayPath: string): Promise<s
   return canonical
 }
 
+/** Refuses roots that contain a blocked directory segment (e.g. node_modules) or match a sensitive workspace path. */
 function rejectSensitiveOrBlocked(directoryPath: string): void {
   const segments = directoryPath.replace(/\\/g, '/').split('/').filter(Boolean)
   const blocked = segments.find(segment => BLOCKED_DIRS.includes(segment))

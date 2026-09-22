@@ -12,10 +12,12 @@ export interface PermissionsReportInput {
   risk?: RiskConfig
 }
 
+/** Sorted comma-separated list, or `none` when empty. */
 function formatList(items: string[]): string {
   return items.length > 0 ? [...items].sort().join(', ') : 'none'
 }
 
+/** One-line summary of risk checking: default rule counts, custom rules vs overrides of default ids, and thresholds. */
 function riskStatus(config: RiskConfig | undefined): string {
   if (config?.enabled === false) return 'disabled'
 
@@ -38,6 +40,7 @@ function riskStatus(config: RiskConfig | undefined): string {
   ].filter(Boolean).join('; ')
 }
 
+/** Builds the Markdown permissions report: mode tools, agent allowlist, settings rules, risk status, session approvals and the decision order. */
 export function formatPermissionsReport(input: PermissionsReportInput): string {
   const modeTools = input.modeTools ?? getToolsForMode(input.mode)
   const allowRules = input.permissions?.allow ?? []

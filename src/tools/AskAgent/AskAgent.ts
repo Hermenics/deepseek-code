@@ -30,6 +30,7 @@ async function dispatch(agent: string, question: string, context?: ToolExecution
   return { schemaVersion: 1 as const, sessionId: handle.sessionId, taskId: handle.taskId, state: handle.status().state, agent }
 }
 
+/** Tool that dispatches a question to one configured specialist (or every enabled subagent with `broadcast`) as fresh-context background tasks; returns task handles immediately and the answers arrive on a later turn. */
 export const AskAgent: Tool = {
   name: 'ask_agent',
   description: 'Ask one or more configured specialists in the background. Returns cancellable task handles immediately.',

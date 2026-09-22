@@ -4,12 +4,14 @@ import { HttpRequest } from '@smithy/protocol-http'
 import { Sha256 } from '@aws-crypto/sha256-js'
 import { BedrockClient, ListFoundationModelsCommand } from '@aws-sdk/client-bedrock'
 
+/** Picks AWS credentials: full env-var credentials when present, otherwise the named profile from the shared ini files. */
 function resolveCredentials(profile: string) {
   // Use env vars when full credentials are avaiable (ex: temporary STSs)
   if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY) return fromEnv()
   return fromIni({ profile })
 }
 
+/** Lists Bedrock foundation model ids containing "deepseek", sorted; logs to stderr and returns [] on failure. */
 export async function listBedrockDeepSeekModels(region: string, profile: string): Promise<string[]> {
   const client = new BedrockClient({
     region,

@@ -7,10 +7,12 @@ import { getThemeColors, type ThemeName } from '../theme.js'
 import type { SessionData } from '../../agent/session.js'
 import { TerminalSizeContext } from '../../ink/components/TerminalSizeContext.js'
 
+/** Content of the first UI message with the given role, trimmed with whitespace collapsed; empty string when there is none. */
 function firstMessage(session: SessionData, role: 'user' | 'assistant'): string {
   return session.uiMessages.find(message => message.role === role)?.content?.trim().replace(/\s+/g, ' ') ?? ''
 }
 
+/** Session title, falling back to its first user message and then to "New conversation", clipped to the card width. */
 function title(session: SessionData, width: number): string {
   return (session.title || firstMessage(session, 'user')).slice(0, Math.max(8, width - 8)) || 'New conversation'
 }
@@ -28,6 +30,7 @@ function truncate(value: string, width: number): string {
   return value.length > width ? `${value.slice(0, Math.max(1, width - 1))}…` : value
 }
 
+/** Card list of saved sessions to resume, showing title, timestamp, model and id; shrinks to a one-line picker on very short terminals. Enter resumes, Esc/Ctrl+C starts a new session. */
 export function ResumePicker({
   sessions,
   theme,

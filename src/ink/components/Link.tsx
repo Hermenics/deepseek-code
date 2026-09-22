@@ -9,6 +9,7 @@ export type Props = {
   readonly url: string;
   readonly fallback?: ReactNode;
 };
+/** Renders an OSC 8 hyperlink when the terminal supports it; otherwise plain text of fallback, children or the URL. */
 export default function Link(t0: any) {
   const $ = _c(5);
   const {

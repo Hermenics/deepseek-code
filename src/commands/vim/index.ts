@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/vim`: toggles vim keybindings in the input box. */
 const command: Command = {
   name: 'vim',
   aliases: [],

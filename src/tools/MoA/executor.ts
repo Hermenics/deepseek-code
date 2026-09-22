@@ -8,6 +8,7 @@ import { MoAExecutionError } from './types.js'
 
 interface ModelTarget { model: string; provider?: MoAReferenceModel['provider']; temperature?: number }
 
+/** Make one non-streaming chat completion with its own timeout, linked to the parent abort signal. Never throws: failures, timeouts and empty replies are returned as a `failed` or `empty` layer result. */
 async function callModel(
   target: ModelTarget,
   messages: ChatCompletionMessageParam[],
@@ -52,6 +53,7 @@ async function callModel(
   }
 }
 
+/** Ask one reference model a single prompt (plus optional system prompt) and return its layer result. */
 export async function callReferenceModel(
   ref: MoAReferenceModel,
   prompt: string,
@@ -66,6 +68,7 @@ export async function callReferenceModel(
   return callModel(ref, messages, candidateId, timeoutMs, parentSignal)
 }
 
+/** Re-run a layer until it succeeds, retries run out or the signal aborts, adding up tokens and duration across attempts. `usageAvailable` stays true only if every attempt reported tokens. */
 async function retryLayer(run: () => Promise<MoALayerResult>, retries: number, signal?: AbortSignal): Promise<MoALayerResult> {
   let accumulatedTokens = 0
   let tokensKnown = true
@@ -87,6 +90,7 @@ async function retryLayer(run: () => Promise<MoALayerResult>, retries: number, s
   }
 }
 
+/** Like `Promise.all(values.map(mapper))`, but runs at most `concurrency` mappers at a time and keeps results in input order. */
 async function mapConcurrent<T, R>(values: T[], concurrency: number, mapper: (value: T, index: number) => Promise<R>): Promise<R[]> {
   const results = new Array<R>(values.length)
   let cursor = 0
@@ -100,6 +104,7 @@ async function mapConcurrent<T, R>(values: T[], concurrency: number, mapper: (va
   return results
 }
 
+/** Flag successful candidates whose response is byte-identical to an earlier one as `duplicate`, so the aggregator only sees unique answers. */
 function markDuplicates(results: MoALayerResult[]): void {
   const hashes = new Map<string, string>()
   for (const result of results) {
@@ -111,18 +116,24 @@ function markDuplicates(results: MoALayerResult[]): void {
   }
 }
 
+/** Sum the token counts that are known; `available` is false if any layer did not report usage. */
 function tokenTotal(layers: MoALayerResult[]): { value?: number; available: boolean } {
   const available = layers.every(layer => layer.tokens !== undefined)
   const known = layers.flatMap(layer => layer.tokens === undefined ? [] : [layer.tokens])
   return { value: known.length ? known.reduce((sum, tokens) => sum + tokens, 0) : undefined, available }
 }
 
+/** Report the error to callbacks and the context event stream, then throw it. */
 function fail(error: MoAExecutionError, callbacks: MoACallbacks | undefined, context: ToolExecutionContext | undefined): never {
   callbacks?.onError?.(error)
   context?.emit?.('error', { code: error.code, message: error.message, partial: error.partial })
   throw error
 }
 
+/**
+ * Run the reference panel concurrently with retries, drop duplicate answers, enforce the minimum-response and token-budget limits, then have the aggregator synthesize the unique candidates.
+ * Candidate text goes to the aggregator as JSON marked as untrusted data. Every failure throws MoAExecutionError with the partial results.
+ */
 export async function executeMoA(
   prompt: string,
   systemPrompt: string | undefined,

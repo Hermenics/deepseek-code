@@ -104,6 +104,7 @@ import { formatExitScreen } from '../utils/exitScreen.js'
 import { relaunchCurrentInvocation } from '../utils/relaunch.js'
 import pkg from '../../package.json' with { type: 'json' }
 
+/** Maps argv to a startup intent: subcommands (`update`, `logout`, `doctor`, `help`, `version`), `--resume [id]`, `agent <name> [msg]`, or an initial message. Only the first matching form is honoured. */
 function parseArgv(): { agentName: string | null; initialMessage: string | null; resumeId: string | null; resumePicker: boolean; update: boolean; logout: boolean; doctor: boolean; help: boolean; version: boolean } {
   const args = process.argv.slice(2).filter((a) => a !== '--pipe' && a !== '--json')
   if (args[0] === 'update') {
@@ -285,6 +286,7 @@ if (!ARGV.update) {
   }
 }
 
+/** Top-level TUI component: loads config and settings, resolves resume/agent options, then shows the resume picker, API key setup or the main `App`. */
 function Root() {
   const [ready, setReady] = useState(false)
   const [checked, setChecked] = useState(false)
@@ -425,6 +427,7 @@ root.render(<Root />)
 
 let exiting = false
 
+/** Idempotent shutdown: unmounts Ink, prints the exit banner synchronously and exits the process. */
 function cleanExit(code = 0): void {
   if (exiting) return
   exiting = true

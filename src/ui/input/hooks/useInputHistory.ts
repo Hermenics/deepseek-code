@@ -5,6 +5,7 @@ export interface UseInputHistoryResult {
   isNavigating: boolean
 }
 
+/** Shell-style prompt history navigation. The first `up()` saves the in-progress draft; stepping `down()` past the newest entry restores it and ends navigation. */
 export class InputHistory {
   private _entries: string[] = []
   private index: number | null = null
@@ -21,6 +22,7 @@ export class InputHistory {
     this.reset()
   }
 
+  /** Moves to the next older entry, saving `currentDraft` on the first step; undefined when history is empty or already at the oldest entry. */
   up(currentDraft: string): string | undefined {
     if (this._entries.length === 0) return undefined
 
@@ -36,6 +38,7 @@ export class InputHistory {
     return this._entries[this.index]
   }
 
+  /** Moves to the next newer entry; past the newest it ends navigation and returns the saved draft (or ''). Undefined when not navigating. */
   down(): string | undefined {
     if (this.index === null) return undefined
 
@@ -59,6 +62,7 @@ export class InputHistory {
   }
 }
 
+/** Wraps a fresh InputHistory seeded with `entries`. Not a real React hook: nothing is memoized, so navigation state is lost between calls (InputBox keeps an InputHistory in a ref instead). */
 export function useInputHistory(props: { entries: string[] }): UseInputHistoryResult {
   const history = new InputHistory()
   history.setHistory(props.entries)

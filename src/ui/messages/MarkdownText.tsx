@@ -9,6 +9,7 @@ import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 import type { Color } from '../../ink/styles.js'
 
+/** Splits one line into Ink nodes for `**__bold italic__**`, `**bold**`, `__italic__` and `` `code` `` spans; unclosed markers stay literal text. */
 function parseInline(line: string, key: string, codeFg: Color): React.ReactNode {
   const parts: React.ReactNode[] = []
   let i = 0
@@ -96,6 +97,7 @@ interface Props {
   theme?: ThemeName
 }
 
+/** Renders a markdown subset (headings, rules, blockquotes, bullet and numbered lists, fenced code blocks, inline styles) as themed Ink text; `dimmed` mutes it for thinking blocks and unterminated code fences are tolerated while streaming. */
 export function MarkdownText({ content, dimmed, theme = 'dark' }: Props) {
   const colors = getThemeColors(theme)
   const codeFg = colors.codeBlock as Color

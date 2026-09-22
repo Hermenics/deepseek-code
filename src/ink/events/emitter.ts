@@ -12,6 +12,7 @@ export class EventEmitter extends NodeEventEmitter {
     this.setMaxListeners(0)
   }
 
+  /** Calls listeners in order and stops once an Event argument calls stopImmediatePropagation(); 'error' goes straight to Node. */
   override emit(type: string | symbol, ...args: unknown[]): boolean {
     // Delegate to node for `error`, since it's not treated like a normal event
     if (type === 'error') {

@@ -9,6 +9,7 @@ export interface UsePasteHandlerResult {
   isPasting: boolean
 }
 
+/** Classifies a paste as a block (more than 3 lines or over 60 chars after CRLF normalization) or inline and calls the matching callback with the original text; does nothing when `isActive` is false. */
 export function usePasteHandler(props: UsePasteHandlerProps): UsePasteHandlerResult {
   let pasting = false
 

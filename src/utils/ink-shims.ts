@@ -8,6 +8,7 @@ import {
 } from '@alcalzone/ansi-tokenize'
 import { stringWidth } from '../ink/stringWidth.js'
 
+/** No-op stand-in for the upstream debug logger expected by the vendored Ink code. */
 export function logForDebugging(..._args: unknown[]): void {}
 
 // A code is an "end code" if its code equals its endCode (e.g., hyperlink close)
@@ -72,6 +73,7 @@ export function sliceAnsi(str: string, start: number, end?: number): string {
 
 let graphemeSegmenter: Intl.Segmenter | null = null
 
+/** Lazily created, shared grapheme `Intl.Segmenter` for splitting text into user-perceived characters. */
 export function getGraphemeSegmenter(): Intl.Segmenter {
   if (!graphemeSegmenter) {
     graphemeSegmenter = new Intl.Segmenter(undefined, {
@@ -86,6 +88,7 @@ export const env: Record<string, string | undefined> = process.env as Record<
   string | undefined
 >
 
+/** Numeric `major.minor.patch` comparison (a >= b); prerelease tags are not considered. */
 export function gte(a: string, b: string): boolean {
   const pa = a.split('.').map(Number)
   const pb = b.split('.').map(Number)
@@ -100,8 +103,10 @@ export function isEnvTruthy(val: string | undefined): boolean {
   return val === '1' || val === 'true'
 }
 
+/** No-op stand-in for the upstream error logger expected by the vendored Ink code. */
 export function logError(..._args: unknown[]): void {}
 
+/** Minimal `execFile` wrapper that always resolves; an error carrying a code maps to exit code 1, and `useCwd` is accepted but ignored. */
 export function execFileNoThrow(
   cmd: string,
   args: string[],
@@ -123,6 +128,7 @@ export function stopCapturingEarlyInput(): void {}
 
 export function updateLastInteractionTime(): void {}
 
+/** Fixed placeholder session id for Ink code that expects one. */
 export function getSessionId(): string {
   return 'deepseek-session'
 }

@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/tasks`: shows the session's task DAG. */
 const command: Command = {
   name: 'tasks',
   aliases: [],

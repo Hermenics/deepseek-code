@@ -62,6 +62,7 @@ export function wrapForMultiplexer(sequence: string): string {
  */
 export type ClipboardPath = 'native' | 'tmux-buffer' | 'osc52'
 
+/** Picks the ClipboardPath from platform and env: native on local macOS, tmux buffer inside tmux, else raw OSC 52. */
 export function getClipboardPath(): ClipboardPath {
   const nativeAvailable =
     process.platform === 'darwin' && !process.env['SSH_CONNECTION']
@@ -410,6 +411,7 @@ export function link(url: string, params?: Record<string, string>): string {
   return osc(OSC.HYPERLINK, paramStr, url)
 }
 
+/** Stable base36 hash of the URL, used as the OSC 8 id so wrapped pieces of one link group together. */
 function osc8Id(url: string): string {
   let h = 0
   for (let i = 0; i < url.length; i++)

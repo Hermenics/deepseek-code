@@ -16,6 +16,7 @@ interface MobileQRCodeProps {
 
 type Platform = 'ios' | 'android'
 
+/** Renders terminal QR codes for the DeepSeek mobile app store pages (lazily importing `qrcode`); Tab/arrows switch between iOS and Android, Esc or q closes. */
 export default function MobileQRCode({ onClose, theme }: MobileQRCodeProps) {
   const [platform, setPlatform] = useState<Platform>('ios')
   const [qrCodes, setQrCodes] = useState<Record<Platform, string>>({ ios: '', android: '' })
@@ -62,7 +63,7 @@ export default function MobileQRCode({ onClose, theme }: MobileQRCodeProps) {
   if (error) {
     return (
       <Box flexDirection="column">
-        <Text color="red">Unable to generate QR code: {error}</Text>
+        <Text color={colors.error}>Unable to generate QR code: {error}</Text>
         <Text dimColor>Press Esc or q to close.</Text>
       </Box>
     )

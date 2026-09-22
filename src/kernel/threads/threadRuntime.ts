@@ -38,6 +38,7 @@ export interface TurnRow {
 
 // ── Thread Runtime ──────────────────────────────────────────────────
 
+/** Persists agent threads and their turns for the current session, and derives child-thread context from the parent's history. */
 export class ThreadRuntime {
   constructor(
     private readonly store: Store,

@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/add-dir [remove] <path>`: lists, approves or revokes extra directories the agent may access this session. */
 const command: Command = {
   name: 'add-dir',
   aliases: [],

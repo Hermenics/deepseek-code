@@ -110,6 +110,7 @@ type State = {
 // It also handles Ctrl+C exiting and cursor visibility
 export default class App extends PureComponent<Props, State> {
   static displayName = 'InternalApp';
+  /** Stores a render error in state so render() swaps the tree for ErrorOverview. */
   static getDerivedStateFromError(error: Error) {
     return {
       error
@@ -177,6 +178,7 @@ export default class App extends PureComponent<Props, State> {
   isRawModeSupported(): boolean {
     return this.props.stdin.isTTY === true && !this.rawModeRevoked;
   }
+  /** Wraps children in the terminal-size, app, stdin, focus, clock and cursor-declaration providers. */
   override render() {
     return <TerminalSizeContext.Provider value={{
       columns: this.props.terminalColumns,
@@ -204,12 +206,14 @@ export default class App extends PureComponent<Props, State> {
         </AppContext.Provider>
       </TerminalSizeContext.Provider>;
   }
+  /** Hides the native cursor on a TTY, unless accessibility mode needs it visible. */
   override componentDidMount() {
     // In accessibility mode, keep the native cursor visible for screen magnifiers and other tools
     if (this.props.stdout.isTTY && !isEnvTruthy(process.env.CLAUDE_CODE_ACCESSIBILITY)) {
       this.props.stdout.write(HIDE_CURSOR);
     }
   }
+  /** Shows the cursor again, clears pending timers and leaves raw mode. */
   override componentWillUnmount() {
     if (this.props.stdout.isTTY) {
       this.props.stdout.write(SHOW_CURSOR);
@@ -229,9 +233,17 @@ export default class App extends PureComponent<Props, State> {
       this.handleSetRawMode(false);
     }
   }
+  /** Exits the app with the error that crashed the render tree. */
   override componentDidCatch(error: Error) {
     this.handleExit(error);
   }
+  /**
+   * Reference-counted raw mode toggle shared by every component that reads input.
+   * The first enable switches stdin to raw, attaches the readable handler, turns on
+   * bracketed paste, focus reporting and extended keys, and probes XTVERSION; the
+   * last disable undoes all of it. Once the terminal is gone it becomes a no-op
+   * instead of throwing.
+   */
   handleSetRawMode = (isEnabled: boolean): void => {
     const {
       stdin
@@ -390,6 +402,7 @@ export default class App extends PureComponent<Props, State> {
       this.incompleteEscapeTimer = setTimeout(this.flushIncomplete, this.keyParseState.mode === 'IN_PASTE' ? this.PASTE_TIMEOUT : this.NORMAL_TIMEOUT);
     }
   };
+  /** Drains stdin into the key parser, fires onStdinResume after long input gaps, and re-attaches itself if an error detached the listener. */
   handleReadable = (): void => {
     // Detect long stdin gaps (tmux attach, ssh reconnect, laptop wake).
     // The terminal may have reset DEC private modes; re-assert mouse
@@ -427,6 +440,7 @@ export default class App extends PureComponent<Props, State> {
       }
     }
   };
+  /** Exits on a raw Ctrl+C when exitOnCtrlC is set. */
   handleInput = (input: string | undefined): void => {
     // Exit on Ctrl+C
     if (input === '\x03' && this.props.exitOnCtrlC) {
@@ -437,6 +451,7 @@ export default class App extends PureComponent<Props, State> {
     // parsed key to support both raw (\x1a) and CSI u format from Kitty
     // keyboard protocol terminals (Ghostty, iTerm2, kitty, WezTerm)
   };
+  /** Leaves raw mode, then hands the optional error to the onExit prop. */
   handleExit = (error?: Error): void => {
     if (this.isRawModeSupported()) {
       this.handleSetRawMode(false);
@@ -448,6 +463,7 @@ export default class App extends PureComponent<Props, State> {
     // and Clock (interval speed) — no App setState needed.
     setTerminalFocused(isFocused);
   };
+  /** Ctrl+Z: restores the terminal, stops the process with SIGSTOP and re-enters the same raw-mode depth on SIGCONT. */
   handleSuspend = (): void => {
     if (!this.isRawModeSupported()) {
       return;

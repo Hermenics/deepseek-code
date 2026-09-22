@@ -8,6 +8,11 @@ export type Clock = {
   now: () => number;
   setTickInterval: (ms: number) => void;
 };
+/**
+ * Creates the shared animation clock. The interval only runs while at least one
+ * keepAlive subscriber exists, and now() returns the same tick snapshot to every
+ * subscriber of a tick so animations stay in sync.
+ */
 export function createClock(tickIntervalMs: number): Clock {
   const subscribers = new Map<() => void, boolean>();
   let interval: ReturnType<typeof setInterval> | null = null;
@@ -67,6 +72,7 @@ export function createClock(tickIntervalMs: number): Clock {
     }
   };
 }
+/** Shared animation clock; null outside ClockProvider. */
 export const ClockContext = createContext<Clock | null>(null);
 const BLURRED_TICK_INTERVAL_MS = FRAME_INTERVAL_MS * 2;
 

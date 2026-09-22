@@ -94,6 +94,7 @@ const commands: Command[] = [
   features,
 ]
 
+/** Matches input against built-in commands by name or alias. Returns null for non-slash input and an `unknown` result for unrecognised commands. */
 export function parseCommand(input: string): CommandResult | null {
   const trimmed = input.trim()
   if (!trimmed.startsWith('/')) return null
@@ -122,7 +123,9 @@ export async function resolveCommand(input: string, cwd: string): Promise<Comman
     ?? parsed
 }
 
+/** Every built-in command name and alias with a leading slash, used for autocomplete. */
 export const COMMAND_SUGGESTIONS = commands.flatMap(c => [`/${c.name}`, ...c.aliases.map(a => `/${a}`)])
+/** Maps each built-in command and alias to its description for the command dropdown. */
 export const COMMAND_DESCRIPTIONS = Object.fromEntries(
   commands.flatMap(c => [[`/${c.name}`, c.description], ...c.aliases.map(a => [`/${a}`, c.description])]),
 ) as Record<string, string>

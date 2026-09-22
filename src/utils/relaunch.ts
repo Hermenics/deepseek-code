@@ -1,3 +1,4 @@
+/** Rebuilds the argv (runtime, entrypoint, user args) that started this process; throws if there is no entrypoint. */
 export function getCurrentInvocation(
   args: readonly string[] = process.argv.slice(2),
   entrypoint = process.argv[1],

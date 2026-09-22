@@ -26,6 +26,7 @@ export class CharPool {
   ])
   private ascii: Int32Array = initCharAscii() // charCode → index, -1 = not interned
 
+  /** Returns the pool index for `char`, adding it if new. Single ASCII characters use a direct lookup table instead of the Map. */
   intern(char: string): number {
     // ASCII fast-path: direct array lookup instead of Map.get
     if (char.length === 1) {
@@ -58,6 +59,7 @@ export class HyperlinkPool {
   private strings: string[] = [''] // Index 0 = no hyperlink
   private stringMap = new Map<string, number>()
 
+  /** Returns the pool id for a hyperlink URI, adding it if new; empty or undefined maps to 0 (no link). */
   intern(hyperlink: string | undefined): number {
     if (!hyperlink) return 0
     let id = this.stringMap.get(hyperlink)
@@ -109,6 +111,7 @@ const YELLOW_FG_CODE: AnsiCode = {
   endCode: '\x1b[39m',
 }
 
+/** Interns ANSI style lists as integer ids shared by all screens, so cells store and compare styles as numbers. Also caches style-to-style transition strings and derived overlay styles (inverse, search match, selection). */
 export class StylePool {
   private ids = new Map<string, number>()
   private styles: AnsiCode[][] = []
@@ -322,6 +325,7 @@ const SPACER_CHAR_INDEX = 1 // '' (empty string for spacer cells)
 // This is intentional: diffEach can compare raw ints with zero normalization.
 // isEmptyCellByIndex checks if both words are 0 to identify "never visually written" cells.
 
+/** Builds the ASCII fast-path table for CharPool: -1 for not-yet-interned codes, with space pre-mapped to index 0. */
 function initCharAscii(): Int32Array {
   const table = new Int32Array(128)
   table.fill(-1)
@@ -422,6 +426,7 @@ export type Screen = Size & {
   softWrapEnd: Int32Array
 }
 
+/** True when a cell was never written or was cleared: both packed words are zero. */
 function isEmptyCellByIndex(screen: Screen, index: number): boolean {
   // An empty/unwritten cell has both words === 0:
   // word0 = EMPTY_CHAR_INDEX (0), word1 = packWord1(emptyStyleId=0, 0, 0) = 0.
@@ -429,6 +434,7 @@ function isEmptyCellByIndex(screen: Screen, index: number): boolean {
   return screen.cells[ci] === 0 && screen.cells[ci | 1] === 0
 }
 
+/** Whether the cell at (x, y) is empty/unwritten; out-of-bounds coordinates count as empty. */
 export function isEmptyCellAt(screen: Screen, x: number, y: number): boolean {
   if (x < 0 || y < 0 || x >= screen.width || y >= screen.height) return true
   return isEmptyCellByIndex(screen, y * screen.width + x)
@@ -456,6 +462,7 @@ function internHyperlink(screen: Screen, hyperlink: Hyperlink): number {
 
 // ---
 
+/** Allocates a zero-filled screen buffer of width x height packed cells (zero is the empty cell). Invalid dimensions are logged and clamped to non-negative integers. */
 export function createScreen(
   width: number,
   height: number,
@@ -676,6 +683,7 @@ function cellAtCI(screen: Screen, ci: number, out: Cell): void {
   out.hyperlink = hid === 0 ? undefined : screen.hyperlinkPool.get(hid)
 }
 
+/** Returns the character stored at (x, y), or undefined when out of bounds. Cheaper than cellAt when only the text is needed. */
 export function charInCellAt(
   screen: Screen,
   x: number,
@@ -1118,6 +1126,7 @@ const OSC8_REGEX = new RegExp(`^${ESC}\\]8${SEP}${SEP}([^${BEL}]*)${BEL}$`)
 // OSC8 prefix: ESC ] 8 ; — cheap check to skip regex for the vast majority of styles (SGR = ESC [)
 export const OSC8_PREFIX = `${ESC}]8${SEP}`
 
+/** Returns the URI of the first OSC 8 hyperlink-open code in `styles`, or null when there is none (an OSC 8 close has an empty URI). */
 export function extractHyperlinkFromStyles(
   styles: AnsiCode[],
 ): Hyperlink | null {
@@ -1132,6 +1141,7 @@ export function extractHyperlinkFromStyles(
   return null
 }
 
+/** Removes OSC 8 hyperlink codes from a style list, since hyperlinks are stored separately from styles in cells. */
 export function filterOutHyperlinkStyles(styles: AnsiCode[]): AnsiCode[] {
   return styles.filter(
     style =>

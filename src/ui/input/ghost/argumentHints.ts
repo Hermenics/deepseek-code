@@ -15,6 +15,7 @@ const ARGUMENT_HINTS: Record<string, string> = {
   '/goal': '[<condition> | clear]',
 }
 
+/** Argument placeholder for a known slash command once it is typed exactly (optionally followed by spaces); null otherwise. */
 export function getArgumentHint(value: string): InlineGhostText | null {
   const trimmed = value.trimEnd()
   if (!trimmed.startsWith('/')) return null

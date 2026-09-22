@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/model [name]`: switches to the named model, or opens the interactive model picker when no name is given. */
 const command: Command = {
   name: 'model',
   aliases: [],

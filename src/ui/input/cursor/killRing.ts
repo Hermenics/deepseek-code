@@ -8,6 +8,7 @@ let lastYankStart = 0
 let lastYankLength = 0
 let lastActionWasYank = false
 
+/** Adds killed text to the module-global kill ring (max 10 entries). Consecutive kills merge into the newest entry, prepended for backward kills and appended for forward ones, as in Emacs. */
 export function pushToKillRing(
   text: string,
   direction: 'prepend' | 'append' = 'append',
@@ -32,10 +33,12 @@ export function getLastKill(): string {
   return killRing[0] ?? ''
 }
 
+/** Ends the current kill run so the next kill starts a new ring entry instead of merging. */
 export function resetKillAccumulation(): void {
   lastActionWasKill = false
 }
 
+/** After a yank, cycles to the next older kill ring entry and returns it with the span of the previous yank to replace; null if the last action was not a yank or there is nothing to cycle. */
 export function yankPop(): { text: string; start: number; length: number } | null {
   if (!lastActionWasYank || killRing.length <= 1) return null
 
@@ -47,6 +50,7 @@ export function yankPop(): { text: string; start: number; length: number } | nul
   }
 }
 
+/** Records the span of a just-inserted yank so yankPop can replace it, restarting the cycle from the newest entry. */
 export function recordYank(start: number, length: number): void {
   lastYankStart = start
   lastYankLength = length
@@ -54,10 +58,12 @@ export function recordYank(start: number, length: number): void {
   killRingIndex = 0
 }
 
+/** Ends yank-pop eligibility, e.g. after any non-yank edit. */
 export function resetYankState(): void {
   lastActionWasYank = false
 }
 
+/** Empties the kill ring and resets all kill/yank tracking. */
 export function clearKillRing(): void {
   killRing = []
   killRingIndex = 0

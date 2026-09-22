@@ -32,6 +32,7 @@ function isMatcherEvent(event: HookEvent): event is typeof MATCHER_EVENTS[number
   return (MATCHER_EVENTS as readonly string[]).includes(event)
 }
 
+/** Expands a hooks config into one row per command, tagging matcher-based events with their matcher and command-only events with `—`. */
 function flatten(config: HooksConfig | undefined): FlatHook[] {
   const result: FlatHook[] = []
   for (const event of MATCHER_EVENTS) {
@@ -45,6 +46,7 @@ function flatten(config: HooksConfig | undefined): FlatHook[] {
   return result
 }
 
+/** Inverse of flatten: regroups rows by event, attaching matcher-event commands to the matching matcher (by id, else by pattern) and creating new matchers as needed. */
 function unflatten(items: FlatHook[]): HooksConfig {
   const config: HooksConfig = {}
   for (const item of items) {
@@ -66,6 +68,7 @@ function unflatten(items: FlatHook[]): HooksConfig {
 
 export { flatten as flattenHooks, unflatten as unflattenHooks }
 
+/** Settings screen that lists every hook in the given settings scope and lets the user add, edit, toggle, delete or test-run hooks (test runs need a once/session confirmation). */
 export default function HookLibrary({ scope, theme, onBack }: Props) {
   const colors = getThemeColors(theme)
   const [repository] = useState(() => new SettingsRepository())

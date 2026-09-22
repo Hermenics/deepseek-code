@@ -8,6 +8,7 @@ function progressArgs(stage: string, values: Record<string, unknown> = {}): Reco
   return { stage, ...values }
 }
 
+/** Adapt MoA lifecycle events into `onToolCall('moa', { stage, ... })` progress updates for the UI; undefined when nobody is listening. */
 function progressCallbacks(callbacks?: ToolCallbacks): MoACallbacks | undefined {
   if (!callbacks?.onToolCall) return undefined
   const report = (stage: string, values?: Record<string, unknown>) => callbacks.onToolCall?.('moa', progressArgs(stage, values))
@@ -21,6 +22,7 @@ function progressCallbacks(callbacks?: ToolCallbacks): MoACallbacks | undefined 
   }
 }
 
+/** Mixture-of-agents tool: fans the prompt out to several reference models and returns the aggregator's synthesis. The panel width is capped by the session budget level, and the tool throws at the level where MoA is disabled. */
 export const MoATool: Tool = {
   name: 'moa',
   description:

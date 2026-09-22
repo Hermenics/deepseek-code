@@ -3,6 +3,7 @@ import type { EventBus } from '../events/eventBus.js'
 
 // ── Simple glob matching (no extra deps) ────────────────────────────
 
+/** Deliberately small glob matcher: exact match, a trailing double-star segment (directory subtree), a leading double-star segment (path suffix), single `*` within one segment, and a trailing slash as a prefix. No `?`, character classes or mid-pattern double stars. */
 function matchGlob(pattern: string, filePath: string): boolean {
   if (pattern === filePath) return true
   if (pattern.endsWith('/**')) {
@@ -135,6 +136,7 @@ export class PathOwnership {
     }
   }
 
+  /** Returns `a ↔ b` labels for every pattern pair that matches or could match the same files. */
   private findOverlap(pathsA: string[], pathsB: string[]): string[] {
     const overlapping: string[] = []
     for (const a of pathsA) {
@@ -147,6 +149,7 @@ export class PathOwnership {
     return overlapping
   }
 
+  /** Conservative overlap check on static roots: patterns intersect when one root is a segment prefix of the other, or when either starts with a wildcard. */
   private globsIntersect(a: string, b: string): boolean {
     const segmentsA = staticSegments(a)
     const segmentsB = staticSegments(b)

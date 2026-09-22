@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/stats`: shows session statistics. */
 const command: Command = {
   name: 'stats',
   aliases: [],

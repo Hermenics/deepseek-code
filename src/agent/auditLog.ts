@@ -26,6 +26,7 @@ async function ensureDir(): Promise<void> {
   initialized = true
 }
 
+/** Appends a timestamped, secret-redacted event to this process's JSONL audit log (mode 0600). Never throws. */
 export async function auditLog(event: AuditEvent): Promise<void> {
   try {
     await ensureDir()
@@ -37,6 +38,7 @@ export async function auditLog(event: AuditEvent): Promise<void> {
   }
 }
 
+/** Returns the path of the audit log for the current process (one file per session under ~/.deepseek/logs). */
 export function getLogFile(): string {
   return LOG_FILE
 }

@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/help`: shows the list of available commands. */
 const command: Command = {
   name: 'help',
   aliases: [],
@@ -9,6 +10,7 @@ const command: Command = {
   },
 }
 
+/** Static help text rendered by `/help`; keep it in sync when commands are added or renamed. */
 export const HELP_TEXT = `Commands:
   /help                  show this help
   /model [name]          choose a model

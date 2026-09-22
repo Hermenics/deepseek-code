@@ -13,6 +13,7 @@ export interface PipeOptions {
   promptArgs: string[]
 }
 
+/** Extracts the `--json` flag and treats every other argument except `--pipe`/`--json` as prompt text. */
 export function parsePipeArgs(argv = process.argv.slice(2)): PipeOptions {
   return {
     json: argv.includes('--json'),
@@ -20,17 +21,20 @@ export function parsePipeArgs(argv = process.argv.slice(2)): PipeOptions {
   }
 }
 
+/** Reads all of stdin to EOF and returns it trimmed. */
 async function readStdin(): Promise<string> {
   const chunks: Buffer[] = []
   for await (const chunk of process.stdin) chunks.push(chunk as Buffer)
   return Buffer.concat(chunks).toString('utf-8').trim()
 }
 
+/** Writes to the stream and waits for `drain` when the buffer is full, so output is flushed before the process exits. */
 async function writeAndDrain(stream: typeof process.stdout | typeof process.stderr, text: string): Promise<void> {
   if (stream.write(text)) return
   await new Promise<void>((resolve) => stream.once('drain', resolve))
 }
 
+/** Runs one headless agent turn: the prompt comes from argv and/or stdin, tokens stream to stdout (or one JSON object with `--json`), tool names go to stderr. Shell confirmations are auto-denied since nobody can answer them. */
 export default async function runPipe() {
   const options = parsePipeArgs()
 

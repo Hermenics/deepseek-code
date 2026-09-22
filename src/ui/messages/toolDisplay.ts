@@ -24,6 +24,7 @@ function truncatePreview(value: string, max = TOOL_PREVIEW_MAX_CHARS): string {
   return value.slice(0, max - 1) + '…'
 }
 
+/** Summarizes a question list as its first question (truncated) plus a `· N questions` suffix, or just the count when no question text exists. */
 function summarizeAskUserQuestions(questions: unknown[]): string {
   const firstQuestion = questions.find((item): item is Record<string, unknown> => (
     !!item && typeof item === 'object' && typeof (item as Record<string, unknown>).question === 'string'
@@ -71,6 +72,7 @@ export function summarizeStructuredPayload(payload: string): string {
   return truncatePreview(payload)
 }
 
+/** Routes a tool payload to the AskUserQuestions summarizer or the generic structured-payload summarizer. */
 export function summarizeToolPayload(toolName: string, payload: string): string {
   return toolName === 'ask_user_questions' ? summarizeAskUserPayload(payload) : summarizeStructuredPayload(payload)
 }
@@ -87,6 +89,7 @@ export function previewToolCallArgs(toolName: string, args: Record<string, unkno
   return argumentCount > 0 ? `${argumentCount} argument${argumentCount === 1 ? '' : 's'}` : ''
 }
 
+/** Compact one-line summary of a finished tool's result for the tool line. */
 export function summarizeToolResult(toolName: string, result: string): string {
   return summarizeToolPayload(toolName, result)
 }
@@ -103,6 +106,7 @@ const STREAMING_ARGS_FIELD_RE =
 /** Bounds the scan; a streamed `content` field can be megabytes long. */
 const STREAMING_ARGS_PREVIEW_MAX_CHARS = 64 * 1024
 
+/** Returns the first key string argument (path, command, pattern, ...) found in possibly incomplete JSON args, unescaped and clipped to 60 chars; empty when none is found yet. */
 export function previewStreamingArgs(argsText: string): string {
   const text = argsText.slice(0, STREAMING_ARGS_PREVIEW_MAX_CHARS)
   const match = STREAMING_ARGS_FIELD_RE.exec(text)

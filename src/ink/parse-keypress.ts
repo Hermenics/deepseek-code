@@ -64,6 +64,7 @@ const XTVERSION_RE = /^\x1bP>\|(.*?)(?:\x07|\x1b\\)$/s
 // eslint-disable-next-line no-control-regex
 const SGR_MOUSE_RE = /^\x1b\[<(\d+);(\d+);(\d+)([Mm])$/
 
+/** Wraps bracketed-paste content as a single key event with `isPasted: true`. */
 function createPasteKey(content: string): ParsedKey {
   return {
     kind: 'key',
@@ -193,6 +194,7 @@ export const INITIAL_STATE: KeyParseState = {
   pasteBuffer: '',
 }
 
+/** Normalizes raw stdin data to a string. A lone high-bit byte (> 127) is treated as meta-prefixed and rewritten to ESC plus the low 7-bit character. */
 function inputToString(input: Buffer | string): string {
   if (Buffer.isBuffer(input)) {
     if (input[0]! > 127 && input[1] === undefined) {
@@ -210,6 +212,7 @@ function inputToString(input: Buffer | string): string {
   }
 }
 
+/** Tokenizes a chunk of stdin into key, mouse and terminal-response events, tracking bracketed-paste mode and partial escape sequences across calls via the returned state. Pass `null` to flush buffered input (e.g. a lone ESC after a timeout). */
 export function parseMultipleKeypresses(
   prevState: KeyParseState,
   input: Buffer | string | null = '',
@@ -608,6 +611,7 @@ function parseMouseEvent(s: string): ParsedMouse | null {
   }
 }
 
+/** Decodes one escape sequence or character into a ParsedKey: kitty CSI u, xterm modifyOtherKeys, function/navigation keys, and meta/ctrl combos. */
 function parseKeypress(s: string = ''): ParsedKey {
   let parts
 

@@ -12,6 +12,7 @@ interface UseDoublePressResult {
   reset: () => void
 }
 
+/** Press-twice-to-confirm gesture: the first `trigger()` arms it for `timeout` ms (default 800) and calls `onFirstPress`; a second `trigger()` while armed disarms and calls `onDoublePress`. */
 export function useDoublePress(options: UseDoublePressOptions): UseDoublePressResult {
   const { timeout = 800, onFirstPress, onDoublePress } = options
   const [armed, setArmed] = useState(false)

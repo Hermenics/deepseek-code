@@ -57,6 +57,7 @@ let scrollHint: ScrollHint | null = null
 let absoluteRectsPrev: Rectangle[] = []
 let absoluteRectsCur: Rectangle[] = []
 
+/** Clears the DECSTBM scroll hint at the start of a frame and rotates the absolute-node rect lists, so the previous frame's rects are available to this frame's ScrollBox repair pass. */
 export function resetScrollHint(): void {
   scrollHint = null
   absoluteRectsPrev = absoluteRectsCur
@@ -95,6 +96,7 @@ export type FollowScroll = {
 }
 let followScroll: FollowScroll | null = null
 
+/** Returns this frame's ScrollBox scroll event (used to keep a selection anchored to its text) and clears it. */
 export function consumeFollowScroll(): FollowScroll | null {
   const f = followScroll
   followScroll = null
@@ -179,6 +181,7 @@ function drainProportional(
 const OSC = '\u001B]'
 const BEL = '\u0007'
 
+/** Wraps `text` in an OSC 8 hyperlink with empty params, the only form ansi-tokenize recognizes. */
 function wrapWithOsc8Link(text: string, url: string): string {
   return `${OSC}8;;${url}${BEL}${text}${OSC}8;;${BEL}`
 }
@@ -1296,6 +1299,7 @@ function renderChildren(
   }
 }
 
+/** Whether the node clips overflow on both axes (hidden or scroll), so its dirty content cannot spill onto siblings. */
 function clipsBothAxes(node: DOMElement): boolean {
   const ox = node.style.overflowX ?? node.style.overflow
   const oy = node.style.overflowY ?? node.style.overflow
@@ -1450,6 +1454,7 @@ function renderScrolledChildren(
   }
 }
 
+/** Removes cached layout rects for a node and all its element descendants so no stale blit or clear is issued for them when they reappear. */
 function dropSubtreeCache(node: DOMElement): void {
   nodeCache.delete(node)
   for (const child of node.childNodes) {

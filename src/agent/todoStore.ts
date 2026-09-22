@@ -13,6 +13,7 @@ const listeners = new Set<() => void>()
 
 export function getTodos(): TodoItem[] { return todos }
 
+/** Registers a listener called after every todo change; returns an unsubscribe function. */
 export function subscribe(fn: () => void): () => void {
   listeners.add(fn)
   return () => listeners.delete(fn)
@@ -20,6 +21,7 @@ export function subscribe(fn: () => void): () => void {
 
 function notify() { listeners.forEach((fn) => fn()) }
 
+/** Appends a new pending todo with a random id and notifies listeners. */
 export function addTodo(title: string): TodoItem {
   const item: TodoItem = { id: randomBytes(4).toString('hex'), title, status: 'pending' }
   todos = [...todos, item]
@@ -27,6 +29,7 @@ export function addTodo(title: string): TodoItem {
   return item
 }
 
+/** Sets a todo's status and notifies listeners; returns false when the id is unknown. */
 export function updateTodo(id: string, status: TodoStatus): boolean {
   const idx = todos.findIndex((t) => t.id === id)
   if (idx === -1) return false

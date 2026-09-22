@@ -10,10 +10,12 @@ export interface ParsedWorkflowSource {
   body: string
 }
 
+/** True for names usable as workflow and slash-command names: 1-64 lowercase letters, digits or hyphens, not starting with a hyphen. */
 export function isWorkflowName(value: string): boolean {
   return WORKFLOW_NAME.test(value)
 }
 
+/** Validates evaluated metadata and returns a normalised copy that drops empty optional fields. */
 function validateMeta(value: unknown): WorkflowMeta {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Workflow metadata must be a plain object literal')
   const record = value as Record<string, unknown>
@@ -64,6 +66,7 @@ class LiteralSyntaxParser {
     this.index = start
   }
 
+  /** Validates the object literal at the current index and returns the index just past it and any trailing whitespace or comments. */
   parseObjectEnd(): number {
     this.skipTrivia()
     if (this.source[this.index] !== '{') throw new Error(PLAIN_LITERAL_ERROR)
@@ -72,6 +75,7 @@ class LiteralSyntaxParser {
     return this.index
   }
 
+  /** Consumes one `{...}` literal (trailing commas allowed); spreads, computed keys and methods are rejected. */
   private parseObject(root = false, depth = 0): void {
     if (depth > MAX_LITERAL_DEPTH) throw new Error(PLAIN_LITERAL_ERROR)
     if (!this.consume('{')) throw new Error(PLAIN_LITERAL_ERROR)
@@ -93,6 +97,7 @@ class LiteralSyntaxParser {
     }
   }
 
+  /** Consumes one `[...]` literal (trailing commas allowed). */
   private parseArray(depth = 0): void {
     if (depth > MAX_LITERAL_DEPTH) throw new Error(PLAIN_LITERAL_ERROR)
     if (!this.consume('[')) throw new Error(PLAIN_LITERAL_ERROR)
@@ -108,6 +113,7 @@ class LiteralSyntaxParser {
     }
   }
 
+  /** Accepts strings, numbers, nested objects/arrays and true/false/null; any other identifier or token is rejected. */
   private parseValue(depth = 0): void {
     if (depth > MAX_LITERAL_DEPTH) throw new Error(PLAIN_LITERAL_ERROR)
     this.skipTrivia()
@@ -123,6 +129,7 @@ class LiteralSyntaxParser {
     throw new Error(PLAIN_LITERAL_ERROR)
   }
 
+  /** Accepts quoted, identifier or numeric keys. */
   private parseKey(): void {
     this.skipTrivia()
     const char = this.source[this.index]
@@ -132,6 +139,7 @@ class LiteralSyntaxParser {
     throw new Error(PLAIN_LITERAL_ERROR)
   }
 
+  /** Consumes a single- or double-quoted string; template literals never reach here and raw newlines are rejected. */
   private parseString(): void {
     const quote = this.source[this.index++]
     let escaped = false
@@ -145,12 +153,14 @@ class LiteralSyntaxParser {
     throw new Error(PLAIN_LITERAL_ERROR)
   }
 
+  /** Consumes a JSON-style decimal number (no hex, leading dot, NaN or Infinity). */
   private parseNumber(): void {
     const match = /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/.exec(this.source.slice(this.index))
     if (!match) throw new Error(PLAIN_LITERAL_ERROR)
     this.index += match[0].length
   }
 
+  /** Consumes an identifier-like word and returns it. */
   private parseIdentifier(): string {
     const start = this.index
     this.index++
@@ -158,6 +168,7 @@ class LiteralSyntaxParser {
     return this.source.slice(start, this.index)
   }
 
+  /** Skips whitespace plus line and block comments; an unterminated block comment is rejected. */
   private skipTrivia(): void {
     while (this.index < this.source.length) {
       const char = this.source[this.index]
@@ -177,6 +188,7 @@ class LiteralSyntaxParser {
     }
   }
 
+  /** Advances past `value` only if it appears at the current index. */
   private consume(value: string): boolean {
     if (!this.source.startsWith(value, this.index)) return false
     this.index += value.length
@@ -184,6 +196,7 @@ class LiteralSyntaxParser {
   }
 }
 
+/** Returns the end index of the metadata literal, mapping stack-overflow RangeErrors from deep nesting to the plain-literal error. */
 function findObjectEnd(source: string, start: number): number {
   try {
     return new LiteralSyntaxParser(source, start).parseObjectEnd()
@@ -204,6 +217,7 @@ function evaluateMetaLiteral(literal: string): unknown {
   return new Script(`(${literal})`).runInContext(context, { timeout: 1_000 })
 }
 
+/** Splits a workflow script into validated `meta` and the body after it. A script without a leading `export const meta` is accepted only when `fallbackName` is given. */
 export function parseWorkflowSource(source: string, fallbackName?: string): ParsedWorkflowSource {
   if (typeof source !== 'string' || !source.trim()) throw new Error('Workflow script cannot be empty')
   if (Buffer.byteLength(source) > MAX_SOURCE_BYTES) throw new Error(`Workflow script exceeds ${MAX_SOURCE_BYTES} bytes`)
@@ -232,6 +246,7 @@ export function parseWorkflowSource(source: string, fallbackName?: string): Pars
   return { meta: validateMeta(meta), body: source.slice(bodyStart) }
 }
 
+/** Serialises validated metadata back into an `export const meta = …;` header followed by the body, as used when a run is saved as a named workflow. */
 export function formatWorkflowSource(meta: WorkflowMeta, body: string): string {
   const validated = validateMeta(meta)
   return `export const meta = ${JSON.stringify(validated)};\n${body.trimStart()}`

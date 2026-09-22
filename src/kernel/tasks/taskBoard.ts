@@ -66,12 +66,14 @@ const TASK_COLUMNS = [
 
 // ── Task Board ──────────────────────────────────────────────────────
 
+/** Session-scoped task store enforcing `ALLOWED_TASK_TRANSITIONS`, with dependency tracking and state-change events. */
 export class TaskBoard {
   constructor(
     private readonly store: Store,
     private readonly events: EventBus,
   ) {}
 
+  /** Inserts a queued task with defaults (agent type, foreground, fresh context, read-only researcher profile, 120s timeout) and emits `TaskCreated`. */
   create(input: {
     task_id?: string
     parent_task_id?: string
@@ -128,6 +130,7 @@ export class TaskBoard {
     return this.store.query<TaskRow>('SELECT * FROM tasks WHERE task_id = ?', taskId)[0]
   }
 
+  /** Moves a task to a new state, throwing on disallowed transitions; same-state calls are no-ops. Terminal -> queued starts a new attempt and clears the start/completion timestamps. Emits `TaskStateChanged`. */
   transition(taskId: string, to: TaskState, extra: Partial<Pick<TaskRow, 'block_reason' | 'error_code' | 'error_message' | 'tokens_used' | 'cost_usd' | 'latency_ms'>> = {}): void {
     const now = new Date().toISOString()
     const current = this.get(taskId)
@@ -173,6 +176,7 @@ export class TaskBoard {
     this.events.emit('TaskStateChanged', { task_id: taskId, from: current.state, to }, { task_id: taskId })
   }
 
+  /** Tasks in the current session, oldest first, optionally filtered by state or parent. */
   list(filter?: { state?: TaskState; parent_task_id?: string }): TaskRow[] {
     const conditions: string[] = ['session_id = ?']
     const params: unknown[] = [this.events.sessionId]
@@ -192,6 +196,7 @@ export class TaskBoard {
     return queued.filter(t => !this.hasPendingDeps(t.task_id))
   }
 
+  /** True if any dependency exists and is not `done`; dependencies whose task row is missing are ignored. */
   private hasPendingDeps(taskId: string): boolean {
     const deps = this.store.query<{ dependency_id: string }>(
       'SELECT dependency_id FROM task_dependencies WHERE task_id = ?', taskId,
@@ -203,6 +208,7 @@ export class TaskBoard {
     return false
   }
 
+  /** Makes `taskId` wait for `dependencyId`; duplicate edges are ignored. */
   addDependency(taskId: string, dependencyId: string): void {
     this.store.run(
       'INSERT OR IGNORE INTO task_dependencies (task_id, dependency_id) VALUES (?, ?)',
@@ -216,6 +222,7 @@ export class TaskBoard {
 const LEASE_DURATION_MS = 30_000  // 30s default
 const LEASE_HEARTBEAT_MS = 10_000 // heartbeat every 10s
 
+/** Time-limited exclusive leases on resource paths, so only one task holds a given resource at a time. Expired leases are swept lazily on acquire/lookup. */
 export class LeaseManager {
   constructor(
     private readonly store: Store,

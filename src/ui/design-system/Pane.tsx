@@ -13,12 +13,14 @@ export interface PaneProps {
   paddingX?: number
 }
 
+/** Maps a theme color key (e.g. `primary`) to its value from the active palette; rgb(), hex and ansi literals and unknown names pass through unchanged. */
 function resolveColor(color: ColorProp | undefined, colors: ThemeColors): string | undefined {
   if (!color) return undefined
   if (color.startsWith('rgb(') || color.startsWith('#') || color.startsWith('ansi')) return color
   return (colors as unknown as Record<string, string>)[color] ?? color
 }
 
+/** Section with a `── Title ────` divider header in theme colors and padded children underneath. */
 export function Pane({ title, titleColor, dividerColor, paddingX = 1, children }: PropsWithChildren<PaneProps>) {
   const colors = useThemeColors()
   const divColor = resolveColor(dividerColor, colors) ?? colors.primary

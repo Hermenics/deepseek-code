@@ -5,6 +5,7 @@ import { runLspRequest, type LspOperation } from '../../lsp.js'
 
 const OPERATIONS: LspOperation[] = ['definition', 'references', 'hover', 'document_symbols', 'workspace_symbols']
 
+/** Read-only tool that forwards definition, reference, hover and symbol queries to the user-configured language server. The file path must pass `assertSafePath`. */
 export const Lsp: Tool = {
   name: 'lsp',
   description: 'Use a user-configured Language Server for definitions, references, hover documentation, document symbols, or workspace symbols. Read-only. If unavailable, use grep instead.',

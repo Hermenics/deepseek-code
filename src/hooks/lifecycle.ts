@@ -18,6 +18,7 @@ export interface HookControlResult {
 
 type HookInputExtras = Partial<Omit<HookInput, 'schema_version' | 'hook_event_name' | 'correlation_id' | 'run_id' | 'event' | 'session_id'>>
 
+/** Parses a hook's stdout as JSON control output; empty, non-JSON or non-object output means "no instructions". */
 function parseOutput(output: string): HookOutput {
   if (!output) return {}
   try {
@@ -29,6 +30,7 @@ function parseOutput(output: string): HookOutput {
   }
 }
 
+/** Reduces one hook output to block/approve, checking deny first, then allow/approve, then `continue: false` or `decision: block`. */
 function outputDecision(output: HookOutput): { blocked: boolean; approved: boolean; reason?: string } {
   const behavior = output.hookSpecificOutput?.decision?.behavior
   if (behavior === 'deny') return { blocked: true, approved: false, reason: output.hookSpecificOutput?.decision?.message ?? output.reason }
@@ -40,11 +42,13 @@ function outputDecision(output: HookOutput): { blocked: boolean; approved: boole
   return { blocked: false, approved: false }
 }
 
+/** Extra context text a hook asked to inject, ignoring blank values. */
 function additionalContext(output: HookOutput): string | undefined {
   const context = output.hookSpecificOutput?.additionalContext ?? output.additionalContext
   return typeof context === 'string' && context.trim() ? context : undefined
 }
 
+/** Runs the enabled commands in parallel under one correlation id, de-duplicating identical command+timeout pairs. */
 async function runCommands(
   event: HookEvent,
   commands: HookCommand[],
@@ -63,6 +67,7 @@ async function runCommands(
   }))
 }
 
+/** Runs the commands of every enabled matcher whose pattern matches `matcherValue`. */
 async function runMatcherCommands(
   event: HookEvent,
   matchers: HookMatcher[],
@@ -76,6 +81,10 @@ async function runMatcherCommands(
   return runCommands(event, commands, sessionId, extras)
 }
 
+/**
+ * Combines several hook outputs into one result: the first blocking output wins, contexts are joined,
+ * the first system message / updated input is kept, and retry or suppressOutput from any hook applies.
+ */
 function foldControl(outputs: HookOutput[]): HookControlResult {
   const context = outputs.map(additionalContext).filter((value): value is string => Boolean(value)).join('\n\n') || undefined
   const systemMessage = outputs.map(output => output.hookSpecificOutput?.systemMessage ?? output.systemMessage).find((value): value is string => Boolean(value))
@@ -130,6 +139,7 @@ export async function runClaudeHookEvent(
   return foldControl(outputs)
 }
 
+/** Runs UserPromptSubmit hooks for a prompt before it is sent; hooks can block it or add context. */
 export async function runUserPromptSubmitHooks(
   config: HooksConfig | undefined,
   sessionId: string,
@@ -154,6 +164,7 @@ export async function runUserPromptExpansionHooks(
   }))
 }
 
+/** Fires SessionStart hooks, matched on the start source (default `startup`); their output is ignored. */
 export async function runSessionStartHooks(
   config: HooksConfig | undefined,
   sessionId: string,
@@ -164,6 +175,7 @@ export async function runSessionStartHooks(
   await runClaudeHookEvent(config, 'SessionStart', sessionId, { ...extras, source })
 }
 
+/** Runs PermissionRequest hooks matched on the tool name; a hook may approve or deny the pending permission prompt. */
 export async function runPermissionRequestHooks(
   config: HooksConfig | undefined,
   toolName: string,
@@ -178,6 +190,7 @@ export async function runPermissionRequestHooks(
   return foldControl(outputs)
 }
 
+/** Runs Stop hooks when the agent finishes a turn; a block asks the agent to keep going. */
 export async function runStopHooks(
   config: HooksConfig | undefined,
   sessionId: string,
@@ -192,6 +205,7 @@ export async function runStopHooks(
   return foldControl(outputs)
 }
 
+/** Fires SessionEnd hooks with reason `other`; output is ignored. */
 export async function runSessionEndHooks(
   config: HooksConfig | undefined,
   sessionId: string,
@@ -201,6 +215,7 @@ export async function runSessionEndHooks(
   await runClaudeHookEvent(config, 'SessionEnd', sessionId, { cwd: cwd ?? process.cwd(), reason: 'other' })
 }
 
+/** Runs PreCompact hooks matched on the trigger (`manual`/`auto`); a hook can block the compaction. */
 export async function runPreCompactHooks(
   config: HooksConfig | undefined,
   sessionId: string,
@@ -211,6 +226,7 @@ export async function runPreCompactHooks(
   return runClaudeHookEvent(config, 'PreCompact', sessionId, { ...extras, trigger })
 }
 
+/** Fires PostCompact hooks matched on the trigger after compaction completes; output is ignored. */
 export async function runPostCompactHooks(
   config: HooksConfig | undefined,
   sessionId: string,
@@ -221,6 +237,7 @@ export async function runPostCompactHooks(
   await runClaudeHookEvent(config, 'PostCompact', sessionId, { ...extras, trigger })
 }
 
+/** Runs SubagentStart hooks matched on the agent type before a subagent starts. */
 export async function runSubagentStartHooks(
   config: HooksConfig | undefined,
   sessionId: string,
@@ -235,6 +252,7 @@ export async function runSubagentStartHooks(
   return foldControl(outputs)
 }
 
+/** Runs SubagentStop hooks matched on the agent type when a subagent finishes; `stop_hook_active` is always sent as false. */
 export async function runSubagentStopHooks(
   config: HooksConfig | undefined,
   sessionId: string,

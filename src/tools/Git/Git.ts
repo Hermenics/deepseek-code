@@ -2,6 +2,7 @@ import { execa } from 'execa'
 import type { Tool, } from '../types.js'
 import type { ToolExecutionContext } from '../../orchestration/types.js'
 
+/** Run git in the workspace without throwing on non-zero exit; stdout and stderr are merged into `out`. */
 async function git(args: string[], context?: ToolExecutionContext): Promise<{ out: string; code: number }> {
   try {
     const result = await execa('git', args, { cwd: context?.workspacePath ?? process.cwd(), cancelSignal: context?.signal, reject: false })
@@ -12,6 +13,7 @@ async function git(args: string[], context?: ToolExecutionContext): Promise<{ ou
   }
 }
 
+/** Tool exposing a fixed set of git actions. Branch names are checked with `check-ref-format`, force push is downgraded to `--force-with-lease`, and push sets the upstream when none exists. */
 export const Git: Tool = {
   name: 'git',
   description: `Execute git operations in the current repository.

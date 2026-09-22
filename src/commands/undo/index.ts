@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/undo [all|list]`: restores the last agent-modified file, all of them, or lists what can be undone. */
 const command: Command = {
   name: 'undo',
   aliases: [],

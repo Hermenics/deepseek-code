@@ -17,6 +17,7 @@ function isWindowsTerminal(): boolean {
   return process.platform === 'win32' && !!process.env.WT_SESSION
 }
 
+/** Detects mintty (Git Bash / MSYS2 / MINGW), which supports ESC[3J scrollback clearing even on Windows. */
 function isMintty(): boolean {
   // mintty 3.1.5+ sets TERM_PROGRAM to 'mintty'
   if (process.env.TERM_PROGRAM === 'mintty') {
@@ -29,6 +30,7 @@ function isMintty(): boolean {
   return false
 }
 
+/** True for Windows terminals that handle modern VT sequences (Windows Terminal, ConPTY-backed VS Code, mintty) as opposed to legacy conhost. */
 function isModernWindowsTerminal(): boolean {
   // Windows Terminal sets WT_SESSION environment variable
   if (isWindowsTerminal()) {

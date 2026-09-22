@@ -1,6 +1,7 @@
 import type { Command, CommandResult } from '../types.js'
 import { REPO_PATTERN, PLUGIN_NAME_PATTERN } from '../../plugins/validation.js'
 
+/** Parses `/plugin install|list|remove|update`, validating repo and plugin-name formats; unknown or missing subcommands fall back to help. */
 export function parsePluginCommand(args: string[]): CommandResult {
   const sub = args[0]?.toLowerCase()
 
@@ -32,6 +33,7 @@ export function parsePluginCommand(args: string[]): CommandResult {
   }
 }
 
+/** `/plugin` (alias `/plugins`): installs, lists, removes or updates plugins. */
 const plugin: Command = {
   name: 'plugin',
   aliases: ['plugins'],

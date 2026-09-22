@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react'
 import { execa } from 'execa'
 import type { Model } from '../../commands.js'
-import { MODE_COLORS, MODE_LABELS, type InteractionMode } from '../interactionMode.js'
+import { MODE_LABELS, type InteractionMode } from '../interactionMode.js'
 import { getThemeColors, DIVIDER_CHAR, PROGRESS_CHARS, STATUS_ICONS } from '../theme.js'
 import type { ThemeName } from '../theme.js'
 import type { StatusBarItem } from '../../settings/types.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 
+/** Current git branch of the working directory, or an empty string outside a repository or when git fails. */
 async function getGitBranch(): Promise<string> {
   try {
     const { stdout } = await execa('git', ['rev-parse', '--abbrev-ref', 'HEAD'])
@@ -17,6 +18,7 @@ async function getGitBranch(): Promise<string> {
   }
 }
 
+/** Context-usage bar drawn with eighth-block glyphs for sub-cell precision, turning warning at 70% and error at 90%. */
 function ProgressBar({ percent, width = 20, theme = 'dark' }: { percent: number; width?: number; theme?: ThemeName }) {
   const colors = getThemeColors(theme)
   const filled = Math.floor((percent / 100) * width)
@@ -34,6 +36,7 @@ function ProgressBar({ percent, width = 20, theme = 'dark' }: { percent: number;
   )
 }
 
+/** Bottom status line showing the configured items (mode, model, tokens, git branch refreshed every 30s, context %), a transient compaction badge and the background activity count; narrow terminals keep only the highest-priority items, and it renders nothing when there is nothing to show. */
 export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provider: _provider, contextPct = 0, interactionMode = 'build', theme = 'dark', items, narrowPriority, compactBadge, activityCount = 0 }: {
   tokenCount: number
   model: Model
@@ -80,7 +83,7 @@ export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provid
     <Box flexDirection="column">
       <Text color={colors.textSubtle}>{divider}</Text>
       <Box flexDirection="row" paddingX={2} gap={1}>
-        {visible.has('mode') && <Text color={MODE_COLORS[interactionMode]}>{MODE_LABELS[interactionMode]}</Text>}
+        {visible.has('mode') && <Text color={interactionMode === 'plan' ? colors.modePlan : interactionMode === 'review' ? colors.info : interactionMode === 'auto' ? colors.modeAutoAccept : colors.modeAgent}>{MODE_LABELS[interactionMode]}</Text>}
         {visible.has('model') && <Text color={colors.primary}>{STATUS_ICONS.agent + ' ' + displayModel}</Text>}
         {visible.has('tokens') && tokenCount > 0 && (
           <>

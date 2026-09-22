@@ -417,6 +417,7 @@ const applyPositionStyles = (node: LayoutNode, style: Styles): void => {
   if ('right' in style) applyPositionEdge(node, 'right', style.right)
 }
 
+/** Sets one Yoga position edge from a number or `N%` string; undefined unsets it (NaN). */
 function applyPositionEdge(
   node: LayoutNode,
   edge: 'top' | 'bottom' | 'left' | 'right',
@@ -689,6 +690,7 @@ const applyDisplayStyles = (node: LayoutNode, style: Styles): void => {
   }
 }
 
+/** Sets Yoga border widths (1 cell per visible side). When `borderStyle` is in `style`, side visibility is read from `resolvedStyle` because `style` may be a partial diff; otherwise only the changed side toggles are applied. */
 const applyBorderStyles = (
   node: LayoutNode,
   style: Styles,
@@ -752,6 +754,7 @@ const applyGapStyles = (node: LayoutNode, style: Styles): void => {
   }
 }
 
+/** Applies a Styles object (possibly a partial diff of changed props) to a Yoga node. `resolvedStyle` is the node's full current style, needed where a diff alone is ambiguous (border sides). */
 const styles = (
   node: LayoutNode,
   style: Styles = {},

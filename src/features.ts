@@ -34,6 +34,7 @@ export type FeatureName = keyof typeof FEATURES
 
 const FEATURES_PATH = join(homedir(), '.deepseek', 'features.json')
 
+/** Keeps only known feature names with boolean values from parsed `features.json` content, dropping anything else. */
 export function filterFeatureFlags(parsed: unknown): Partial<Record<FeatureName, boolean>> {
   if (!parsed || typeof parsed !== 'object') return {}
   const saved = parsed as Record<string, unknown>
@@ -44,6 +45,7 @@ export function filterFeatureFlags(parsed: unknown): Partial<Record<FeatureName,
   ) as Partial<Record<FeatureName, boolean>>
 }
 
+/** Reads `~/.deepseek/features.json` synchronously and overlays it on the defaults; falls back to defaults on any read or parse error. */
 export function loadFeatures(): Record<FeatureName, boolean> {
   const defaults = Object.fromEntries(
     Object.entries(FEATURES).map(([k, v]) => [k, v.default])
@@ -58,6 +60,7 @@ export function loadFeatures(): Record<FeatureName, boolean> {
   }
 }
 
+/** Writes the full flag map to `~/.deepseek/features.json`, creating the directory if needed. */
 export function saveFeatures(flags: Record<FeatureName, boolean>): void {
   mkdirSync(join(homedir(), '.deepseek'), { recursive: true })
   writeFileSync(FEATURES_PATH, JSON.stringify(flags, null, 2))

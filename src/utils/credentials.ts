@@ -28,6 +28,7 @@ export async function loadFullConfig(
   }
 }
 
+/** Atomically replaces the private config file (0600) through a temp file and rename. */
 export async function saveFullConfig(
   data: Record<string, string>,
   configPath: string = CONFIG_PATH,

@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/clear`: wipes the chat history. */
 const command: Command = {
   name: 'clear',
   aliases: [],

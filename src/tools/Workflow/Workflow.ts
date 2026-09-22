@@ -1,5 +1,6 @@
 import type { Tool } from '../types.js'
 
+/** Model-facing description of the workflow script API and its limits, sent as the workflow tool description. */
 export const WORKFLOW_TOOL_DESCRIPTION = `Execute a Dynamic Workflow: a small JavaScript program that orchestrates many subagents deterministically (fan-out, pipelines, loops, adversarial verification). The workflow runs in the background of this tool call and returns its final value when it finishes.
 
 Use it for work that genuinely benefits from several independent agents: broad code reviews, research sweeps over many files or subsystems, migrations with one agent per site, "find then verify" loops, design panels. Do not use it for a one-file change, a short question, or anything a single focused read would settle.
@@ -41,6 +42,7 @@ Canonical shape (review → verify, verification starting per dimension as soon 
 
 Result: JSON with runId, status (completed|failed|cancelled|timed_out|budget_exhausted), result, usage, failures, worktrees, scriptPath and journalPath. To iterate, edit the file at scriptPath and call this tool again with { scriptPath, resumeFromRunId: runId }: agent() calls whose arguments are unchanged return their journaled results instantly and only edited or new calls run. Read journalPath before diagnosing an unexpected result — it records each agent's actual return value. Monitor and control live runs with /workflows.`
 
+/** Tool that runs a Dynamic Workflow script through the session's workflow manager and waits for its result. Aborting the tool call cancels the run. */
 export const Workflow: Tool = {
   name: 'workflow',
   description: WORKFLOW_TOOL_DESCRIPTION,

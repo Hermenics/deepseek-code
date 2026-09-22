@@ -1,6 +1,7 @@
 import type { DeepSeekSettings, SettingsLevel } from './types.js'
 import { SettingsRepository } from './repository.js'
 
+/** Flattens nested objects into dot-path entries; arrays and primitives are leaves. */
 function flatten(object: Record<string, unknown>, prefix = ''): Array<[string, unknown]> {
   return Object.entries(object).flatMap(([key, value]) => {
     const path = prefix ? `${prefix}.${key}` : key
@@ -9,6 +10,7 @@ function flatten(object: Record<string, unknown>, prefix = ''): Array<[string, u
   })
 }
 
+/** Merges a partial settings object into a level by writing each leaf path, so untouched keys are kept. */
 export async function saveSettings(level: SettingsLevel, partial: Partial<DeepSeekSettings>): Promise<void> {
   const repository = new SettingsRepository()
   await repository.setMany(level, flatten(partial as Record<string, unknown>))

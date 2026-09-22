@@ -125,6 +125,7 @@ type Pending =
     }
   | { kind: 'sentinel'; resolve: () => void }
 
+/** Sends terminal capability queries (e.g. XTVERSION) on stdout and matches the replies parsed from stdin. `flush()` writes a DA1 sentinel; since terminals answer in order, queries still pending when the sentinel reply arrives resolve with `undefined` (unsupported). */
 export class TerminalQuerier {
   /**
    * Interleaved queue of queries and sentinels in send order. Terminals

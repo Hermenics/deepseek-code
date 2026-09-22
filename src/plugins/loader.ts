@@ -3,6 +3,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'path'
 import type { PluginManifest, LoadedPlugin, PluginComponents } from './types.js'
 import { readPluginRegistry, getPluginsDir } from './registry.js'
 
+/** Enumerates a plugin's commands, agents, skills and hooks from manifest paths (or conventional folders). Paths resolving outside the plugin root, including via symlinks, are ignored. */
 export function discoverComponents(pluginDir: string, manifest?: PluginManifest): PluginComponents {
   const commands: string[] = []
   const agents: string[] = []
@@ -21,6 +22,7 @@ export function discoverComponents(pluginDir: string, manifest?: PluginManifest)
     return path === '' || (!path.startsWith(`..${sep}`) && path !== '..' && !isAbsolute(path))
   }
 
+  /** Resolves a relative path against `base` and returns its canonical path only if it exists and stays inside the plugin root. */
   function resolvePluginPath(requested: string, base = pluginDir): string | null {
     if (isAbsolute(requested) || requested === '..' || requested.startsWith(`..${sep}`)) return null
     const candidate = resolve(base, requested)
@@ -70,6 +72,7 @@ export function discoverComponents(pluginDir: string, manifest?: PluginManifest)
   return { commands, agents, skills, hasHooks }
 }
 
+/** Reads `plugin.json` or `.claude-plugin/plugin.json` from `dir`; returns null unless one parses with a string `name`. */
 export function readPluginManifest(dir: string): PluginManifest | null {
   // ponytail: try root plugin.json first, then .claude-plugin/plugin.json (monorepo layout)
   const candidates = [join(dir, 'plugin.json'), join(dir, '.claude-plugin', 'plugin.json')]
@@ -86,6 +89,7 @@ export function readPluginManifest(dir: string): PluginManifest | null {
   return null
 }
 
+/** Loads every registered plugin whose directory and manifest are still present, warning about and skipping the rest. */
 export function loadInstalledPlugins(dir?: string): LoadedPlugin[] {
   const registry = readPluginRegistry(dir)
   const base = dir ?? getPluginsDir()

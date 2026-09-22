@@ -25,6 +25,7 @@ export interface ContextSnapshotInput {
 const MEMORY_START = '--- MEMORY ---'
 const MEMORY_END = '--- END MEMORY ---'
 
+/** Splits the `--- MEMORY ---` block out of the system prompt so memory can be counted as its own category. */
 function extractMemoryFromPrompt(prompt: string): { memory: string; promptWithoutMemory: string } {
   const startIdx = prompt.indexOf(MEMORY_START)
   if (startIdx === -1) return { memory: '', promptWithoutMemory: prompt }
@@ -35,6 +36,11 @@ function extractMemoryFromPrompt(prompt: string): { memory: string; promptWithou
   return { memory, promptWithoutMemory }
 }
 
+/**
+ * Splits the provider-reported context usage across categories (system prompt, memory, tools, messages, tool results)
+ * in proportion to their character counts, plus usage suggestions. The total is exact; per-category numbers are estimates.
+ * Returns a `stale` breakdown when no API response has reported usage yet.
+ */
 export function estimateContextBreakdown(input: ContextSnapshotInput): ContextBreakdown {
   const { systemPrompt, toolsPayload, messages, contextUsage, contextLimit } = input
 
@@ -134,6 +140,7 @@ export function estimateContextBreakdown(input: ContextSnapshotInput): ContextBr
   }
 }
 
+/** Renders a context breakdown as a plain-text table with per-category usage bars for the /context command. */
 export function formatContextBreakdown(breakdown: ContextBreakdown): string {
   if (breakdown.stale) {
     return '⏳ Waiting for first API response; breakdown unavailable.'

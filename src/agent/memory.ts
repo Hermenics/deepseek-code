@@ -9,14 +9,20 @@ const MEMORY_OVERRIDE = /(?:\b(?:ignore|override|bypass|disable|disregard|do not
 export type MemoryTarget = 'agent' | 'user'
 export interface MemoryConfig { enabled?: boolean; scope?: 'user' | 'project' }
 
+/** Collapses all whitespace (including newlines) to single spaces so entries stay one-line and comparable. */
 export function normalizeMemoryEntry(entry: string): string {
   return entry.replace(/\s+/g, ' ').trim()
 }
 
+/** Rejects entries that read like attempts to override instructions, rules, safety or permissions. */
 export function isSafeMemoryEntry(entry: string): boolean {
   return !MEMORY_OVERRIDE.test(entry)
 }
 
+/**
+ * File-backed agent (MEMORY.md) and user (USER.md) memory, scoped per user or per project.
+ * Mutations are serialised in-process and guarded by a file lease across processes.
+ */
 export class MemoryStore {
   private directoryOverride: string | null = null
   private enabled = true
@@ -45,11 +51,13 @@ export class MemoryStore {
 
   setDirectory(directory: string | null): void { this.directoryOverride = directory ? resolve(directory) : null }
 
+  /** Returns the memory directory: the explicit override, else the project or user location for the current scope. */
   getDirectory(): string {
     if (this.directoryOverride) return this.directoryOverride
     return this.scope === 'project' ? join(this.cwd, '.deepseek', 'memory') : join(homedir(), '.deepseek', 'memory')
   }
 
+  /** Reads a target's entries, dropping empty or unsafe ones; returns [] when disabled or the file does not exist. */
   async load(target: MemoryTarget): Promise<string[]> {
     if (!this.enabled) return []
     try {
@@ -63,6 +71,7 @@ export class MemoryStore {
     }
   }
 
+  /** Appends a normalised entry unless it is unsafe, a case-insensitive duplicate, or would exceed MAX_CHARS. Returns a status message. */
   add(target: MemoryTarget, content: string): Promise<string> {
     return this.mutate(async () => {
       if (!this.enabled) return 'Memory is disabled in settings.'
@@ -80,6 +89,7 @@ export class MemoryStore {
     })
   }
 
+  /** Replaces the first entry containing `match` with new content, applying the same safety, duplicate and size checks as add. */
   replace(target: MemoryTarget, match: string, content: string): Promise<string> {
     return this.mutate(async () => {
       const entries = await this.load(target)
@@ -98,6 +108,7 @@ export class MemoryStore {
     })
   }
 
+  /** Deletes the first entry containing `match` and returns a status message. */
   remove(target: MemoryTarget, match: string): Promise<string> {
     return this.mutate(async () => {
       const entries = await this.load(target)
@@ -132,6 +143,7 @@ export class MemoryStore {
     await mkdir(this.getDirectory(), { recursive: true })
     await writeFile(this.file(target), entries.join(DELIMITER), { encoding: 'utf8', mode: 0o600 })
   }
+  /** Runs a write under an in-process promise chain plus a cross-process file lease; a failed operation does not break the chain. */
   private mutate<T>(operation: () => Promise<T>): Promise<T> {
     const locked = async () => {
       const lease = await acquireFileLease(`memory:${resolve(this.getDirectory())}`, { scope: this.scope })

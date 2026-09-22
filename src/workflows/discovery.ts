@@ -20,11 +20,13 @@ async function exists(path: string): Promise<boolean> {
   try { await lstat(path); return true } catch { return false }
 }
 
+/** True when `target` is `root` or lies inside it; purely path-based, symlinks must be resolved by the caller. */
 function contained(root: string, target: string): boolean {
   const child = relative(root, target)
   return child === '' || (!child.startsWith('..') && !isAbsolute(child))
 }
 
+/** Collects `.deepseek/workflows` directories from `start` upward, nearest first, stopping at the first directory containing `.git` or at the filesystem root. */
 async function projectDirectories(start: string): Promise<string[]> {
   const directories: string[] = []
   let current = resolve(start)
@@ -39,6 +41,7 @@ async function projectDirectories(start: string): Promise<string[]> {
   return directories
 }
 
+/** Parses up to 256 `.js` workflows in a directory, skipping a symlinked directory, files whose real path escapes it, and scripts that fail to parse. */
 async function readDirectory(directory: string, source: DiscoveredWorkflow['source']): Promise<DiscoveredWorkflow[]> {
   let root: string
   try {
@@ -59,6 +62,7 @@ async function readDirectory(directory: string, source: DiscoveredWorkflow['sour
   }))).filter((workflow): workflow is DiscoveredWorkflow => Boolean(workflow))
 }
 
+/** Lists workflows from project directories (nearest first) and then the user's global directory; the first definition of a name wins, so project workflows shadow user ones. */
 export async function discoverWorkflows(cwd: string, options: WorkflowDiscoveryOptions = {}): Promise<DiscoveredWorkflow[]> {
   const directories = await projectDirectories(cwd)
   const globalDirectory = options.globalDirectory ?? join(homedir(), '.deepseek', 'workflows')

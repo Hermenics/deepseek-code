@@ -124,6 +124,7 @@ export const renderSync = (
   }
 }
 
+/** Default `render()` export: mounts `node` on the Ink instance for the given stdout (creating it if needed) after one microtask, preserving the async boundary startup code relies on. */
 const wrappedRender = async (
   node: ReactNode,
   options?: NodeJS.WriteStream | RenderOptions,
@@ -189,6 +190,7 @@ const getOptions = (
   return stdout
 }
 
+/** Returns the Ink instance registered for `stdout`, creating and registering one on first use so repeated renders to the same stream share it. */
 const getInstance = (
   stdout: NodeJS.WriteStream,
   createInstance: () => Ink,

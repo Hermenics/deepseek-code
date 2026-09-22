@@ -5,6 +5,7 @@ export interface Deferred<T> {
   resolve(value: T): void
 }
 
+/** Create a promise together with an externally callable resolve function. */
 export function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void
   const promise = new Promise<T>(done => { resolve = done })

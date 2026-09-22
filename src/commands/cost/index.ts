@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/cost`: shows the estimated cost of the session so far. */
 const command: Command = {
   name: 'cost',
   aliases: [],

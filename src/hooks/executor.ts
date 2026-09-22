@@ -11,6 +11,7 @@ export const MAX_HOOK_AUDIT_ENTRIES = 500
 /** In-memory audit log of hook runs. Survives for the session lifetime. */
 export const hookAuditLog: HookRun[] = []
 
+/** Appends a hook run to the audit log, dropping the oldest entries beyond `MAX_HOOK_AUDIT_ENTRIES`. */
 function pushAudit(run: HookRun): void {
   hookAuditLog.push(run)
   if (hookAuditLog.length > MAX_HOOK_AUDIT_ENTRIES) {

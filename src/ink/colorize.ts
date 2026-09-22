@@ -75,6 +75,7 @@ const PLAIN_ANSI_COLORS = new Set([
   'gray', 'grey', // chalk aliases for blackBright
 ])
 
+/** Wraps `str` in chalk colour codes for `color`, applied as foreground or background. Accepts plain chalk names, `ansi:<name>`, `#hex`, `ansi256(n)` and `rgb(r,g,b)`; returns `str` unchanged when no color is given. */
 export const colorize = (
   str: string,
   color: string | undefined,

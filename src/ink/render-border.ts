@@ -44,6 +44,7 @@ const BORDER_STYLE_KEYS = [
   'left',
 ] as const
 
+/** Whether `value` is a complete custom border definition (all eight edge/corner characters are strings). */
 function isBoxStyle(value: unknown): value is BoxStyle {
   if (!value || typeof value !== 'object') {
     return false
@@ -53,6 +54,7 @@ function isBoxStyle(value: unknown): value is BoxStyle {
   return BORDER_STYLE_KEYS.every(key => typeof candidate[key] === 'string')
 }
 
+/** Resolves a border style name (custom styles first, then cli-boxes, with `rounded` aliasing `round`) or a custom BoxStyle object to its characters; returns undefined when unknown or incomplete. */
 export function resolveBorderStyle(
   style: BorderStyle | undefined,
 ): BoxStyle | undefined {
@@ -71,6 +73,7 @@ export function resolveBorderStyle(
   return isBoxStyle(candidate) ? candidate : undefined
 }
 
+/** Splits a horizontal border line around `text` placed at `align`/`offset`, keeping both corner characters. Text too long for the line replaces the whole border (truncated to its length). */
 function embedTextInBorder(
   borderLine: string,
   text: string,
@@ -106,6 +109,7 @@ function embedTextInBorder(
   return [before, text, after]
 }
 
+/** Applies the border colour and optional dim style to one border segment. */
 function styleBorderLine(
   line: string,
   color: Color | undefined,
@@ -118,6 +122,7 @@ function styleBorderLine(
   return styled
 }
 
+/** Draws a node's border (per-side colours, dimming and visibility, plus optional text embedded in the top or bottom edge) around its Yoga box at (x, y). */
 const renderBorder = (
   x: number,
   y: number,

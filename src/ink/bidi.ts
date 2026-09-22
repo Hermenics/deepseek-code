@@ -26,6 +26,7 @@ type ClusteredChar = {
 let bidiInstance: ReturnType<typeof bidiFactory> | undefined
 let needsSoftwareBidi: boolean | undefined
 
+/** Whether this terminal lacks native bidi rendering (Windows, Windows Terminal/WSL, VS Code's xterm.js), so RTL text must be reordered in software. Computed once and cached. */
 function needsBidi(): boolean {
   if (needsSoftwareBidi === undefined) {
     needsSoftwareBidi =
@@ -36,6 +37,7 @@ function needsBidi(): boolean {
   return needsSoftwareBidi
 }
 
+/** Lazily creates the bidi-js instance so its tables are only built when RTL text is actually reordered. */
 function getBidi() {
   if (!bidiInstance) {
     bidiInstance = bidiFactory()

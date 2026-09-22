@@ -57,6 +57,7 @@ export function probeTmuxControlMode(
   }
 }
 
+/** Snapshot of the real process environment for `resolveFullscreen`; the tmux control-mode probe runs lazily and at most once. */
 export function currentFullscreenEnv(): FullscreenEnv {
   let cached: boolean | undefined
   return {
@@ -67,6 +68,7 @@ export function currentFullscreenEnv(): FullscreenEnv {
   }
 }
 
+/** True only for explicit `0`/`false`, so an unset variable is not treated as an opt-out. */
 function isEnvFalsy(value: string | undefined): boolean {
   return value === '0' || value === 'false'
 }
@@ -138,10 +140,12 @@ export function setFullscreenActive(value: boolean): void {
   active = value
 }
 
+/** Whether the TUI is running in the alternate screen, as recorded by `setFullscreenActive`. */
 export function isFullscreenActive(): boolean {
   return active
 }
 
+/** True when `DEEPSEEK_FULLSCREEN` explicitly forces fullscreen on. */
 export function isFullscreenEnvEnabled(): boolean {
   return isEnvTruthy(process.env.DEEPSEEK_FULLSCREEN)
 }

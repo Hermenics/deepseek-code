@@ -89,6 +89,7 @@ function stringWidthJavaScript(str: string): number {
   return width
 }
 
+/** Whether the string contains emoji, regional indicators, variation selectors or ZWJ, which require grapheme segmentation instead of the per-code-point fast path. */
 function needsSegmentation(str: string): boolean {
   for (const char of str) {
     const cp = char.codePointAt(0)!
@@ -103,6 +104,7 @@ function needsSegmentation(str: string): boolean {
   return false
 }
 
+/** Terminal column width of an emoji grapheme: 2, except a lone regional indicator or a keycap base + VS16 without U+20E3, which render as 1. */
 function getEmojiWidth(grapheme: string): number {
   // Regional indicators: single = 1, pair = 2
   const first = grapheme.codePointAt(0)!
@@ -126,6 +128,7 @@ function getEmojiWidth(grapheme: string): number {
   return 2
 }
 
+/** Whether a code point occupies no terminal column (control characters, soft hyphen, zero-width spaces/joiners, BOM, combining marks, etc.). */
 function isZeroWidth(codePoint: number): boolean {
   // Fast path for common printable range
   if (codePoint >= 0x20 && codePoint < 0x7f) return false

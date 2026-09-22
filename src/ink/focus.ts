@@ -24,6 +24,7 @@ export class FocusManager {
     this.dispatchFocusEvent = dispatchFocusEvent
   }
 
+  /** Moves focus to `node`, pushing the previous element onto the bounded, de-duplicated focus stack and dispatching blur/focus events. No-op when disabled or already focused. */
   focus(node: DOMElement): void {
     if (node === this.activeElement) return
     if (!this.enabled) return
@@ -41,6 +42,7 @@ export class FocusManager {
     this.dispatchFocusEvent(node, new FocusEvent('focus', previous))
   }
 
+  /** Clears focus and dispatches a blur event on the previously focused element. Does not restore focus from the stack. */
   blur(): void {
     if (!this.activeElement) return
 
@@ -85,6 +87,7 @@ export class FocusManager {
     this.focus(node)
   }
 
+  /** Focuses a clicked node only if it declares a numeric `tabIndex`. */
   handleClickFocus(node: DOMElement): void {
     const tabIndex = node.attributes['tabIndex']
     if (typeof tabIndex !== 'number') return
@@ -107,6 +110,7 @@ export class FocusManager {
     this.moveFocus(-1, root)
   }
 
+  /** Cycles focus through the tabbable elements (tabIndex >= 0, in tree order) in `direction`, wrapping around; starts at the first/last one when nothing is focused. */
   private moveFocus(direction: 1 | -1, root: DOMElement): void {
     if (!this.enabled) return
 
@@ -131,6 +135,7 @@ export class FocusManager {
   }
 }
 
+/** Collects all elements with a non-negative numeric `tabIndex`, in depth-first tree order. */
 function collectTabbable(root: DOMElement): DOMElement[] {
   const result: DOMElement[] = []
   walkTree(root, result)
@@ -150,6 +155,7 @@ function walkTree(node: DOMElement, result: DOMElement[]): void {
   }
 }
 
+/** Whether `node` is still attached under `root`, by walking its parent chain. */
 function isInTree(node: DOMElement, root: DOMElement): boolean {
   let current: DOMElement | undefined = node
   while (current) {

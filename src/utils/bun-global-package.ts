@@ -3,11 +3,13 @@ import { join } from 'path'
 
 export type GlobalPackageManager = 'bun' | 'npm'
 
+/** Checks whether the package is installed in Bun's global `node_modules` (honouring `BUN_INSTALL`). */
 export function isBunGlobalPackage(packageName: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
   const bunInstall = env.BUN_INSTALL ?? join(homedir(), '.bun')
   return Bun.file(join(bunInstall, 'install', 'global', 'node_modules', packageName, 'package.json')).exists()
 }
 
+/** Checks whether the package is installed under `npm root -g`; false if npm is unavailable. */
 export async function isNpmGlobalPackage(packageName: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
   try {
     const proc = Bun.spawnSync([process.platform === 'win32' ? 'npm.cmd' : 'npm', 'root', '-g'], { stdout: 'pipe', stderr: 'ignore', env })
@@ -17,6 +19,7 @@ export async function isNpmGlobalPackage(packageName: string, env: NodeJS.Proces
   }
 }
 
+/** Package managers that have the package installed globally (npm listed first); defaults to `['npm']` when none is detected. */
 export async function getGlobalPackageManagers(packageName: string, env: NodeJS.ProcessEnv = process.env): Promise<GlobalPackageManager[]> {
   const [bun, npm] = await Promise.all([isBunGlobalPackage(packageName, env), isNpmGlobalPackage(packageName, env)])
   const managers: GlobalPackageManager[] = []

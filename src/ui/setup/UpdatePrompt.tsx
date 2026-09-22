@@ -13,6 +13,7 @@ interface Props {
 
 const OPTIONS = ['update', 'skip', 'dismiss'] as const
 
+/** Offers a newer package version with update/skip/dismiss choices; Esc or Ctrl+C counts as skip. */
 export function UpdatePrompt({ current, latest, packageManagers, onChoice }: Props) {
   const [idx, setIdx] = useState(0)
 

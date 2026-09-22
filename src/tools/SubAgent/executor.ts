@@ -50,6 +50,7 @@ export interface SubAgentLoopResult<T = never> {
   usage: TokenUsage
 }
 
+/** Short (50-char) label for a subagent tool call in the UI: the tool's key argument (path, command, pattern, url, task), or else its first string argument. */
 export function buildToolPreview(toolName: string, args: Record<string, unknown>): string {
   const str = (value: unknown) => typeof value === 'string' ? value : JSON.stringify(value)
   /** Shortens a preview to `length` characters. */

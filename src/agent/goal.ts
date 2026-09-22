@@ -17,12 +17,14 @@ export interface Goal {
   startedAt: string
 }
 
+/** Default cap on automatic continuation turns when a goal sets no maxContinuations of its own. */
 export const GOAL_MAX_CONTINUATIONS = 10
 /** Goal turns in a row without tool calls or file changes before an active goal stops continuing by itself. */
 export const GOAL_MAX_IDLE_TURNS = 2
 
 let currentGoal: Goal | null = null
 
+/** Returns the process-wide current goal, or null when none is set. */
 export function getGoal(): Goal | null {
   return currentGoal
 }
@@ -31,6 +33,7 @@ export function setGoal(g: Goal | null): void {
   currentGoal = g
 }
 
+/** Merges fields into the current goal, freezing accumulated elapsed time when it leaves the active state. Throws without a goal. */
 export function updateGoal(update: Partial<Goal> & { updatedAt: string }): Goal {
   if (!currentGoal) throw new Error('No active goal.')
   // Freeze elapsed time when leaving active state
@@ -41,6 +44,7 @@ export function updateGoal(update: Partial<Goal> & { updatedAt: string }): Goal 
   return currentGoal
 }
 
+/** Creates a fresh active goal with zeroed counters and makes it the current goal. */
 export function createGoal(objective: string, tokenBudget?: number, maxContinuations?: number): Goal {
   const now = new Date().toISOString()
   const goal: Goal = {
@@ -75,6 +79,7 @@ export function markGoalComplete(): Goal {
   return updateGoal({ status: 'complete', updatedAt: new Date().toISOString() })
 }
 
+/** Records a blocker; the goal only becomes `blocked` after the same reason is reported three times in a row. */
 export function markGoalBlocked(blocker: string): Goal {
   if (!currentGoal) throw new Error('No active goal.')
   const sameBlocker = currentGoal.blockReason === blocker
@@ -88,6 +93,7 @@ export function markGoalBlocked(blocker: string): Goal {
   })
 }
 
+/** Reactivates a non-complete goal, clearing block and idle counters and restarting the elapsed-time clock. */
 export function resumeGoal(): Goal {
   if (!currentGoal) throw new Error('No active goal.')
   if (currentGoal.status === 'complete') return currentGoal
@@ -102,6 +108,7 @@ export function resumeGoal(): Goal {
   })
 }
 
+/** Returns total working time: stored time plus the running interval while active, tolerating a missing or invalid startedAt. */
 export function getElapsedSeconds(goal: Goal): number {
   if (goal.status === 'active') {
     // Old persisted goals may lack a valid startedAt. Never return NaN: fall
@@ -115,6 +122,7 @@ export function getElapsedSeconds(goal: Goal): number {
   return goal.timeUsedSeconds
 }
 
+/** Builds the synthetic user message that drives the next automatic goal turn, including budget and elapsed-time status. */
 export function buildContinuationPrompt(goal: Goal, turnNumber: number): string {
   const budget = goal.tokenBudget !== undefined ? `${goal.tokenBudget}` : 'no limit'
   const max = goal.maxContinuations ?? GOAL_MAX_CONTINUATIONS

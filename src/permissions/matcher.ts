@@ -26,6 +26,7 @@ export function globMatch(pattern: string, value: string): boolean {
   return iterativeGlob(lowerPattern, lowerValue)
 }
 
+/** Linear-time `*`/`?` glob match with single-star backtracking, avoiding regex catastrophic backtracking. */
 function iterativeGlob(pattern: string, str: string): boolean {
   let pi = 0, si = 0
   let starPi = -1, starSi = -1

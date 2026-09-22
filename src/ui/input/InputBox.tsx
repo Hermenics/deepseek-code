@@ -3,7 +3,7 @@ import useInput from '../../ink/hooks/use-input.js'
 import type { Key } from '../../ink/events/input-event.js'
 import { loadInputHistory } from '../../agent/inputHistory.js'
 import type { AgentPhase } from '../App.js'
-import { MODE_LABELS, MODE_COLORS, type InteractionMode } from '../interactionMode.js'
+import { type InteractionMode } from '../interactionMode.js'
 import { Cursor } from './cursor/index.js'
 import { processTextInputKey, type KeyEvent } from './hooks/useTextInput.js'
 import { processVimKey, processVimTextChunk, createVimState, type VimState } from './hooks/useVimMode.js'
@@ -30,6 +30,7 @@ import { prepareImagePrompt } from './imageAttachments.js'
 import { insertDroppedPath, normalizeDroppedPath } from './fileDrop.js'
 import type { KeybindingsSettings } from '../../settings/types.js'
 import { resolveKeybindingAction, resolveKeybindings } from './keybindings.js'
+import { useTheme, useThemeColors } from '../design-system/ThemeProvider.js'
 
 // Aggregate limits for images attached to one prompt (base64-encoded size)
 const MAX_IMAGE_COUNT = 20
@@ -73,6 +74,14 @@ export function inkKeyToKeyEvent(key: Key, input: string): KeyEvent {
 export { LoadingSpinner } from './render/LoadingSpinner.js'
 export { getMatches } from './commandMatches.js'
 
+/**
+ * The main prompt input. Owns the text/cursor state and routes every keypress:
+ * bracketed paste (long text becomes a `[Text #n]` placeholder, file drops insert
+ * the path, empty pastes and Ctrl+V attach clipboard images as `[Image #n]`),
+ * slash-command and @file dropdowns, history, undo/redo, optional vim mode and
+ * submit. While `isLoading`, submits go to `onQueue` instead (except workflow
+ * control commands) and Esc/Ctrl+C abort. Placeholders are expanded on submit.
+ */
 export function InputBox({
   onSubmit,
   isLoading,
@@ -126,6 +135,8 @@ export function InputBox({
   suggestedReply?: string
   onSuggestedReplyDismiss?: () => void
 }) {
+  const theme = useTheme()
+  const colors = useThemeColors()
   const cols = process.stdout.columns ?? 80
   const [cursor, setCursor] = useState(() => Cursor.fromText('', cols))
   const [fullscreenHintVisible, setFullscreenHintVisible] = useState(showFullscreenHint)
@@ -522,6 +533,7 @@ export function InputBox({
           agentColor={agentColor}
           contextPct={contextPct}
           hasExclamation={hasExclamation}
+          theme={theme}
         >
           <InputLine
             cursor={cursor}
@@ -529,16 +541,16 @@ export function InputBox({
             placeholder={placeholder}
             ghostText={ghost?.text}
             prefix={''}
-            prefixColor={hasExclamation ? 'magenta' : 'cyan'}
+            prefixColor={hasExclamation ? colors.bashBorder : colors.h2}
           />
           {ctrlCDouble.armed && (
-            <Text color="yellow">{'  Press Ctrl+C again to exit'}</Text>
+            <Text color={colors.warning}>{'  Press Ctrl+C again to exit'}</Text>
           )}
           {escDouble.armed && (
-            <Text color="yellow">{'  Press Esc again to clear input'}</Text>
+            <Text color={colors.warning}>{'  Press Esc again to clear input'}</Text>
           )}
           {imageNotice && (
-            <Text color="yellow">{`  ${imageNotice}`}</Text>
+            <Text color={colors.warning}>{`  ${imageNotice}`}</Text>
           )}
         </InputChrome>
 

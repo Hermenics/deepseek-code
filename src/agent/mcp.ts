@@ -38,6 +38,7 @@ export interface McpLoadOptions {
 
 export type McpApprovalRequest = TrustedArtifact
 
+/** Default time allowed for an MCP server to connect; loadMcpTools clamps overrides to 100ms–60s. */
 export const MCP_INITIAL_TIMEOUT_MS = 10_000
 
 /**
@@ -65,6 +66,7 @@ export function createMcpEnvironment(environment: Record<string, string | undefi
   return { ...base, TMPDIR: environment.TMPDIR || '/tmp' }
 }
 
+/** Minimal system PATH used when the parent environment has none. */
 function defaultBinPath(): string {
   return process.platform === 'win32'
     ? `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32`
@@ -149,6 +151,7 @@ interface McpConfig {
   servers: Record<string, McpServerConfig>
 }
 
+/** Reads and shallow-validates `.deepseek/mcp.json`, returning it with the trust artifact (canonical path + content hash) or null. */
 async function loadConfig(cwd: string): Promise<{ config: McpConfig; artifact: TrustedArtifact } | null> {
   const path = join(cwd, '.deepseek', 'mcp.json')
   try {
@@ -161,12 +164,14 @@ async function loadConfig(cwd: string): Promise<{ config: McpConfig; artifact: T
   }
 }
 
+/** Closes an MCP client, falling back to closing the raw transport if the client close fails. Never throws. */
 async function closeClient(client: Client | undefined, transport: StdioClientTransport | StreamableHTTPClientTransport | undefined): Promise<void> {
   try { await client?.close() } catch {
     await transport?.close().catch(() => undefined)
   }
 }
 
+/** Races an operation against a timer, rejecting with `message` after `timeoutMs`. Does not cancel the underlying operation. */
 function withTimeout<T>(operation: Promise<T>, timeoutMs: number, message: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(message)), timeoutMs)
@@ -174,6 +179,7 @@ function withTimeout<T>(operation: Promise<T>, timeoutMs: number, message: strin
   })
 }
 
+/** Records trust for the workspace's MCP config, refusing if the file changed since the approval request was generated. */
 export async function approveMcpConfig(cwd: string, approval: McpApprovalRequest, trustFile?: string): Promise<void> {
   const current = await hashTrustedFile(join(cwd, '.deepseek', 'mcp.json'))
   if (current.canonicalPath !== approval.canonicalPath || current.hash !== approval.hash) {
@@ -189,6 +195,11 @@ export interface McpLoadResult {
   cleanup?: () => Promise<void>
 }
 
+/**
+ * Connects to every server in the trusted `.deepseek/mcp.json` and exposes their tools as `<server>__<tool>`.
+ * Returns an `approval` request instead of connecting when the current config is not yet trusted. Per-server
+ * failures are collected in `errors` rather than thrown; `cleanup` closes all connected clients.
+ */
 export async function loadMcpTools(cwd = process.cwd(), options: McpLoadOptions = {}): Promise<McpLoadResult> {
   if (!options.enabled) return { tools: [], errors: [] }
   const loaded = await loadConfig(cwd)

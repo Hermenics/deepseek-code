@@ -109,6 +109,7 @@ const streamIdleTimeoutMs = () => {
   return Number.isFinite(configured) && configured > 0 ? configured : 120_000
 }
 
+/** Thrown when the user refuses a permission prompt; loop() turns it into a clean end of turn (history saved, onDenyAbort fired). */
 class DenyAbortError extends Error {
   constructor() { super('deny-abort') }
 }
@@ -118,6 +119,7 @@ const PARALLEL_SAFE = new Set(['subagent', 'ask_agent', 'grep', 'glob', 'read_fi
 
 const DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT_MD
 
+/** User message content: plain text when there are no images, otherwise a text part (with `[Image #N]` placeholders removed) followed by base64 data-URL image parts. */
 export function buildPromptContent(text: string, images: PromptImage[]): string | ChatCompletionContentPart[] {
   if (images.length === 0) return text
   const visibleText = text.replace(/\[Image #\d+\]/g, '').trim()
@@ -154,6 +156,7 @@ const READ_ONLY_MODE_ACTIONS: Record<string, string[]> = {
 const PROJECT_CONTEXT_MARKER = '<deepseek-project-context>'
 const LEGACY_PROJECT_CONTEXT_MARKER = '[System: Project instructions refreshed after compact]'
 
+/** In plan/review mode, narrows the `action` enum of the git/todo/memory schemas to their read-only actions; other tools and modes pass through unchanged. */
 function parametersForMode(toolName: string, parameters: object, mode: InteractionMode): object {
   if (mode !== 'plan' && mode !== 'review') return parameters
   const allowedActions = READ_ONLY_MODE_ACTIONS[toolName]
@@ -176,15 +179,18 @@ function parametersForMode(toolName: string, parameters: object, mode: Interacti
   }
 }
 
+/** True for the injected project-context message (current or legacy marker), so compaction, stats and session restore can skip it. */
 function isProjectContextMessage(message: MessageOrBoundary): boolean {
   if (isBoundaryMarker(message) || message.role !== 'user' || typeof message.content !== 'string') return false
   return message.content.startsWith(PROJECT_CONTEXT_MARKER) || message.content.startsWith(LEGACY_PROJECT_CONTEXT_MARKER)
 }
 
+/** True when the content is the built-in agent system prompt rather than a custom one, so a restored session can swap in the current prompt. */
 function isAgentSystemPrompt(content: unknown): boolean {
   return typeof content === 'string' && content.startsWith('You are DeepSeek Code')
 }
 
+/** Wraps each non-empty section in a tag inside the project-context packet, prefixed with a notice that the packet cannot override system rules; '' when every section is empty. */
 function buildProjectContext(sections: Array<[string, string | undefined]>): string {
   const loaded = sections
     .filter(([, content]) => Boolean(content?.trim()))
@@ -203,6 +209,7 @@ function buildProjectContext(sections: Array<[string, string | undefined]>): str
 // DeepSeek R1 on Bedrock does not support native tool calling.
 // We inject tool definitions into the system prompt and parse XML-style calls.
 
+/** Tool definitions as XML plus `<tool_call>` usage instructions, appended to the system prompt for Bedrock models without native tool calling. */
 export function buildBedrockToolsPrompt(tools: Tool[], mode: InteractionMode = 'auto'): string {
   const defs = tools.map((t) => {
     const parameters = parametersForMode(t.name, t.parameters, mode)
@@ -222,6 +229,7 @@ interface ParsedToolCall {
   raw: string
 }
 
+/** Extracts `<tool_call>` blocks from Bedrock model text; blocks without a `<name>` are skipped and unparseable `<args>` JSON becomes `{}`. */
 function parseBedrockToolCalls(text: string): ParsedToolCall[] {
   const calls: ParsedToolCall[] = []
   const regex = /<tool_call>([\s\S]*?)<\/tool_call>/g
@@ -241,6 +249,7 @@ function parseBedrockToolCalls(text: string): ParsedToolCall[] {
   return calls
 }
 
+/** Removes R1 prompt markup (tool calls/results, step/think blocks) and unwraps `<response>`, leaving the visible answer. */
 function stripToolCalls(text: string): string {
   return text
     .replace(/<tool_call>[\s\S]*?<\/tool_call>/g, '')
@@ -252,6 +261,7 @@ function stripToolCalls(text: string): string {
     .trim()
 }
 
+/** Parses the memory-extraction reply into a fact worth saving; null for 'none', greetings, facts outside 6–100 chars or entries that fail the memory safety check. */
 function parseAutoMemoryFact(content: unknown): { kind: 'user_preference' | 'project_fact'; fact: string } | null {
   if (typeof content !== 'string') return null
   try {
@@ -345,6 +355,7 @@ export function createR1MarkupFilter(onText: (text: string) => void, onThink: (t
   }
 }
 
+/** Joins the contents of every complete `<step>`, `<think>` and `<thinking>` block in the text. */
 function extractThinking(text: string): string {
   const parts: string[] = []
   const regexes = [/<step>([\s\S]*?)<\/step>/g, /<think>([\s\S]*?)<\/think>/g, /<thinking>([\s\S]*?)<\/thinking>/g]
@@ -385,6 +396,7 @@ export function parseToolCallArguments(tc: ToolCallInvocation['tc'], finishReaso
   }
 }
 
+/** OpenAI function-tool schemas for the tools, with the mode's read-only action restrictions applied. */
 function toOpenAITools(tools: Tool[], mode: InteractionMode = 'auto'): ChatCompletionTool[] {
   return tools.map((t) => ({
     type: 'function' as const,
@@ -392,6 +404,7 @@ function toOpenAITools(tools: Tool[], mode: InteractionMode = 'auto'): ChatCompl
   }))
 }
 
+/** Normalizes an http(s) URL by dropping its fragment; null for non-strings, other protocols or URLs with credentials. Used to match model-cited sources against fetched evidence. */
 export function canonicalResearchUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null
   try {
@@ -452,6 +465,7 @@ const READ_ONLY_PATH_TOOLS = new Set(['read_file', 'read_folder', 'grep', 'glob'
 /** Every decision point except outside_workspace treats 'reject' as 'deny', so it can never approve. */
 const refuses = (decision: ToolPermissionResult) => decision === 'deny' || decision === 'reject'
 
+/** True when target is root itself or lies inside it. */
 function isPathContained(root: string, target: string): boolean {
   const pathRelative = relative(root, target)
   return pathRelative === '' || (!pathRelative.startsWith('..') && !isAbsolute(pathRelative))
@@ -499,6 +513,7 @@ interface UndoEntry {
   existed: boolean
 }
 
+/** The main conversation agent: owns the history, provider client, tool permissions, hooks, subagent orchestrator and workflows, and runs each user turn through the model/tool loop. */
 export class Agent {
   private client: OpenAI
   private messages: MessageOrBoundary[] = [{ role: 'system', content: DEFAULT_SYSTEM_PROMPT }]
@@ -587,11 +602,16 @@ export class Agent {
     this.confirmHandler = handler
   }
 
+  /** Sets the MCP approval prompt handler and, if a project MCP config is already waiting for approval, asks right away. */
   setMcpApprovalHandler(handler: ((request: McpApprovalRequest) => Promise<boolean>) | null): void {
     this.mcpApprovalHandler = handler
     if (handler && this.mcpApprovalRequired) void this.resolveMcpApproval()
   }
 
+  /**
+   * Asks the handler to approve the pending project MCP config, then persists the approval and loads its tools.
+   * Bails out if the workspace changes mid-approval so tools from the old project are never installed; failures go to mcpErrors.
+   */
   private async resolveMcpApproval(): Promise<void> {
     const request = this.mcpApprovalRequired
     if (!request || !this.mcpApprovalHandler || this.mcpApprovalInFlight) return
@@ -619,11 +639,13 @@ export class Agent {
     }
   }
 
+  /** Replaces the tool set with the built-ins plus the given MCP tools and rebuilds the name lookup. */
   private installMcpTools(mcpTools: Tool[]): void {
     this.tools = mcpTools.length ? [...allTools, ...mcpTools] : allTools
     this.toolMap = new Map(this.tools.map(tool => [tool.name, tool]))
   }
 
+  /** Tools the model may be offered: those the interaction mode allows, further limited by an agent allowlist unless it is null or '*'. */
   private getAvailableTools(): Tool[] {
     return this.tools.filter((tool) => {
       if (!canUseTool(this.interactionMode, tool.name)) return false
@@ -640,12 +662,14 @@ export class Agent {
     return { role: 'user', content: this.projectContext }
   }
 
+  /** Fresh history: the system prompt plus the project-context message when there is one. */
   private createSeedMessages(): MessageOrBoundary[] {
     const messages: MessageOrBoundary[] = [{ role: 'system', content: this.systemPrompt }]
     if (this.projectContext) messages.push(this.createProjectContextMessage())
     return messages
   }
 
+  /** Merges subagent UI callbacks into the orchestrator and workflow listeners; null clears every per-subagent listener but keeps onNote. */
   setSubAgentCallbacks(callbacks: SubAgentCallbacks | null): void {
     this.orchestrationCallbacks = callbacks
       ? { ...this.orchestrationCallbacks, ...callbacks }
@@ -657,6 +681,7 @@ export class Agent {
     this.workflows.setCallbacks(this.orchestrationCallbacks)
   }
 
+  /** Sets the async agent-note listener on both the orchestrator and workflows. */
   setAgentNoteCallback(callback: ((agentName: string, text: string) => void) | null): void {
     this.orchestrationCallbacks = { ...this.orchestrationCallbacks, onNote: callback ?? undefined }
     this.orchestrator.setCallbacks(this.orchestrationCallbacks)
@@ -671,11 +696,13 @@ export class Agent {
     this.askUserHandler = handler
   }
 
+  /** Runs PermissionRequest hooks for a tool call; 'pass' when no hooks are configured. */
   private async permissionHookDecision(toolName: string, args: Record<string, unknown>): Promise<{ decision: 'pass' | 'block'; approved?: boolean; reason?: string }> {
     if (!this.settings.hooks) return { decision: 'pass' }
     return runPermissionRequestHooks(this.settings.hooks as HooksConfig, toolName, args, this.hookSessionId)
   }
 
+  /** Fires the StopFailure hook with the error message; no-op without hooks. */
   private async runStopFailureHook(error: unknown): Promise<void> {
     if (!this.settings.hooks) return
     const message = error instanceof Error ? error.message : String(error)
@@ -684,6 +711,7 @@ export class Agent {
     }, 'unknown')
   }
 
+  /** Fires the PostToolBatch hook for a batch of tool calls; no-op without hooks or calls. */
   private async runPostToolBatchHooks(toolCalls: Array<Record<string, unknown>>): Promise<void> {
     if (!this.settings.hooks || toolCalls.length === 0) return
     await runClaudeHookEvent(this.settings.hooks as HooksConfig, 'PostToolBatch', this.hookSessionId, {
@@ -691,6 +719,7 @@ export class Agent {
     })
   }
 
+  /** Fires the PermissionDenied hook for a refused tool call; no-op without hooks. */
   private async runPermissionDeniedHook(toolName: string, args: Record<string, unknown>, reason: string): Promise<void> {
     if (!this.settings.hooks) return
     await runClaudeHookEvent(this.settings.hooks as HooksConfig, 'PermissionDenied', this.hookSessionId, {
@@ -716,6 +745,7 @@ export class Agent {
     if (decision === 'always') await approvals.approve(scriptHash)
   }
 
+  /** Starts a workflow run after authorization; a refusal surfaces as a plain 'Workflow execution denied' error instead of aborting the turn. */
   async startWorkflow(input: StartWorkflowInput): Promise<WorkflowHandle> {
     await this.readyPromise
     try { await this.authorizeWorkflow(input.script, input as unknown as object) }
@@ -777,6 +807,12 @@ export class Agent {
     this.readyPromise = this.initialize()
   }
 
+  /**
+   * (Re)loads project state: settings, steering, AGENTS.md/DEEPSEEK.md, skills, memory and MCP tools; rebuilds the
+   * system prompt and seed history; runs Setup, InstructionsLoaded and SessionStart hooks. `restorePersisted` is false
+   * on a directory switch so persisted tasks are not restored again. Errors land in initErrors and the agent falls back
+   * to an empty project context.
+   */
   private async initialize(restorePersisted = true): Promise<void> {
     try {
       await this.mcpCleanup?.()
@@ -862,6 +898,7 @@ export class Agent {
 
   // ── Abort ──────────────────────────────────────────────────────────────────
 
+  /** Aborts the current turn and cancels unfinished foreground subagent tasks; background tasks keep running. */
   abort() {
     this.abortController?.abort()
     for (const task of this.orchestrator.registry.listTasks()) {
@@ -873,6 +910,7 @@ export class Agent {
 
   // ── Undo ───────────────────────────────────────────────────────────────────
 
+  /** Reverts the latest undo entry (restoring the file, or deleting one that did not exist); refuses if the path no longer resolves to the same location. */
   async undo(): Promise<string> {
     const entry = this.undoStack.at(-1)
     if (!entry) return 'Nothing to undo.'
@@ -893,10 +931,12 @@ export class Agent {
     }
   }
 
+  /** Rolls back every file checkpoint recorded in this session. */
   async undoAll(): Promise<string> {
     return fileRollbackAll(this.hookSessionId)
   }
 
+  /** Lists this session's file checkpoints, one per line. */
   async undoList(): Promise<string> {
     const entries = await listFileCheckpoints(this.hookSessionId)
     if (entries.length === 0) return 'No file checkpoints in this session.'
@@ -907,6 +947,7 @@ export class Agent {
 
   // ── Files modified ─────────────────────────────────────────────────────────
 
+  /** Files changed by write tools since the history was last cleared. */
   getFilesModified(): string[] {
     return [...this.filesModified]
   }
@@ -937,6 +978,7 @@ export class Agent {
     ].join('\n')
   }
 
+  /** Names of every installed tool, including MCP tools, regardless of mode. */
   getToolNames(): string[] {
     return this.tools.map((t) => t.name)
   }
@@ -948,6 +990,7 @@ export class Agent {
 
   getWorkingDirectory(): string { return this.workspacePath }
 
+  /** Adds an extra accessible directory, pre-approves it for this session and fires DirectoryAdded; returns the canonical path. */
   async addAdditionalDirectory(directoryPath: string): Promise<string> {
     await this.readyPromise
     const canonical = await this.additionalDirectories.add(directoryPath)
@@ -958,6 +1001,7 @@ export class Agent {
     return canonical
   }
 
+  /** Removes an additional directory and its session approval; false when it was not registered. */
   async removeAdditionalDirectory(directoryPath: string): Promise<boolean> {
     await this.readyPromise
     const canonical = await this.additionalDirectories.remove(directoryPath)
@@ -970,6 +1014,11 @@ export class Agent {
     return this.additionalDirectories.list()
   }
 
+  /**
+   * Moves the session to another project root: refuses while a workflow runs, resets directory approvals and the agent
+   * allowlist, reinitializes without restoring persisted tasks, fires CwdChanged, and re-applies the active agent when
+   * the new project has a trusted one with the same name.
+   */
   async setWorkingDirectory(path: string, _changeProjectRoot = true): Promise<void> {
     await this.readyPromise
     const target = resolve(path)
@@ -994,6 +1043,7 @@ export class Agent {
     }
   }
 
+  /** Aborts the turn, closes MCP servers, runs SessionEnd hooks once (ignoring hook errors), then shuts down workflows and the orchestrator. */
   async shutdown(): Promise<void> {
     this.abortController?.abort(new Error('Agent shutdown'))
     await this.mcpCleanup?.()
@@ -1012,6 +1062,7 @@ export class Agent {
     await this.orchestrator.shutdown('Agent shutdown')
   }
 
+  /** This session's tasks as a tree indented by parent, with state, attempt, workspace isolation and any error or block reason. */
   formatTasks(): string {
     const tasks = this.orchestrator.registry.listTasks()
     if (tasks.length === 0) return 'No tasks in this session.'
@@ -1034,6 +1085,10 @@ export class Agent {
     return lines.join('\n')
   }
 
+  /**
+   * Runs a task control action and returns a user-facing string; errors are returned, not thrown.
+   * A `message` of the form `allow <tool>` / `deny <tool>` answers that task's pending permission request instead of asking a question.
+   */
   async controlTask(id: string, action: 'status' | 'cancel' | 'resume' | 'result' | 'message' | 'integrate' | 'cleanup', message?: string): Promise<string> {
     try {
       if (action === 'cancel') return this.orchestrator.registry.cancel(id) ? `Task ${id} cancelled.` : `Task ${id} is already terminal.`
@@ -1060,6 +1115,7 @@ export class Agent {
     }
   }
 
+  /** Snapshot of the mode, allowlist, session approvals (directories as `directory:<path>`), mode tools and configured permission/risk rules. */
   getPermissionsInfo(): { mode: InteractionMode; allowedTools: string[] | '*' | null; sessionApproved: string[]; modeTools: string[]; permissions: DeepSeekSettings['permissions']; risk: DeepSeekSettings['risk'] } {
     return {
       mode: this.interactionMode,
@@ -1071,12 +1127,14 @@ export class Agent {
     }
   }
 
+  /** Forgets session-approved tools and directories, including additional directories. */
   clearSessionApprovals(): void {
     this.sessionApprovedTools.clear()
     this.sessionApprovedDirectories.clear()
     this.additionalDirectories = new AdditionalDirectories(this.workspacePath)
   }
 
+  /** Applies new settings at runtime (effort, auto-compact, model unless the provider config pins one, task limits, memory, subagent model) and fires ConfigChange. */
   async applySettings(settings: DeepSeekSettings): Promise<void> {
     // Construction starts a settings load of its own. Without this wait it
     // can land after an explicit applySettings and quietly put the old
@@ -1102,6 +1160,10 @@ export class Agent {
 
   // ── Available models (dynamic) ──────────────────────────────────────────────
 
+  /**
+   * Lists models for the current provider. Bedrock and Vertex use their native listings; others use /v1/models, which
+   * also records any context-window size the model metadata reports. The /v1/models path returns [] on failure.
+   */
   async getAvailableModels(): Promise<string[]> {
     // Bedrock and Vertex: list only DeepSeek models via native SDK/API
     // (the /v1/models OpenAI-compat endpoint does not work for these providers)
@@ -1143,6 +1205,7 @@ export class Agent {
     }
   }
 
+  /** Checks that a provider config works by listing its models, failing after timeoutMs; the active provider is not changed. */
   async testProviderConfig(cfg: ProviderConfig, timeoutMs = 10_000): Promise<string[]> {
     const provider = cfg.provider
     const operation = async (): Promise<string[]> => {
@@ -1272,6 +1335,7 @@ export class Agent {
 
   // ── Context breakdown ─────────────────────────────────────────────────────
 
+  /** Estimates how the context window splits between system prompt, tool schemas and messages. */
   getContextBreakdown(): ContextBreakdown {
     const rawMessages = this.messages.filter(m => typeof m === 'object' && 'role' in m)
     const input: ContextSnapshotInput = {
@@ -1296,6 +1360,7 @@ export class Agent {
 
   // ── Checkpoint ─────────────────────────────────────────────────────────────
 
+  /** Saves the conversation and the modified-file list as a checkpoint; returns its id. */
   async saveCheckpoint(label?: string): Promise<string> {
     const id = await saveCheckpoint(this.messages, [...this.filesModified], label)
     return id
@@ -1305,6 +1370,7 @@ export class Agent {
     return listCheckpoints()
   }
 
+  /** Replaces the conversation with a saved checkpoint and persists it; files on disk are not touched. */
   async restoreCheckpoint(id: string): Promise<string> {
     const cp = await loadCheckpoint(id)
     if (!cp) return `Checkpoint ${id} not found.`
@@ -1315,6 +1381,10 @@ export class Agent {
 
   // ── Compact ────────────────────────────────────────────────────────────────
 
+  /**
+   * Summarizes the active conversation with the model and replaces history with the system prompt, a compact boundary,
+   * the project context and the summary. A PreCompact hook block throws; file read times are cleared so edits need a fresh read.
+   */
   async compact(trigger: 'manual' | 'auto' = 'manual'): Promise<string> {
     const activeMessages = getMessagesAfterBoundary(this.messages)
     const nonSystem = activeMessages.filter((m) => m.role !== 'system' && !isProjectContextMessage(m))
@@ -1364,6 +1434,7 @@ export class Agent {
     return summary
   }
 
+  /** Switches the model for this session, its subagents and workflows, updating the context limit. */
   setModel(m: Model) {
     this.model = m
     this.contextLimit = this.getModelContextLimit(m)
@@ -1371,6 +1442,7 @@ export class Agent {
     this.workflows.configure({ model: m })
   }
 
+  /** Switches provider: new client, model chosen from the config, its local model, the settings default (unless a profile is used) or the provider default, and reset context limits. */
   setProviderConfig(config: ProviderConfig): void {
     const configuredModel = typeof this.settings.model === 'string' ? this.settings.model : this.settings.model?.default
     const model = (config.model ?? (config.provider === 'local' && config.localModel
@@ -1387,14 +1459,21 @@ export class Agent {
     this.workflows.configure({ providerConfig: this.providerConfig, model })
   }
 
+  /** Context limit for a model, preferring the size discovered from the provider's model list over the built-in table. */
   getModelContextLimit(model: string): number {
     return this.modelContextLimits.get(model) ?? getContextLimit(this.provider, model)
   }
 
+  /** Like getModelContextLimit, but undefined when neither discovery nor the built-in table knows the model. */
   getKnownModelContextLimit(model: string): number | undefined {
     return this.modelContextLimits.get(model) ?? getKnownContextLimit(this.provider, model)
   }
 
+  /**
+   * Researches descriptions for models without a known or cached one: web-searches each model and asks the model to
+   * summarize, in batches of 5. Only entries whose source URL appears in the fetched evidence are kept; results are
+   * merged into the description cache and persisted.
+   */
   async generateDescriptions(models: string[]): Promise<Record<string, string>> {
     const { getKnownDescription, getModelDescription, isGenericModelDescription, saveCachedDescriptions } = await import('./modelInfo.js')
     const cache = new Map<string, string>()
@@ -1480,6 +1559,7 @@ export class Agent {
     return merged
   }
 
+  /** Sets the effort level from an explicit /effort, which from then on overrides the budget-derived level. */
   setEffortLevel(level: EffortLevel): void {
     this.effortPinnedByUser = true
     this.effortLevel = level
@@ -1511,6 +1591,7 @@ export class Agent {
     this.settings.promptRefiner.enabled = enabled
   }
 
+  /** Shows how the prompt refiner would rewrite a prompt, with the refiner's model and minimum length, without running a turn. */
   async previewPromptRefiner(prompt: string): Promise<PromptRefinementPreview> {
     await this.readyPromise
     const model = this.settings.promptRefiner?.model ?? this.model
@@ -1518,6 +1599,7 @@ export class Agent {
     return previewPromptRefinement(this.client, model, prompt, minimum)
   }
 
+  /** Rewrites the `# EFFORT LEVEL` section of the system prompt for the current level and updates the history's system message. */
   private rebuildSystemPromptEffort(): void {
     // Strip any existing effort hint
     this.systemPrompt = this.systemPrompt.replace(/\n\n# EFFORT LEVEL\n[\s\S]*?(?=\n\n#|$)/, '')
@@ -1529,6 +1611,7 @@ export class Agent {
     this.messages = [{ role: 'system', content: this.systemPrompt }, ...this.messages.slice(1)]
   }
 
+  /** Prompt guidance for the effort level; null for 'high', the default behaviour. */
   private getEffortHint(): string | null {
     switch (this.effortLevel) {
       case 'low': return 'Favor speed: inspect only what the change touches, make the edit, run the smallest check, and keep replies to a few sentences.'
@@ -1567,6 +1650,7 @@ export class Agent {
     return { reasoning_effort: 'high', thinking: { type: 'enabled' } }
   }
 
+  /** Per-request contract block telling the model its mode, supplied tools, allowlist and mode restrictions, and that runtime gates still apply. */
   private getRuntimeContract(availableTools: Tool[] = this.getAvailableTools()): string {
     const toolNames = availableTools.map((tool) => tool.name)
     const allowlist = this.allowedTools === null
@@ -1598,6 +1682,7 @@ export class Agent {
     ].join('\n')
   }
 
+  /** System prompt sent to the API: the stored prompt plus the runtime contract, plus prompt-based tool definitions for Bedrock models without chat-completions support. */
   private getApiSystemPrompt(availableTools: Tool[] = this.getAvailableTools(), includeBedrockTools = true): string {
     const runtimeContract = this.getRuntimeContract(availableTools)
     if (includeBedrockTools && this.provider === 'bedrock' && !modelSupportsChatCompletions(this.model)) {
@@ -1606,6 +1691,7 @@ export class Agent {
     return `${this.systemPrompt}\n\n${runtimeContract}`
   }
 
+  /** Sets or clears the `# PREFERRED LANGUAGE` section of the system prompt and updates the history's system message. */
   setLanguage(language: string | null | undefined): void {
     this.currentLanguage = language ?? null
     const pattern = /\n\n# PREFERRED LANGUAGE\n[^\n]*(?=\n\n#|$)/
@@ -1621,6 +1707,7 @@ export class Agent {
     this.messages = [{ role: 'system', content: this.systemPrompt }, ...this.messages.slice(1)]
   }
 
+  /** Resets the conversation to the seed messages and forgets undo entries, modified files and file read times. */
   clearHistory() {
     this.messages = this.createSeedMessages()
     this.undoStack = []
@@ -1628,6 +1715,7 @@ export class Agent {
     this.fileSeenTimes.clear()
   }
 
+  /** Queues an async agent note to be appended to the next user message. */
   addAgentNote(agentName: string, text: string): void {
     this.pendingAgentNotes.push({ agentName, text })
   }
@@ -1703,6 +1791,7 @@ export class Agent {
     return messages
   }
 
+  /** History without compact boundary markers. */
   getMessages(): ChatCompletionMessageParam[] {
     // Backward compatible — external consumers get clean messages without boundary markers
     return this.messages.filter(
@@ -1715,6 +1804,7 @@ export class Agent {
     return this.messages
   }
 
+  /** Restores a saved session: drops stale project-context messages, swaps a saved built-in system prompt for the current one, and re-inserts the current project context after the last compact boundary. */
   loadSessionMessages(messages: MessageOrBoundary[]): void {
     const withoutProjectContext = messages.filter((message) => !isProjectContextMessage(message))
     const first = withoutProjectContext[0]
@@ -1734,6 +1824,7 @@ export class Agent {
     }
   }
 
+  /** Switches to a custom agent: appends its prompt and files to the base prompt as untrusted guidance, applies its model and tool allowlist, resets session approvals and clears history. */
   async applyAgentConfig(config: AgentConfig): Promise<void> {
     const promptParts = [
       this.baseSystemPrompt,
@@ -1759,6 +1850,7 @@ export class Agent {
     this.clearHistory()
   }
 
+  /** Returns to the default agent: default prompt and provider model, no allowlist or session approvals, and a cleared history. */
   resetAgent() {
     this.systemPrompt = DEFAULT_SYSTEM_PROMPT
     this.baseSystemPrompt = DEFAULT_SYSTEM_PROMPT
@@ -1864,6 +1956,7 @@ export class Agent {
 
   // ── Retry helper ───────────────────────────────────────────────────────────
 
+  /** Retries fn up to 3 times (1s/2s/4s backoff) on transient HTTP statuses, connection errors and stream idle timeouts; never once the signal is aborted. */
   private async withRetry<T>(fn: () => Promise<T>, signal = this.abortController?.signal): Promise<T> {
     const delays = [1000, 2000, 4000]
     for (let attempt = 0; attempt <= delays.length; attempt++) {
@@ -1956,6 +2049,7 @@ export class Agent {
     })
   }
 
+  /** Sleeps for delayMs, rejecting early with the signal's reason if it aborts. */
   private waitForRetry(delayMs: number, signal = this.abortController?.signal): Promise<void> {
     if (signal?.aborted) return Promise.reject(signal.reason)
     return new Promise((resolve, reject) => {
@@ -1967,6 +2061,7 @@ export class Agent {
     })
   }
 
+  /** Runs the turn loop, turning a DenyAbortError into a clean stop: history is saved, then onDenyAbort and onDone fire. */
   private async loop(cb: AgentCallbacks) {
     try {
       await this.runLoop(cb)
@@ -2945,6 +3040,7 @@ export class Agent {
     return null
   }
 
+  /** Records a file's mtime after a successful read or write so readBeforeEditError can catch unread or externally changed files. */
   private async recordFileSeen(toolName: string, args: Record<string, unknown>, result: string): Promise<void> {
     if ((toolName !== 'read_file' && !FILE_WRITE_TOOLS.includes(toolName)) || typeof args.path !== 'string' || /^(Error|\{"error")/.test(result)) return
     const filePath = resolve(this.workspacePath, args.path)
@@ -2970,6 +3066,7 @@ export class Agent {
     return messages
   }
 
+  /** Messages ready for the API, with the system message replaced by getApiSystemPrompt for the given tools. */
   private getApiMessages(
     messages: ChatCompletionMessageParam[],
     availableTools: Tool[] = this.getAvailableTools(),
@@ -2981,6 +3078,7 @@ export class Agent {
     return [{ ...first, content: this.getApiSystemPrompt(availableTools, includeBedrockTools) }, ...sanitized.slice(1)]
   }
 
+  /** Validates arguments against the tool schema and runs the tool with this session's context; unknown tools, invalid arguments and thrown errors come back as result strings. */
   private async executeTool(name: string, args: Record<string, unknown>, dangerousOperationApproved = false, approvedExternalPaths: string[] = [], callbacks?: ToolCallbacks): Promise<string> {
     const tool = this.toolMap.get(name)
     if (!tool) return `Unknown tool: ${name}`

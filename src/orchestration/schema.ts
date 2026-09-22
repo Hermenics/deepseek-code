@@ -15,6 +15,7 @@ function formatErrors(errors: ErrorObject[] | null | undefined): string[] {
   return (errors ?? []).map(error => `${error.instancePath || '/'} ${error.message ?? 'is invalid'}`)
 }
 
+/** Validate a value against a JSON schema with Ajv, caching the compiled validator per schema object. */
 export function validateSchema<T>(schema: object, value: unknown): SchemaValidation<T> {
   let validate = validators.get(schema)
   if (!validate) {
@@ -25,6 +26,7 @@ export function validateSchema<T>(schema: object, value: unknown): SchemaValidat
   return { valid: false, errors: formatErrors(validate.errors) }
 }
 
+/** Validate tool-call arguments. Object schemas with properties are closed (extra keys rejected); without a schema only a plain object is required. */
 export function validateToolArguments(schema: object | undefined, value: unknown): SchemaValidation<Record<string, unknown>> {
   if (!schema) return value && typeof value === 'object' && !Array.isArray(value)
     ? { valid: true, value: value as Record<string, unknown>, errors: [] }
@@ -165,6 +167,7 @@ export function validateTaskRecord(value: unknown): SchemaValidation<TaskRecordV
   return validateSchema(TASK_RECORD_SCHEMA, value)
 }
 
+/** Validate a snapshot task record and check that it and its result envelope belong to this session and agree on task ID and status. */
 export function validateRestoredTaskRecord(value: unknown, sessionId: string): SchemaValidation<TaskRecordV1> {
   const record = validateTaskRecord(value)
   if (!record.valid || !record.value) return record

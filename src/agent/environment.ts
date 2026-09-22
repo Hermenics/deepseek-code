@@ -15,6 +15,7 @@ export interface EnvironmentInfo {
   date: string
 }
 
+/** Runs a git command with a 3s timeout, returning trimmed stdout on success and undefined on any failure. */
 async function git(cwd: string, args: string[]): Promise<string | undefined> {
   try {
     const result = await execa('git', args, { cwd, reject: false, timeout: 3_000 })
@@ -22,6 +23,7 @@ async function git(cwd: string, args: string[]): Promise<string | undefined> {
   } catch { return undefined }
 }
 
+/** Gathers working directory, OS, shell, git status/branch, model and date for the system prompt's environment block. */
 export async function collectEnvironmentInfo(options: {
   workingDirectory: string
   additionalDirectories?: string[]

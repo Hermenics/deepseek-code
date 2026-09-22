@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/memory [clear [agent|user]]` (alias `/mem`): shows persistent memory, or clears it (optionally only one scope). */
 const command: Command = {
   name: 'memory',
   aliases: ['mem'],

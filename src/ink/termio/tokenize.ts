@@ -96,6 +96,11 @@ type InternalState = {
   buffer: string
 }
 
+/**
+ * One state-machine pass over buffered + new input, splitting it into text and
+ * escape-sequence tokens. An unfinished sequence at the end is returned in the
+ * state buffer for the next call, or emitted as-is when flush is true.
+ */
 function tokenize(
   input: string,
   initialState: State,

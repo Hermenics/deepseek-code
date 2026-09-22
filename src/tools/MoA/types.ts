@@ -60,6 +60,7 @@ export interface MoACallbacks {
   onError?: (error: MoAExecutionError) => void
 }
 
+/** Typed MoA failure that carries whatever reference and aggregator results completed before it, so callers can still report partial work. */
 export class MoAExecutionError extends Error {
   constructor(
     readonly code: 'INVALID_CONFIG' | 'INSUFFICIENT_CANDIDATES' | 'AGGREGATOR_FAILED' | 'BUDGET_EXCEEDED' | 'CANCELLED',

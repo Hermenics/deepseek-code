@@ -33,6 +33,7 @@ const THEMES: { label: string; value: ThemeName }[] = [
   { label: 'Light mode (ANSI colors only)', value: 'light-ansi' },
 ]
 
+/** Merges the given keys into the saved credentials config (creating `~/.deepseek` if needed) without dropping existing entries. */
 export async function saveConfig(data: Record<string, string>): Promise<void> {
   const dir = join(homedir(), '.deepseek')
   await mkdir(dir, { recursive: true })
@@ -40,6 +41,7 @@ export async function saveConfig(data: Record<string, string>): Promise<void> {
   await saveFullConfig({ ...existing, ...data })
 }
 
+/** Loads the active provider profile (migrating a legacy single-provider config and picking the first profile when none is active) plus theme, language and prompt-refiner settings; providerConfig is null unless its required fields are set, and any failure yields safe defaults. */
 export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfig | null; theme: ThemeName; language: string | null; enchant: boolean }> {
   try {
     const [cfg, settings] = await Promise.all([loadFullConfig(), loadMergedSettings()])
@@ -100,6 +102,7 @@ interface Props {
   onDone(theme: ThemeName, providerConfig: ProviderConfig): void
 }
 
+/** First-run wizard: picks a theme, then a provider, then prompts for that provider's fields, saving credentials and a provider profile before calling onDone. */
 export function ApiKeySetup({ onDone }: Props) {
   const [step, setStep] = useState<Step>('theme')
   const [themeIdx, setThemeIdx] = useState(0)
@@ -252,14 +255,15 @@ export function ApiKeySetup({ onDone }: Props) {
     }
   })
 
+  const colors = getThemeColors(selectedTheme)
+
   if (step === 'done') {
-    return <Box marginTop={1}><Text color="green">{'✓ Saved! Starting DeepSeek Code…'}</Text></Box>
+    return <Box marginTop={1}><Text color={colors.success}>{'✓ Saved! Starting DeepSeek Code…'}</Text></Box>
   }
 
   let content: React.ReactNode = null
 
   if (step === 'theme') {
-    const colors = getThemeColors(selectedTheme)
     content = (
       <Box flexDirection="column" marginTop={1}>
         <Text>Choose the text style that looks best with your terminal:</Text>
@@ -268,7 +272,7 @@ export function ApiKeySetup({ onDone }: Props) {
           <Box flexDirection="column">
             {THEMES.map((t, i) => (
               <Box key={t.value}>
-                <Text color={i === themeIdx ? 'cyan' : undefined}>{i === themeIdx ? '❯ ' : '  '}{t.label}</Text>
+                <Text color={i === themeIdx ? colors.primary : undefined}>{i === themeIdx ? '❯ ' : '  '}{t.label}</Text>
               </Box>
             ))}
           </Box>
@@ -276,20 +280,20 @@ export function ApiKeySetup({ onDone }: Props) {
           {/* Separator */}
           <Box flexDirection="column">
             {Array.from({ length: THEMES.length }).map((_, i) => (
-              <Text key={i} color="#444444">{'│'}</Text>
+              <Text key={i} color={colors.rule}>{'│'}</Text>
             ))}
           </Box>
 
           {/* Diff preview (right) */}
           <Box flexDirection="column">
-            <Text color="#888888" italic>{'Preview — demo.js'}</Text>
+            <Text color={colors.textSubtle} italic>{'Preview — demo.js'}</Text>
             <Text color={colors.textDim}>{' function greet() {'}</Text>
             <Text backgroundColor={colors.diffRemoved} color={colors.diffRemovedWord}>{'-  console.log("Hello, World!");'}</Text>
             <Text backgroundColor={colors.diffAdded} color={colors.diffAddedWord}>{'+  console.log("Hello, DeepSeek!");'}</Text>
             <Text color={colors.textDim}>{' }'}</Text>
           </Box>
         </Box>
-        <Text color="#888888">{'↑↓ navigate · Enter select · Esc exit'}</Text>
+        <Text color={colors.textDim}>{'↑↓ navigate · Enter select · Esc exit'}</Text>
       </Box>
     )
   } else if (step === 'provider') {
@@ -299,12 +303,12 @@ export function ApiKeySetup({ onDone }: Props) {
         <Box flexDirection="column" marginTop={1}>
           {PROVIDERS.map((p, i) => (
             <Box key={p.value} flexDirection="row" gap={2}>
-              <Text color={i === providerIdx ? 'cyan' : undefined}>{i === providerIdx ? '❯ ' : '  '}{p.label}</Text>
-              <Text color="#888888">{p.hint}</Text>
+              <Text color={i === providerIdx ? colors.primary : undefined}>{i === providerIdx ? '❯ ' : '  '}{p.label}</Text>
+              <Text color={colors.textDim}>{p.hint}</Text>
             </Box>
           ))}
         </Box>
-        <Text color="#888888">{'↑↓ navigate · Enter select · Esc back'}</Text>
+        <Text color={colors.textDim}>{'↑↓ navigate · Enter select · Esc back'}</Text>
       </Box>
     )
   } else if (step === 'fields') {
@@ -313,20 +317,20 @@ export function ApiKeySetup({ onDone }: Props) {
       <Box flexDirection="column" marginTop={1}>
         <Text>{PROVIDERS[providerIdx]!.label + ' setup ' + progress}</Text>
         <Text>{currentField!.label}</Text>
-        {currentField!.hint ? <Text color="#888888">{currentField!.hint}</Text> : null}
+        {currentField!.hint ? <Text color={colors.textDim}>{currentField!.hint}</Text> : null}
         <Box marginTop={1}>
-          <Text color="cyan">{'> '}</Text>
+          <Text color={colors.primary}>{'> '}</Text>
           <Text>{currentField!.secret ? '•'.repeat(currentInput.length) : currentInput}</Text>
-          <Text color="cyan">{'█'}</Text>
+          <Text color={colors.primary}>{'█'}</Text>
         </Box>
-        {saving ? <Text color="#888888">Saving…</Text> : checkingHealth ? <Text color="#888888">Checking the official DeepSeek API…</Text> : error ? <Text color="red">{error}</Text> : <Text color="#888888">{'Enter to confirm · Esc back'}</Text>}
+        {saving ? <Text color={colors.textDim}>Saving…</Text> : checkingHealth ? <Text color={colors.textDim}>Checking the official DeepSeek API…</Text> : error ? <Text color={colors.error}>{error}</Text> : <Text color={colors.textDim}>{'Enter to confirm · Esc back'}</Text>}
       </Box>
     )
   }
 
   return (
     <Box flexDirection="column" paddingLeft={2} paddingRight={2} paddingTop={1} paddingBottom={1}>
-      <WelcomeScreen>{content}</WelcomeScreen>
+      <WelcomeScreen theme={selectedTheme}>{content}</WelcomeScreen>
     </Box>
   )
 }
