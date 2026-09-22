@@ -45,7 +45,8 @@ export class WorkflowEngine {
 
       // Phase timeout: a waitTasks that never settles fails the run.
       const phaseTimeout = phase.timeout_ms ?? definition.timeout_ms ?? 300_000
-      const ok = await Promise.race([waitTasks(spawnedIds), timeout(phaseTimeout).then(() => false)])
+      const deadline = timeout(phaseTimeout)
+      const ok = await Promise.race([waitTasks(spawnedIds), deadline.expired]).finally(deadline.clear)
       if (!ok) { for (const tid of spawnedIds) cancelTask?.(tid); this.fail(run, `Tasks for '${phase.title}' did not complete successfully`); return run }
       completed.add(phase.title)
     }
@@ -98,8 +99,12 @@ export class WorkflowEngine {
 function substitute(template: string, ctx: WorkflowContext): string { return template.replace(/\$\{task\}/g, () => ctx.task).replace(/\$\{context\}/g, () => ctx.context ?? '') }
 /** Parses a JSON array column, returning [] for malformed or non-array values. */
 function parseArray(v: string): string[] { try { const p = JSON.parse(v); return Array.isArray(p) ? p : [] } catch { return [] } }
-/** Promise that rejects with `Error('timeout')` after `ms`. */
-function timeout(ms: number): Promise<never> { return new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)) }
+/** A deadline that resolves `false` after `ms`, so racing it against a phase reads as "not completed"; `clear` stops the timer once the phase settles first. */
+function timeout(ms: number): { expired: Promise<false>; clear: () => void } {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const expired = new Promise<false>((resolve) => { timer = setTimeout(() => resolve(false), ms) })
+  return { expired, clear: () => clearTimeout(timer) }
+}
 
 /** Built-in workflow: three parallel reviewers find issues, then two verifiers check the findings. */
 export const REVIEW_WORKFLOW: WorkflowDefinition = { name: 'multi-perspective-review', version: 1, phases: [{ title: 'Find', fan_out: 3, role: 'reviewer', prompt_template: 'Review for issues: ${task}\n\nContext: ${context}', timeout_ms: 60_000 }, { title: 'Verify', fan_out: 2, role: 'verifier', prompt_template: 'Verify findings. Task: ${task}', depends_on: ['Find'], timeout_ms: 60_000 }] }

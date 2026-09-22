@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import type { SubagentState } from './types.js'
 import type { SubAgentResult } from '../../tools/SubAgent/contracts.js'
 
@@ -21,8 +22,8 @@ export interface UseSubagentsReturn {
   clearResolved: () => void
 }
 
-/** Creates a plain mutable subagent store (not React state; callers must re-render themselves) whose callbacks update agents in place as subagent lifecycle events arrive. clearResolved drops finished standalone agents but keeps workflow agents. */
-export function useSubagents(): UseSubagentsReturn {
+/** Creates a plain mutable subagent store (not React state; callers must re-render themselves), for callers outside React, whose callbacks update agents in place as subagent lifecycle events arrive. clearResolved drops finished standalone agents but keeps workflow agents. */
+export function createSubagentStore(): UseSubagentsReturn {
   const hook: UseSubagentsReturn = {
     agents: [],
 
@@ -177,4 +178,11 @@ export function useSubagents(): UseSubagentsReturn {
   }
 
   return hook
+}
+
+/** The subagent store for a component: created on the first render and returned unchanged on every later one. */
+export function useSubagents(): UseSubagentsReturn {
+  const store = useRef<UseSubagentsReturn | null>(null)
+  if (!store.current) store.current = createSubagentStore()
+  return store.current
 }

@@ -22,3 +22,27 @@ export async function checkOfficialDeepSeekApi(
     clearTimeout(timer)
   }
 }
+
+export type KeyCheckOutcome =
+  | { next: 'complete' }
+  | { next: 'baseUrl'; required: boolean; notice: string }
+  | { next: 'error'; message: string }
+
+/**
+ * What the setup does after checking a key against the official DeepSeek API. A working key finishes
+ * setup. A rejected key may belong to a proxy or gateway, so it leads to the base URL field (required,
+ * since the key is useless against the official API) instead of blocking; an unreachable API leads
+ * there too, with the base URL optional.
+ */
+export function afterKeyCheck(health: DeepSeekHealth): KeyCheckOutcome {
+  switch (health) {
+    case 'ok':
+      return { next: 'complete' }
+    case 'auth-error':
+      return { next: 'baseUrl', required: true, notice: 'The official DeepSeek API rejected this key. If it belongs to a proxy or gateway, enter its base URL.' }
+    case 'unreachable':
+      return { next: 'baseUrl', required: false, notice: 'The official DeepSeek API could not be reached. Enter a base URL, or leave it empty to keep api.deepseek.com.' }
+    case 'service-error':
+      return { next: 'error', message: 'The official DeepSeek API is unavailable right now. Try again later or check your account or billing.' }
+  }
+}

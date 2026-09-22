@@ -1,10 +1,11 @@
-import { isAbsolute, join, relative, resolve } from 'path'
+import { join, relative, resolve } from 'path'
 import { mkdir, readFile, writeFile, readdir, realpath, stat } from 'fs/promises'
 import { existsSync, realpathSync } from 'fs'
 import { execa } from 'execa'
 import { randomBytes, randomUUID } from 'crypto'
 import { loadMergedSettings } from '../settings/loader.js'
 import { runClaudeHookEvent } from '../hooks/lifecycle.js'
+import { escapesRoot } from '../utils/pathContainment.js'
 
 const ADJECTIVES = [
   'swift', 'bold', 'calm', 'dark', 'keen', 'warm', 'wild', 'sure', 'vast', 'pure',
@@ -76,7 +77,7 @@ export function validatePathUnderWorktrees(targetPath: string, projectRoot: stri
   const worktreesRoot = existing(resolve(projectRoot, WORKTREES_DIR))
   const resolved = existing(targetPath)
   const child = relative(worktreesRoot, resolved)
-  return child === '' || (!child.startsWith('..') && !isAbsolute(child))
+  return child === '' || !escapesRoot(child)
 }
 
 /**

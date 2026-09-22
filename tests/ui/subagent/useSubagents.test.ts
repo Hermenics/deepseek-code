@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
-import { useSubagents } from '../../../src/ui/subagent/useSubagents.js'
+import { createSubagentStore } from '../../../src/ui/subagent/useSubagents.js'
 import type { UseSubagentsReturn } from '../../../src/ui/subagent/useSubagents.js'
 import type { SubagentState } from '../../../src/ui/subagent/types.js'
 
 function createHook(): UseSubagentsReturn {
-  return useSubagents()
+  return createSubagentStore()
 }
 
 describe('useSubagents', () => {
@@ -463,7 +463,7 @@ describe('useSubagents', () => {
   })
   describe('label and prompt separation', () => {
     it('seeds the transcript with the real instruction while task stays the short label', () => {
-      const hook = useSubagents()
+      const hook = createSubagentStore()
 
       hook.onSubagentStart({ id: 'a1', task: 'alpha:red', prompt: 'Return exactly one word. Use NO tools.' })
 
@@ -475,7 +475,7 @@ describe('useSubagents', () => {
     })
 
     it('falls back to the task when no prompt was captured', () => {
-      const hook = useSubagents()
+      const hook = createSubagentStore()
 
       hook.onSubagentStart({ id: 'a1', task: 'Review the diff' })
 
@@ -485,7 +485,7 @@ describe('useSubagents', () => {
     })
 
     it('backfills the prompt when it arrives on a later state update', () => {
-      const hook = useSubagents()
+      const hook = createSubagentStore()
 
       hook.onSubagentStart({ id: 'a1', task: 'alpha:red' })
       hook.onSubagentState({ id: 'a1', status: 'done', prompt: 'Return exactly one word.' })

@@ -1,8 +1,9 @@
 import { homedir } from 'node:os'
-import { isAbsolute, join, relative, resolve, dirname } from 'node:path'
+import { join, relative, resolve, dirname } from 'node:path'
 import { lstat, readdir, readFile, realpath } from 'node:fs/promises'
 import { parseWorkflowSource } from './parser.js'
 import type { WorkflowMeta } from './types.js'
+import { escapesRoot } from '../utils/pathContainment.js'
 
 const MAX_WORKFLOWS_PER_DIRECTORY = 256
 
@@ -23,7 +24,7 @@ async function exists(path: string): Promise<boolean> {
 /** True when `target` is `root` or lies inside it; purely path-based, symlinks must be resolved by the caller. */
 function contained(root: string, target: string): boolean {
   const child = relative(root, target)
-  return child === '' || (!child.startsWith('..') && !isAbsolute(child))
+  return child === '' || !escapesRoot(child)
 }
 
 /** Collects `.deepseek/workflows` directories from `start` upward, nearest first, stopping at the first directory containing `.git` or at the filesystem root. */

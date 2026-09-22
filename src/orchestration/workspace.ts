@@ -10,6 +10,7 @@ import type { PermissionProfile, TaskWorkspaceV1 } from './types.js'
 import { BLOCKED_DIRS, isSensitiveWorkspacePath } from '../tools/shared/pathSafety.js'
 import { loadMergedSettings } from '../settings/loader.js'
 import { runClaudeHookEvent } from '../hooks/lifecycle.js'
+import { escapesRoot } from '../utils/pathContainment.js'
 
 interface ManagedWorkspace extends TaskWorkspaceV1 {
   taskId: string
@@ -102,7 +103,7 @@ export class TaskWorkspaceManager {
   translatePath(inputPath: string, workspace: TaskWorkspaceV1): string {
     if (!isAbsolute(inputPath)) return resolve(workspace.path, inputPath)
     const rel = relative(workspace.projectRoot, inputPath)
-    if (rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))) return resolve(workspace.path, rel)
+    if (rel === '' || !escapesRoot(rel)) return resolve(workspace.path, rel)
     return inputPath
   }
 

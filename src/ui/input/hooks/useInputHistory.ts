@@ -1,3 +1,5 @@
+import { useRef } from 'react'
+
 export interface UseInputHistoryResult {
   historyUp: (currentDraft: string) => string | undefined
   historyDown: () => string | undefined
@@ -62,11 +64,14 @@ export class InputHistory {
   }
 }
 
-/** Wraps a fresh InputHistory seeded with `entries`. Not a real React hook: nothing is memoized, so navigation state is lost between calls (InputBox keeps an InputHistory in a ref instead). */
-export function useInputHistory(props: { entries: string[] }): UseInputHistoryResult {
+/** Hook-free prompt history API over one InputHistory, for callers outside React. */
+export function createInputHistory(entries: string[]): UseInputHistoryResult {
   const history = new InputHistory()
-  history.setHistory(props.entries)
+  history.setHistory(entries)
+  return historyApi(history)
+}
 
+function historyApi(history: InputHistory): UseInputHistoryResult {
   return {
     historyUp: (currentDraft: string) => history.up(currentDraft),
     historyDown: () => history.down(),
@@ -75,4 +80,18 @@ export function useInputHistory(props: { entries: string[] }): UseInputHistoryRe
       return history.isNavigating
     },
   }
+}
+
+/** Prompt history navigation that keeps its position across renders; a new `entries` array reloads the history. */
+export function useInputHistory(props: { entries: string[] }): UseInputHistoryResult {
+  const state = useRef<{ history: InputHistory; api: UseInputHistoryResult; entries?: string[] } | null>(null)
+  if (!state.current) {
+    const history = new InputHistory()
+    state.current = { history, api: historyApi(history) }
+  }
+  if (state.current.entries !== props.entries) {
+    state.current.history.setHistory(props.entries)
+    state.current.entries = props.entries
+  }
+  return state.current.api
 }

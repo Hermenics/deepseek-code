@@ -1,3 +1,5 @@
+import { useRef } from 'react'
+
 export interface BufferEntry {
   text: string
   cursorOffset: number
@@ -69,10 +71,9 @@ export class InputBuffer {
   }
 }
 
-/** Wraps a fresh InputBuffer. Not a real React hook: nothing is memoized, so history is lost between calls, and `debounceMs` is currently ignored. */
-export function useInputBuffer(props?: { maxSize?: number; debounceMs?: number }): UseInputBufferResult {
+/** Hook-free undo/redo API over one InputBuffer, for callers outside React. */
+export function createInputBuffer(props?: { maxSize?: number }): UseInputBufferResult {
   const buffer = new InputBuffer({ maxSize: props?.maxSize })
-
   return {
     pushToBuffer: (text: string, cursorOffset: number) => {
       buffer.push(text, cursorOffset)
@@ -89,4 +90,11 @@ export function useInputBuffer(props?: { maxSize?: number; debounceMs?: number }
       buffer.clear()
     },
   }
+}
+
+/** Undo/redo buffer that keeps its history across renders (created once, on the first render). */
+export function useInputBuffer(props?: { maxSize?: number }): UseInputBufferResult {
+  const buffer = useRef<UseInputBufferResult | null>(null)
+  if (!buffer.current) buffer.current = createInputBuffer(props)
+  return buffer.current
 }

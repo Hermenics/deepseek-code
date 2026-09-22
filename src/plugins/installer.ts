@@ -1,12 +1,13 @@
 import { rm, mkdir, rename } from 'fs/promises'
 import { existsSync, readdirSync } from 'fs'
-import { join, resolve, relative, isAbsolute } from 'path'
+import { join, resolve, relative } from 'path'
 import { tmpdir } from 'os'
 import { randomBytes } from 'crypto'
 import type { PluginEntry } from './types.js'
 import { readPluginRegistry, addPluginToRegistry, removePluginFromRegistry, getPluginsDir } from './registry.js'
 import { discoverComponents, readPluginManifest } from './loader.js'
 import { REPO_PATTERN, PLUGIN_NAME_PATTERN } from './validation.js'
+import { escapesRoot } from '../utils/pathContainment.js'
 
 export interface InstallResult {
   ok: boolean
@@ -21,7 +22,7 @@ function isPathSafe(name: string): boolean {
   const base = resolve(getPluginsDir())
   const target = resolve(base, name)
   const rel = relative(base, target)
-  return rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel)
+  return rel.length > 0 && !escapesRoot(rel)
 }
 
 function validatePluginName(name: string): boolean {
