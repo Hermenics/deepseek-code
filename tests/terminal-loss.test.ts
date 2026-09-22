@@ -27,7 +27,8 @@ describe('launcher', () => {
   // Regression: the launcher used to register SIGHUP/SIGTERM listeners that only
   // restored the terminal, which cancels the default exit and orphaned the app.
   for (const signal of ['SIGTERM', 'SIGHUP'] as const) {
-    test(`does not keep the process alive after ${signal}`, async () => {
+    // Windows has no SIGHUP: sending it throws, and a closed console ends the process there anyway.
+    test.skipIf(signal === 'SIGHUP' && process.platform === 'win32')(`does not keep the process alive after ${signal}`, async () => {
       const dir = mkdtempSync(join(tmpdir(), 'ds-launcher-'))
       try {
         writeFileSync(join(dir, 'deepseek.mjs'), LAUNCHER_SOURCE)
