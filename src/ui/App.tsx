@@ -4,7 +4,7 @@ import useInput from '../ink/hooks/use-input.js'
 import { execa } from 'execa'
 import type { Key } from '../ink/events/input-event.js'
 import { Agent, type ToolPermissionRequest, type ToolPermissionResult } from '../agent/agent.js'
-import { MessageList, getDiffPayload } from './messages/MessageList.js'
+import { FullModeBar, Header, MessageList, getDiffPayload } from './messages/MessageList.js'
 import { DiffDialog, type DiffLine } from './messages/DiffDialog.js'
 import { TodoPanel } from './messages/TodoPanel.js'
 import { ToolUseDisplay } from './messages/ToolUseDisplay.js'
@@ -2687,6 +2687,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   return (
     <ThemeProvider value={theme}>
     <Box flexDirection="column" width="100%" height={alternateScreen ? termRows : undefined}>
+      {/* Fullscreen pins the header above the scrolling transcript; inline mode keeps it in the transcript since the terminal owns scrollback. */}
+      {alternateScreen && <Box flexShrink={0}><Header provider={agent.provider ?? headerProvider} agentName={focusedSubagent ? '@' + (focusedSubagent.agentName ?? 'subagent') : headerAgent ?? null} theme={theme} /></Box>}
       <Box flexDirection="row" flexGrow={1}>
       <TranscriptArea flexGrow={1} {...transcriptProps}>
         <Box flexDirection="column">
@@ -2701,6 +2703,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             activeAgent={focusedSubagent ? (focusedSubagent.agentName ?? 'subagent') : activeAgent}
             headerProvider={agent.provider ?? headerProvider}
             headerAgent={focusedSubagent ? '@' + (focusedSubagent.agentName ?? 'subagent') : headerAgent}
+            showHeader={!alternateScreen}
             showToolCalls={interfaceSettings.showToolCalls}
             showDiffs={interfaceSettings.showDiffs}
             showWordDiff={featureFlags.wordDiff}
@@ -2818,6 +2821,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             }}
           />
         )}
+        {fullMode && <FullModeBar theme={theme} />}
         <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} theme={theme} items={interfaceSettings.statusBar} narrowPriority={interfaceSettings.narrowPriority} compactBadge={compactBadge} activityCount={activityCount} />
         {!btw && !showModelSelector && !showEffortSelector && !askUserState && !toolPermissionState && !planApprovalState && !confirmState && (
           <ActivityFooter

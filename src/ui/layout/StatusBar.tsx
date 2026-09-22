@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { execa } from 'execa'
 import type { Model } from '../../commands.js'
 import { MODE_LABELS, type InteractionMode } from '../interactionMode.js'
-import { getThemeColors, DIVIDER_CHAR, PROGRESS_CHARS, STATUS_ICONS } from '../theme.js'
+import { getThemeColors, PROGRESS_CHARS, STATUS_ICONS } from '../theme.js'
 import type { ThemeName } from '../theme.js'
 import type { StatusBarItem } from '../../settings/types.js'
 import Box from '../../ink/components/Box.js'
@@ -68,7 +68,6 @@ export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provid
   const cols = process.stdout.columns ?? 80
   const isVeryNarrow = cols < 60
   const isNarrow = cols < 80
-  const divider = DIVIDER_CHAR.repeat(Math.max(0, cols - 4))
   const displayModel = isVeryNarrow ? String(model).slice(0, 15) : String(model)
   const configured = items ?? ['mode', 'model', 'tokens', 'branch', 'context']
   const prioritized = isNarrow
@@ -81,7 +80,6 @@ export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provid
 
   return (
     <Box flexDirection="column">
-      <Text color={colors.textSubtle}>{divider}</Text>
       <Box flexDirection="row" paddingX={2} gap={1}>
         {visible.has('mode') && <Text color={interactionMode === 'plan' ? colors.modePlan : interactionMode === 'review' ? colors.info : interactionMode === 'auto' ? colors.modeAutoAccept : colors.modeAgent}>{MODE_LABELS[interactionMode]}</Text>}
         {visible.has('model') && <Text color={colors.primary}>{STATUS_ICONS.agent + ' ' + displayModel}</Text>}

@@ -7,7 +7,7 @@ import { useClock } from '../clock.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
+const SPINNER_FRAMES = ['◌', '○', '◎', '◉', '◎', '○']
 
 /** One-line tool call status: spinner and elapsed seconds while running, then a success/error dot with a summarized result; subagent calls show the first line of their task. */
 export function ToolUseDisplay({ tool, theme = 'dark' }: { tool: ToolStatus; theme?: ThemeName }) {
@@ -57,22 +57,24 @@ export function ToolUseDisplay({ tool, theme = 'dark' }: { tool: ToolStatus; the
 
   const style = TOOL_STYLE[display] || { icon: '▸', color: colors.textDim }
 
-  // Status-aware icon
-  const icon = tool.done
-    ? STATUS_ICONS.assistant
+  const failed = 'error' in tool && tool.error
+  // Right-aligned status: sonar pulse while running, then ✓/✗
+  const status = tool.done
+    ? (failed ? STATUS_ICONS.error : STATUS_ICONS.success)
     : SPINNER_FRAMES[tick % SPINNER_FRAMES.length]
-
-  // Status-aware color
-  const iconColor = tool.done
-    ? ('error' in tool && tool.error ? colors.error : colors.success)
-    : colors.primary
+  const statusColor = tool.done ? (failed ? colors.error : colors.success) : colors.primary
 
   return (
-    <Box flexDirection="row" paddingLeft={2} gap={1}>
-      <Text color={iconColor}>{icon}</Text>
-      <Text color={style.color}>{display}</Text>
-      {arg ? <Text color={colors.textSubtle}>{arg}</Text> : null}
-      {!tool.done && elapsed > 0 && <Text color={colors.textDim}>{elapsed + 's'}</Text>}
+    <Box flexDirection="row" paddingLeft={2} paddingRight={1} justifyContent="space-between">
+      <Box flexDirection="row" gap={1} flexShrink={1}>
+        <Text color={colors.primary}>{STATUS_ICONS.tool}</Text>
+        <Text color={style.color}>{display}</Text>
+        {arg ? <Text color={colors.textSubtle}>{arg}</Text> : null}
+      </Box>
+      <Box flexDirection="row" gap={1} flexShrink={0}>
+        {!tool.done && elapsed > 0 && <Text color={colors.textDim}>{elapsed + 's'}</Text>}
+        <Text color={statusColor}>{status}</Text>
+      </Box>
     </Box>
   )
 }
