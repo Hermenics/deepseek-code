@@ -210,6 +210,7 @@ describe('plan tools outside /plan', () => {
         lastUserMessage: string
         executeToolWithChecks(tc: object, args: Record<string, unknown>, cb: AgentCallbacks, lifecycle: object): Promise<{ result: string }>
       }
+      /** Fake tool execution that records the call. */
       const exec = (name: string, args: Record<string, unknown>) => internals.executeToolWithChecks(
         { id: `call-${name}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }, args, trackedCallbacks(), {},
       )
@@ -281,4 +282,144 @@ describe('read before edit', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+})
+
+describe('outside-workspace refusal (A5)', () => {
+  /** Model response that makes one tool call. */
+  const toolCallResponse = (name: string, args: object) => () => (async function* () {
+    yield { choices: [{ delta: { tool_calls: [{ index: 0, id: `call-${name}`, function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: 'tool_calls' }] }
+  })()
+  /** Callbacks that count finished turns and deny aborts and record tool calls. */
+  const denyTracking = () => {
+    const cb = {
+      done: 0, denyAborted: 0, calls: [] as string[],
+      onToken() {}, onToolResult() {}, onDone() { cb.done++ }, onDenyAbort() { cb.denyAborted++ },
+      onToolCall(name: string) { cb.calls.push(name) },
+    }
+    return cb
+  }
+
+  it("'deny' still ends the turn silently, but the denied call is now reported", async () => {
+    const { agent, requests } = await scriptedAgent([toolCallResponse('read_file', { path: '/mnt/x/src/a.ts' })])
+    agent.setToolPermissionHandler(async () => 'deny')
+    const cb = denyTracking()
+
+    await agent.run('read the file', cb)
+
+    expect(requests).toHaveLength(1)
+    expect(cb.denyAborted).toBe(1)
+    expect(cb.calls).toEqual(['read_file'])
+  })
+
+  it("'reject' hands the model a path error and the turn continues to a final answer", async () => {
+    const { agent, requests } = await scriptedAgent([
+      toolCallResponse('read_file', { path: '/mnt/x/src/a.ts' }),
+      () => textResponse('Used the workspace path instead.'),
+    ])
+    agent.setToolPermissionHandler(async (request) => (request.reason === 'outside_workspace' ? 'reject' : 'session'))
+    const cb = denyTracking()
+
+    await agent.run('read the file', cb)
+
+    expect(requests).toHaveLength(2)
+    expect(lastMessage(requests[1])).toContain('outside the workspace')
+    expect(cb.denyAborted).toBe(0)
+    expect(cb.done).toBe(1)
+  })
+
+  it("'reject' for any other reason fails closed like 'deny'", async () => {
+    const reasons: string[] = []
+    /** Permission handler that records the reason and answers 'reject'. */
+    const rejectAll = async (request: { reason: string }) => { reasons.push(request.reason); return 'reject' as const }
+
+    for (const [name, args, setup] of [
+      ['read_file', { path: 'package.json' }, (i: Record<string, unknown>) => { (i.settings as Record<string, unknown>).permissions = { allow: ['grep'] } }],
+      ['shell', { command: 'rm -rf ./__never_exists__' }, () => {}],
+      ['read_file', { path: 'package.json' }, (i: Record<string, unknown>) => { i.allowedTools = '*' }],
+    ] as const) {
+      const { agent, requests } = await scriptedAgent([toolCallResponse(name, args)])
+      setup(agent as unknown as Record<string, unknown>)
+      agent.setToolPermissionHandler(rejectAll)
+      const cb = denyTracking()
+      await agent.run('go', cb)
+      expect(requests).toHaveLength(1)
+      expect(cb.denyAborted).toBe(1)
+    }
+    expect(reasons).toEqual(['permission', 'risk', 'agent_config'])
+
+    const agent = new Agent()
+    await agent.readyPromise.catch(() => {})
+    agent.interactionMode = 'build'
+    agent.setToolPermissionHandler(rejectAll)
+    await expect(agent.startWorkflow({ script: 'return 1' })).rejects.toThrow('Workflow execution denied')
+    expect(reasons.at(-1)).toBe('workflow')
+    await agent.shutdown()
+  })
+})
+
+describe('stream idle timeout', () => {
+  const ORIGINAL_IDLE = process.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS
+  beforeEach(() => { process.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS = '50' })
+  afterEach(() => {
+    if (ORIGINAL_IDLE === undefined) delete process.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS
+    else process.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS = ORIGINAL_IDLE
+  })
+
+  /** A request the upstream accepts and then never answers, until the request is aborted. */
+  const silentResponse = () => (internals: Record<string, unknown>) => {
+    const signal = (internals.lastRequestSignal as AbortSignal | undefined)
+    return (async function* () {
+      await new Promise((_, reject) => signal?.addEventListener('abort', () => reject(signal.reason), { once: true }))
+      yield { choices: [{ delta: { content: 'never' }, finish_reason: 'stop' }] }
+    })()
+  }
+
+  /** The upstream sends headers and then nothing, and its body ignores the abort signal. */
+  const deafResponse = () => (): AsyncIterable<object> => ({
+    [Symbol.asyncIterator]: () => ({
+      next: () => new Promise<IteratorResult<object>>(() => {}),
+      return: async () => ({ done: true as const, value: undefined }),
+    }),
+  })
+
+  it('retries a stream whose body never delivers a chunk, even when it ignores abort', async () => {
+    const { agent, requests } = await scriptedAgent([deafResponse(), () => textResponse('Recovered.')])
+    const cb = trackedCallbacks()
+    const tokens: string[] = []
+    cb.onToken = (t: string) => { tokens.push(t) }
+
+    await agent.run('go', cb)
+
+    expect(requests).toHaveLength(2)
+    expect(tokens.join('')).toContain('Recovered.')
+  }, 5_000)
+
+  it('ends the turn promptly on abort while a deaf stream is open', async () => {
+    process.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS = '100000'
+    const { agent } = await scriptedAgent([deafResponse()])
+    const cb = trackedCallbacks()
+    setTimeout(() => agent.abort(), 100)
+
+    await agent.run('go', cb)
+
+    expect(cb.done).toBe(1)
+  }, 5_000)
+
+  it('retries a request that never sends a chunk instead of hanging the turn', async () => {
+    const { agent, requests } = await scriptedAgent([silentResponse(), () => textResponse('Recovered.')])
+    const internals = agent as unknown as Record<string, unknown>
+    /** Captures the request signal before delegating to the scripted client. */
+    const create = (internals.client as { chat: { completions: { create: (body: object, options?: { signal?: AbortSignal }) => unknown } } }).chat.completions
+    const scripted = create.create
+    create.create = (body: object, options?: { signal?: AbortSignal }) => { internals.lastRequestSignal = options?.signal; return scripted(body, options) }
+    const cb = trackedCallbacks()
+    const tokens: string[] = []
+    cb.onToken = (t: string) => { tokens.push(t) }
+
+    await agent.run('go', cb)
+
+    expect(requests).toHaveLength(2)
+    expect(tokens.join('')).toContain('Recovered.')
+    expect(cb.done).toBe(1)
+  }, 5_000)
 })

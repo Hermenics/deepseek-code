@@ -1,0 +1,7 @@
+[
+  { "name": "home", "path": "/" },
+  { "name": "user", "path": "/users/:id" },
+  { "name": "userPosts", "path": "/users/:id/posts" },
+  { "name": "repo", "path": "/orgs/:org/repos/:repo" },
+  { "name": "file", "path": "/orgs/:org/repos/:repo/blob/:ref" }
+]

@@ -281,7 +281,8 @@ async function spawnAgentTask(
       const structured = loop.terminalResult!
       runContext.setPartial(structured)
       let verification: VerificationResult | undefined
-      let verifierTokens = 0
+      // Usage for the whole task (worker + verifier); the verifier's loop starts from the worker's.
+      let taskUsage = { totalTokens: loop.totalTokens, costUsd: loop.costUsd, usage: loop.usage }
       if (!workflowTerminal) {
         // Unconditional, and that is the whole point. These checks exist to
         // catch the agent that edited a file it never mentioned, so gating
@@ -331,6 +332,8 @@ async function spawnAgentTask(
               getToolsForRole('reviewer', available), runtime.providerConfig, modelName,
               {
                 context: { ...toolContext, permissionProfile: 'researcher-readonly', allowedTools: verifierAllowedTools },
+                // Budgets cover worker + verifier: the verifier only gets what the worker left.
+                baseUsage: taskUsage,
                 terminal: {
                   name: 'submit_verification', description: 'Submit the independent verification classification.',
                   schema: VERIFICATION_RESULT_SCHEMA, maxValidationRetries: 1, transform: validateVerificationResult,
@@ -338,7 +341,15 @@ async function spawnAgentTask(
               },
             )
             verification = verifier.terminalResult!
-            verifierTokens = verifier.totalTokens
+            taskUsage = {
+              totalTokens: taskUsage.totalTokens + verifier.totalTokens,
+              costUsd: taskUsage.costUsd + verifier.costUsd,
+              usage: {
+                promptTokens: taskUsage.usage.promptTokens + verifier.usage.promptTokens,
+                completionTokens: taskUsage.usage.completionTokens + verifier.usage.completionTokens,
+                cachedTokens: taskUsage.usage.cachedTokens + verifier.usage.cachedTokens,
+              },
+            }
           } catch (error) {
             throw new TaskRuntimeError('VERIFICATION_INCONCLUSIVE', `Verifier failed: ${(error as Error).message}`, false)
           }
@@ -349,10 +360,10 @@ async function spawnAgentTask(
           ;(structured as SubAgentResult).metadata.verification = { ...verification, mechanicalEvidence: grounding.evidence }
         }
       }
-      const totalTokens = loop.totalTokens + verifierTokens
       session.registry.updateMetrics(runContext.taskId, {
-        model: modelName, provider: runtime.providerConfig.provider, tokens: totalTokens,
-        usageAvailable: totalTokens > 0,
+        model: modelName, provider: runtime.providerConfig.provider, tokens: taskUsage.totalTokens,
+        costUsd: taskUsage.costUsd, ...taskUsage.usage,
+        usageAvailable: taskUsage.totalTokens > 0,
       })
       if (!workflowTerminal) {
         const result = structured as SubAgentResult

@@ -52,6 +52,10 @@ export interface TaskMetricsV1 {
   provider?: string
   tokens?: number
   costUsd?: number
+  /** Token breakdown behind `tokens`, so callers can reprice the usage (eval fixed-price cost). */
+  promptTokens?: number
+  completionTokens?: number
+  cachedTokens?: number
   latencyMs?: number
   usageAvailable: boolean
 }

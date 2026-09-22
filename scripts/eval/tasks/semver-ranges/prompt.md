@@ -1,0 +1,1 @@
+`satisfies(version, range)` in `src/semver.ts` only understands plain comparators (`1.2.3`, `>=1.2.3`, `<2.0.0`) joined by spaces. Add caret (`^`), tilde (`~`), X-ranges (`1.x`, `1.2.*`, `*`, and partial versions like `1.2`) and `||` alternatives, with npm's semantics — including how prerelease versions are matched. Add tests.

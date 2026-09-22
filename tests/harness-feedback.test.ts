@@ -3,6 +3,7 @@ import { parseToolCallArguments } from '../src/agent/agent.js'
 import { truncateShellOutput } from '../src/tools/Shell/Shell.js'
 import { collectEnvironmentInfo, formatEnvironmentInfo } from '../src/agent/environment.js'
 
+/** write_file tool call carrying the given raw arguments. */
 const call = (args: string) => ({ id: 'call-1', type: 'function' as const, function: { name: 'write_file', arguments: args } })
 
 describe('parseToolCallArguments', () => {
@@ -56,5 +57,7 @@ describe('environment context', () => {
     expect(text).toContain('Model: deepseek-v4-flash via deepseek')
     expect(text).toContain("Today's date: 2026-09-05")
     expect(info.shell.length).toBeGreaterThan(0)
+    expect(formatEnvironmentInfo({ ...info, platform: 'linux' })).toContain('shell commands see the working directory at /mnt')
+    expect(formatEnvironmentInfo({ ...info, platform: 'darwin' })).not.toContain('/mnt')
   })
 })

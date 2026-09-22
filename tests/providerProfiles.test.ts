@@ -6,6 +6,7 @@ import { createProviderProfile, loadProviderProfiles, migrateLegacyProviderProfi
 import { Agent } from '../src/agent/agent.js'
 
 const temporary: string[] = []
+/** Temporary directory removed after the test. */
 async function tempDir(): Promise<string> {
   const path = await mkdtemp(join(tmpdir(), 'deepseek-provider-profiles-'))
   temporary.push(path)
@@ -22,7 +23,8 @@ describe('provider profiles', () => {
     await saveProviderProfiles([first, second], path)
 
     expect(await loadProviderProfiles(path)).toEqual([first, second])
-    expect((await stat(path)).mode & 0o777).toBe(0o600)
+    // Windows has no POSIX permission bits; the private mode is only observable elsewhere.
+    if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600)
     expect(await readFile(path, 'utf8')).toContain('"profiles"')
   })
 

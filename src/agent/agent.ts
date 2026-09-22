@@ -83,6 +83,7 @@ const MAX_EMPTY_REPLY_NUDGES = 2
 const EMPTY_REPLY_FEEDBACK = '[Empty response] Your last response had no text and no tool calls, so the turn would end with the task unfinished and nothing reported. Continue the task; when it is truly done, reply with a short summary of what changed.'
 const OUTPUT_LIMIT_FEEDBACK = '[Output limit] Your previous response was cut off at the output-token limit. Continue exactly where it stopped, without repeating what you already wrote. If you were writing a large file or block, split the rest into smaller steps.'
 
+/** Feedback message for a failed post-edit verification, with its attempt count and output. */
 function formatVerificationFeedback(result: VerificationResult, attempt: number): string {
   const output = result.output.length > 4_000 ? `…${result.output.slice(-4_000)}` : result.output
   return [
@@ -93,6 +94,19 @@ function formatVerificationFeedback(result: VerificationResult, attempt: number)
     '',
     'Fix the cause, then finish. If the failure is unrelated to your changes and was already there, say so instead of changing unrelated code.',
   ].join('\n')
+}
+
+/** No chunk arrived for the idle window; the request is aborted and retried like a dropped connection. */
+class StreamIdleError extends Error {
+  constructor(ms: number) { super(`No response from the model for ${Math.round(ms / 1000)}s`) }
+}
+
+// A stalled upstream (a gateway that accepts a request and never answers) otherwise holds the turn
+// until the caller gives up. Thinking models stream reasoning deltas, so a silent window this long
+// means the request is dead, not slow.
+const streamIdleTimeoutMs = () => {
+  const configured = Number(process.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS)
+  return Number.isFinite(configured) && configured > 0 ? configured : 120_000
 }
 
 class DenyAbortError extends Error {
@@ -390,6 +404,7 @@ export function canonicalResearchUrl(value: unknown): string | null {
   }
 }
 
+/** Canonical research URLs mentioned in a piece of text. */
 export function evidenceUrls(text: string): Set<string> {
   const urls = new Set<string>()
   for (const match of text.matchAll(/https?:\/\/[^\s<>"'`]+/gi)) {
@@ -404,7 +419,12 @@ interface PendingAgentNote {
   text: string
 }
 
-export type ToolPermissionResult = 'once' | 'session' | 'directory' | 'always' | 'deny'
+/**
+ * 'deny' cancels the whole turn (the TUI's explicit stop). 'reject' is for headless callers: on an
+ * outside_workspace request it hands the model a path error and the turn continues; for any other
+ * reason it fails closed exactly like 'deny'.
+ */
+export type ToolPermissionResult = 'once' | 'session' | 'directory' | 'always' | 'deny' | 'reject'
 export type ToolPermissionReason = 'outside_workspace' | 'risk' | 'permission' | 'agent_config' | 'workflow'
 
 export interface ToolPermissionRequest {
@@ -429,6 +449,9 @@ const PATH_TOOL_ARGUMENTS: Record<string, { key: 'path' | 'cwd'; isDirectory: bo
 
 const READ_ONLY_PATH_TOOLS = new Set(['read_file', 'read_folder', 'grep', 'glob'])
 
+/** Every decision point except outside_workspace treats 'reject' as 'deny', so it can never approve. */
+const refuses = (decision: ToolPermissionResult) => decision === 'deny' || decision === 'reject'
+
 function isPathContained(root: string, target: string): boolean {
   const pathRelative = relative(root, target)
   return pathRelative === '' || (!pathRelative.startsWith('..') && !isAbsolute(pathRelative))
@@ -441,6 +464,7 @@ export interface AgentOptions {
   snapshotFile?: string | null
 }
 
+/** Task limits configured under `agents`, leaving out the ones that are not set. */
 function taskLimitsFromSettings(settings: DeepSeekSettings): Partial<TaskLimits> {
   return Object.fromEntries(Object.entries({
     concurrency: settings.agents?.concurrency,
@@ -488,6 +512,8 @@ export class Agent {
   private tokenUsage: TokenUsage = { promptTokens: 0, completionTokens: 0, cachedTokens: 0 }
   /** Each response is priced when it arrives, at its model and peak/off-peak rate. */
   private costUsd = 0
+  /** Latest reported cost per subagent task, so /cost and budgets include delegated spend. */
+  private subagentCostUsd = new Map<string, number>()
   /** Real account balance when the session's first turn started, for the spend shown by /cost. */
   private sessionStartBalance: Promise<AccountBalance | undefined> | null = null
   private lastUserMessage: string | null = null
@@ -672,6 +698,7 @@ export class Agent {
     }, toolName)
   }
 
+  /** Asks for approval to run a workflow script unless it was approved before or the mode is auto; 'deny' and 'reject' both refuse. */
   private async authorizeWorkflow(script: string, args: object): Promise<void> {
     if (this.settings.workflows?.enabled === false || process.env.DEEPSEEK_DISABLE_WORKFLOWS === '1') throw new Error('Dynamic Workflows are disabled')
     const scriptHash = hashWorkflowValue(script)
@@ -685,7 +712,7 @@ export class Agent {
       toolName: 'workflow', args, reason: 'workflow',
       riskDescription: 'This runs a generated coordination program and may start multiple agents.',
     })
-    if (decision === 'deny') throw new DenyAbortError()
+    if (refuses(decision)) throw new DenyAbortError()
     if (decision === 'always') await approvals.approve(scriptHash)
   }
 
@@ -696,6 +723,7 @@ export class Agent {
     return this.workflows.start(input)
   }
 
+  /** Starts a new run from the saved input of an earlier one. */
   async restartWorkflow(runId: string): Promise<WorkflowHandle> {
     return this.startWorkflow(await this.workflows.loadRunInput(runId))
   }
@@ -730,6 +758,10 @@ export class Agent {
       model: this.model,
       logFile: options.logFile,
       snapshotFile: options.snapshotFile !== undefined ? options.snapshotFile : options.sessionId ? taskSnapshotFile(orchestrationSessionId) : null,
+    })
+    this.orchestrator.subscribe((event) => {
+      const cost = (event.payload.metrics as { costUsd?: unknown } | undefined)?.costUsd
+      if (event.type === 'metrics_updated' && event.taskId && typeof cost === 'number') this.subagentCostUsd.set(event.taskId, cost)
     })
     this.workflows = new WorkflowManager({
       sessionId: orchestrationSessionId,
@@ -1135,6 +1167,7 @@ export class Agent {
 
   // ── Cost ───────────────────────────────────────────────────────────────────
 
+  /** Adds one response's tokens to the session totals and prices it at the current model's rate. */
   private recordUsage(promptTokens: number, completionTokens: number, cachedTokens: number): void {
     this.tokenUsage.promptTokens += promptTokens
     this.tokenUsage.completionTokens += completionTokens
@@ -1142,8 +1175,16 @@ export class Agent {
     this.costUsd += estimateCost(this.model, { promptTokens, completionTokens, cachedTokens })
   }
 
+  /** The session's own requests plus everything its subagents spent. */
+  private get totalCostUsd(): number {
+    let total = this.costUsd
+    for (const cost of this.subagentCostUsd.values()) total += cost
+    return total
+  }
+
+  /** Model, token totals and estimated cost for /cost, including subagent spend. */
   getCostSummary(): string {
-    const cost = this.costUsd
+    const cost = this.totalCostUsd
     return [
       `Model: ${this.model}`,
       `Tokens: ${this.tokenCount.toLocaleString()} total`,
@@ -1192,16 +1233,17 @@ export class Agent {
       contextLimit: this.contextLimit,
       toolCalls: this.toolCallTotal,
       filesModified: this.filesModified.size,
-      costUsd: this.costUsd,
+      costUsd: this.totalCostUsd,
     }
   }
 
+  /** Human-readable session statistics for /stats. */
   getStats(): string {
     const elapsed = Date.now() - this.sessionStartTime
     const minutes = Math.floor(elapsed / 60_000)
     const seconds = Math.floor((elapsed % 60_000) / 1000)
     const duration = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`
-    const cost = this.costUsd
+    const cost = this.totalCostUsd
     const userTurns = this.messages.filter((m) => !isBoundaryMarker(m) && (m as ChatCompletionMessageParam).role === 'user' && !isProjectContextMessage(m)).length
     const cacheHitPct = this.tokenUsage.promptTokens > 0
       ? Math.round((this.tokenUsage.cachedTokens / this.tokenUsage.promptTokens) * 100)
@@ -1728,6 +1770,7 @@ export class Agent {
     this.clearHistory()
   }
 
+  /** Runs one user turn to completion, reporting progress through the callbacks. */
   async run(userMessage: string | PromptInput, cb: AgentCallbacks) {
     // Wait for settings, snapshots and project context before resetting turn state.
     await this.readyPromise
@@ -1834,7 +1877,7 @@ export class Agent {
         // for every provider, and a proxy in front of the model turns most of them into 5xx.
         const transientStatus = err.status !== undefined && [408, 409, 429, 500, 502, 503, 504, 529].includes(err.status)
         const networkCode = err.code ?? err.cause?.code
-        const transientNetwork = err.name === 'APIConnectionError' || (networkCode !== undefined && ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'EAI_AGAIN', 'UND_ERR_SOCKET'].includes(networkCode))
+        const transientNetwork = e instanceof StreamIdleError || err.name === 'APIConnectionError' || (networkCode !== undefined && ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'EAI_AGAIN', 'UND_ERR_SOCKET'].includes(networkCode))
         if ((transientStatus || transientNetwork) && attempt < delays.length) {
           await this.waitForRetry(delays[attempt]!, signal)
           continue
@@ -1843,6 +1886,74 @@ export class Agent {
       }
     }
     throw new Error('unreachable')
+  }
+
+  /**
+   * Opens a streaming completion guarded by an idle watchdog. The first chunk is awaited inside
+   * withRetry, so a request that never answers is retried; a stream that goes silent after it has
+   * started fails the turn with StreamIdleError instead of re-sending text the UI already showed.
+   */
+  private openStream(body: Record<string, unknown>): Promise<AsyncIterable<any>> {
+    const turnSignal = this.abortController!.signal
+    return this.withRetry(async () => {
+      const idleMs = streamIdleTimeoutMs()
+      const attempt = new AbortController()
+      /** Aborts this attempt when the turn is aborted. */
+      const forwardAbort = () => attempt.abort(turnSignal.reason)
+      turnSignal.addEventListener('abort', forwardAbort, { once: true })
+      let timer: ReturnType<typeof setTimeout> | undefined
+      /** Restarts the idle timer. */
+      const arm = () => {
+        clearTimeout(timer)
+        timer = setTimeout(() => attempt.abort(new StreamIdleError(idleMs)), idleMs)
+      }
+      /** Stops the idle timer and detaches from the turn signal. */
+      const release = () => {
+        clearTimeout(timer)
+        turnSignal.removeEventListener('abort', forwardAbort)
+      }
+      /** The StreamIdleError that aborted this attempt, unless the turn itself was aborted. */
+      const idleError = () => (attempt.signal.reason instanceof StreamIdleError && !turnSignal.aborted ? attempt.signal.reason : undefined)
+      // Race every read against the abort: a response body that ignores its signal must not hold the turn.
+      const aborted = new Promise<never>((_, reject) => {
+        attempt.signal.addEventListener('abort', () => reject(attempt.signal.reason ?? new Error('Request aborted')), { once: true })
+      })
+      aborted.catch(() => {})
+      arm()
+      try {
+        const stream = await Promise.race([
+          this.client.chat.completions.create(body as any, { signal: attempt.signal }) as unknown as Promise<AsyncIterable<any>>,
+          aborted,
+        ])
+        const iterator = stream[Symbol.asyncIterator]()
+        /** Next chunk, or the abort reason if the attempt is aborted first. */
+        const read = () => Promise.race([iterator.next(), aborted])
+        let first: IteratorResult<any>
+        try { first = await read() } catch (error) { void iterator.return?.()?.catch(() => {}); throw error }
+        arm()
+        return (async function* () {
+          try {
+            if (first.done) return
+            yield first.value
+            while (true) {
+              const next = await read()
+              if (next.done) return
+              arm()
+              yield next.value
+            }
+          } catch (error) {
+            throw idleError() ?? error
+          } finally {
+            release()
+            // An early break must still close the underlying HTTP stream, as a direct for-await would.
+            void iterator.return?.()?.catch(() => {})
+          }
+        })()
+      } catch (error) {
+        release()
+        throw idleError() ?? error
+      }
+    })
   }
 
   private waitForRetry(delayMs: number, signal = this.abortController?.signal): Promise<void> {
@@ -1878,6 +1989,7 @@ export class Agent {
     return process.env.DEEPSEEK_NO_STREAM !== '1'
   }
 
+  /** Model and tool loop for one turn: streams a response, runs its tool calls, and repeats until the model answers. */
   private async runLoop(cb: AgentCallbacks) {
     const MAX_AGENT_ITERATIONS = 100
     let iterations = 0
@@ -2025,17 +2137,15 @@ export class Agent {
       let stream: AsyncIterable<any>
       try {
         const effortParams = this.getEffortApiParams()
-        stream = await this.withRetry(() =>
-          this.client.chat.completions.create({
-            model: this.model,
-            messages: apiMessages,
-            tools: this.getAvailableOpenAITools(),
-            stream: true,
-            stream_options: { include_usage: true },
-            ...effortParams,
-            ...this.getSamplingParams(),
-          } as any, { signal: this.abortController!.signal }) as any
-        )
+        stream = await this.openStream({
+          model: this.model,
+          messages: apiMessages,
+          tools: this.getAvailableOpenAITools(),
+          stream: true,
+          stream_options: { include_usage: true },
+          ...effortParams,
+          ...this.getSamplingParams(),
+        })
       } catch (e: unknown) {
         if (this.abortController?.signal.aborted) {
           cb.onDone()
@@ -2252,6 +2362,7 @@ export class Agent {
     await this.runLoop(cb)
   }
 
+  /** Completion gates before a turn may end: Stop hooks, empty replies, open todos and post-edit verification. */
   private async completeTurn(cb: AgentCallbacks): Promise<void> {
     let completionHandled = false
     try {
@@ -2387,7 +2498,11 @@ export class Agent {
     try {
       return await this.executeToolWithChecks(tc, parsedArgs, guardedCallbacks, lifecycle)
     } catch (error: unknown) {
-      if (error instanceof DenyAbortError) throw error
+      if (error instanceof DenyAbortError) {
+        // A denied call never reached the execute step, so callers would not see it at all.
+        if (!emittedCall) cb.onToolCall(tc.function.name, calledArgs)
+        throw error
+      }
 
       const message = error instanceof Error ? error.message : String(error)
       const result = `Error: ${message}`
@@ -2569,6 +2684,9 @@ export class Agent {
               externalDirectory,
               riskDescription: riskResult?.requiresConfirmation ? `${riskResult.level} risk: ${riskResult.description}` : undefined,
             })
+            if (decision === 'reject') {
+              throw new Error(`Path '${requestedPath}' is outside the workspace (${this.workspacePath}) and access was refused. Use a path inside the workspace.`)
+            }
             if (decision === 'deny') {
               auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied_external_path: externalDirectory } })
               throw new DenyAbortError()
@@ -2643,7 +2761,7 @@ export class Agent {
             reason: 'risk',
             riskDescription: `${riskResult.level} risk: ${riskResult.description}`,
           })
-          if (userDecision === 'deny') {
+          if (refuses(userDecision)) {
             auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied_risk: riskResult.level } })
             throw new DenyAbortError()
           }
@@ -2684,7 +2802,7 @@ export class Agent {
           return { tc, result: blockMsg }
         }
         const userDecision = await handler({ toolName: tc.function.name, args: effectiveArgs, reason: 'permission' })
-        if (userDecision === 'deny') {
+        if (refuses(userDecision)) {
           auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied: true } })
           throw new DenyAbortError()
         }
@@ -2735,7 +2853,7 @@ export class Agent {
           return { tc, result: blockMsg }
         }
         const decision = await handler({ toolName: tc.function.name, args: effectiveArgs, reason: 'agent_config' })
-        if (decision === 'deny') {
+        if (refuses(decision)) {
           auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied: true } })
           throw new DenyAbortError()
         }

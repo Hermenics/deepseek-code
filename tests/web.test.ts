@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import type { ToolPermissionResult } from '../src/agent/agent.js'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -21,6 +22,7 @@ const fakeAgent: WebAgent = {
   abort() {},
   getToolInfo: () => [{ name: 'read_file', description: 'Read a file from the workspace.' }],
   getSessionStats: () => ({ ...fakeStats }),
+  /** Fake agent turn that records its prompt. */
   async run(_userMessage, cb) {
     cb.onPhaseChange?.('executing')
     cb.onToken?.('olá')
@@ -196,6 +198,7 @@ describe('web server', () => {
     const agent: WebAgent = {
       abort() {},
       getToolInfo: () => runtimeTools,
+      /** Fake turn that reports a call and result for every runtime tool. */
       async run(_userMessage, cb) {
         for (const tool of runtimeTools) {
           cb.onToolCall(tool.name, {})
@@ -236,6 +239,7 @@ describe('web server', () => {
     const agent: WebAgent = {
       abort() {},
       getToolInfo: () => runtimeTools,
+      /** Fake turn that reports a call and result for every runtime tool. */
       async run(_userMessage, cb) {
         for (const tool of runtimeTools) {
           cb.onToolCall(tool.name, {})
@@ -524,7 +528,7 @@ describe('web bridge interactions', () => {
   test('routes every interactive Agent callback through the browser', async () => {
     const cwd = await mkdtemp(join(tmpdir(), 'deepseek-web-interactions-'))
     const events: ServerEvent[] = []
-    let permission: ((request: { toolName: string; args: object; reason: 'outside_workspace' | 'risk' | 'permission' | 'agent_config' | 'workflow'; riskDescription?: string }) => Promise<'once' | 'session' | 'directory' | 'always' | 'deny'>) | null = null
+    let permission: ((request: { toolName: string; args: object; reason: 'outside_workspace' | 'risk' | 'permission' | 'agent_config' | 'workflow'; riskDescription?: string }) => Promise<ToolPermissionResult>) | null = null
     let questions: ((input: Array<{ question: string; header: string }>) => Promise<Record<string, string> | null>) | null = null
     let diffReview: ((summary: string) => Promise<boolean>) | null = null
     let verification: ((files: string[]) => Promise<void>) | null = null
