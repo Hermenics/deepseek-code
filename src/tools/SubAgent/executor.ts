@@ -4,7 +4,7 @@ import type { AgentPermissionConfig } from '../../agent/config.js'
 import type { Tool } from '../types.js'
 import type { ToolExecutionContext } from '../../orchestration/types.js'
 import { createLLMClient } from '../../agent/llmClient.js'
-import { estimateCost } from '../../agent/cost.js'
+import { estimateCost, type TokenUsage } from '../../agent/cost.js'
 import { SUBAGENT_MAX_ITERATIONS } from '../../constants.js'
 import { resolvePermission } from '../../permissions/matcher.js'
 import { assessRisk } from '../../permissions/risk.js'
@@ -36,6 +36,8 @@ export interface SubAgentLoopOptions<T> {
   terminal?: TerminalTool<T>
   client?: ReturnType<typeof createLLMClient>
   effort?: 'low' | 'high' | 'max'
+  /** Usage already spent on this task (the verifier passes the worker's), counted toward budgets and metrics. */
+  baseUsage?: Pick<SubAgentLoopResult, 'totalTokens' | 'costUsd' | 'usage'>
 }
 
 export interface SubAgentLoopResult<T = never> {
@@ -45,6 +47,7 @@ export interface SubAgentLoopResult<T = never> {
   totalTokens: number
   /** Estimated from the reported usage with the parent's price table (agent/cost.ts). */
   costUsd: number
+  usage: TokenUsage
 }
 
 export function buildToolPreview(toolName: string, args: Record<string, unknown>): string {
@@ -93,6 +96,8 @@ export async function runSubAgentLoop<T = never>(
   const raw: string[] = []
   let totalTokens = 0
   let costUsd = 0
+  const usageTotals: TokenUsage = { promptTokens: 0, completionTokens: 0, cachedTokens: 0 }
+  const base = options.baseUsage
   let writeCount = 0
   let validationFailures = 0
   const maxValidationRetries = options.terminal?.maxValidationRetries ?? 1
@@ -136,27 +141,38 @@ export async function runSubAgentLoop<T = never>(
     } as any, { signal: options.context?.signal })
     const usage = response.usage as (typeof response.usage & { prompt_cache_hit_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } }) | undefined
     totalTokens += usage?.total_tokens ?? 0
-    costUsd += estimateCost(modelName, {
+    const responseUsage: TokenUsage = {
       promptTokens: usage?.prompt_tokens ?? 0,
       completionTokens: usage?.completion_tokens ?? 0,
       cachedTokens: usage?.prompt_cache_hit_tokens ?? usage?.prompt_tokens_details?.cached_tokens ?? 0,
-    })
+    }
+    costUsd += estimateCost(modelName, responseUsage)
+    usageTotals.promptTokens += responseUsage.promptTokens
+    usageTotals.completionTokens += responseUsage.completionTokens
+    usageTotals.cachedTokens += responseUsage.cachedTokens
+    const taskTokens = (base?.totalTokens ?? 0) + totalTokens
+    const taskCostUsd = (base?.costUsd ?? 0) + costUsd
+    // Persist after every paid response so every exit (budget, invalid output, iteration limit, a
+    // throwing caller) leaves the real spend in the task's metrics instead of zero.
+    if (options.context?.taskId && options.context.session) {
+      try {
+        options.context.session.registry.updateMetrics(options.context.taskId, {
+          tokens: taskTokens, costUsd: taskCostUsd, usageAvailable: true,
+          promptTokens: (base?.usage.promptTokens ?? 0) + usageTotals.promptTokens,
+          completionTokens: (base?.usage.completionTokens ?? 0) + usageTotals.completionTokens,
+          cachedTokens: (base?.usage.cachedTokens ?? 0) + usageTotals.cachedTokens,
+        })
+      } catch { /* metrics are best-effort */ }
+    }
     // The verifier loop runs with the parent's toolContext (real taskId), so its
     // emissions would leak verifier progress into the subagent's transcript and
     // reset the footer's ↓ tokens. Detect it by the synthetic agentId suffix.
     const isVerifier = agentId.endsWith('-v')
     if (!isVerifier && totalTokens > 0) options.context?.emit?.('token_progress', { tokens: totalTokens })
-    const overTokens = options.context?.maxTokens !== undefined && totalTokens > options.context.maxTokens
-    const overCost = options.context?.maxCostUsd !== undefined && costUsd > options.context.maxCostUsd
-    if (overTokens || overCost) {
-      // The tokens were spent even though the task fails; record them so budgets and the
-      // workflow journal see the real cost instead of zero.
-      if (options.context?.taskId && options.context.session) {
-        try { options.context.session.registry.updateMetrics(options.context.taskId, { tokens: totalTokens, costUsd, usageAvailable: true }) } catch { /* metrics are best-effort */ }
-      }
-      if (overTokens) throw new TaskRuntimeError('TOKEN_BUDGET_EXCEEDED', `Subagent used ${totalTokens} tokens; limit is ${options.context!.maxTokens}`)
-      throw new TaskRuntimeError('COST_BUDGET_EXCEEDED', `Subagent cost $${costUsd.toFixed(4)}; limit is $${options.context!.maxCostUsd}`)
-    }
+    const overTokens = options.context?.maxTokens !== undefined && taskTokens > options.context.maxTokens
+    const overCost = options.context?.maxCostUsd !== undefined && taskCostUsd > options.context.maxCostUsd
+    if (overTokens) throw new TaskRuntimeError('TOKEN_BUDGET_EXCEEDED', `Subagent used ${taskTokens} tokens; limit is ${options.context!.maxTokens}`)
+    if (overCost) throw new TaskRuntimeError('COST_BUDGET_EXCEEDED', `Subagent cost $${taskCostUsd.toFixed(4)}; limit is $${options.context!.maxCostUsd}`)
     const message = response.choices[0]?.message
     if (!message) throw new StructuredOutputError('INVALID_RESULT', 'Model returned no message', raw.join('\n'))
     if (message.content) raw.push(message.content)
@@ -174,7 +190,7 @@ export async function runSubAgentLoop<T = never>(
     if (!message.tool_calls?.length) {
       if (!options.terminal) {
         if (drainQuestions()) continue
-        return { resultText: message.content ?? '', rawOutput: raw.join('\n'), totalTokens, costUsd }
+        return { resultText: message.content ?? '', rawOutput: raw.join('\n'), totalTokens, costUsd, usage: usageTotals }
       }
       validationFailures++
       if (validationFailures > maxValidationRetries) throw new StructuredOutputError('INVALID_RESULT', `Missing terminal call '${options.terminal.name}'`, raw.join('\n'))
@@ -207,7 +223,7 @@ export async function runSubAgentLoop<T = never>(
       if (errors.length === 0) {
         const result = options.terminal.transform ? options.terminal.transform(value) : value as T
         if (drainQuestions()) continue
-        return { resultText: message.content ?? '', terminalResult: result, rawOutput: raw.join('\n'), totalTokens, costUsd }
+        return { resultText: message.content ?? '', terminalResult: result, rawOutput: raw.join('\n'), totalTokens, costUsd, usage: usageTotals }
       }
       validationFailures++
       for (const toolCall of message.tool_calls) {

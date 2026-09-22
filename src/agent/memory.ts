@@ -120,6 +120,7 @@ export class MemoryStore {
   }
 
   clear(target?: MemoryTarget): Promise<void> {
+    if (!this.enabled) return Promise.resolve()
     return this.mutate(() => target ? rm(this.file(target), { force: true }) : rm(this.getDirectory(), { recursive: true, force: true }))
   }
 

@@ -29,10 +29,16 @@ it('rejects every caller in a batch whose batch function rejects', async () => {
 })
 
 it('fetches again after a failed batch instead of replaying the failure', async () => {
-  const { loader, batches } = scripted([async () => { throw new Error('db down') }, async (keys) => keys.map((k) => k.toUpperCase())])
-  await Promise.allSettled([within(loader.load('a'))])
+  const { loader, batches } = scripted([
+    async (keys) => keys.map((k) => k.toUpperCase()),
+    async () => { throw new Error('db down') },
+    async (keys) => keys.map((k) => k.toUpperCase()),
+  ])
   expect(await within(loader.load('a'))).toBe('A')
-  expect(batches).toEqual([['a'], ['a']])
+  await Promise.allSettled([within(loader.load('b')), within(loader.load('c'))])
+  // Only the keys of the failed batch are fetched again; the earlier success stays cached.
+  expect(await within(loader.loadMany(['a', 'b', 'c']))).toEqual(['A', 'B', 'C'])
+  expect(batches).toEqual([['a'], ['b', 'c'], ['b', 'c']])
 })
 
 it('retries only the key that failed and keeps the others cached', async () => {

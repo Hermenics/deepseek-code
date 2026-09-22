@@ -70,5 +70,11 @@ it('adds tests for transfers', () => {
   const tests = readdirSync('.', { recursive: true }).map(String)
     .filter((f) => /\.(test|spec)\.[jt]sx?$/.test(f) && !f.includes('__eval_check__') && !f.includes('node_modules'))
     .map((f) => readFileSync(f, 'utf8')).join('\n')
-  expect(tests).toMatch(/transfer/)
+    // Comments cannot count as tests.
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
+  // Each runnable test body (skip/todo excluded, test name removed) must call .transfer( and assert.
+  const bodies = tests.split(/\b(?=(?:it|test|describe)(?:\.\w+)?\s*\()/)
+    .filter((block) => /^(?:it|test)(?:\.only)?\s*\(/.test(block))
+    .map((block) => block.replace(/^(?:it|test)(?:\.only)?\s*\(\s*(['"`])(?:\\.|(?!\1)[\s\S])*\1/, ''))
+  expect(bodies.some((body) => /\.transfer\s*\(/.test(body) && /\bexpect\s*\(/.test(body))).toBe(true)
 })
