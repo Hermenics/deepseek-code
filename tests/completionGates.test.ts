@@ -352,3 +352,38 @@ describe('outside-workspace refusal (A5)', () => {
     await agent.shutdown()
   })
 })
+
+describe('stream idle timeout', () => {
+  const ORIGINAL_IDLE = process.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS
+  beforeEach(() => { process.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS = '50' })
+  afterEach(() => {
+    if (ORIGINAL_IDLE === undefined) delete process.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS
+    else process.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS = ORIGINAL_IDLE
+  })
+
+  /** A request the upstream accepts and then never answers, until the request is aborted. */
+  const silentResponse = () => (internals: Record<string, unknown>) => {
+    const signal = (internals.lastRequestSignal as AbortSignal | undefined)
+    return (async function* () {
+      await new Promise((_, reject) => signal?.addEventListener('abort', () => reject(signal.reason), { once: true }))
+      yield { choices: [{ delta: { content: 'never' }, finish_reason: 'stop' }] }
+    })()
+  }
+
+  it('retries a request that never sends a chunk instead of hanging the turn', async () => {
+    const { agent, requests } = await scriptedAgent([silentResponse(), () => textResponse('Recovered.')])
+    const internals = agent as unknown as Record<string, unknown>
+    const create = (internals.client as { chat: { completions: { create: (body: object, options?: { signal?: AbortSignal }) => unknown } } }).chat.completions
+    const scripted = create.create
+    create.create = (body: object, options?: { signal?: AbortSignal }) => { internals.lastRequestSignal = options?.signal; return scripted(body, options) }
+    const cb = trackedCallbacks()
+    const tokens: string[] = []
+    cb.onToken = (t: string) => { tokens.push(t) }
+
+    await agent.run('go', cb)
+
+    expect(requests).toHaveLength(2)
+    expect(tokens.join('')).toContain('Recovered.')
+    expect(cb.done).toBe(1)
+  }, 5_000)
+})
