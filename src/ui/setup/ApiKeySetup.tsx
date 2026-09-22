@@ -14,7 +14,7 @@ import Text from '../../ink/components/Text.js'
 export type { ThemeName, ProviderName, ProviderConfig } from '../../types/provider.js'
 import type { ThemeName, ProviderName, ProviderConfig } from '../../types/provider.js'
 import { readClipboardSync } from '../../utils/platform.js'
-import { checkOfficialDeepSeekApi } from './deepseekHealth.js'
+import { afterKeyCheck, checkOfficialDeepSeekApi } from './deepseekHealth.js'
 import { loadProviderProfiles, migrateLegacyProviderProfile, saveProviderProfiles, type ProviderProfile } from '../../utils/providerProfiles.js'
 
 export const PROVIDERS: { label: string; value: ProviderName; hint: string }[] = [
@@ -114,6 +114,8 @@ export function ApiKeySetup({ onDone }: Props) {
   const [checkingHealth, setCheckingHealth] = useState(false)
   const [saving, setSaving] = useState(false)
   const [showCustomBaseUrl, setShowCustomBaseUrl] = useState(false)
+  // Set when the key check sends the user to the base URL field; `required` after a rejected key.
+  const [baseUrlNotice, setBaseUrlNotice] = useState<{ required: boolean; text: string } | null>(null)
   const [donePayload, setDonePayload] = useState<{ theme: ThemeName; config: ProviderConfig } | null>(null)
 
   const selectedTheme = THEMES[themeIdx]!.value
@@ -195,7 +197,7 @@ export function ApiKeySetup({ onDone }: Props) {
       if (key.upArrow) { setProviderIdx((i) => (i - 1 + PROVIDERS.length) % PROVIDERS.length); return }
       if (key.downArrow) { setProviderIdx((i) => (i + 1) % PROVIDERS.length); return }
       if (key.return) {
-        setFieldIdx(0); setFieldValues({}); setCurrentInput(''); setShowCustomBaseUrl(false); setStep('fields')
+        setFieldIdx(0); setFieldValues({}); setCurrentInput(''); setShowCustomBaseUrl(false); setBaseUrlNotice(null); setStep('fields')
         return
       }
       if (key.escape) { setStep('theme'); return }
@@ -207,24 +209,26 @@ export function ApiKeySetup({ onDone }: Props) {
       if (key.return) {
         const trimmed = currentInput.trim()
         if (!trimmed && !currentField!.optional) { setError(`${currentField!.label} cannot be empty.`); return }
+        if (!trimmed && currentField!.key === 'DEEPSEEK_BASE_URL' && baseUrlNotice?.required) {
+          setError('Enter the base URL of the proxy or gateway this key belongs to.')
+          return
+        }
         const updated = { ...fieldValues, [currentField!.key]: trimmed }
         setFieldValues(updated)
         setError('')
         if (selectedProvider === 'deepseek' && currentField!.key === 'DEEPSEEK_API_KEY') {
           setCheckingHealth(true)
           void checkOfficialDeepSeekApi(trimmed).then((health) => {
-            if (health === 'auth-error') {
-              setError('The DeepSeek API rejected this key.')
+            const outcome = afterKeyCheck(health)
+            if (outcome.next === 'error') {
+              setError(outcome.message)
               return
             }
-            if (health === 'unreachable') {
+            if (outcome.next === 'baseUrl') {
+              setBaseUrlNotice({ required: outcome.required, text: outcome.notice })
               setShowCustomBaseUrl(true)
               setFieldIdx(1)
               setCurrentInput(fieldValues.DEEPSEEK_BASE_URL ?? '')
-              return
-            }
-            if (health === 'service-error') {
-              setError('The official DeepSeek API is unavailable right now. Try again later or check your account or billing.')
               return
             }
             completeSetup(updated)
@@ -239,7 +243,11 @@ export function ApiKeySetup({ onDone }: Props) {
       }
       if (key.backspace) { setCurrentInput((s) => s.slice(0, -1)); setError(''); return }
       if (key.escape) {
-        if (fieldIdx > 0) { setFieldIdx((i) => i - 1); setCurrentInput(fieldValues[fields[fieldIdx - 1]!.key] ?? ''); setError('') }
+        if (fieldIdx > 0) {
+          setFieldIdx((i) => i - 1); setCurrentInput(fieldValues[fields[fieldIdx - 1]!.key] ?? ''); setError('')
+          // Back on the key field: the next Enter checks the key again from scratch.
+          if (selectedProvider === 'deepseek' && fieldIdx === 1) { setBaseUrlNotice(null); setShowCustomBaseUrl(false) }
+        }
         else { setStep('provider'); setCurrentInput(''); setError('') }
         return
       }
@@ -316,8 +324,10 @@ export function ApiKeySetup({ onDone }: Props) {
     content = (
       <Box flexDirection="column" marginTop={1}>
         <Text>{PROVIDERS[providerIdx]!.label + ' setup ' + progress}</Text>
-        <Text>{currentField!.label}</Text>
-        {currentField!.hint ? <Text color={colors.textDim}>{currentField!.hint}</Text> : null}
+        <Text>{currentField!.key === 'DEEPSEEK_BASE_URL' && baseUrlNotice?.required ? 'Base URL' : currentField!.label}</Text>
+        {currentField!.key === 'DEEPSEEK_BASE_URL' && baseUrlNotice
+          ? <Text color={colors.warning}>{baseUrlNotice.text}</Text>
+          : currentField!.hint ? <Text color={colors.textDim}>{currentField!.hint}</Text> : null}
         <Box marginTop={1}>
           <Text color={colors.primary}>{'> '}</Text>
           <Text>{currentField!.secret ? '•'.repeat(currentInput.length) : currentInput}</Text>

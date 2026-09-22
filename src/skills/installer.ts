@@ -1,10 +1,11 @@
 import { rm, mkdir } from 'fs/promises'
 import { readFileSync } from 'fs'
-import { join, resolve, relative, isAbsolute } from 'path'
+import { join, resolve, relative } from 'path'
 import { tmpdir } from 'os'
 import { randomBytes } from 'crypto'
 import { parseSkillManifest, validateSkillName } from './validate.js'
 import { readRegistry, addToRegistry, removeFromRegistry, type SkillEntry } from './registry.js'
+import { escapesRoot } from '../utils/pathContainment.js'
 
 export interface InstallResult {
   ok: boolean
@@ -17,7 +18,7 @@ function isPathSafe(skillsDir: string, name: string): boolean {
   const base = resolve(skillsDir)
   const target = resolve(base, name)
   const rel = relative(base, target)
-  return rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel)
+  return rel.length > 0 && !escapesRoot(rel)
 }
 
 /** Checks for a directory by spawning `test -d` (POSIX-only). */

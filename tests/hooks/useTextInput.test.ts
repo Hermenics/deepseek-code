@@ -376,4 +376,29 @@ describe('processTextInputKey', () => {
       if (result.type === 'action') expect(result.action).toBe('historyDown')
     })
   })
+
+  describe('kill then yank', () => {
+    const yank = (cursor: Cursor) => processTextInputKey(cursor, { ctrl: true, name: 'y' })
+
+    it('Ctrl+K then Ctrl+Y restores the killed text once', () => {
+      const killed = processTextInputKey(makeCursor('abc', 0), { ctrl: true, name: 'k' })
+      if (killed.type !== 'cursor') throw new Error('expected a cursor result')
+      const yanked = yank(killed.cursor)
+      expect(yanked.type === 'cursor' && yanked.cursor.text).toBe('abc')
+    })
+
+    it('Ctrl+U then Ctrl+Y restores the killed text once', () => {
+      const killed = processTextInputKey(makeCursor('abc', 3), { ctrl: true, name: 'u' })
+      if (killed.type !== 'cursor') throw new Error('expected a cursor result')
+      const yanked = yank(killed.cursor)
+      expect(yanked.type === 'cursor' && yanked.cursor.text).toBe('abc')
+    })
+
+    it('Ctrl+W then Ctrl+Y restores the killed word once', () => {
+      const killed = processTextInputKey(makeCursor('one two', 7), { ctrl: true, name: 'w' })
+      if (killed.type !== 'cursor') throw new Error('expected a cursor result')
+      const yanked = yank(killed.cursor)
+      expect(yanked.type === 'cursor' && yanked.cursor.text).toBe('one two')
+    })
+  })
 })

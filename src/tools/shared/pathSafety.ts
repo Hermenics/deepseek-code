@@ -5,6 +5,7 @@ import type { ToolExecutionContext } from '../../orchestration/types.js'
 import { acquireFileLease } from '../../orchestration/fileLease.js'
 import { parseWorkflowSource } from '../../workflows/parser.js'
 import { isPathIgnored, ignoredPathError } from './deepseekignore.js'
+import { escapesRoot } from '../../utils/pathContainment.js'
 
 /**
  * Non-negotiable safety core: always blocked even if .deepseekignore says
@@ -31,7 +32,7 @@ export function isSensitiveWorkspacePath(filePath: string): boolean {
 /** True when `target` is `root` or inside it. Lexical only (no symlink resolution); a child whose name starts with `..` is also treated as outside. */
 function isContained(root: string, target: string): boolean {
   const relative = path.relative(root, target)
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
+  return relative === '' || !escapesRoot(relative)
 }
 
 /** Matches `.deepseek/workflows/<name>.js`, the one exception to the `.deepseek/` block. */

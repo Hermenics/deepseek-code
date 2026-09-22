@@ -248,6 +248,19 @@ describe('WorkflowEngine', () => {
     expect(spawned.length).toBe(5)
   })
 
+  it('fails the run and cancels its tasks when a phase times out', async () => {
+    const spawned: string[] = []
+    const cancelled: string[] = []
+    const definition = { name: 'slow', version: 1, phases: [{ title: 'Wait', fan_out: 2, role: 'reader' as const, prompt_template: 'x', timeout_ms: 20 }] }
+    const run = await engine.start(definition, { task: 't' },
+      () => { const id = `task-${randomUUID().slice(0, 8)}`; spawned.push(id); return id },
+      () => new Promise<boolean>(() => {}),
+      (id) => cancelled.push(id))
+    expect(run.status).toBe('failed')
+    expect(run.error).toContain("Tasks for 'Wait' did not complete")
+    expect(cancelled).toEqual(spawned)
+  })
+
   it('should run implement workflow with dependency order', async () => {
     const spawned: { phase: string; id: string }[] = []
     const run = await engine.start(IMPLEMENT_WORKFLOW, { task: 'Add login endpoint' },

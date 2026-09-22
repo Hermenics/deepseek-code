@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, lstat, readFile, realpath, writeFile } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve } from 'node:path'
+import { join, relative, resolve } from 'node:path'
 import type { ProviderConfig } from '../types/provider.js'
 import type { DeepSeekSettings } from '../settings/types.js'
 import type { InteractionMode } from '../ui/interactionMode.js'
@@ -18,6 +18,7 @@ import {
   type WorkflowAgentOptions, type WorkflowEffort, type WorkflowEvent, type WorkflowFailure, type WorkflowRef, type WorkflowResult,
   type WorkflowRpcResult, type WorkflowRun, type WorkflowRunOptions, type WorkflowUsage,
 } from './types.js'
+import { escapesRoot } from '../utils/pathContainment.js'
 
 const MAX_AGENTS = 17
 const MAX_CONCURRENCY = 16
@@ -155,7 +156,7 @@ function validateAgentOptions(value: unknown): WorkflowAgentOptions {
 /** True when `target` is `root` or lies inside it; purely path-based, callers resolve symlinks first. */
 function contained(root: string, target: string): boolean {
   const child = relative(root, target)
-  return child === '' || (!child.startsWith('..') && !isAbsolute(child))
+  return child === '' || !escapesRoot(child)
 }
 
 /** Runs Dynamic Workflows for one session: each run gets its own OrchestratorSession, a persisted journal used for replay, and a heartbeat lease that proves it is live to other sessions. */

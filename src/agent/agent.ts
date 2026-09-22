@@ -2,7 +2,7 @@ import OpenAI from 'openai'
 import { execa } from 'execa'
 import { randomUUID } from 'node:crypto'
 import { readFile, stat, unlink, writeFile } from 'fs/promises'
-import { isAbsolute, relative, resolve } from 'node:path'
+import { relative, resolve } from 'node:path'
 import DEFAULT_SYSTEM_PROMPT_MD from './system-prompt.md' with { type: 'text' }
 import { collectEnvironmentInfo, formatEnvironmentInfo } from './environment.js'
 import { allTools } from '../tools/index.js'
@@ -70,6 +70,7 @@ import { getTodos } from './todoStore.js'
 import { newPlanPath } from './planMode.js'
 import { fetchDeepSeekBalance, formatBalance, type AccountBalance } from './balance.js'
 import type { VerificationResult } from './verify.js'
+import { escapesRoot } from '../utils/pathContainment.js'
 
 /** Workaround: OpenAI SDK has not typed reasoning_content yet (exclusive field of deepseek-reasoner) */
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & { reasoning_content?: string }
@@ -468,7 +469,7 @@ const refuses = (decision: ToolPermissionResult) => decision === 'deny' || decis
 /** True when target is root itself or lies inside it. */
 function isPathContained(root: string, target: string): boolean {
   const pathRelative = relative(root, target)
-  return pathRelative === '' || (!pathRelative.startsWith('..') && !isAbsolute(pathRelative))
+  return pathRelative === '' || !escapesRoot(pathRelative)
 }
 
 export interface AgentOptions {

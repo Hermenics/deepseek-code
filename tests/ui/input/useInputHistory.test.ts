@@ -1,10 +1,8 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
 
-// Este import testa o contrato do hook React useInputHistory.
-// A implementação atual exporta a classe InputHistory (não um hook React
-// com a assinatura UseInputHistoryResult). O teste vai falhar (RED) porque
-// useInputHistory como função hook com esse retorno não existe ainda.
-import { useInputHistory } from '../../../src/ui/input/hooks/useInputHistory.js'
+// Contract of the useInputHistory logic, exercised through its hook-free factory createInputHistory.
+// State surviving re-renders is covered in hookPersistence.test.ts.
+import { createInputHistory } from '../../../src/ui/input/hooks/useInputHistory.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -15,7 +13,7 @@ import { useInputHistory } from '../../../src/ui/input/hooks/useInputHistory.js'
  * O hook deve aceitar um array inicial de entradas.
  */
 function createHistory(entries: string[] = []) {
-  return useInputHistory({ entries })
+  return createInputHistory(entries)
 }
 
 // ---------------------------------------------------------------------------

@@ -320,16 +320,24 @@ describe('MessageList render', () => {
       // The 80ms useClock tick re-renders LiveThinking and rewrites the counter
       // in place (ink partial diff). Force a full redraw after time passes so the
       // last frame carries the updated "Thought for N seconds" text.
-      await Bun.sleep(1300)
-      invalidateInkFrame(stdout as unknown as NodeJS.WriteStream)
-      await Bun.sleep(200)
-      const matches = [...read().matchAll(/Thinking for (\d+) seconds/g)]
-      const lastSeconds = Number(matches[matches.length - 1]![1]!)
+      // A fixed sleep flakes on a loaded runner, so poll until the counter moves, with a deadline.
+      const latestSeconds = () => {
+        const matches = [...read().matchAll(/Thinking for (\d+) seconds/g)]
+        return Number(matches[matches.length - 1]![1]!)
+      }
+      const deadline = Date.now() + 8_000
+      let lastSeconds = firstSeconds
+      while (lastSeconds <= firstSeconds && Date.now() < deadline) {
+        await Bun.sleep(250)
+        invalidateInkFrame(stdout as unknown as NodeJS.WriteStream)
+        await Bun.sleep(50)
+        lastSeconds = latestSeconds()
+      }
       expect(lastSeconds).toBeGreaterThan(firstSeconds)
     } finally {
       cleanup()
     }
-  })
+  }, 15_000)
 
   it('renders the work marker and duration after the final reply', async () => {
     const { text, cleanup } = await renderMessageList({

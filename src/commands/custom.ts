@@ -1,7 +1,8 @@
 import { homedir } from 'node:os'
-import { isAbsolute, join, relative, resolve, dirname } from 'node:path'
+import { join, relative, resolve, dirname } from 'node:path'
 import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises'
 import type { CommandResult } from './types.js'
+import { escapesRoot } from '../utils/pathContainment.js'
 
 const MAX_COMMANDS_PER_DIRECTORY = 256
 const MAX_COMMAND_BYTES = 128 * 1024
@@ -19,7 +20,7 @@ let cached = new Map<string, CustomCommand>()
 
 function contained(root: string, target: string): boolean {
   const child = relative(root, target)
-  return child === '' || (!child.startsWith('..') && !isAbsolute(child))
+  return child === '' || !escapesRoot(child)
 }
 
 async function exists(path: string): Promise<boolean> {

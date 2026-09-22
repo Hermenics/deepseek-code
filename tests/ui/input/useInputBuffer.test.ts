@@ -1,10 +1,8 @@
 import { describe, it, expect, beforeEach } from 'bun:test'
 
-// Este import testa o contrato do hook React useInputBuffer.
-// A implementação atual exporta a classe InputBuffer (não um hook React
-// com a assinatura UseInputBufferResult). O teste vai falhar (RED) porque
-// useInputBuffer como função hook não existe ainda.
-import { useInputBuffer } from '../../../src/ui/input/hooks/useInputBuffer.js'
+// Contract of the useInputBuffer logic, exercised through its hook-free factory createInputBuffer.
+// State surviving re-renders is covered in hookPersistence.test.ts.
+import { createInputBuffer } from '../../../src/ui/input/hooks/useInputBuffer.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -16,7 +14,7 @@ import { useInputBuffer } from '../../../src/ui/input/hooks/useInputBuffer.js'
  * (ou aceitar ser chamado diretamente em testes sem renderHook).
  */
 function createBuffer() {
-  return useInputBuffer()
+  return createInputBuffer()
 }
 
 // ---------------------------------------------------------------------------

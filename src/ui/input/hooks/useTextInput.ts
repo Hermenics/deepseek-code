@@ -1,6 +1,5 @@
 import { Cursor } from '../cursor/index.js'
 import {
-  pushToKillRing,
   getLastKill,
   resetKillAccumulation,
   recordYank,
@@ -77,19 +76,17 @@ export function processTextInputKey(
       return { type: 'cursor', cursor: cursor.prevWord() }
     case 'cursorWordRight':
       return { type: 'cursor', cursor: cursor.nextWord() }
+    // The Cursor kill methods push to the kill ring themselves; pushing again here doubled the yank.
     case 'killToEnd': {
         const next = cursor.deleteToLineEnd()
-        pushToKillRing(next.killed, 'append')
         return { type: 'cursor', cursor: next.cursor, killed: next.killed }
     }
     case 'killToStart': {
         const next = cursor.deleteToLineStart()
-        pushToKillRing(next.killed, 'prepend')
         return { type: 'cursor', cursor: next.cursor, killed: next.killed }
     }
     case 'killWordBackward': {
         const next = cursor.deleteWordBefore()
-        pushToKillRing(next.killed, 'prepend')
         return { type: 'cursor', cursor: next.cursor, killed: next.killed }
     }
     case 'yank': {
