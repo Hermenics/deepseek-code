@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/effort [low|high|max|auto]`: shows or sets the reasoning effort; `auto`/`unset` resets it to `high`. */
 const command: Command = {
   name: 'effort',
   aliases: [],

@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/tools`: lists the tools available to the agent. */
 const command: Command = {
   name: 'tools',
   aliases: [],

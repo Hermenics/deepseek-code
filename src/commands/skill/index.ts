@@ -11,6 +11,7 @@ export type SkillCommandResult =
   | { type: 'skill'; action: 'help' }
   | { type: 'skill'; action: 'error'; message: string }
 
+/** Parses `/skill install|list|remove|update`, validating repo and kebab-case skill names; unknown or missing subcommands fall back to help. */
 export function parseSkillCommand(args: string[]): SkillCommandResult {
   const sub = args[0]?.toLowerCase()
 
@@ -42,6 +43,7 @@ export function parseSkillCommand(args: string[]): SkillCommandResult {
   }
 }
 
+/** `/skill` (alias `/skills`): installs, lists, removes or updates skills. */
 const skill: Command = {
   name: 'skill',
   aliases: ['skills'],

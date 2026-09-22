@@ -41,6 +41,7 @@ export interface OrchestratorSessionOptions {
   snapshotFile?: string | null
 }
 
+/** Default snapshot path for a session: ~/.deepseek/task-snapshots/<hashed session ID>.json. */
 export function taskSnapshotFile(sessionId: string): string {
   const key = createHash('sha256').update(sessionId).digest('hex').slice(0, 32)
   return join(homedir(), '.deepseek', 'task-snapshots', `${key}.json`)
@@ -52,6 +53,7 @@ interface PreviousResult {
   confidence: number
 }
 
+/** Per-session facade that wires the task registry, event log, snapshot persistence, workspaces and memory together, and translates task events into the UI callbacks. */
 export class OrchestratorSession {
   readonly sessionId: string
   projectRoot: string
@@ -123,6 +125,7 @@ export class OrchestratorSession {
     return true
   }
 
+  /** Update provider, model, settings and task limits for later tasks; omitted fields keep their current values. */
   configure(values: { providerConfig?: ProviderConfig; model?: string; settings?: DeepSeekSettings; limits?: Partial<TaskLimits> }): void {
     if (values.providerConfig) this.providerConfig = values.providerConfig
     if (values.model) this.model = values.model
@@ -130,6 +133,7 @@ export class OrchestratorSession {
     if (values.limits) this.registry.updateLimits(values.limits)
   }
 
+  /** Move the session to another project root. Refused while tasks are active or non-shared workspaces are anchored elsewhere; reconfigures memory, clears fork context and emits session_rebased. */
   async changeProjectRoot(path: string): Promise<void> {
     const target = resolve(path)
     const active = this.registry.listTasks().filter(task => !['done', 'failed', 'cancelled', 'timed_out'].includes(task.state))
@@ -177,12 +181,14 @@ export class OrchestratorSession {
     return this.registry.spawn(input, runner)
   }
 
+  /** Acquire the task's workspace and record it on the task. */
   async acquireWorkspace(taskId: string, profile: PermissionProfile, signal?: AbortSignal): Promise<WorkspaceLease> {
     const lease = await this.workspaces.acquire(taskId, profile, signal)
     this.registry.setWorkspace(taskId, lease.workspace)
     return lease
   }
 
+  /** Integrate the task's workspace into the project and record the updated workspace and integration result on the task. */
   async integrateTask(taskId: string): Promise<IntegrationResult> {
     const result = await this.workspaces.integrate(taskId)
     const workspace = this.workspaces.get(taskId)
@@ -191,12 +197,14 @@ export class OrchestratorSession {
     return result
   }
 
+  /** Remove the task's worktree when safe and clear it from the task record; returns whether cleanup happened. */
   async cleanupTaskWorkspace(taskId: string): Promise<boolean> {
     const cleaned = await this.workspaces.cleanup(taskId)
     if (cleaned) this.registry.clearWorkspace(taskId)
     return cleaned
   }
 
+  /** Build the ToolExecutionContext for a tool call. Defaults the workspace to the project root and the profile to coordinator-integrator; emitted events are tagged with the task ID. */
   toolContext(input: { taskId?: string; workspacePath?: string; workspaceIsolation?: ToolExecutionContext['workspaceIsolation']; signal?: AbortSignal; permissionProfile?: PermissionProfile; allowedTools?: string[] | '*'; maxTokens?: number; maxCostUsd?: number; dangerousOperationApproved?: boolean; approvedExternalPaths?: string[]; workflowManager?: ToolExecutionContext['workflowManager']; interactionMode?: ToolExecutionContext['interactionMode']; askUser?: AskUserHandler } = {}): ToolExecutionContext {
     return {
       sessionId: this.sessionId,
@@ -220,6 +228,7 @@ export class OrchestratorSession {
     }
   }
 
+  /** Return cloned copies of the current provider config, model and settings. */
   runtimeSnapshot(): { providerConfig: ProviderConfig; model?: string; settings: DeepSeekSettings } {
     return {
       providerConfig: structuredClone(this.providerConfig),
@@ -228,14 +237,17 @@ export class OrchestratorSession {
     }
   }
 
+  /** Clear the previous subagent results used as fork context. */
   resetTurnMemory(): void {
     this.previousResults = []
   }
 
+  /** Record a subagent result (task and summary truncated to 200/300 chars) for later fork context. */
   addPreviousResult(task: string, summary: string, confidence: number): void {
     this.previousResults.push({ task: task.slice(0, 200), summary: summary.slice(0, 300), confidence })
   }
 
+  /** Serialize previous subagent results as JSON for fork-context subagents; empty string when there are none. */
   formatForkContext(): string {
     if (this.previousResults.length === 0) return ''
     return JSON.stringify(this.previousResults.map(result => ({
@@ -247,12 +259,14 @@ export class OrchestratorSession {
     this.events.emit(type, payload, taskId)
   }
 
+  /** Cancel all unfinished tasks, then flush snapshot and event-log writes. */
   async shutdown(reason = 'Session shutdown'): Promise<void> {
     this.registry.cancelAll(reason)
     await this.snapshotStore?.flush()
     await this.events.flush()
   }
 
+  /** Wait for pending snapshot and event-log writes, rethrowing write failures. */
   async flush(): Promise<void> {
     await this.snapshotStore?.flush()
     await this.events.flush()
@@ -262,10 +276,12 @@ export class OrchestratorSession {
     return this.snapshotStore?.lastError
   }
 
+  /** Queue a snapshot of all tasks and messages; runs after every event and is a no-op without a snapshot file. */
   private queueSnapshot(): void {
     this.snapshotStore?.save(this.sessionId, this.projectRoot, this.registry.listTasks(), this.registry.mailbox.list())
   }
 
+  /** Translate registry events into OrchestratorCallbacks for the UI; for ask_agent tasks, completion and errors are also posted as notes. */
   private routeCompatibilityEvent(type: TaskEventType, taskId: string | undefined, payload: Record<string, unknown>): void {
     if (!taskId) return
     let record
@@ -290,6 +306,7 @@ export class OrchestratorSession {
     }
   }
 
+  /** Render a task result as text: strings as-is, objects by their `summary` field, anything else as JSON. */
   private formatValue(value: unknown): string {
     if (typeof value === 'string') return value
     if (value && typeof value === 'object' && typeof (value as { summary?: unknown }).summary === 'string') {

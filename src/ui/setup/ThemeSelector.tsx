@@ -20,6 +20,7 @@ const THEMES: { label: string; value: ThemeName }[] = [
 
 const CONFIG_PATH = join(homedir(), '.deepseek', 'config.json')
 
+/** Writes the theme as `THEME` into ~/.deepseek/config.json, preserving the file's other keys. */
 async function saveTheme(theme: ThemeName): Promise<void> {
   const existing = await readJson<Record<string, string>>(CONFIG_PATH).catch(() => ({}))
   await writeRaw(CONFIG_PATH, JSON.stringify({ ...existing, THEME: theme }, null, 2))
@@ -31,6 +32,7 @@ interface Props {
   onCancel(): void
 }
 
+/** Theme picker that live-previews each theme's colors on a sample diff; Enter persists the choice before calling onSelect, Esc cancels. */
 export function ThemeSelector({ currentTheme, onSelect, onCancel }: Props) {
   const [idx, setIdx] = useState(() => Math.max(0, THEMES.findIndex((t) => t.value === currentTheme)))
   const preview = THEMES[idx]!.value
@@ -48,7 +50,7 @@ export function ThemeSelector({ currentTheme, onSelect, onCancel }: Props) {
 
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text color="cyan" bold>Theme</Text>
+      <Text color={colors.primary} bold>Theme</Text>
       <Text bold>Choose the text style that looks best with your terminal</Text>
 
       {/* Side-by-side: selector on left, diff preview on right */}
@@ -57,13 +59,13 @@ export function ThemeSelector({ currentTheme, onSelect, onCancel }: Props) {
         <Box flexDirection="column">
           {THEMES.map((t, i) => (
             <Box key={t.value} flexDirection="row" gap={1}>
-              <Text color={i === idx ? 'cyan' : '#888888'}>
+              <Text color={i === idx ? colors.primary : colors.textDim}>
                 {i === idx ? '❯' : ' '}
               </Text>
-              <Text color={i === idx ? 'cyan' : undefined}>
+              <Text color={i === idx ? colors.primary : undefined}>
                 {t.label}
               </Text>
-              {t.value === currentTheme && <Text color="#888888"> [active]</Text>}
+              {t.value === currentTheme && <Text color={colors.textSubtle}> [active]</Text>}
             </Box>
           ))}
         </Box>
@@ -71,13 +73,13 @@ export function ThemeSelector({ currentTheme, onSelect, onCancel }: Props) {
         {/* Separator */}
         <Box flexDirection="column">
           {Array.from({ length: 8 }).map((_, i) => (
-            <Text key={i} color="#444444">{'│'}</Text>
+            <Text key={i} color={colors.rule}>{'│'}</Text>
           ))}
         </Box>
 
         {/* Diff preview (right) */}
         <Box flexDirection="column">
-          <Text color="#888888" italic>{'Preview — demo.js'}</Text>
+          <Text color={colors.textSubtle} italic>{'Preview — demo.js'}</Text>
           <Text color={colors.textDim}>{' function greet() {'}</Text>
           <Text backgroundColor={colors.diffRemoved} color={colors.diffRemovedWord}>{'-  console.log("Hello, World!");'}</Text>
           <Text backgroundColor={colors.diffAdded} color={colors.diffAddedWord}>{'+  console.log("Hello, DeepSeek!");'}</Text>
@@ -86,7 +88,7 @@ export function ThemeSelector({ currentTheme, onSelect, onCancel }: Props) {
       </Box>
 
       <Box marginTop={1}>
-        <Text color="#888888" italic>{'Enter to select · ESC to cancel · ↑↓ to navigate'}</Text>
+        <Text color={colors.textDim} italic>{'Enter to select · ESC to cancel · ↑↓ to navigate'}</Text>
       </Box>
     </Box>
   )

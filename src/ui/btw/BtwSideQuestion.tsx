@@ -12,6 +12,7 @@ export interface BtwState {
   error?: string
 }
 
+/** Renders a `/btw` side question and its answer (or error) below the conversation; Space, Enter, Esc or Ctrl+C/D dismiss it. */
 export function BtwSideQuestion({ btw, theme, onDismiss }: { btw: BtwState; theme: ThemeName; onDismiss: () => void }) {
   const colors = getThemeColors(theme)
 

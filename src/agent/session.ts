@@ -16,20 +16,24 @@ function readableProjectName(cwd = process.cwd()): string {
   return basename(resolvedCwd(cwd)).replace(/[^a-zA-Z0-9._-]/g, '-') || 'project'
 }
 
+/** Per-project session directory: `~/.deepseek/sessions/<name>-<hash8>`, keyed by the absolute cwd so same-named projects never collide. */
 function getSessionsDir(cwd = process.cwd()): string {
   const absoluteCwd = resolvedCwd(cwd)
   const hash = createHash('sha256').update(absoluteCwd).digest('hex').slice(0, 8)
   return join(process.env.HOME || homedir(), '.deepseek', 'sessions', `${readableProjectName(absoluteCwd)}-${hash}`)
 }
 
+/** Older per-project layout (name only, no hash); still read and cleaned for backward compatibility. */
 function getPreviousProjectDir(cwd = process.cwd()): string {
   return join(process.env.HOME || homedir(), '.deepseek', 'sessions', readableProjectName(cwd))
 }
 
+/** Oldest flat layout where all sessions lived directly in `~/.deepseek/sessions`. */
 function getLegacySessionsDir(): string {
   return join(process.env.HOME || homedir(), '.deepseek', 'sessions')
 }
 
+/** Loads every parseable `*.json` session in a directory; unreadable files and a missing directory yield no entries. */
 async function readSessionsDir(dir: string): Promise<SessionData[]> {
   try {
     const files = await readdir(dir)
@@ -44,11 +48,13 @@ async function readSessionsDir(dir: string): Promise<SessionData[]> {
   }
 }
 
+/** Drops duplicate session ids (the same session found in several layouts), keeping the last occurrence. */
 function dedupeSessions(sessions: SessionData[]): SessionData[] {
   return [...new Map(sessions.map(session => [session.id, session])).values()]
 }
 let maxSessions = 50
 
+/** Sets how many sessions are kept globally before the oldest are pruned (minimum 1). */
 export function setSessionRetention(value: number): void {
   maxSessions = Math.max(1, Math.trunc(value))
 }
@@ -94,15 +100,18 @@ export async function branchSession(id: string, cwd = process.cwd(), title?: str
   return createSessionBranch(source, title)
 }
 
+/** Renames a saved session; does nothing when the session does not exist. */
 export async function updateSessionTitle(id: string, title: string, cwd = process.cwd()): Promise<void> {
   const session = await loadSession(id, cwd)
   if (session) await saveSession({ ...session, title })
 }
 
+/** Generates a 12-hex-char session id (the format exportSession validates). */
 export function newSessionId(): string {
   return randomBytes(6).toString('hex')
 }
 
+/** Writes a session to its per-project directory with a fresh updatedAt and prunes old sessions. Failures are swallowed. */
 export async function saveSession(data: SessionData): Promise<void> {
   try {
     const dir = getSessionsDir(data.cwd)
@@ -115,12 +124,17 @@ export async function saveSession(data: SessionData): Promise<void> {
   }
 }
 
+/** Finds a session by id, searching only the given project's sessions when `cwd` is passed, otherwise all projects. */
 export async function loadSession(id: string, cwd?: string): Promise<SessionData | null> {
   if (cwd) return (await listSessions(cwd)).find(session => session.id === id) ?? null
   const sessions = await listSessions()
   return sessions.find(session => session.id === id) ?? null
 }
 
+/**
+ * Lists sessions newest first. With `cwd`, reads the current and both legacy layouts and keeps only sessions for that
+ * directory; without it, returns sessions across every project. Never throws.
+ */
 export async function listSessions(cwd?: string): Promise<SessionData[]> {
   try {
     if (cwd) {
@@ -148,6 +162,7 @@ export async function listSessions(cwd?: string): Promise<SessionData[]> {
   }
 }
 
+/** Deletes sessions beyond the global retention limit (oldest by updatedAt) from all three directory layouts. Best-effort. */
 async function pruneOldSessions(): Promise<void> {
   try {
     const sessions = await listSessions()
@@ -163,6 +178,7 @@ async function pruneOldSessions(): Promise<void> {
   } catch {}
 }
 
+/** Deletes all sessions for the current project, or every session when scope is `global`; returns how many were removed. */
 export async function clearSessions(scope: 'project' | 'global', cwd = process.cwd()): Promise<number> {
   const selected = scope === 'global' ? await listSessions() : await listSessions(cwd)
   await Promise.all(selected.map(session => Promise.all([
@@ -173,6 +189,7 @@ export async function clearSessions(scope: 'project' | 'global', cwd = process.c
   return selected.length
 }
 
+/** Returns the most recently updated session for the project, or null. */
 export async function getLastProjectSession(cwd = process.cwd()): Promise<SessionData | null> {
   return (await listSessions(cwd))[0] ?? null
 }
@@ -180,11 +197,13 @@ export async function getLastProjectSession(cwd = process.cwd()): Promise<Sessio
 export type SessionExportFormat = 'json' | 'md'
 const SESSION_ID = /^[a-f0-9]{12}$/i
 
+/** Renders one UI message as a Markdown section titled by its role, with secrets redacted. */
 function formatExportMessage(message: Message): string {
   const title = message.role[0]!.toUpperCase() + message.role.slice(1)
   return `## ${title}\n\n${String(redactSecrets(message.content))}`
 }
 
+/** Serialises a secret-redacted session as pretty JSON or as a Markdown transcript of its UI messages. */
 export function formatSessionExport(session: SessionData, format: SessionExportFormat): string {
   const sanitized = redactSecrets(session) as SessionData
   if (format === 'json') return `${JSON.stringify(sanitized, null, 2)}\n`
@@ -201,6 +220,7 @@ export function formatSessionExport(session: SessionData, format: SessionExportF
   ].join('\n')
 }
 
+/** Writes a sanitised export of a session to `.deepseek/session-<id>.sanitized.<format>` (mode 0600) and returns the path. */
 export async function exportSession(id: string, format: SessionExportFormat, cwd = process.cwd()): Promise<string> {
   if (!SESSION_ID.test(id)) throw new Error('Invalid session ID.')
   const session = await loadSession(id, cwd)

@@ -5,6 +5,7 @@ export interface SubmitPlanArgs {
   summary?: string
 }
 
+/** Plan-mode tool that signals the plan file is finished. It has no side effect itself; the caller sees the `submitted` result and pauses for user approval. */
 export const SubmitPlan: Tool = {
   name: 'submit_plan',
   description: `Signal that you have finished writing the implementation plan to disk.

@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/quit` (alias `/q`): exits the application. */
 const command: Command = {
   name: 'quit',
   aliases: ['q'],

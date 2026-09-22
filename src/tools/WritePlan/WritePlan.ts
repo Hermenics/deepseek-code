@@ -2,6 +2,7 @@ import type { Tool } from '../types.js'
 import * as fs from 'fs/promises'
 import { dirname } from 'path'
 
+/** Plan-mode tool that overwrites the plan markdown file. The target path is injected by the runtime as `__planFilePath`, never chosen by the model. */
 export const WritePlan: Tool = {
   name: 'write_plan',
   description: `Write or update the plan markdown file. Only available in plan mode.

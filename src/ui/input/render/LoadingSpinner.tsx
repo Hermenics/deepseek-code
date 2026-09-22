@@ -1,6 +1,7 @@
 import { useClock } from '../../clock.js'
 import Box from '../../../ink/components/Box.js'
 import Text from '../../../ink/components/Text.js'
+import { useThemeColors } from '../../design-system/ThemeProvider.js'
 
 const SPINNER = ['✻', '✼', '✽', '✾', '✿', '❀', '✿', '✾', '✽', '✽', '✼']
 
@@ -82,16 +83,18 @@ interface LoadingSpinnerProps {
   activeTool?: string | null
 }
 
+/** Renders the working indicator: a clock-driven spinner glyph, a phase- or tool-specific message and a Ctrl+C hint. */
 export function LoadingSpinner({ toolCallCount, phase, activeTool }: LoadingSpinnerProps) {
+  const colors = useThemeColors()
   const tick = useClock()
   const isRefining = phase === 'refining'
   const msg = pickLoadingMessage(phase, toolCallCount, activeTool)
 
   return (
     <Box flexDirection="row" gap={1} paddingLeft={1}>
-      <Text color={isRefining ? 'magenta' : 'cyan'}>{SPINNER[tick % SPINNER.length]}</Text>
-      <Text color="#888888">{msg}</Text>
-      <Text color="#888888">{' ·  Ctrl+C to cancel'}</Text>
+      <Text color={isRefining ? colors.h3 : colors.primary}>{SPINNER[tick % SPINNER.length]}</Text>
+      <Text color={colors.textDim}>{msg}</Text>
+      <Text color={colors.textSubtle}>{' ·  Ctrl+C to cancel'}</Text>
     </Box>
   )
 }

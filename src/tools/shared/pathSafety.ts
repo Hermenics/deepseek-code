@@ -21,17 +21,20 @@ const SENSITIVE_FILE_PATTERNS: RegExp[] = [
   /^\.aws\/(credentials|config)$/i,
 ]
 
+/** True for credential-like files (.env, keys, certificates, cloud credentials, .npmrc...), matched on the basename or the slash-normalized path. Agents are never allowed to touch these. */
 export function isSensitiveWorkspacePath(filePath: string): boolean {
   const basename = path.basename(filePath)
   const normalized = filePath.replace(/\\/g, '/')
   return SENSITIVE_FILE_PATTERNS.some(pattern => pattern.test(basename) || pattern.test(normalized))
 }
 
+/** True when `target` is `root` or inside it. Lexical only (no symlink resolution); a child whose name starts with `..` is also treated as outside. */
 function isContained(root: string, target: string): boolean {
   const relative = path.relative(root, target)
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative))
 }
 
+/** Matches `.deepseek/workflows/<name>.js`, the one exception to the `.deepseek/` block. */
 function isWorkflowFile(relativePath: string): boolean {
   return /^\.deepseek\/workflows\/[^/]+\.js$/.test(relativePath.replace(/\\/g, '/'))
 }
@@ -53,6 +56,7 @@ async function canonicalTargetPath(target: string): Promise<string> {
   }
 }
 
+/** True when `target`, after resolving symlinks, is a saved workflow script inside this workspace's `.deepseek/workflows/`. */
 async function isWorkspaceWorkflowFile(workspaceRoot: string, target: string): Promise<boolean> {
   if (!isContained(workspaceRoot, target)) return false
   const realRoot = await fs.realpath(workspaceRoot)
@@ -71,6 +75,7 @@ export function resolvePathForContext(filePath: string, context?: ToolExecutionC
   return absolutePath
 }
 
+/** realpath of `target`, or of its closest existing ancestor when the path does not exist yet. */
 async function nearestExisting(target: string): Promise<string> {
   let current = target
   while (true) {
@@ -132,16 +137,20 @@ export async function resolveExternalApprovalDirectory(filePath: string, isDirec
   return stat.isDirectory() ? existing : path.dirname(existing)
 }
 
+/** Validate a file path for tool access; alias of `resolveSafePath`. Use the returned path, not the input. */
 export async function assertSafePath(filePath: string, context?: ToolExecutionContext): Promise<string> {
   return resolveSafePath(filePath, context)
 }
 
+/** Validate a directory path for tool access; alias of `resolveSafePath`. Use the returned path, not the input. */
 export async function assertSafeDir(dirPath: string, context?: ToolExecutionContext): Promise<string> {
   return resolveSafePath(dirPath, context)
 }
 
+/** BLOCKED_DIRS turned into recursive "any depth" glob excludes, one per directory. */
 export const BLOCKED_GLOB_PATTERNS = BLOCKED_DIRS.map(directory => `**/${directory}/**`)
 
+/** Throw the abort reason if the task was cancelled; called before and between write steps so a cancelled task never writes. */
 export function assertExecutionActive(context?: ToolExecutionContext): void {
   if (context?.signal?.aborted) throw context.signal.reason ?? new Error('Task execution was cancelled')
 }

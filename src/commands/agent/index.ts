@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/agent <name>`: switches the session to a named custom agent. */
 const command: Command = {
   name: 'agent',
   aliases: [],

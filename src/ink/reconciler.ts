@@ -119,6 +119,7 @@ function setEventHandler(node: DOMElement, key: string, value: unknown): void {
   node._eventHandlers[key] = value
 }
 
+/** Applies one initial React prop to a new DOM node: `style` also updates the Yoga node, event-handler props go to `_eventHandlers`, and everything else becomes an attribute. `children` is ignored. */
 function applyProp(node: DOMElement, key: string, value: unknown): void {
   if (key === 'children') return
 
@@ -156,6 +157,7 @@ type FiberLike = {
   return?: FiberLike | null
 }
 
+/** Returns the names of the components that rendered `fiber`, innermost first (host elements skipped, consecutive duplicates collapsed, max 50 hops). Used to attribute repaints when CLAUDE_CODE_DEBUG_REPAINTS is set. */
 export function getOwnerChain(fiber: unknown): string[] {
   const chain: string[] = []
   const seen = new Set<unknown>()
@@ -178,6 +180,7 @@ export function getOwnerChain(fiber: unknown): string[] {
 }
 
 let debugRepaints: boolean | undefined
+/** Whether CLAUDE_CODE_DEBUG_REPAINTS is truthy; read once and cached. */
 export function isDebugRepaintsEnabled(): boolean {
   if (debugRepaints === undefined) {
     debugRepaints = isEnvTruthy(process.env.CLAUDE_CODE_DEBUG_REPAINTS)
@@ -246,6 +249,7 @@ const reconciler = createReconciler<
   },
   preparePortalMount: () => null,
   clearContainer: () => false,
+  /** After each React commit: runs Yoga layout via the root's `onComputeLayout`, then schedules a frame via `onRender` (tests use `onImmediateRender` instead). Also writes commit/layout timings to CLAUDE_CODE_COMMIT_LOG when set. */
   resetAfterCommit(rootNode: any) {
     _lastCommitMs = _commitStart > 0 ? performance.now() - _commitStart : 0
     _commitStart = 0
@@ -315,6 +319,7 @@ const reconciler = createReconciler<
       }
     }
   },
+  /** Tracks whether children are rendered inside a text element (ink-text, ink-virtual-text or ink-link), reusing the parent context object when that doesn't change. */
   getChildHostContext(
     parentHostContext: HostContext,
     type: ElementNames,
@@ -330,6 +335,7 @@ const reconciler = createReconciler<
     return { isInsideText }
   },
   shouldSetTextContent: () => false,
+  /** Creates the DOM node for a host element and applies its props. An <ink-text> inside text becomes ink-virtual-text; a <Box> inside <Text> throws. */
   createInstance(
     originalType: ElementNames,
     newProps: Props,
@@ -359,6 +365,7 @@ const reconciler = createReconciler<
 
     return node
   },
+  /** Creates a text node; throws when a raw string is rendered outside a <Text> component. */
   createTextInstance(
     text: string,
     _root: DOMElement,
@@ -380,6 +387,7 @@ const reconciler = createReconciler<
     setTextNodeValue(node, text)
   },
   getPublicInstance: (instance: any): DOMElement => instance as DOMElement,
+  /** Hides a node for Suspense/Offscreen by setting Yoga display to none, so it takes no space in layout. */
   hideInstance(node: any) {
     node.isHidden = true
     node.yogaNode?.setDisplay(LayoutDisplay.None)
@@ -393,6 +401,7 @@ const reconciler = createReconciler<
   appendInitialChild: appendChildNode,
   appendChild: appendChildNode,
   insertBefore: insertBeforeNode,
+  /** Returns true for `autoFocus` elements so React calls `commitMount`, which focuses them once they are attached. */
   finalizeInitialChildren(
     _node: DOMElement,
     _type: ElementNames,
@@ -419,6 +428,7 @@ const reconciler = createReconciler<
   getInstanceFromScope: () => null,
   appendChildToContainer: appendChildNode,
   insertInContainerBefore: insertBeforeNode,
+  /** Removes a top-level child, frees its Yoga nodes and lets the focus manager blur or restore focus if it held focus. */
   removeChildFromContainer(node: DOMElement, removeNode: DOMElement): void {
     removeChildNode(node, removeNode)
     cleanupYogaNode(removeNode)
@@ -462,6 +472,7 @@ const reconciler = createReconciler<
   commitTextUpdate(node: TextNode, _oldText: string, newText: string): void {
     setTextNodeValue(node, newText)
   },
+  /** Removes a child, frees its Yoga nodes, and for element nodes lets the root focus manager blur or restore focus if the removed subtree held it. */
   removeChild(node: any, removeNode: any) {
     removeChildNode(node, removeNode)
     cleanupYogaNode(removeNode)

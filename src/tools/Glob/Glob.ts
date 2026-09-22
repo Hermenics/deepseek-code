@@ -6,6 +6,7 @@ import { GLOB_MAX_FILES } from '../../constants.js'
 import { assertSafeDir } from '../shared/pathSafety.js'
 import { ignoreDirNames, isPathIgnored } from '../shared/deepseekignore.js'
 
+/** True when `target` is `root` itself or lies inside it. */
 function isContained(root: string, target: string): boolean {
   const relative = path.relative(root, target)
   return relative === '' || (!path.isAbsolute(relative) && relative !== '..' && !relative.startsWith(`..${path.sep}`))
@@ -32,6 +33,7 @@ export const GLOB_IGNORE_FILES: string[] = [
   '**/.DS_Store',
 ]
 
+/** Tool that lists files matching a glob. Symlinks are not followed, and results that resolve outside the workspace or are excluded by .deepseekignore are dropped. Output is capped at GLOB_MAX_FILES. */
 export const Glob: Tool = {
   name: 'glob',
   description: 'Find files matching a glob pattern.',

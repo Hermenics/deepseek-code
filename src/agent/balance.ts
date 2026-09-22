@@ -29,6 +29,7 @@ export async function fetchDeepSeekBalance(
   }
 }
 
+/** Formats a balance for display: `$12.34` for USD, `12.34 CNY` style for other currencies. */
 export function formatBalance({ currency, total }: AccountBalance): string {
   return currency === 'USD' ? `$${total.toFixed(2)}` : `${total.toFixed(2)} ${currency}`
 }

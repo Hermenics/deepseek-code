@@ -118,6 +118,7 @@ export type DOMNode<T = { nodeName: NodeNames }> = T extends {
 // eslint-disable-next-line @typescript-eslint/naming-convention
 export type DOMNodeAttribute = boolean | string | number
 
+/** Creates a DOM element for the reconciler. Virtual-text, link and progress nodes get no Yoga node (they don't take part in layout); text and raw-ANSI nodes get a measure function. */
 export const createNode = (nodeName: ElementNames): DOMElement => {
   const needsYogaNode =
     nodeName !== 'ink-virtual-text' &&
@@ -142,6 +143,7 @@ export const createNode = (nodeName: ElementNames): DOMElement => {
   return node
 }
 
+/** Appends `childNode` to `node` (detaching it from any previous parent first), mirrors the change in the Yoga tree and marks the parent dirty. */
 export const appendChildNode = (
   node: DOMElement,
   childNode: DOMElement,
@@ -163,6 +165,7 @@ export const appendChildNode = (
   markDirty(node)
 }
 
+/** Inserts `newChildNode` before `beforeChildNode`, or appends when the reference is not a child. The Yoga index is recomputed because children without Yoga nodes make DOM and Yoga indices diverge. */
 export const insertBeforeNode = (
   node: DOMElement,
   newChildNode: DOMNode,
@@ -212,6 +215,7 @@ export const insertBeforeNode = (
   markDirty(node)
 }
 
+/** Detaches `removeNode` from `node` and its Yoga parent, and queues the removed subtree's cached rects to be cleared on the next frame. */
 export const removeChildNode = (
   node: DOMElement,
   removeNode: DOMNode,
@@ -233,6 +237,7 @@ export const removeChildNode = (
   markDirty(node)
 }
 
+/** Moves the cached layout rects of a removed subtree into the parent's pending-clear list, flagging absolute-positioned removals so the renderer disables blitting for the next frame. */
 function collectRemovedRects(
   parent: DOMElement,
   removed: DOMNode,
@@ -255,6 +260,7 @@ function collectRemovedRects(
   }
 }
 
+/** Sets an attribute and marks the node dirty only when the value actually changed. `children` is ignored because React manages children separately. */
 export const setAttribute = (
   node: DOMElement,
   key: string,
@@ -274,6 +280,7 @@ export const setAttribute = (
   markDirty(node)
 }
 
+/** Replaces the node's style, skipping the dirty mark when the new style is shallow-equal to the old one. */
 export const setStyle = (node: DOMNode, style: Styles): void => {
   // Compare style properties to avoid marking dirty unnecessarily.
   // React creates new style objects on every render even when unchanged.
@@ -284,6 +291,7 @@ export const setStyle = (node: DOMNode, style: Styles): void => {
   markDirty(node)
 }
 
+/** Replaces the node's text styles, skipping the dirty mark (and Yoga re-measure) when they are shallow-equal to the current ones. */
 export const setTextStyles = (
   node: DOMElement,
   textStyles: TextStyles,
@@ -303,6 +311,7 @@ function stylesEqual(a: Styles, b: Styles): boolean {
   return shallowEqual(a, b)
 }
 
+/** Compares two objects' own enumerable keys by strict equality; `undefined` only equals `undefined`. */
 function shallowEqual<T extends object>(
   a: T | undefined,
   b: T | undefined,
@@ -326,6 +335,7 @@ function shallowEqual<T extends object>(
   return true
 }
 
+/** Creates a `#text` node holding `text`. Text nodes have no Yoga node; their parent ink-text measures them. */
 export const createTextNode = (text: string): TextNode => {
   const node: TextNode = {
     nodeName: '#text',
@@ -433,6 +443,7 @@ export const scheduleRenderFrom = (node?: DOMNode): void => {
   if (cur && cur.nodeName !== '#text') (cur as DOMElement).onRender?.()
 }
 
+/** Updates a text node's value (coercing non-strings) and marks its ancestors dirty when it changed. */
 export const setTextNodeValue = (node: TextNode, text: string): void => {
   if (typeof text !== 'string') {
     text = String(text)

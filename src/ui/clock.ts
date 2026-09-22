@@ -18,6 +18,7 @@ function stopClock() {
   }
 }
 
+/** Returns a counter that increments every 80ms, driven by one shared interval that starts with the first subscriber and stops when the last unmounts. */
 export function useClock(): number {
   const [tick, setTick] = useState(0)
 

@@ -24,6 +24,7 @@ function getStackUtils(): StackUtils {
 type Props = {
   readonly error: Error;
 };
+/** Fallback screen shown by App after a render crash: the message, a source excerpt around the throwing line, and the parsed stack. */
 export default function ErrorOverview({
   error
 }: Props) {

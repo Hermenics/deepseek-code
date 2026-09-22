@@ -56,11 +56,13 @@ export class TerminalEvent extends Event {
     this._propagationStopped = true
   }
 
+  /** Stops the remaining listeners on this node and propagation to further nodes. */
   override stopImmediatePropagation(): void {
     super.stopImmediatePropagation()
     this._propagationStopped = true
   }
 
+  /** Marks the default action as prevented; ignored when the event is not cancelable. */
   preventDefault(): void {
     if (this.cancelable) {
       this._defaultPrevented = true

@@ -22,6 +22,7 @@ export type TerminalNotification = {
   progress: (state: Progress['state'] | null, percentage?: number) => void
 }
 
+/** Returns callbacks that emit desktop notifications (iTerm2, kitty, Ghostty, BEL) and OSC 9;4 progress through the raw terminal writer, wrapped for tmux/screen when needed. Throws outside a TerminalWriteProvider. */
 export function useTerminalNotification(): TerminalNotification {
   const writeRaw = useContext(TerminalWriteContext)
   if (!writeRaw) {

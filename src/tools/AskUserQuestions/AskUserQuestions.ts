@@ -28,6 +28,7 @@ const questionSchema = {
   required: ['question', 'header'],
 }
 
+/** Tool that shows 1-4 clarifying questions to the user. Only works in the interactive main session, where the context provides `askUser`. */
 export const AskUserQuestions: Tool = {
   name: 'ask_user_questions',
   description: 'Ask the user one or more questions to clarify requirements, preferences, or decisions. Prefer concise choice options; use text for free-form input and yesno for confirmation.',
@@ -45,6 +46,7 @@ export const AskUserQuestions: Tool = {
     },
     required: ['questions'],
   },
+  /** Validate question shapes (choice questions need 2-4 options), then block on the UI; a dismissed dialog returns `{ cancelled: true }`. */
   async execute(args, context) {
     if (!Array.isArray(args.questions)) return 'Error: questions must be an array.'
     if (args.questions.length < 1 || args.questions.length > 4) {

@@ -16,6 +16,7 @@ export const CURATED_CATALOG: CatalogEntry[] = [
   { id: 'openai-docs', kind: 'Skill', name: 'OpenAI docs', source: 'openai/openai-docs', description: 'Official OpenAI product and API research workflow.' },
 ]
 
+/** Renders the curated catalog (optionally filtered to one kind) as the plain-text listing shown to the user. */
 export function formatCatalog(kind?: CatalogKind): string {
   const entries = kind ? CURATED_CATALOG.filter(entry => entry.kind === kind) : CURATED_CATALOG
   const lines = ['Curated integrations (review source and permissions before installing):', '']

@@ -35,6 +35,7 @@ export interface WorktreeState {
   history: WorktreeInfo[]
 }
 
+/** Returns a random `adjective-noun` name for a new worktree. Not guaranteed unique; callers retry on collision. */
 export function generateWorktreeName(): string {
   // Derive both indices from a crypto UUID so names are unique per call and no
   // Math.random is used (CodeQL js/insecure-randomness).
@@ -44,10 +45,12 @@ export function generateWorktreeName(): string {
   return `${adj}-${noun}`
 }
 
+/** Cheap check for a `.git` entry (directory or worktree file) directly in `dir`. */
 export function isGitRepository(dir: string): boolean {
   return existsSync(join(dir, '.git'))
 }
 
+/** Reads `.deepseek/worktree-state.json`, falling back to an empty state when missing or corrupt. */
 async function loadState(projectRoot: string): Promise<WorktreeState> {
   const stateFile = join(projectRoot, STATE_FILE)
   try {
@@ -65,6 +68,7 @@ async function saveState(projectRoot: string, state: WorktreeState): Promise<voi
   await writeFile(stateFile, JSON.stringify(state, null, 2))
 }
 
+/** True when the path (symlinks resolved where it exists) is `.deepseek/worktrees` or inside it; guards enter/remove against escapes. */
 export function validatePathUnderWorktrees(targetPath: string, projectRoot: string): boolean {
   const existing = (path: string): string => {
     try { return realpathSync.native(path) } catch { return resolve(path) }
@@ -75,6 +79,10 @@ export function validatePathUnderWorktrees(targetPath: string, projectRoot: stri
   return child === '' || (!child.startsWith('..') && !isAbsolute(child))
 }
 
+/**
+ * Creates a git worktree on a new branch under `.deepseek/worktrees/<name>` and marks it active, pushing any previous
+ * active worktree to history. Refuses outside git repos, and a `WorktreeCreate` hook can block it.
+ */
 export async function createWorktree(projectRoot: string, sessionId?: string): Promise<WorktreeInfo> {
   const useGit = isGitRepository(projectRoot)
   if (!useGit) throw new Error('Git worktrees are unavailable. Refusing an unsafe copied-workspace fallback.')
@@ -129,6 +137,7 @@ export async function createWorktree(projectRoot: string, sessionId?: string): P
   return info
 }
 
+/** Makes an existing worktree under `.deepseek/worktrees` the active one; rejects names that resolve outside that directory. */
 export async function enterWorktree(projectRoot: string, name: string, sessionId?: string): Promise<WorktreeInfo> {
   const worktreePath = join(projectRoot, WORKTREES_DIR, name)
 
@@ -157,6 +166,10 @@ export async function enterWorktree(projectRoot: string, name: string, sessionId
   return info
 }
 
+/**
+ * Deactivates the current worktree. Without `keep` it also removes it via `git worktree remove`, but only when a
+ * `WorktreeRemove` hook allows it, the path is under `.deepseek/worktrees`, and there are no uncommitted changes.
+ */
 export async function exitWorktree(projectRoot: string, keep: boolean): Promise<string> {
   const state = await loadState(projectRoot)
   if (!state.active) return 'No active worktree.'
@@ -194,6 +207,7 @@ export async function exitWorktree(projectRoot: string, keep: boolean): Promise<
     : `Worktree "${name}" removed.`
 }
 
+/** Lists the directories under `.deepseek/worktrees`, whether or not they are tracked in the state file. */
 export async function listWorktrees(projectRoot: string): Promise<WorktreeInfo[]> {
   const worktreesDir = join(projectRoot, WORKTREES_DIR)
   if (!existsSync(worktreesDir)) return []
@@ -218,11 +232,13 @@ export async function listWorktrees(projectRoot: string): Promise<WorktreeInfo[]
   return results
 }
 
+/** Returns the worktree recorded as active in the project's state file, or null. */
 export async function getActiveWorktree(projectRoot: string): Promise<WorktreeInfo | null> {
   const state = await loadState(projectRoot)
   return state.active
 }
 
+/** Prefix check for whether `cwd` lies under the project's `.deepseek/worktrees` directory (no symlink resolution). */
 export function isInsideWorktree(projectRoot: string, cwd = process.cwd()): boolean {
   const worktreesRoot = resolve(projectRoot, WORKTREES_DIR)
   return cwd.startsWith(worktreesRoot)

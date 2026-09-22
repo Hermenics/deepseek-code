@@ -28,6 +28,8 @@ export interface ThemeColors {
   thinkingBg: string
   bashMessageBg: string
   selectionBg: string
+  inputCursorBg: string
+  inputCursorText: string
 
   // Borders
   promptBorder: string
@@ -66,93 +68,97 @@ export interface ThemeColors {
 }
 
 const darkTheme: ThemeColors = {
-  primary: 'cyan',
-  primaryShimmer: '#5599ff',
+  primary: '#78a9ff',
+  primaryShimmer: '#b7d1ff',
 
-  success: 'green',
-  error: 'red',
-  warning: 'yellow',
-  info: 'cyan',
-  suggestion: 'white',
-  suggestionShimmer: 'white',
+  success: '#7bd88f',
+  error: '#ff7b8a',
+  warning: '#f4ca73',
+  info: '#7dd3fc',
+  suggestion: '#f3f6fb',
+  suggestionShimmer: '#ffffff',
 
-  text: 'white',
-  textDim: '#888888',
-  textSubtle: '#8a8a8a',
-  textInactive: '#6a6a6a',
+  text: '#f3f6fb',
+  textDim: '#93a1b5',
+  textSubtle: '#718096',
+  textInactive: '#4c5b70',
 
   userMessageBg: '',
   userMessageBgHover: '',
-  thinkingBg: '#111118',
+  thinkingBg: '#111b2d',
   bashMessageBg: '',
-  selectionBg: '#493e5b',
+  selectionBg: '#243653',
+  inputCursorBg: '#9dc2ff',
+  inputCursorText: '#152238',
 
-  promptBorder: '#888888',
-  promptBorderShimmer: '#aaaaaa',
-  bashBorder: 'magenta',
+  promptBorder: '#456a9f',
+  promptBorderShimmer: '#78a9ff',
+  bashBorder: '#d084ff',
 
   diffAdded: 'rgb(34,92,43)',
   diffRemoved: 'rgb(122,41,54)',
   diffAddedWord: 'rgb(56,166,96)',
   diffRemovedWord: 'rgb(179,89,107)',
 
-  modeChat: 'blue',
-  modePlan: 'yellow',
-  modeAgent: 'green',
-  modeAutoAccept: 'red',
+  modeChat: '#78a9ff',
+  modePlan: '#f4ca73',
+  modeAgent: '#7bd88f',
+  modeAutoAccept: '#ff7b8a',
 
-  codeBlock: '#c3e88d',
-  h1: '#82aaff',
-  h2: '#89ddff',
-  h3: '#c792ea',
-  bullet: '#00cccc',
-  rule: '#444444',
+  codeBlock: '#b5e48c',
+  h1: '#a7c7ff',
+  h2: '#7dd3fc',
+  h3: '#d0a6ff',
+  bullet: '#6ee7d8',
+  rule: '#2e405c',
 
-  agentRed: 'red',
-  agentBlue: 'blue',
-  agentGreen: 'green',
-  agentYellow: 'yellow',
-  agentPurple: 'magenta',
-  agentOrange: '#ff8844',
-  agentPink: '#ff66aa',
-  agentCyan: 'cyan',
+  agentRed: '#ff7b8a',
+  agentBlue: '#78a9ff',
+  agentGreen: '#7bd88f',
+  agentYellow: '#f4ca73',
+  agentPurple: '#c69bff',
+  agentOrange: '#ffab70',
+  agentPink: '#ff91c8',
+  agentCyan: '#68d8e8',
 }
 
 const lightTheme: ThemeColors = {
-  primary: 'blue',
-  primaryShimmer: 'cyan',
+  primary: '#245fba',
+  primaryShimmer: '#3b82d0',
 
-  success: 'green',
-  error: 'red',
-  warning: 'yellow',
-  info: 'blue',
-  suggestion: 'black',
-  suggestionShimmer: 'black',
+  success: '#16733a',
+  error: '#c43d50',
+  warning: '#9a6500',
+  info: '#087ea4',
+  suggestion: '#172033',
+  suggestionShimmer: '#000000',
 
-  text: 'black',
-  textDim: '#666666',
-  textSubtle: '#888888',
-  textInactive: '#aaaaaa',
+  text: '#172033',
+  textDim: '#586579',
+  textSubtle: '#738095',
+  textInactive: '#a3afbf',
 
   userMessageBg: '',
   userMessageBgHover: '',
-  thinkingBg: '#f0f0f8',
+  thinkingBg: '#edf3fb',
   bashMessageBg: '',
-  selectionBg: '#eeeeee',
+  selectionBg: '#dbeafe',
+  inputCursorBg: '#245fba',
+  inputCursorText: '#ffffff',
 
-  promptBorder: '#888888',
-  promptBorderShimmer: '#666666',
-  bashBorder: 'magenta',
+  promptBorder: '#6b86ab',
+  promptBorderShimmer: '#245fba',
+  bashBorder: '#9444b8',
 
   diffAdded: 'rgb(200,255,200)',
   diffRemoved: 'rgb(255,200,200)',
   diffAddedWord: 'rgb(0,150,50)',
   diffRemovedWord: 'rgb(200,0,50)',
 
-  modeChat: 'blue',
-  modePlan: 'yellow',
-  modeAgent: 'green',
-  modeAutoAccept: 'red',
+  modeChat: '#245fba',
+  modePlan: '#9a6500',
+  modeAgent: '#16733a',
+  modeAutoAccept: '#c43d50',
 
   codeBlock: '#2e7d32',
   h1: '#1565c0',
@@ -212,6 +218,8 @@ const darkAnsiTheme: ThemeColors = {
   thinkingBg: '',
   bashMessageBg: '',
   selectionBg: '',
+  inputCursorBg: 'blue',
+  inputCursorText: 'white',
   promptBorder: 'gray',
   promptBorderShimmer: 'white',
   bashBorder: 'magenta',
@@ -242,6 +250,7 @@ const THEMES: Record<ThemeName, ThemeColors> = {
   'light-ansi': lightAnsiTheme,
 }
 
+/** Returns the color palette for a theme, falling back to the dark palette for unknown names. */
 export function getThemeColors(theme: ThemeName): ThemeColors {
   return THEMES[theme] ?? darkTheme
 }

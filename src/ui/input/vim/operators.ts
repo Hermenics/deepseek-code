@@ -7,6 +7,7 @@ export interface OperatorResult {
   enterInsert: boolean
 }
 
+/** Applies d/c/y to the range [start, end): y copies it to the register leaving the text unchanged, d and c delete it (c also requests insert mode). The cursor is clamped into the new text. */
 export function applyOperator(
   op: Operator,
   text: string,

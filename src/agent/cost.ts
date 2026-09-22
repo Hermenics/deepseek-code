@@ -5,6 +5,7 @@ import DEEPSEEK from './deepseekModels.json'
 const DEEPSEEK_MODELS = new Map(DEEPSEEK.models.map((model) => [model.id, model]))
 const DEFAULT_PRICED_MODEL = DEEPSEEK_MODELS.get('deepseek-flash') ?? DEEPSEEK.models[0]!
 
+/** Looks up a DeepSeek model entry by id, resolving legacy aliases. */
 function deepseekModel(id: string) {
   return DEEPSEEK_MODELS.get(id) ?? DEEPSEEK_MODELS.get((DEEPSEEK.legacyAliases as Record<string, string>)[id] ?? '')
 }
@@ -20,10 +21,12 @@ const OTHER_MODEL_CONTEXT: Record<string, number> = {
   'gpt-5.4-mini': 400_000,
 }
 
+/** Returns the model's context window, defaulting to 128k tokens when unknown. */
 export function getContextLimit(provider: string, model: string): number {
   return getKnownContextLimit(provider, model) ?? 128_000
 }
 
+/** Returns the known context window for a provider/model (provider prefix stripped), or undefined when unknown. Vertex and Bedrock are capped at 128k. */
 export function getKnownContextLimit(provider: string, model: string): number | undefined {
   if (provider === 'vertex')  return 128_000  // DeepSeek R1 no Vertex (limited by provider)
   if (provider === 'bedrock') return 128_000  // DeepSeek R1 no Bedrock (limited by provider)
@@ -31,6 +34,7 @@ export function getKnownContextLimit(provider: string, model: string): number | 
   return deepseekModel(id)?.contextTokens ?? OTHER_MODEL_CONTEXT[id]
 }
 
+/** Formats a token count as a short label such as `1M context`, `1.05M context` or `128k context`. */
 export function formatContextLimit(tokens: number): string {
   if (tokens >= 1_000_000) {
     const millions = tokens / 1_000_000
@@ -69,6 +73,7 @@ export function estimateCost(model: string, usage: TokenUsage, at: Date = new Da
   )
 }
 
+/** Formats a USD amount with four decimals; anything below $0.0001 (including zero) shows as `<$0.0001`. */
 export function formatCost(usd: number): string {
   if (usd < 0.0001) return '<$0.0001'
   return `$${usd.toFixed(4)}`

@@ -1,6 +1,7 @@
 import { Tool } from '../types.js'
 import { getGoal, updateGoal, markGoalComplete, markGoalBlocked, resumeGoal } from '../../agent/goal.js'
 
+/** Tool that transitions the current goal between active, paused, blocked and complete. */
 export const UpdateGoal: Tool = {
   name: 'update_goal',
   description:
@@ -23,6 +24,7 @@ export const UpdateGoal: Tool = {
     },
     required: ['status'],
   },
+  /** A `blocked` request only takes effect after the same blocker is reported 3 consecutive times; earlier reports just bump the counter and leave the goal active. */
   async execute(args) {
     const status = args.status as string
     const blocker = args.blocker as string | undefined

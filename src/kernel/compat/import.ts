@@ -67,6 +67,7 @@ export function listLegacySessionFiles(baseDir?: string): { file: string; id: st
   return results
 }
 
+/** Parses one legacy session JSON file; returns null if it is unreadable or lacks `id`/`cwd`. */
 export function readLegacySession(filePath: string): LegacySessionData | null {
   try {
     const raw = readFileSync(filePath, 'utf8')
@@ -93,6 +94,7 @@ export interface ImportOptions {
   dryRun?: boolean
 }
 
+/** Imports legacy JSON sessions (and their goals) into the kernel store, one transaction per session so a failure skips only that session. `dryRun` counts what would be imported without writing. */
 export function importLegacySessions(
   store: Store,
   events: EventBus,
@@ -178,6 +180,7 @@ export function importLegacySessions(
   return result
 }
 
+/** Maps legacy goal statuses to kernel ones (`usage_limited` becomes `budget_limited`); unknown values fall back to `active`. */
 function mapLegacyStatus(status: string): 'active' | 'paused' | 'blocked' | 'budget_limited' | 'complete' {
   const map: Record<string, 'active' | 'paused' | 'blocked' | 'budget_limited' | 'complete'> = {
     active: 'active', paused: 'paused', blocked: 'blocked',

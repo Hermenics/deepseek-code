@@ -48,6 +48,13 @@ type TextInputOptions = {
   keybindings?: KeybindingsSettings
 }
 
+/**
+ * Pure emacs-style key handler: maps a key through the keybindings to a cursor
+ * edit (kills go to the kill ring, yank inserts the last kill) or to a
+ * submit/history action; unbound printable input is inserted. In multiline mode
+ * up/down move between lines and become history actions only on the first/last
+ * line. Any non-kill key ends the current kill-accumulation run.
+ */
 export function processTextInputKey(
   cursor: Cursor,
   key: KeyEvent,
@@ -127,6 +134,7 @@ export function processTextInputKey(
   return { type: 'cursor', cursor }
 }
 
+/** Binds processTextInputKey to controlled `value`/`cursorOffset` props, reporting edits through onChange/onChangeCursorOffset and actions through the submit/history callbacks. Stateless: the cursor is rebuilt from props on every call. */
 export function useTextInput(props: UseTextInputProps): BaseInputState {
   const cursor = Cursor.fromText(props.value, props.columns, props.cursorOffset)
 

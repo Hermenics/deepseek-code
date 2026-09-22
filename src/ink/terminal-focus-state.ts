@@ -9,6 +9,7 @@ let focusState: TerminalFocusState = 'unknown'
 const resolvers: Set<() => void> = new Set()
 const subscribers: Set<() => void> = new Set()
 
+/** Records a DECSET 1004 focus change, notifies subscribers synchronously, and on blur releases any pending blur waiters. */
 export function setTerminalFocused(v: boolean): void {
   focusState = v ? 'focused' : 'blurred'
   // Notify useSyncExternalStore subscribers
@@ -23,6 +24,7 @@ export function setTerminalFocused(v: boolean): void {
   }
 }
 
+/** True unless the terminal reported a blur; `unknown` (no focus reporting) counts as focused. */
 export function getTerminalFocused(): boolean {
   return focusState !== 'blurred'
 }
@@ -39,6 +41,7 @@ export function subscribeTerminalFocus(cb: () => void): () => void {
   }
 }
 
+/** Resets focus to `unknown` and notifies subscribers. */
 export function resetTerminalFocusState(): void {
   focusState = 'unknown'
   for (const cb of subscribers) {

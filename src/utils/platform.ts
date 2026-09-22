@@ -71,6 +71,7 @@ export function readClipboardSync(): string {
 const CLIPBOARD_IMAGE_MAX_BYTES = 32 * 1024 * 1024
 const CLIPBOARD_IMAGE_TYPES: PromptImageMediaType[] = ['image/png', 'image/jpeg', 'image/gif', 'image/webp']
 
+/** Identifies PNG, JPEG, GIF or WebP from magic bytes; other formats return null. */
 function detectImageType(data: Uint8Array): PromptImageMediaType | null {
   if (data.length >= 8 && data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4e && data[3] === 0x47) return 'image/png'
   if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return 'image/jpeg'
@@ -86,6 +87,7 @@ export function clipboardImageFromBytes(data: Uint8Array): PromptImage | null {
   return mediaType ? { mediaType, data: Buffer.from(data).toString('base64') } : null
 }
 
+/** Runs a clipboard reader and returns its raw stdout, or null if the binary is missing or the command fails. */
 function readClipboardBinary(command: string, args: string[]): Buffer | null {
   if (!hasBinary(command)) return null
   try {
@@ -101,6 +103,7 @@ function readClipboardBinary(command: string, args: string[]): Buffer | null {
   }
 }
 
+/** Runs a clipboard helper and returns trimmed text output, or null if the binary is missing or the command fails. */
 function readClipboardText(command: string, args: string[]): string | null {
   if (!hasBinary(command)) return null
   try {
@@ -115,6 +118,7 @@ function readClipboardText(command: string, args: string[]): string | null {
   }
 }
 
+/** Tries xclip, wl-paste and xsel in turn, asking only for image MIME types the clipboard advertises when the tool can list them. */
 function readLinuxClipboardImage(): PromptImage | null {
   const readers: Array<{ command: string; args: (mime: string) => string[] }> = [
     { command: 'xclip', args: (mime) => ['-selection', 'clipboard', '-t', mime, '-o'] },
@@ -139,6 +143,7 @@ function readLinuxClipboardImage(): PromptImage | null {
   return null
 }
 
+/** Uses `pngpaste` when installed, otherwise has AppleScript dump the clipboard as PNG into a temp file that is always cleaned up. */
 function readMacClipboardImage(): PromptImage | null {
   const direct = clipboardImageFromBytes(readClipboardBinary('pngpaste', ['-']) ?? new Uint8Array())
   if (direct) return direct
@@ -165,6 +170,7 @@ function readMacClipboardImage(): PromptImage | null {
   }
 }
 
+/** Reads the clipboard image via PowerShell (Windows PowerShell, then pwsh) as base64-encoded PNG. */
 function readWindowsClipboardImage(): PromptImage | null {
   const script = [
     'Add-Type -AssemblyName System.Windows.Forms',

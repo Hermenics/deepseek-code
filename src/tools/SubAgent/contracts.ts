@@ -10,6 +10,7 @@ export interface SubAgentResult {
   metadata: Record<string, unknown>
 }
 
+/** Raised when a subagent's terminal output is missing or fails schema validation; `rawOutput` keeps the offending text for diagnostics. */
 export class StructuredOutputError extends Error {
   constructor(readonly code: 'INVALID_RESULT' | 'MAX_ITERATIONS', message: string, readonly rawOutput: string) {
     super(message)
@@ -17,6 +18,7 @@ export class StructuredOutputError extends Error {
   }
 }
 
+/** Check a submit_result payload against SUBAGENT_RESULT_SCHEMA, throwing StructuredOutputError on mismatch. */
 export function validateSubAgentResult(value: unknown): SubAgentResult {
   const validation = validateSchema<SubAgentResult>(SUBAGENT_RESULT_SCHEMA, value)
   if (!validation.valid) throw new StructuredOutputError('INVALID_RESULT', `Invalid subagent result: ${validation.errors.join('; ')}`, JSON.stringify(value))
@@ -32,6 +34,7 @@ export function parseSubAgentResult(text: string): SubAgentResult {
   return validateSubAgentResult(value)
 }
 
+/** Render a validated result as plain text for the parent model: summary, non-empty change/issue/suggestion lists and confidence as a percentage. */
 export function formatResultForParent(result: SubAgentResult): string {
   const parts: string[] = [result.summary]
   if (result.filesChanged.length > 0) parts.push(`Files changed: ${result.filesChanged.join(', ')}`)

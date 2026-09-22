@@ -13,6 +13,7 @@ interface InputChromeProps {
   children: React.ReactNode
 }
 
+/** Frames the prompt input: a top divider ending in the agent label, then a row with the prompt icon (bash icon when `hasExclamation`), the context-usage percentage coloured by threshold (hidden at 0) and the input itself. */
 export function InputChrome({
   columns,
   agentLabel = 'deepseek',
@@ -23,7 +24,7 @@ export function InputChrome({
   children,
 }: InputChromeProps) {
   const colors = getThemeColors(theme)
-  const resolvedAgentColor = agentColor || '#87ceeb' // light blue default
+  const resolvedAgentColor = agentColor || colors.h2
 
   // Top border with agent label
   const agentTag = ` ${agentLabel} `

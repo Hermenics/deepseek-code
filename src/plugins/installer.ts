@@ -16,6 +16,7 @@ export interface InstallResult {
 
 const CLONE_TIMEOUT_MS = 60_000
 
+/** True only when `name` resolves to a strict child of the plugins dir, guarding against path traversal. */
 function isPathSafe(name: string): boolean {
   const base = resolve(getPluginsDir())
   const target = resolve(base, name)
@@ -32,6 +33,7 @@ function dirExists(path: string): boolean {
   return existsSync(path)
 }
 
+/** Locates the plugin root inside a clone: the repo root if it has `plugin.json`, else the first `plugins/<dir>` containing `plugin.json` or `.claude-plugin/plugin.json`. */
 function detectPluginDir(tmpDir: string): string | null {
   if (existsSync(join(tmpDir, 'plugin.json'))) return tmpDir
 
@@ -99,6 +101,7 @@ async function awaitedMv(src: string, dest: string): Promise<number> {
   return proc.exited
 }
 
+/** Shallow-clones `owner/repo`, finds and validates the plugin manifest, moves the plugin into the plugins dir and registers it with its discovered components. Never throws; failures come back as `{ ok: false, error }`. */
 export async function installPlugin(repo: string): Promise<InstallResult> {
   if (!REPO_PATTERN.test(repo)) {
     return { ok: false, name: '', error: `Invalid repo format: "${repo}". Expected: owner/repo` }
@@ -195,6 +198,7 @@ export async function installPlugin(repo: string): Promise<InstallResult> {
   }
 }
 
+/** Deletes the plugin directory, then drops its registry entry only if the delete succeeded. */
 export async function removePlugin(name: string): Promise<InstallResult> {
   if (!validatePluginName(name) || !isPathSafe(name)) {
     return { ok: false, name, error: `Invalid plugin name: '${name}'` }
@@ -218,6 +222,7 @@ export async function removePlugin(name: string): Promise<InstallResult> {
   return { ok: true, name }
 }
 
+/** Re-clones the plugin's registered repo and swaps it in place, keeping a backup that is restored if the move or registry write fails. The new manifest name must match the installed one. */
 export async function updatePlugin(name: string): Promise<InstallResult> {
   if (!validatePluginName(name) || !isPathSafe(name)) {
     return { ok: false, name, error: `Invalid plugin name: '${name}'` }

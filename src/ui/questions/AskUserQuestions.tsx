@@ -4,6 +4,7 @@ import type { Key } from '../../ink/events/input-event.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 import type { AskUserAnswers, AskUserQuestion, AskUserQuestionOption } from '../../tools/AskUserQuestions/types.js'
+import { useThemeColors } from '../design-system/ThemeProvider.js'
 
 interface Props {
   questions: AskUserQuestion[]
@@ -11,6 +12,7 @@ interface Props {
   onCancel(): void
 }
 
+/** Options to show for a question: fixed Yes/No for yesno questions, otherwise its declared options. */
 function optionsFor(question: AskUserQuestion): AskUserQuestionOption[] {
   if (question.type === 'yesno') {
     return [
@@ -30,7 +32,9 @@ function serializeMultiSelect(values: string[]): string {
   return JSON.stringify(values)
 }
 
+/** Walks the user through the model's `ask_user_questions` one at a time (single/multi choice with an optional custom answer, yes/no, or free text) and submits all answers at the end; Esc or Ctrl+C cancels. */
 export function AskUserQuestionsPrompt({ questions, onSubmit, onCancel }: Props) {
+  const colors = useThemeColors()
   const [index, setIndex] = useState(0)
   const [answers, setAnswers] = useState<AskUserAnswers>({})
   const [selected, setSelected] = useState<Record<number, string[]>>({})
@@ -149,22 +153,22 @@ export function AskUserQuestionsPrompt({ questions, onSubmit, onCancel }: Props)
 
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text color="#444444">{rule()}</Text>
+      <Text color={colors.rule}>{rule()}</Text>
       <Box flexDirection="row" gap={1} marginTop={1}>
-        <Text color="cyan">☐</Text>
+        <Text color={colors.h2}>☐</Text>
         <Text bold>{activeHeader}</Text>
-        {questions.length > 1 && <Text color="#888888">{index + 1}/{questions.length}</Text>}
+        {questions.length > 1 && <Text color={colors.textDim}>{index + 1}/{questions.length}</Text>}
       </Box>
       <Box marginTop={1}>
         <Text>{question.question}</Text>
       </Box>
       {isText || editing ? (
         <Box flexDirection="row" gap={1} marginTop={1}>
-          <Text color="cyan">❯</Text>
+          <Text color={colors.primary}>❯</Text>
           {text ? (
-            <Text>{text}<Text color="cyan">{'█'}</Text></Text>
+            <Text>{text}<Text color={colors.primary}>{'█'}</Text></Text>
           ) : (
-            <Text color="#888888">{question.placeholder ?? 'Type your answer'}</Text>
+            <Text color={colors.textDim}>{question.placeholder ?? 'Type your answer'}</Text>
           )}
         </Box>
       ) : (
@@ -175,12 +179,12 @@ export function AskUserQuestionsPrompt({ questions, onSubmit, onCancel }: Props)
             return (
               <Box key={option.label} flexDirection="column">
                 <Box flexDirection="row">
-                  <Text color={active ? 'cyan' : undefined}>{active ? '❯' : ' '}</Text>
+                  <Text color={active ? colors.primary : undefined}>{active ? '❯' : ' '}</Text>
                   <Text> {optionIndex + 1}. </Text>
                   <Text bold={active}>{isMulti ? `[${checked ? 'x' : ' '}] ` : ''}{option.label}</Text>
                 </Box>
                 <Box marginLeft={6}>
-                  <Text color="#888888">{option.description}</Text>
+                  <Text color={colors.textDim}>{option.description}</Text>
                 </Box>
               </Box>
             )
@@ -188,20 +192,20 @@ export function AskUserQuestionsPrompt({ questions, onSubmit, onCancel }: Props)
           {hasCustom && (
             <Box flexDirection="column">
               <Box flexDirection="row">
-                <Text color={selectedIndex === options.length ? 'cyan' : undefined}>{selectedIndex === options.length ? '❯' : ' '}</Text>
+                <Text color={selectedIndex === options.length ? colors.primary : undefined}>{selectedIndex === options.length ? '❯' : ' '}</Text>
                 <Text> {options.length + 1}. </Text>
                 <Text bold={selectedIndex === options.length}>Other</Text>
               </Box>
               <Box marginLeft={6}>
-                <Text color="#888888">Type something.</Text>
+                <Text color={colors.textDim}>Type something.</Text>
               </Box>
             </Box>
           )}
         </Box>
       )}
-      <Text color="#444444">{rule()}</Text>
+      <Text color={colors.rule}>{rule()}</Text>
       <Box marginTop={1}>
-        <Text color="#888888">{isText || editing ? 'Enter to save · Esc to cancel' : `${isMulti ? 'Enter to select · ↑↓ to navigate · Space to toggle' : 'Enter to select · ↑↓ to navigate'}${numberHint} · Esc to cancel`}</Text>
+        <Text color={colors.textDim}>{isText || editing ? 'Enter to save · Esc to cancel' : `${isMulti ? 'Enter to select · ↑↓ to navigate · Space to toggle' : 'Enter to select · ↑↓ to navigate'}${numberHint} · Esc to cancel`}</Text>
       </Box>
     </Box>
   )

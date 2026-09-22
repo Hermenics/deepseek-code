@@ -22,6 +22,7 @@ export interface WorkspaceLease {
   release(): Promise<void>
 }
 
+/** Thrown when a WorktreeCreate hook blocks worktree creation; unlike other worktree failures it does not fall back to a serialized writer. */
 export class WorktreeHookBlockedError extends Error {
   constructor(message: string) {
     super(message)
@@ -36,6 +37,7 @@ export interface IntegrationResult {
   files: string[]
 }
 
+/** Assigns task workspaces by permission profile: read-only tasks share the project root, writers get a detached Git worktree under .deepseek/worktrees, or a cross-process writer lock on the project root when no worktree can be created. */
 export class TaskWorkspaceManager {
   private readonly workspaces = new Map<string, ManagedWorkspace>()
 
@@ -45,6 +47,7 @@ export class TaskWorkspaceManager {
     private readonly events: TaskEventSink,
   ) {}
 
+  /** Get or create a task's workspace. Worktree and shared workspaces are reused on re-acquire, and releasing a worktree lease keeps it for integration; a serialized-writer workspace can only be leased once at a time. */
   async acquire(taskId: string, profile: PermissionProfile, signal?: AbortSignal): Promise<WorkspaceLease> {
     const existing = this.workspaces.get(taskId)
     if (existing?.isolation === 'git-worktree' || existing?.isolation === 'readonly-shared') {
@@ -95,6 +98,7 @@ export class TaskWorkspaceManager {
     return workspace ? this.snapshot(workspace) : undefined
   }
 
+  /** Map a path inside the project root to the same relative path inside the task's workspace. Relative paths resolve against the workspace; paths outside the project are returned unchanged. */
   translatePath(inputPath: string, workspace: TaskWorkspaceV1): string {
     if (!isAbsolute(inputPath)) return resolve(workspace.path, inputPath)
     const rel = relative(workspace.projectRoot, inputPath)
@@ -102,6 +106,7 @@ export class TaskWorkspaceManager {
     return inputPath
   }
 
+  /** Apply a task worktree's changes to the parent checkout under the project-wide lease. Serialized writers already wrote in place; read-only workspaces have nothing to integrate. */
   async integrate(taskId: string): Promise<IntegrationResult> {
     const workspace = this.required(taskId)
     if (workspace.isolation === 'serialized-writer') return { integrated: true, files: [] }
@@ -115,6 +120,7 @@ export class TaskWorkspaceManager {
     }
   }
 
+  /** Rebuild the workspace map from snapshot records after validating each path; only allowed on an empty manager. */
   restore(records: Array<{ taskId: string; workspace?: TaskWorkspaceV1; metadata?: Record<string, unknown> }>): void {
     if (this.workspaces.size > 0) throw new Error('Workspaces can only be restored into an empty manager')
     for (const record of records) {
@@ -128,6 +134,7 @@ export class TaskWorkspaceManager {
     }
   }
 
+  /** Capture the worktree diff and apply it to the parent checkout, refusing patches that touch protected paths, overlap local changes in the parent or fail `git apply --check`. Stores the patch hash so cleanup can confirm nothing changed since. */
   private async integrateWorktree(taskId: string, workspace: ManagedWorkspace): Promise<IntegrationResult> {
 
     const { patch, files } = await this.capturePatch(workspace)
@@ -170,6 +177,7 @@ export class TaskWorkspaceManager {
     return { integrated: true, patchHash, files }
   }
 
+  /** Remove an integrated worktree, only if no WorktreeRemove hook blocks it, its current diff still matches the integrated patch hash and it holds no ignored files. Returns whether it was removed. */
   async cleanup(taskId: string): Promise<boolean> {
     const workspace = this.required(taskId)
     if (workspace.isolation !== 'git-worktree') return false
@@ -192,6 +200,7 @@ export class TaskWorkspaceManager {
     return true
   }
 
+  /** Create a detached worktree at HEAD under .deepseek/worktrees. Requires the session root to be the repository root with a clean checkout; runs the WorktreeCreate hook and excludes the directory from Git. */
   private async createGitWorktree(taskId: string): Promise<ManagedWorkspace> {
     const projectRoot = await realpath(this.projectRoot).catch(() => resolve(this.projectRoot))
     const root = (await execa('git', ['rev-parse', '--show-toplevel'], { cwd: projectRoot })).stdout.trim()
@@ -212,6 +221,7 @@ export class TaskWorkspaceManager {
     return { taskId, path, projectRoot, isolation: 'git-worktree', baseHead, integrated: false, preserved: true }
   }
 
+  /** Append `.deepseek/worktrees/` to the repository's info/exclude file unless it is already listed. */
   private async ensureWorktreeIgnored(): Promise<void> {
     const gitPath = (await execa('git', ['rev-parse', '--git-path', 'info/exclude'], { cwd: this.projectRoot })).stdout.trim()
     const excludePath = resolve(this.projectRoot, gitPath)
@@ -222,6 +232,7 @@ export class TaskWorkspaceManager {
     if (!content.split(/\r?\n/).includes('.deepseek/worktrees/')) await appendFile(excludePath, '\n.deepseek/worktrees/\n')
   }
 
+  /** Build a binary diff against HEAD plus the changed paths. Side effect: untracked files are marked intent-to-add (`git add -N`) in the worktree so they appear in the diff. */
   private async capturePatch(workspace: ManagedWorkspace): Promise<{ patch: string; files: string[] }> {
     const files = [...await this.changedPaths(workspace.path)]
     const untracked = await execa('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: workspace.path, reject: false })
@@ -231,6 +242,7 @@ export class TaskWorkspaceManager {
     return { patch: diff.stdout, files: [...new Set([...files, ...untrackedFiles])] }
   }
 
+  /** Parse `git status --porcelain=v1 -z` into changed paths, skipping the extra source-path entry that renames and copies carry. */
   private async changedPaths(cwd: string): Promise<Set<string>> {
     const result = await execa('git', ['status', '--porcelain=v1', '-z'], { cwd, reject: false })
     const entries = result.stdout.split('\0').filter(Boolean)
@@ -261,6 +273,7 @@ export class TaskWorkspaceManager {
     return this.acquireProjectLease('writer', taskId, signal)
   }
 
+  /** Take a cross-process file lease keyed on the canonical project root. Writer and integration leases share the key, so they exclude each other. */
   private async acquireProjectLease(kind: 'writer' | 'integration', taskId: string, signal?: AbortSignal): Promise<() => Promise<void>> {
     const canonicalRoot = await realpath(this.projectRoot).catch(() => resolve(this.projectRoot))
     const lease = await acquireFileLease(canonicalRoot, { kind, sessionId: this.sessionId, taskId }, signal)
@@ -273,6 +286,7 @@ export class TaskWorkspaceManager {
     return workspace
   }
 
+  /** Clone the public workspace fields, dropping internal ones such as the lock release function. */
   private snapshot(workspace: ManagedWorkspace): TaskWorkspaceV1 {
     return structuredClone({
       path: workspace.path, projectRoot: workspace.projectRoot, isolation: workspace.isolation,
@@ -280,6 +294,7 @@ export class TaskWorkspaceManager {
     })
   }
 
+  /** Throw unless `path` resolves (following symlinks) inside the project's .deepseek/worktrees directory. */
   private assertOwnedPath(path: string, projectRoot = this.projectRoot): void {
     const existing = (value: string): string => {
       try { return realpathSync(value) } catch { return resolve(value) }
@@ -290,6 +305,7 @@ export class TaskWorkspaceManager {
     if (child.startsWith('..') || isAbsolute(child)) throw new Error(`Refused workspace path outside '${root}'`)
   }
 
+  /** Reject restored workspaces from another project root, worktrees outside .deepseek/worktrees and shared workspaces not located at the project root. */
   private assertRestoredWorkspace(workspace: TaskWorkspaceV1): void {
     const existing = (path: string): string => {
       try { return realpathSync(path) } catch { return resolve(path) }

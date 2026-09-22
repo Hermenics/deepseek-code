@@ -18,6 +18,7 @@ export interface TaskRegistryOptions {
   events?: TaskEventSink
   mailbox?: TaskMailbox
 }
+/** Owns task records and runs them: enforces task-count, depth and fan-out limits, schedules queued tasks up to the concurrency limit, and handles timeouts, retries with exponential backoff, dependencies and cancellation cascades. */
 export class TaskRegistry {
   readonly sessionId: string
   projectRoot: string
@@ -37,11 +38,14 @@ export class TaskRegistry {
     this.events = options.events ?? new TaskEventSink(this.sessionId)
     this.mailbox = options.mailbox ?? new TaskMailbox()
   }
+  /** Merge new limits and reschedule so a raised concurrency takes effect immediately. */
   updateLimits(values: Partial<TaskLimits>): void { this.limits = normalizeTaskLimits({ ...this.limits, ...values }); this.scheduleDrain() }
   getLimits(): TaskLimits { return { ...this.limits } }
+  /** Resolve once no task is running or in flight, polling once per macrotask. */
   async awaitIdle(): Promise<void> {
     while (this.active > 0 || [...this.tasks.values()].some(slot => slot.inFlight)) await new Promise(resolve => setTimeout(resolve, 0))
   }
+  /** Create a task and queue it, or block it until its dependencies finish. Throws when task, depth, delegation or fan-out limits are exceeded, the ID exists or a dependency is unknown. */
   spawn<T>(input: SpawnTaskInput, runner: TaskRunner<T>): TaskHandle<T> {
     if (this.tasks.size >= this.limits.maxTasks) throw new TaskRuntimeError('TASK_LIMIT', `Task limit ${this.limits.maxTasks} reached`)
     const taskId = input.taskId ?? randomUUID()
@@ -104,6 +108,7 @@ export class TaskRegistry {
     return this.handle<T>(taskId)
   }
   getStatus<T = unknown>(taskId: string): TaskRecordV1<T> { return structuredClone(this.slot(taskId).record) as TaskRecordV1<T> }
+  /** Return cloned records, optionally filtered by state and parent task. */
   listTasks(filter?: { state?: TaskState; parentTaskId?: string }): TaskRecordV1[] {
     return [...this.tasks.values()]
       .map(slot => slot.record)
@@ -111,7 +116,9 @@ export class TaskRegistry {
       .filter(record => filter?.parentTaskId === undefined || record.parentTaskId === filter.parentTaskId)
       .map(record => structuredClone(record))
   }
+  /** Queued tasks whose dependencies are all done. */
   listReady(): TaskRecordV1[] { return this.listTasks({ state: 'queued' }).filter(record => this.dependenciesDone(record)) }
+  /** Load snapshot records into an empty registry. Tasks that were running are marked failed (INTERRUPTED), queued tasks without a runner are blocked until `attachRunner`, and the rest are re-evaluated and enqueued. */
   restoreTasks(records: TaskRecordV1[], resolver?: TaskRunnerResolver): void {
     if (this.tasks.size > 0) throw new TaskRuntimeError('RESTORE_NOT_EMPTY', 'Tasks can only be restored into an empty registry')
     if (records.length > this.limits.maxTasks) throw new TaskRuntimeError('TASK_LIMIT', `Snapshot exceeds task limit ${this.limits.maxTasks}`)
@@ -149,6 +156,7 @@ export class TaskRegistry {
       else if (slot.record.state === 'blocked' && slot.runner !== unavailable) this.evaluateDependencies(slot)
     }
   }
+  /** Set a task's runner (e.g. after restore); a task blocked for lack of a runner is re-queued. */
   attachRunner(taskId: string, runner: TaskRunner): void {
     const slot = this.slot(taskId)
     slot.runner = runner
@@ -159,6 +167,7 @@ export class TaskRegistry {
       if (this.slot(taskId).record.state === 'queued') this.enqueue(taskId)
     } else if (slot.record.state === 'blocked') this.evaluateDependencies(slot)
   }
+  /** Resolve with a clone of the task's result envelope once it reaches a terminal state. */
   awaitResult<T = unknown>(taskId: string): Promise<TaskResultEnvelopeV1<T>> {
     const slot = this.slot(taskId) as TaskSlot<T>
     if (slot.record.result && TERMINAL.has(slot.record.state)) return Promise.resolve(structuredClone(slot.record.result))
@@ -168,6 +177,7 @@ export class TaskRegistry {
     const result = (this.slot(taskId) as TaskSlot<T>).record.result
     return result ? structuredClone(result) : undefined
   }
+  /** Cancel an unfinished task: clear its retry timer, abort the running attempt, settle it as cancelled, cascade to children with the cascade policy and re-evaluate dependents. Returns false if it already ended in another terminal state. */
   cancel(taskId: string, reason = 'Cancelled by coordinator'): boolean {
     const slot = this.slot(taskId)
     if (slot.record.state === 'cancelled') return true
@@ -192,6 +202,7 @@ export class TaskRegistry {
   cancelAll(reason = 'Session cancelled'): void {
     for (const record of this.listTasks()) if (!TERMINAL.has(record.state)) this.cancel(record.taskId, reason)
   }
+  /** Re-queue a blocked or unsuccessfully finished task, clearing its result and error. Finished tasks can only resume while retry attempts remain. */
   resume(taskId: string): boolean {
     const slot = this.slot(taskId)
     if (!['blocked', 'failed', 'cancelled', 'timed_out'].includes(slot.record.state)) return false
@@ -206,6 +217,7 @@ export class TaskRegistry {
     if (slot.record.state === 'queued') this.enqueue(taskId)
     return true
   }
+  /** Move a queued or running task to blocked, aborting a running attempt with a retryable BLOCKED error. */
   block(taskId: string, reason: string): boolean {
     const slot = this.slot(taskId)
     if (!['queued', 'running'].includes(slot.record.state)) return false
@@ -215,6 +227,7 @@ export class TaskRegistry {
     this.events.emit('blocked', { reason }, taskId, slot.record.parentTaskId)
     return true
   }
+  /** Add a dependency edge at runtime; throws on a cycle or when the task is running or finished. */
   addDependency(taskId: string, dependencyId: string): void {
     const slot = this.slot(taskId)
     const dependency = this.slot(dependencyId)
@@ -225,6 +238,7 @@ export class TaskRegistry {
     dependency.record.dependents.push(taskId)
     this.evaluateDependencies(slot)
   }
+  /** Store a mailbox message for a task and emit a message event unless it is a duplicate resend. */
   sendMessage(
     taskId: string,
     type: TaskMessageType,
@@ -238,18 +252,21 @@ export class TaskRegistry {
     if (!duplicate) this.events.emit('message', { message }, taskId, undefined, message.correlationId)
     return message
   }
+  /** Record the task's workspace and emit workspace_updated. */
   setWorkspace(taskId: string, workspace: TaskWorkspaceV1): void {
     const slot = this.slot(taskId)
     slot.record.workspace = structuredClone(workspace)
     slot.record.updatedAt = new Date().toISOString()
     this.events.emit('workspace_updated', { workspace: slot.record.workspace }, taskId, slot.record.parentTaskId)
   }
+  /** Remove the task's workspace and emit workspace_updated with null. */
   clearWorkspace(taskId: string): void {
     const slot = this.slot(taskId)
     slot.record.workspace = undefined
     slot.record.updatedAt = new Date().toISOString()
     this.events.emit('workspace_updated', { workspace: null }, taskId, slot.record.parentTaskId)
   }
+  /** Shallow-merge metadata into the task record and emit metadata_updated. */
   updateMetadata(taskId: string, metadata: Record<string, unknown>): void {
     const slot = this.slot(taskId)
     slot.record.metadata = { ...slot.record.metadata, ...structuredClone(metadata) }
@@ -257,6 +274,7 @@ export class TaskRegistry {
     this.events.emit('metadata_updated', { metadata }, taskId, slot.record.parentTaskId)
   }
 
+  /** Shallow-merge metrics into the task record and emit metrics_updated. */
   updateMetrics(taskId: string, metrics: Partial<TaskRecordV1['metrics']>): void {
     const slot = this.slot(taskId)
     slot.record.metrics = { ...slot.record.metrics, ...metrics }
@@ -264,6 +282,7 @@ export class TaskRegistry {
     this.events.emit('metrics_updated', { metrics: slot.record.metrics }, taskId, slot.record.parentTaskId)
   }
 
+  /** Mark a message processed, emitting an event only on the first acknowledgement. */
   acknowledgeMessage(messageId: string): boolean {
     const message = this.mailbox.list().find(candidate => candidate.messageId === messageId)
     const acknowledged = this.mailbox.acknowledge(messageId)
@@ -271,12 +290,14 @@ export class TaskRegistry {
     return acknowledged
   }
 
+  /** Manual non-terminal state change; terminal states go through the run/cancel paths so a result envelope is always recorded. */
   transitionTask(taskId: string, state: TaskState): void {
     const slot = this.slot(taskId)
     if (TERMINAL.has(state)) throw new InvalidTaskTransitionError(taskId, slot.record.state, state)
     this.transition(slot, state)
   }
 
+  /** Build the TaskHandle returned to callers, bound to this task ID. */
   private handle<T>(taskId: string): TaskHandle<T> {
     return {
       taskId,
@@ -290,6 +311,7 @@ export class TaskRegistry {
     }
   }
 
+  /** Add a task to the run queue unless it is already queued or has an attempt in flight. */
   private enqueue(taskId: string): void {
     if (this.queued.has(taskId)) return
     if (this.slot(taskId).inFlight) return
@@ -298,6 +320,7 @@ export class TaskRegistry {
     this.scheduleDrain()
   }
 
+  /** On the next microtask, start queued tasks up to the concurrency limit, skipping entries that are no longer runnable. Repeated calls before then collapse into one drain. */
   private scheduleDrain(): void {
     if (this.draining) return
     this.draining = true
@@ -317,6 +340,7 @@ export class TaskRegistry {
     })
   }
 
+  /** Execute one attempt: transition to running, race the runner against the abort signal (timeout, cancel, block), then record success or route the error to timed_out, cancelled, blocked, a backoff retry or failed. Outcomes of superseded attempts are ignored. */
   private async run(slot: TaskSlot<unknown>): Promise<void> {
     const record = slot.record
     slot.inFlight = true
@@ -416,11 +440,13 @@ export class TaskRegistry {
     }
   }
 
+  /** Transition to a failure state and store the matching result envelope. */
   private finish(slot: TaskSlot<unknown>, state: 'failed' | 'cancelled' | 'timed_out', value: unknown, error: TaskErrorV1): TaskResultEnvelopeV1 {
     this.transition(slot, state)
     return createFailureEnvelope(slot, state, this.sessionId, value, error)
   }
 
+  /** Apply the dependency policy: a failed dependency cancels, fails or blocks the task; pending dependencies keep it blocked; once all are done a task blocked only by waiting is re-queued. */
   private evaluateDependencies(slot: TaskSlot<unknown>): void {
     if (TERMINAL.has(slot.record.state)) return
     const dependencies = slot.record.dependencies.map(id => this.slot(id).record)
@@ -459,6 +485,7 @@ export class TaskRegistry {
     return record.dependencies.every(id => this.slot(id).record.state === 'done')
   }
 
+  /** Whether `target` is reachable from `from` along dependency edges; used for cycle detection. */
   private reaches(from: string, target: string, seen = new Set<string>()): boolean {
     if (from === target) return true
     if (seen.has(from)) return false
@@ -470,6 +497,7 @@ export class TaskRegistry {
     return this.listTasks().filter(record => record.parentTaskId === parentTaskId)
   }
 
+  /** Apply a state change after checking the state machine. Re-queueing from a terminal state requires a resume or retry cause; updates timestamps and emits state_changed. */
   private transition(slot: TaskSlot<unknown>, to: TaskState, cause?: 'resume' | 'retry' | 'dependency_ready'): void {
     const from = slot.record.state
     if (from === to) return

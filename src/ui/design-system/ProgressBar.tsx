@@ -13,12 +13,14 @@ export interface ProgressBarProps {
 
 const BLOCKS = [' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉', '█']
 
+/** Maps a theme color key (e.g. `primary`) to its value from the active palette; rgb(), hex and ansi literals and unknown names pass through unchanged. */
 function resolveColor(color: ColorProp | undefined, colors: ThemeColors): string | undefined {
   if (!color) return undefined
   if (color.startsWith('rgb(') || color.startsWith('#') || color.startsWith('ansi')) return color
   return (colors as unknown as Record<string, string>)[color] ?? color
 }
 
+/** Horizontal bar for a 0..1 ratio (clamped) using eighth-block glyphs, so fill resolves to 1/8 of a cell. */
 export function ProgressBar({ ratio, width = 20, fillColor, emptyColor }: ProgressBarProps) {
   const colors = useThemeColors()
   const fill = resolveColor(fillColor, colors) ?? colors.primary

@@ -7,6 +7,7 @@ const cache = new Map<string, number>()
 
 const MAX_CACHE_SIZE = 4096
 
+/** Memoized `stringWidth` for a single line. The cache is fully cleared once it reaches MAX_CACHE_SIZE entries. */
 export function lineWidth(line: string): number {
   const cached = cache.get(line)
   if (cached !== undefined) return cached

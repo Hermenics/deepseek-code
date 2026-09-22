@@ -7,6 +7,7 @@ interface Props {
   onConfirm(enabled: boolean): void
 }
 
+/** Inline y/N prompt to toggle prompt enchantment; `y` enables, `n` or Enter disables. */
 export function EnchantConfirm({ currentlyEnabled, onConfirm }: Props) {
   useInput((input: string) => {
     const lower = input.toLowerCase()

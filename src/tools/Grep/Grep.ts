@@ -9,6 +9,7 @@ import { jsGrep } from './jsGrep.js'
 
 const nativeGrepCapability = new Map<string, Promise<boolean>>()
 
+/** Probe once per platform (cached) whether the system grep accepts the `-rnzZ` flags the output parser relies on. */
 async function supportsNativeGrep(): Promise<boolean> {
   const platform = process.platform
   const cached = nativeGrepCapability.get(platform)
@@ -27,12 +28,14 @@ async function supportsNativeGrep(): Promise<boolean> {
   return probe
 }
 
+/** Detect grep exiting with status 2 because it rejected our flags, so the caller can fall back to the JS implementation. */
 function unsupportedGrepOptions(error: unknown): boolean {
   const failure = error as { exitCode?: number; stderr?: string; message?: string }
   const text = `${failure.stderr || ''} ${failure.message || ''}`
   return failure.exitCode === 2 && /(invalid|unknown|unrecognized|illegal|unsupported).*option|usage:\s*grep/i.test(text)
 }
 
+/** Tool that regex-searches files, using native grep when it supports NUL-separated output and `jsGrep` otherwise. The search dir must pass `assertSafeDir`, and .deepseekignore matches are filtered out. */
 export const Grep: Tool = {
   name: 'grep',
   description: 'Search for a regex pattern in files using grep.',

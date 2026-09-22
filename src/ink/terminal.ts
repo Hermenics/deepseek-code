@@ -187,6 +187,7 @@ export type Terminal = {
   stderr: Writable
 }
 
+/** Serializes a patch list into one string and writes it to stdout in a single call, wrapped in DEC 2026 synchronized-update markers (BSU/ESU) unless `skipSyncMarkers`. */
 export function writeDiffToTerminal(
   terminal: Terminal,
   diff: Diff,

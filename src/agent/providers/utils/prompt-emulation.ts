@@ -82,6 +82,7 @@ A Promise is an object representing the eventual completion or failure of an asy
 
 `
 
+/** Prepends a system message describing the JSON tool-calling protocol and the available tools, for providers without native tool calls. */
 export function injectToolPrompt(messages: ChatMessage[], tools: ToolDef[]): ChatMessage[] {
   if (!tools || tools.length === 0) return messages
 
@@ -102,6 +103,11 @@ export function injectToolPrompt(messages: ChatMessage[], tools: ToolDef[]): Cha
   return [systemMsg, ...messages]
 }
 
+/**
+ * Extracts emulated tool calls from model text: DeepSeek DSML invokes, native `<|tool_calls_begin|>` markers,
+ * `<tool_call>` tags and `{"tool_use": ...}` JSON. Tool names are fuzzily resolved and filtered by `allowedTools`.
+ * JSON that looks like an example (long preamble, inside a code fence) is ignored; inputs over 10 KB return [].
+ */
 export function parseToolResponses(
   text: string,
   allowedTools?: ReadonlySet<string>,
@@ -242,6 +248,7 @@ export function parseToolResponses(
   return results
 }
 
+/** Returns the first emulated tool call in the text, or null. */
 export function parseToolResponse(
   text: string,
   allowedTools?: ReadonlySet<string>,
@@ -249,6 +256,7 @@ export function parseToolResponse(
   return parseToolResponses(text, allowedTools)[0] ?? null
 }
 
+/** Accepts `{tool_use: {name, arguments}}`, or bare `{name, arguments}` only when `allowDirectFormat` (tag-wrapped output); arguments must be an object. */
 function validateToolCall(parsed: any, allowDirectFormat = false): { name: string; arguments: Record<string, unknown> } | null {
   if (!parsed || typeof parsed !== 'object') return null
 
@@ -269,6 +277,7 @@ function validateToolCall(parsed: any, allowDirectFormat = false): { name: strin
   return null
 }
 
+/** Returns the first brace-balanced `{...}` in the text; an object missing at most two closing braces is completed if it then parses. */
 function extractBalancedJson(text: string): string | null {
   const start = text.indexOf('{')
   if (start === -1) return null

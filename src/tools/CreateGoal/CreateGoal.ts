@@ -1,6 +1,7 @@
 import { Tool } from '../types.js'
 import { createGoal, getGoal } from '../../agent/goal.js'
 
+/** Tool that starts a session goal with an optional token budget; refuses while an unfinished (active, paused, blocked or limited) goal exists. */
 export const CreateGoal: Tool = {
   name: 'create_goal',
   description:

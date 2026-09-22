@@ -25,6 +25,11 @@ export type Key = {
   isPasted: boolean
 }
 
+/**
+ * Converts a parsed keypress into Ink's Key flags plus the text to insert.
+ * Leftovers of escape sequences (unmapped F-keys, split mouse reports, CSI u and
+ * modifyOtherKeys remnants) are blanked so they never leak into text input.
+ */
 function parseKey(keypress: ParsedKey): [Key, string] {
   const key: Key = {
     upArrow: keypress.name === 'up',
@@ -191,6 +196,7 @@ function parseKey(keypress: ParsedKey): [Key, string] {
   return [key, input]
 }
 
+/** Keypress event delivered to useInput handlers: the raw ParsedKey plus derived Key flags and input text. */
 export class InputEvent extends Event {
   readonly keypress: ParsedKey
   readonly key: Key

@@ -38,6 +38,7 @@ const UNDERLINE_STYLES: UnderlineStyle[] = [
 
 type Param = { value: number | null; subparams: number[]; colon: boolean }
 
+/** Parses SGR params, keeping colon sub-params grouped under their parent; an empty string means a single 0 (reset). */
 function parseParams(str: string): Param[] {
   if (str === '') return [{ value: 0, subparams: [], colon: false }]
 
@@ -76,6 +77,7 @@ function parseParams(str: string): Param[] {
   return result
 }
 
+/** Reads a 256-color index or RGB triple for SGR 38/48/58, in either colon (38:2::r:g:b) or semicolon (38;2;r;g;b) form. */
 function parseExtendedColor(
   params: Param[],
   idx: number,
@@ -124,6 +126,7 @@ function parseExtendedColor(
   return null
 }
 
+/** Applies an SGR parameter string to style and returns a new TextStyle; the input style is not mutated. */
 export function applySGR(paramStr: string, style: TextStyle): TextStyle {
   const params = parseParams(paramStr)
   let s = { ...style }

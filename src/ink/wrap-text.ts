@@ -12,6 +12,7 @@ function sliceFit(text: string, start: number, end: number): string {
   return stringWidth(s) > end - start ? sliceAnsi(text, start, end - 1) : s
 }
 
+/** Truncates `text` to `columns` display cells, replacing the cut part at the start, middle or end with an ellipsis. */
 function truncate(
   text: string,
   columns: number,
@@ -37,6 +38,7 @@ function truncate(
   return sliceFit(text, 0, columns - 1) + ELLIPSIS
 }
 
+/** Fits text to `maxWidth` according to the `textWrap` style: hard word wrapping (optionally trimming whitespace) or truncation with an ellipsis. Unknown modes return the text unchanged. */
 export default function wrapText(
   text: string,
   maxWidth: number,

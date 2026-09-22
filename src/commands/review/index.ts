@@ -27,6 +27,7 @@ function hasUnsafeCharacters(value: string): boolean {
   return /[\u0000-\u001F\u007F]/.test(value)
 }
 
+/** Allows only plain branch-like refs, rejecting git revision syntax (`..`, `@{`, `//`, trailing `.`/`/`) that could widen the review scope. */
 function isSafeRef(value: string): boolean {
   return REF_PATTERN.test(value)
     && !value.includes('..')
@@ -40,6 +41,7 @@ function isSafeDiff(value: string): boolean {
   return DIFF_PATTERN.test(value)
 }
 
+/** Classifies a `/review` target. Empty means the working tree; `path`, `diff`, `branch`, `commit` and `pr` (`pull`, `pull-request`) are explicit kinds; anything else is treated as a path. */
 function parseReviewTarget(value: string): ParsedReviewTarget {
   if (!value) return { ok: true, target: { kind: 'working-tree' } }
 
@@ -75,6 +77,7 @@ function parseReviewTarget(value: string): ParsedReviewTarget {
   return { ok: true, target: { kind: normalizedKind, value: identifier } }
 }
 
+/** Validates the raw `/review` target (length, control characters, ref/SHA/PR syntax) and returns it unparsed on success. */
 export function parseReviewCommand(args: string[]): CommandResult {
   const target = args.join(' ').trim()
   if (target.length > MAX_TARGET_LENGTH) return invalid(`Review target must be at most ${MAX_TARGET_LENGTH} characters.`)
@@ -84,6 +87,7 @@ export function parseReviewCommand(args: string[]): CommandResult {
   return parsed.ok ? { type: 'review', target } : invalid(parsed.message)
 }
 
+/** `/review [target]`: runs a read-only code review of the working tree, a path, diff, branch, commit or PR. */
 const command: Command = {
   name: 'review',
   aliases: [],
@@ -91,12 +95,14 @@ const command: Command = {
   parse: parseReviewCommand,
 }
 
+/** Parses a target for prompt embedding, degrading invalid input to a bounded path scope instead of failing. */
 function safePromptTarget(value: string): ReviewTarget {
   const bounded = value.slice(0, MAX_TARGET_LENGTH)
   const parsed = parseReviewTarget(bounded)
   return parsed.ok ? parsed.target : { kind: 'path', value: bounded }
 }
 
+/** JSON-encodes the scope with `&`, `<` and `>` escaped so it cannot close the surrounding `<review_scope>` tag. */
 function serializePromptScope(scope: ReviewTarget): string {
   return JSON.stringify(scope, null, 2)
     .replace(/&/g, '\\u0026')
@@ -104,6 +110,7 @@ function serializePromptScope(scope: ReviewTarget): string {
     .replace(/>/g, '\\u003E')
 }
 
+/** Builds the read-only review prompt for a `/review` target. The target is re-parsed and embedded as escaped JSON so it cannot inject instructions into the prompt. */
 export const REVIEW_PROMPT = (target: string) => {
   const scope = safePromptTarget(typeof target === 'string' ? target.trim() : '')
   const scopeData = serializePromptScope(scope)

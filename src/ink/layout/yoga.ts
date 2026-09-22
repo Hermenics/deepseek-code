@@ -51,6 +51,7 @@ const GUTTER_MAP: Record<LayoutGutter, Gutter> = {
 // --
 // Yoga adapter
 
+/** LayoutNode adapter over a Yoga node, translating the engine-neutral enums to Yoga's. */
 export class YogaLayoutNode implements LayoutNode {
   readonly yoga: YogaNode
 
@@ -72,6 +73,7 @@ export class YogaLayoutNode implements LayoutNode {
     return this.yoga.getChildCount()
   }
 
+  /** Wraps the Yoga parent in a new adapter each call, so the result is not identity-equal across calls. */
   getParent(): LayoutNode | null {
     const p = this.yoga.getParent()
     return p ? new YogaLayoutNode(p) : null
@@ -79,10 +81,12 @@ export class YogaLayoutNode implements LayoutNode {
 
   // Layout
 
+  /** Runs Yoga layout left-to-right; height is ignored so the tree grows to its content. */
   calculateLayout(width?: number, _height?: number): void {
     this.yoga.calculateLayout(width, undefined, Direction.LTR)
   }
 
+  /** Installs a width-only measure function, mapping Yoga's MeasureMode to LayoutMeasureMode. */
   setMeasureFunc(fn: LayoutMeasureFunc): void {
     this.yoga.setMeasureFunc((w, wMode) => {
       const mode =
@@ -303,6 +307,7 @@ export class YogaLayoutNode implements LayoutNode {
 // growth, so no preload/swap/reset machinery is needed. The Yoga instance is
 // just a plain JS object available at import time.
 
+/** Creates a fresh Yoga-backed layout node. */
 export function createYogaLayoutNode(): LayoutNode {
   return new YogaLayoutNode(Yoga.Node.create())
 }

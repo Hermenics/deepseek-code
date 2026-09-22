@@ -10,10 +10,12 @@ export interface ProviderProfile extends ProviderConfig {
   name: string
 }
 
+/** Location of the saved provider profiles file (`~/.deepseek/provider-profiles.json`). */
 export function getProviderProfilesPath(): string {
   return join(homedir(), '.deepseek', 'provider-profiles.json')
 }
 
+/** Throws on malformed profiles: missing or duplicate ids, missing names, unknown providers or non-string credential fields. */
 function validateProfiles(value: unknown): ProviderProfile[] {
   if (!Array.isArray(value)) throw new Error('Provider profiles must be an array')
   const ids = new Set<string>()
@@ -33,6 +35,7 @@ function validateProfiles(value: unknown): ProviderProfile[] {
   return profiles
 }
 
+/** Loads and validates saved profiles; a missing file yields [], while a wrong version or invalid content throws. */
 export async function loadProviderProfiles(path = getProviderProfilesPath()): Promise<ProviderProfile[]> {
   try {
     const parsed = JSON.parse(await readFile(path, 'utf8')) as { version?: unknown; profiles?: unknown }
@@ -44,6 +47,7 @@ export async function loadProviderProfiles(path = getProviderProfilesPath()): Pr
   }
 }
 
+/** Validates and atomically writes the profiles file with owner-only permissions (0700 dir, 0600 file). */
 export async function saveProviderProfiles(profiles: ProviderProfile[], path = getProviderProfilesPath()): Promise<void> {
   const checked = validateProfiles(profiles)
   const dir = dirname(path)
@@ -60,10 +64,15 @@ export async function saveProviderProfiles(profiles: ProviderProfile[], path = g
   }
 }
 
+/** New empty profile for a provider with a random id and trimmed name. */
 export function createProviderProfile(name: string, provider: ProviderName): ProviderProfile {
   return { id: randomUUID(), name: name.trim(), provider }
 }
 
+/**
+ * Builds a `legacy-default` profile from pre-profile settings, credentials and environment variables.
+ * Returns null unless the provider's essential fields are present (e.g. an API key for DeepSeek).
+ */
 export function migrateLegacyProviderProfile(
   settings: DeepSeekSettings,
   credentials: Record<string, string>,

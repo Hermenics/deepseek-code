@@ -29,6 +29,7 @@ export class KeyboardEvent extends TerminalEvent {
   }
 }
 
+/** Maps a parsed keypress to a browser-style `key` value: the letter for ctrl combos, the literal printable char, else the parsed key name. */
 function keyFromParsed(parsed: ParsedKey): string {
   const seq = parsed.sequence ?? ''
   const name = parsed.name ?? ''

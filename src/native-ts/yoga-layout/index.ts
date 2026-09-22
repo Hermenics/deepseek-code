@@ -94,6 +94,7 @@ function percentValue(v: number): Value {
   return { unit: Unit.Percent, value: v }
 }
 
+/** Resolves a point or percent value against `ownerSize`; auto, undefined, or a percent of an indefinite owner yield NaN. */
 function resolveValue(v: Value, ownerSize: number): number {
   switch (v.unit) {
     case Unit.Point:
@@ -164,6 +165,7 @@ type Style = {
   maxHeight: Value
 }
 
+/** Returns a fresh Style with yoga's non-web defaults (column direction, stretch alignment, flexShrink 0, auto size). */
 function defaultStyle(): Style {
   return {
     direction: Direction.Inherit,
@@ -201,6 +203,7 @@ const EDGE_TOP = 1
 const EDGE_RIGHT = 2
 const EDGE_BOTTOM = 3
 
+/** Resolves one physical edge of a 9-edge array using the specific > horizontal/vertical > all > start/end fallback chain; unset edges resolve to 0. */
 function resolveEdge(
   edges: Value[],
   physicalEdge: number,
@@ -230,6 +233,7 @@ function resolveEdge(
   return resolveValue(v, ownerSize)
 }
 
+/** Same fallback chain as resolveEdge but returns the unresolved Value, so callers can detect auto or undefined. */
 function resolveEdgeRaw(edges: Value[], physicalEdge: number): Value {
   let v = edges[physicalEdge]!
   if (v.unit === Unit.Undefined) {
@@ -247,6 +251,7 @@ function resolveEdgeRaw(edges: Value[], physicalEdge: number): Value {
   return v
 }
 
+/** True when the effective margin on this physical edge (after fallbacks) is `auto`. */
 function isMarginAuto(edges: Value[], physicalEdge: number): boolean {
   return resolveEdgeRaw(edges, physicalEdge).unit === Unit.Auto
 }
@@ -318,6 +323,7 @@ function isReverse(dir: FlexDirection): boolean {
 function crossAxis(dir: FlexDirection): FlexDirection {
   return isRow(dir) ? FlexDirection.Column : FlexDirection.Row
 }
+/** Physical edge where layout starts along `dir` (e.g. right for row-reverse). */
 function leadingEdge(dir: FlexDirection): number {
   switch (dir) {
     case FlexDirection.Row:
@@ -330,6 +336,7 @@ function leadingEdge(dir: FlexDirection): number {
       return EDGE_BOTTOM
   }
 }
+/** Physical edge where layout ends along `dir`; the opposite of leadingEdge. */
 function trailingEdge(dir: FlexDirection): number {
   switch (dir) {
     case FlexDirection.Row:
@@ -371,6 +378,7 @@ export type Config = {
   setUseWebDefaults(v: boolean): void
 }
 
+/** Creates a Config; only pointScaleFactor affects layout (it drives pixel-grid rounding), the rest is stored for API parity. */
 function createConfig(): Config {
   const config: Config = {
     pointScaleFactor: 1,
@@ -517,11 +525,13 @@ export class Node {
 
   // -- Tree
 
+  /** Inserts `child` at `index`, sets its parent, and marks this node dirty. */
   insertChild(child: Node, index: number): void {
     child.parent = this
     this.children.splice(index, 0, child)
     this.markDirty()
   }
+  /** Detaches `child` if present and marks this node dirty; no-op when it is not a child. */
   removeChild(child: Node): void {
     const idx = this.children.indexOf(child)
     if (idx >= 0) {
@@ -542,6 +552,7 @@ export class Node {
 
   // -- Lifecycle
 
+  /** Drops references to parent, children, measure func and cache buffers, and decrements the live-node counter. */
   free(): void {
     this.parent = null
     this.children = []
@@ -550,10 +561,12 @@ export class Node {
     this._cOut = null
     _yogaLiveNodes--
   }
+  /** Frees the whole subtree depth-first, children before this node. */
   freeRecursive(): void {
     for (const c of this.children) c.freeRecursive()
     this.free()
   }
+  /** Restores default style and detaches from the tree, clearing the fast-path flags and layout caches so the node can be reused. */
   reset(): void {
     this.style = defaultStyle()
     this.children = []
@@ -574,6 +587,7 @@ export class Node {
 
   // -- Dirty tracking
 
+  /** Marks this node dirty and propagates up the ancestor chain, stopping at the first already-dirty ancestor. */
   markDirty(): void {
     this.isDirty_ = true
     if (this.parent && !this.parent.isDirty_) this.parent.markDirty()
@@ -581,6 +595,7 @@ export class Node {
   isDirty(): boolean {
     return this.isDirty_
   }
+  /** Always true: this port does not track per-node new-layout state (API parity stub). */
   hasNewLayout(): boolean {
     return true
   }
@@ -611,10 +626,12 @@ export class Node {
   getComputedHeight(): number {
     return this.layout.height
   }
+  /** Distance from this node's right edge to its parent's right edge; 0 for the root. */
   getComputedRight(): number {
     const p = this.parent
     return p ? p.layout.width - this.layout.left - this.layout.width : 0
   }
+  /** Distance from this node's bottom edge to its parent's bottom edge; 0 for the root. */
   getComputedBottom(): number {
     const p = this.parent
     return p ? p.layout.height - this.layout.top - this.layout.height : 0
@@ -636,6 +653,7 @@ export class Node {
       height: this.layout.height,
     }
   }
+  /** Computed border for `edge`; Start/End map to Left/Right (LTR only). */
   getComputedBorder(edge: Edge): number {
     return this.layout.border[physicalEdge(edge)]!
   }
@@ -648,6 +666,7 @@ export class Node {
 
   // -- Style setters: dimensions
 
+  /** Sets width from a number, `"N%"`, `"auto"`, or undefined; non-finite numbers are treated as undefined. */
   setWidth(v: number | 'auto' | string | undefined): void {
     this.style.width = parseDimension(v)
     this.markDirty()
@@ -719,6 +738,11 @@ export class Node {
     this.style.flexShrink = v ?? 0
     this.markDirty()
   }
+  /**
+   * Shorthand for grow/shrink: positive `v` sets grow=v, shrink=1 and basis 0;
+   * negative sets shrink=-v; 0/undefined/NaN resets both. Only the positive
+   * branch touches flexBasis.
+   */
   setFlex(v: number | undefined): void {
     if (v === undefined || isNaN(v)) {
       this.style.flexGrow = 0
@@ -785,6 +809,7 @@ export class Node {
     this.style.positionType = t
     this.markDirty()
   }
+  /** Sets a position inset for `edge` and refreshes the `_hasPosition` fast-path flag. */
   setPosition(edge: Edge, v: number | string | undefined): void {
     this.style.position[edge] = parseDimension(v)
     this._hasPosition = hasAnyDefinedEdge(this.style.position)
@@ -814,6 +839,7 @@ export class Node {
 
   // -- Style setters: spacing
 
+  /** Sets a margin for `edge` and refreshes the `_hasAutoMargin` / `_hasMargin` fast-path flags. */
   setMargin(edge: Edge, v: number | 'auto' | string | undefined): void {
     const val = parseDimension(v)
     this.style.margin[edge] = val
@@ -835,6 +861,7 @@ export class Node {
     this._hasMargin = true
     this.markDirty()
   }
+  /** Sets padding for `edge` and refreshes the `_hasPadding` fast-path flag. */
   setPadding(edge: Edge, v: number | string | undefined): void {
     this.style.padding[edge] = parseDimension(v)
     this._hasPadding = hasAnyDefinedEdge(this.style.padding)
@@ -845,11 +872,13 @@ export class Node {
     this._hasPadding = true
     this.markDirty()
   }
+  /** Sets a point-valued border width for `edge` (undefined clears it) and refreshes `_hasBorder`. */
   setBorder(edge: Edge, v: number | undefined): void {
     this.style.border[edge] = v === undefined ? UNDEFINED_VALUE : pointValue(v)
     this._hasBorder = hasAnyDefinedEdge(this.style.border)
     this.markDirty()
   }
+  /** Sets the gap for a gutter; a per-axis gap falls back to Gutter.All when unset. */
   setGap(gutter: Gutter, v: number | string | undefined): void {
     this.style.gap[gutter] = parseDimension(v)
     this.markDirty()
@@ -909,6 +938,7 @@ export class Node {
   copyStyle(_: Node): void {}
   setDirtiedFunc(_: unknown): void {}
   unsetDirtiedFunc(): void {}
+  /** Marks this node as the preferred child when its parent computes a baseline. */
   setIsReferenceBaseline(v: boolean): void {
     this.isReferenceBaseline_ = v
     this.markDirty()
@@ -924,6 +954,12 @@ export class Node {
 
   // -- Layout entry point
 
+  /**
+   * Lays out the tree rooted at this node. Undefined owner sizes mean
+   * unconstrained on that axis. Resets the profiling counters, bumps the cache
+   * generation, positions the root by its margin and insets, then rounds the
+   * whole tree to the pixel grid.
+   */
   calculateLayout(
     ownerWidth: number | undefined,
     ownerHeight: number | undefined,
@@ -966,6 +1002,11 @@ export class Node {
 const DEFAULT_CONFIG = createConfig()
 
 const CACHE_SLOTS = 4
+/**
+ * Records (inputs -> layout.width/height) in the node's 4-slot multi-entry
+ * layout cache, overwriting round-robin. Lazily allocates the buffers and
+ * drops entries from earlier generations when the node was dirty.
+ */
 function cacheWrite(
   node: Node,
   aW: number,
@@ -1041,6 +1082,7 @@ let _yogaNodesVisited = 0
 let _yogaMeasureCalls = 0
 let _yogaCacheHits = 0
 let _yogaLiveNodes = 0
+/** Returns profiling counters from the last calculateLayout (nodes visited, measure calls, cache hits) plus the current live-node count. */
 export function getYogaCounters(): {
   visited: number
   measured: number
@@ -1055,6 +1097,13 @@ export function getYogaCounters(): {
   }
 }
 
+/**
+ * Core flexbox pass for one node. Tries the layout/measure caches first, then
+ * resolves box edges and own size, handles leaves (measure func or empty),
+ * and for containers runs flex-basis + line breaking, flexible-length
+ * resolution, container sizing, line/child positioning, and absolute children.
+ * With performLayout=false only width/height are computed (measure pass).
+ */
 function layoutNode(
   node: Node,
   availableWidth: number,
@@ -1901,6 +1950,11 @@ function layoutNode(
   }
 }
 
+/**
+ * Sizes and positions an absolutely positioned child against the parent's
+ * padding box. Insets win; with no inset on an axis the child falls back to
+ * the parent's justify-content (main axis) or align-items/self (cross axis).
+ */
 function layoutAbsoluteChild(
   parent: Node,
   child: Node,
@@ -2020,6 +2074,7 @@ function layoutAbsoluteChild(
   child.layout.top = top
 }
 
+/** Main-axis offset for an absolute child without insets; only center and flex-end differ from flex-start. */
 function justifyAbsolute(
   justify: Justify,
   leadEdge: number,
@@ -2036,6 +2091,7 @@ function justifyAbsolute(
   }
 }
 
+/** Cross-axis offset for an absolute child without insets, flipped when the parent is wrap-reverse. */
 function alignAbsolute(
   align: Align,
   leadEdge: number,
@@ -2056,6 +2112,11 @@ function alignAbsolute(
   }
 }
 
+/**
+ * Flex-basis step: returns a child's hypothetical main size from explicit
+ * flex-basis, else its main-axis style dimension, else by measuring it
+ * (performLayout=false). Results are cached on the child per generation and inputs.
+ */
 function computeFlexBasis(
   child: Node,
   mainAxis: FlexDirection,
@@ -2171,6 +2232,7 @@ function computeFlexBasis(
   return b
 }
 
+/** True if the node or any descendant has a measure func (i.e. contains text); decides whether basis measurement constrains width. */
 function hasMeasureFuncInSubtree(node: Node): boolean {
   if (node.measureFunc) return true
   for (const c of node.children) {
@@ -2179,6 +2241,7 @@ function hasMeasureFuncInSubtree(node: Node): boolean {
   return false
 }
 
+/** Resolves flexible lengths for one line, writing each child's final main size into `_mainSize`. */
 function resolveFlexibleLengths(
   children: Node[],
   availableInnerMain: number,
@@ -2281,6 +2344,7 @@ function resolveFlexibleLengths(
   }
 }
 
+/** True when the child's effective cross alignment (align-self, else parent align-items) is stretch. */
 function isStretchAlign(child: Node): boolean {
   const p = child.parent
   if (!p) return false
@@ -2291,6 +2355,7 @@ function isStretchAlign(child: Node): boolean {
   return align === Align.Stretch
 }
 
+/** Effective cross-axis alignment: the child's align-self unless auto, then the parent's align-items. */
 function resolveChildAlign(parent: Node, child: Node): Align {
   return child.style.alignSelf === Align.Auto
     ? parent.style.alignItems
@@ -2331,6 +2396,7 @@ function isBaselineLayout(node: Node, flowChildren: Node[]): boolean {
   return false
 }
 
+/** Sum of a child's leading and trailing margins along `axis`; auto margins count as 0. */
 function childMarginForAxis(
   child: Node,
   axis: FlexDirection,
@@ -2342,6 +2408,7 @@ function childMarginForAxis(
   return lead + trail
 }
 
+/** Resolves the gap for a gutter, falling back to Gutter.All; never negative, 0 when unset. */
 function resolveGap(style: Style, gutter: Gutter, ownerSize: number): number {
   let v = style.gap[gutter]!
   if (v.unit === Unit.Undefined) v = style.gap[Gutter.All]!
@@ -2349,6 +2416,7 @@ function resolveGap(style: Style, gutter: Gutter, ownerSize: number): number {
   return isDefined(r) ? Math.max(0, r) : 0
 }
 
+/** Clamps `value` to the style's min/max width or height, with percent bounds resolved against the owner size. Max is applied first, so min wins on conflict. */
 function boundAxis(
   style: Style,
   isWidth: boolean,
@@ -2383,6 +2451,7 @@ function boundAxis(
   return v
 }
 
+/** Zeroes every descendant's layout and invalidates its caches; used for display:none subtrees so they relayout on unhide. */
 function zeroLayoutRecursive(node: Node): void {
   for (const c of node.children) {
     c.layout.left = 0
@@ -2403,6 +2472,7 @@ function zeroLayoutRecursive(node: Node): void {
   }
 }
 
+/** Splits children into flow and absolute lists, zeroing display:none subtrees and lifting children of display:contents nodes. */
 function collectLayoutChildren(node: Node, flow: Node[], abs: Node[]): void {
   // Partition a node's children into flow and absolute lists, flattening
   // display:contents subtrees so their children are laid out as direct
@@ -2432,6 +2502,11 @@ function collectLayoutChildren(node: Node, flow: Node[], abs: Node[]): void {
   }
 }
 
+/**
+ * Snaps the tree to the pixel grid at `scale`. Sizes are rounded from absolute
+ * edges to avoid cumulative drift; text nodes floor positions and ceil
+ * fractional sizes, matching upstream yoga. A scale of 0 disables rounding.
+ */
 function roundLayout(
   node: Node,
   scale: number,
@@ -2475,11 +2550,13 @@ function roundLayout(
   }
 }
 
+/** True when `v` is within 1e-4 of an integer. */
 function isWholeNumber(v: number): boolean {
   const frac = v - Math.floor(v)
   return frac < 0.0001 || frac > 0.9999
 }
 
+/** Rounds `v` to the grid defined by `scale` with 1e-4 tolerance; forceCeil/forceFloor override the default round-half-up. */
 function roundValue(
   v: number,
   scale: number,
@@ -2508,6 +2585,7 @@ function roundValue(
 // --
 // Helpers
 
+/** Parses a style dimension (number, `"N%"`, `"auto"`, numeric string); NaN, Infinity and unparsable strings become undefined. */
 function parseDimension(v: number | string | undefined): Value {
   if (v === undefined) return UNDEFINED_VALUE
   if (v === 'auto') return AUTO_VALUE
@@ -2525,6 +2603,7 @@ function parseDimension(v: number | string | undefined): Value {
   return isNaN(n) ? UNDEFINED_VALUE : pointValue(n)
 }
 
+/** Maps a public Edge to a physical edge index; Start/End map to Left/Right (LTR), others default to Left. */
 function physicalEdge(edge: Edge): number {
   switch (edge) {
     case Edge.Left:
@@ -2571,6 +2650,7 @@ const YOGA_INSTANCE: Yoga = {
   },
 }
 
+/** Async loader matching `yoga-layout/load`; resolves immediately since there is no WASM to fetch. */
 export function loadYoga(): Promise<Yoga> {
   return Promise.resolve(YOGA_INSTANCE)
 }

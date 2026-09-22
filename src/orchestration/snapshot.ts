@@ -16,6 +16,7 @@ const SNAPSHOT_SCHEMA = {
   },
 } as const
 
+/** Semantic checks the JSON schema cannot express: unique task IDs, terminal state iff a matching result envelope, workspace paths confined to the project root or .deepseek/worktrees, known dependencies and an acyclic graph. Throws on the first violation. */
 function validateRecords(snapshot: TaskSessionSnapshotV1): void {
   const ids = new Set<string>()
   for (const record of snapshot.tasks) {
@@ -58,12 +59,14 @@ function validateRecords(snapshot: TaskSessionSnapshotV1): void {
   for (const id of ids) visit(id)
 }
 
+/** Persists a session's task records and mailbox messages to one JSON file, with secrets redacted. */
 export class TaskSnapshotStore {
   private chain = Promise.resolve()
   lastError?: Error
 
   constructor(readonly file: string) {}
 
+  /** Load and fully validate a snapshot file; throws on malformed JSON, schema violations or an inconsistent task graph. */
   static async read(file: string): Promise<TaskSessionSnapshotV1> {
     const parsed = JSON.parse(await readFile(resolve(file), 'utf8')) as unknown
     const validation = validateSchema<TaskSessionSnapshotV1>(SNAPSHOT_SCHEMA, parsed)
@@ -72,6 +75,7 @@ export class TaskSnapshotStore {
     return validation.value
   }
 
+  /** Queue an atomic write (temp file + rename, mode 0600) of the redacted snapshot. Writes are serialized; a failure is stored in `lastError` instead of thrown. */
   save(sessionId: string, projectRoot: string, tasks: TaskRecordV1[], messages: TaskMessageV1[]): void {
     const snapshot: TaskSessionSnapshotV1 = {
       schemaVersion: 1, sessionId, projectRoot, savedAt: new Date().toISOString(), tasks, messages,
@@ -87,6 +91,7 @@ export class TaskSnapshotStore {
     }).catch(error => { this.lastError = error instanceof Error ? error : new Error(String(error)) })
   }
 
+  /** Wait for queued writes and rethrow the last write failure, if any. */
   async flush(): Promise<void> {
     await this.chain
     if (this.lastError) throw this.lastError

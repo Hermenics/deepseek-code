@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/btw <question>`: asks a side question without interrupting the running agent turn. */
 const command: Command = {
   name: 'btw',
   aliases: [],

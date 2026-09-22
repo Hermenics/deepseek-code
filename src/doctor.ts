@@ -15,11 +15,13 @@ export interface DoctorReport {
   checks: DoctorCheck[]
 }
 
+/** Probes a binary by running `<command> --version` with a 2s timeout; never throws. */
 async function commandAvailable(command: string): Promise<boolean> {
   const result = await execa(command, ['--version'], { reject: false, timeout: 2_000 })
   return result.exitCode === 0
 }
 
+/** Checks `.deepseek/mcp.json` in the workspace: a missing file passes, invalid JSON fails. */
 async function inspectMcpConfig(cwd: string): Promise<DoctorCheck> {
   const path = join(cwd, '.deepseek', 'mcp.json')
   if (!existsSync(path)) return { name: 'MCP config', ok: true, detail: 'none configured' }
@@ -32,6 +34,7 @@ async function inspectMcpConfig(cwd: string): Promise<DoctorCheck> {
   }
 }
 
+/** Runs the `doctor` environment checks (runtime, workspace, git, ripgrep, credentials, settings, MCP config) for a workspace. */
 export async function runDoctor(cwd = process.cwd()): Promise<DoctorReport> {
   const settings = await loadMergedSettings(cwd)
   const [git, rg, mcp] = await Promise.all([
@@ -57,6 +60,7 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorReport> {
   return { cwd, checks }
 }
 
+/** Formats a doctor report as a checklist with a one-line summary of failed checks. */
 export function formatDoctorReport(report: DoctorReport): string {
   const lines = [`DeepSeek Code doctor · ${report.cwd}`, '']
   for (const check of report.checks) lines.push(`${check.ok ? '✓' : '✗'} ${check.name}: ${check.detail}`)

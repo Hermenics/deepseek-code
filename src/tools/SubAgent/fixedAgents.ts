@@ -9,6 +9,7 @@ export interface FixedAgentDef {
   systemPrompt: string
 }
 
+/** Built-in coder, reviewer and tester personas, each with a fixed role and system prompt, available without any agent config. */
 export const FIXED_AGENTS: Record<FixedAgentName, FixedAgentDef> = {
   coder: {
     name: 'coder',
@@ -108,6 +109,7 @@ Return the test code with a brief note on what each test covers. No essays.`,
   },
 }
 
+/** Type guard for the built-in agent names. */
 export function isFixedAgent(name: string): name is FixedAgentName {
   return name === 'coder' || name === 'reviewer' || name === 'tester'
 }
@@ -116,6 +118,7 @@ export function getFixedAgent(name: FixedAgentName): FixedAgentDef {
   return FIXED_AGENTS[name]
 }
 
+/** Compose a fixed agent's full prompt: persona, optional memory context, working directory, task and the mandatory submit_result instruction. */
 export function buildFixedAgentPrompt(
   def: FixedAgentDef,
   task: string,

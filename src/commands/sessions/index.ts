@@ -1,5 +1,6 @@
 import type { Command, CommandResult } from '../types.js'
 
+/** Parses `/sessions [export <12-hex-id> [json|md]]`; exports default to Markdown. */
 export function parseSessionsCommand(args: string[]): CommandResult {
   if (args[0] !== 'export') return { type: 'sessions' }
   const id = args[1]
@@ -9,6 +10,7 @@ export function parseSessionsCommand(args: string[]): CommandResult {
   return { type: 'sessions', action: 'export', id, format }
 }
 
+/** `/sessions`: lists saved sessions or exports one in sanitized JSON/Markdown. */
 const command: Command = {
   name: 'sessions',
   aliases: [],

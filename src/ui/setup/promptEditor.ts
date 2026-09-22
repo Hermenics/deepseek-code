@@ -5,6 +5,7 @@ import { join } from 'path'
 import { execa, execaCommand } from 'execa'
 import { withInkPaused } from '../../ink/root.js'
 
+/** Chooses a blocking editor command: the configured $VISUAL/$EDITOR, then nano, then the platform default (notepad, `open -W -t`, vi); throws when none is available. */
 export function resolvePromptEditor(configured: string | undefined, hasNano: boolean, platform = process.platform, hasVi = false): string {
   if (configured) return configured
   if (hasNano) return 'nano'
@@ -14,6 +15,7 @@ export function resolvePromptEditor(configured: string | undefined, hasNano: boo
   throw new Error('No blocking prompt editor found. Set $VISUAL or $EDITOR.')
 }
 
+/** Opens `initialValue` in the user's editor via a temp .md file while Ink is paused, returns the edited text and always deletes the temp file. */
 export async function editPromptMarkdown(name: string, initialValue: string): Promise<string> {
   const path = join(tmpdir(), `deepseek-${name}-${randomUUID()}.md`)
   await writeFile(path, initialValue, 'utf8')

@@ -31,6 +31,7 @@ export const pendingClears = new WeakMap<DOMElement, Rectangle[]>()
  */
 let absoluteNodeRemoved = false
 
+/** Queues `rect` to be cleared under `parent` on the next render; absolute-positioned removals also raise the global flag that disables blitting for that frame. */
 export function addPendingClear(
   parent: DOMElement,
   rect: Rectangle,
@@ -47,6 +48,7 @@ export function addPendingClear(
   }
 }
 
+/** Returns whether an absolute-positioned node was removed since the last call, and resets the flag. */
 export function consumeAbsoluteRemovedFlag(): boolean {
   const had = absoluteNodeRemoved
   absoluteNodeRemoved = false

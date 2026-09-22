@@ -14,6 +14,7 @@ interface Props {
   theme: ThemeName
 }
 
+/** One row per changed file with `+added -removed` counts, left-truncating long paths to fit the terminal width. */
 export function DiffFileList({ files, theme }: Props) {
   const colors = getThemeColors(theme)
   const cols = process.stdout.columns ?? 80

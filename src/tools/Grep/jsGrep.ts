@@ -59,6 +59,7 @@ export function breToRegExpSource(pattern: string): string {
   return source
 }
 
+/** Walk `dir` and return `file:line:text` matches, skipping ignored, binary and oversized files. Stores at most `limit + 1` lines but counts every match in `totalMatches`. */
 export async function jsGrep(options: {
   dir: string
   pattern: string

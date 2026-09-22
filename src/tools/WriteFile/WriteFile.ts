@@ -4,6 +4,7 @@ import { assertExecutionActive, assertSafePath, atomicWriteFile } from '../share
 
 type DiffLine = { type: 'added' | 'removed' | 'context'; text: string; lineNo: number }
 
+/** LCS line diff rendered as +/-/context lines for the UI diff view. O(m*n) memory, so it returns [] when either side exceeds 5000 lines. */
 function computeDiff(oldLines: string[], newLines: string[], _filePath?: string): DiffLine[] {
   // Guard: skip expensive diff for very large files to prevent OOM
   if (oldLines.length > 5000 || newLines.length > 5000) {
@@ -30,6 +31,7 @@ function computeDiff(oldLines: string[], newLines: string[], _filePath?: string)
   return result
 }
 
+/** Tool that creates or fully overwrites a file through `assertSafePath` and an atomic write, returning a diff against the previous content. */
 export const WriteFile: Tool = {
   name: 'write_file',
   description: 'Create a file or replace its entire content. Creates parent directories if needed. For changes to an existing file prefer edit_file or patch_file after reading it; use write_file for new files or full rewrites, and split very large files into a write followed by targeted edits.',

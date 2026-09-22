@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/context` (alias `/ctx`): shows an estimated breakdown of context window usage. */
 const command: Command = {
   name: 'context',
   aliases: ['ctx'],

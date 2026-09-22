@@ -5,6 +5,10 @@ import { resolveSafePath } from '../tools/shared/pathSafety.js'
 
 const MAX_FILE_CHARS = 50_000  // ~12k tokens — prevent context explosion from large injected files
 
+/**
+ * Expands an agent config's `files` globs inside the workspace and returns their contents as `// File:` blocks.
+ * Absolute or `..` patterns and symlink escapes throw; total output is capped at MAX_FILE_CHARS.
+ */
 export async function resolveAgentFiles(patterns: string[], cwd = process.cwd()): Promise<string> {
   if (!patterns.length) return ''
   const root = resolve(cwd)

@@ -3,6 +3,7 @@ import { validateTaskResultEnvelope } from './schema.js'
 import type { TaskSlot } from './runtimeSlot.js'
 import type { TaskErrorV1, TaskRecordV1, TaskResultEnvelopeV1 } from './types.js'
 
+/** Turn a runner's output into a 'done' result envelope. A runner may return its own envelope, which must validate and match this task, session and status 'done'; any other value is wrapped. Metrics are merged, keeping the registry-measured latency. */
 export function normalizeTaskResult(slot: TaskSlot, sessionId: string, output: unknown): TaskResultEnvelopeV1 {
   if (output && typeof output === 'object' && (output as { schemaVersion?: number }).schemaVersion === 1 && 'status' in output) {
     const supplied = output as TaskResultEnvelopeV1
@@ -23,6 +24,7 @@ export function normalizeTaskResult(slot: TaskSlot, sessionId: string, output: u
   }
 }
 
+/** Build a failed/cancelled/timed_out envelope and store it on the slot's record. Throws DOUBLE_COMPLETION if the current attempt already settled with a result. */
 export function createFailureEnvelope(
   slot: TaskSlot,
   state: 'failed' | 'cancelled' | 'timed_out',
@@ -44,12 +46,14 @@ export function createFailureEnvelope(
   return envelope
 }
 
+/** Convert any thrown value into a TaskErrorV1; errors that are not TaskRuntimeError become retryable TASK_FAILED. */
 export function toTaskError(cause: unknown): TaskErrorV1 {
   if (cause instanceof TaskRuntimeError) return { code: cause.code, message: cause.message, retryable: cause.retryable }
   const error = cause instanceof Error ? cause : new Error(String(cause))
   return { code: 'TASK_FAILED', message: error.message, retryable: true, cause: error.name }
 }
 
+/** Throw if reported token or cost usage exceeds the task's budget. A cost budget is not enforced when the provider reports no cost. */
 export function enforceTaskBudget(record: TaskRecordV1, result: TaskResultEnvelopeV1): void {
   if (record.maxTokens !== undefined && result.metrics.tokens !== undefined && result.metrics.tokens > record.maxTokens) {
     throw new TaskRuntimeError('TOKEN_BUDGET_EXCEEDED', `Task used ${result.metrics.tokens} tokens; limit is ${record.maxTokens}`)

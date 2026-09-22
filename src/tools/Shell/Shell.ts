@@ -10,6 +10,7 @@ import { isPathIgnored, IGNORE_FILE_NAME } from '../shared/deepseekignore.js'
 import { hasBinary, isLinux, scrubbedEnv, defaultShell, isWindows } from '../../utils/platform.js'
 import { hasNetworkCapability } from '../../permissions/risk.js'
 
+/** Rough POSIX-style tokenizer: honors quotes and backslash escapes, splits segments on `;`, `|`, `&`, `&&`, `||` and newlines, and drops redirection operators. Only used for the ignore-path heuristic, not for execution. */
 function tokenizeShellSegments(command: string): string[][] {
   const segments: string[][] = [[]]
   let token = ''
@@ -84,6 +85,7 @@ const DESTRUCTIVE_PATTERNS = [
   /\bdd\s+.*of=/, /\bchmod\s+-R\s+777\b/, /\bsudo\s+rm\b/, />\s*\/dev\/(sd[a-z]|nvme)/,
 ]
 
+/** Warning text when the command matches a known destructive pattern (rm -rf, hard reset, force push, DROP TABLE, mkfs, dd...), otherwise null. */
 function destructiveWarning(command: string): string | null {
   return DESTRUCTIVE_PATTERNS.find(pattern => pattern.test(command)) ? `Destructive command detected: ${command}` : null
 }
@@ -92,6 +94,7 @@ function destructiveWarning(command: string): string | null {
 const SANDBOX_UNAVAILABLE_NOTICE =
   '[sandbox unavailable on this platform — contextual shell execution is blocked because cwd and a scrubbed environment are not filesystem containment]'
 
+/** True when bubblewrap exists on Linux and can actually create a namespace here, checked by running a trivial sandboxed `true`. */
 function sandboxAvailableForShell(): boolean {
   if (!isLinux || !hasBinary('bwrap')) return false
   try {
@@ -113,6 +116,7 @@ let legacyConfirmHandler: ConfirmHandler | null = null
 /** @deprecated Runtime calls should supply authorization through ToolExecutionContext. */
 export function setShellConfirmHandler(handler: ConfirmHandler | null): void { legacyConfirmHandler = handler }
 
+/** Run the command under bubblewrap with the workspace mounted at /mnt (read-only for the tester profile), a private /tmp, cleared env and new pid/ipc/uts namespaces. Networking is unshared unless approved, in which case DNS and CA certs are bound in. */
 async function runSandboxed(command: string, cwd: string, timeout: number, readOnly: boolean, allowNetwork: boolean, signal?: AbortSignal): Promise<{ stdout: string; stderr: string }> {
   const bunBin = dirname(process.execPath)
   const args = [
@@ -234,6 +238,7 @@ async function prepareShellExecution(
   }
 }
 
+/** Turn an execa failure into a truncated `Error:`/`Cancelled:` message with the timeout, exit code or signal plus captured output. */
 function formatShellFailure(error: unknown, timeout: number, signal: AbortSignal | undefined, sandboxed: boolean): string {
   const failure = error as { stdout?: string; stderr?: string; message?: string; shortMessage?: string; exitCode?: number; timedOut?: boolean; signal?: string }
   const prefix = signal?.aborted ? 'Cancelled' : 'Error'
@@ -247,6 +252,10 @@ function formatShellFailure(error: unknown, timeout: number, signal: AbortSignal
   return truncateShellOutput(`${prefix}: ${notice}${status ? `${status}\n` : ''}${detail}`)
 }
 
+/**
+ * Run a prepared command (sandboxed whenever a task context exists, and refused if the sandbox is unavailable) and return truncated output.
+ * In `strict` mode (background tasks) failures are thrown so the registry records them, and the process timeout gets a 1s grace so the registry's own timeout wins.
+ */
 async function runPreparedShell(execution: PreparedShellExecution, signal?: AbortSignal, strict = false): Promise<string> {
   try {
     if (execution.sandboxed && !sandboxAvailableForShell()) {
@@ -268,6 +277,7 @@ async function runPreparedShell(execution: PreparedShellExecution, signal?: Abor
   }
 }
 
+/** JSON task handle returned to the model for a detached shell task. */
 function backgroundHandle(handle: TaskHandle<string>): string {
   return JSON.stringify({
     schemaVersion: 1,
@@ -290,6 +300,7 @@ export function truncateShellOutput(output: string, maxChars = SHELL_OUTPUT_MAX_
   return `${output.slice(0, head)}\n\n… [${dropped} characters truncated — rerun with a narrower command, e.g. pipe through head/tail or grep] …\n\n${output.slice(output.length - tail)}`
 }
 
+/** Shell tool. Commands pass the checks in `prepareShellExecution` (destructive commands need coordinator approval, network needs explicit approval, .deepseekignore paths are refused), then run in a bubblewrap sandbox with a scrubbed env, in the foreground or as a cancellable background task. */
 export const Shell: Tool = {
   name: 'shell',
   description: `Run a shell command in the workspace with a scrubbed environment (no provider keys) and return its output; failures include their exit status. Set background=true to detach a controllable shell task and receive a task handle. Use it for builds, tests, git, package managers and other terminal work; prefer read_file, grep, glob and the edit tools for reading, searching and editing. Output is capped at ${SHELL_OUTPUT_MAX_CHARS} characters (head and tail kept); the command is killed after the timeout (default ${SHELL_TIMEOUT_MS / 1000}s). Network access requires explicit approval.`,

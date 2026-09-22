@@ -17,12 +17,14 @@ function ensureMeta(db: Database): void {
   `)
 }
 
+/** Returns the set of migration versions already applied, creating the meta table first if needed. */
 function appliedVersions(db: Database): Set<number> {
   ensureMeta(db)
   const rows = db.query('SELECT version FROM _schema_version').all() as { version: number }[]
   return new Set(rows.map((r) => r.version))
 }
 
+/** Applies pending migrations in ascending version order and records each one. Migrations are not wrapped in a transaction, so a failing `up` can leave partial changes. */
 export function runMigrations(db: Database, migrations: Migration[]): void {
   const applied = appliedVersions(db)
   const sorted = [...migrations].sort((a, b) => a.version - b.version)
@@ -36,6 +38,7 @@ export function runMigrations(db: Database, migrations: Migration[]): void {
 
 // ── Migration definitions ──────────────────────────────────────────
 
+/** Ordered kernel schema migrations; append new versions, never edit applied ones. */
 export const MIGRATIONS: Migration[] = [
   {
     version: 1,

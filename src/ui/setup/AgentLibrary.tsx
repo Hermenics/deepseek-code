@@ -28,6 +28,7 @@ interface Props {
 
 type PromptMode = 'create' | 'duplicate' | null
 
+/** Settings screen for the agent registry in a scope: create, edit JSON or specialization prompt in the external editor, duplicate, disable/delete and restore agents, calling onChanged after mutations. */
 export default function AgentLibrary({ scope, theme, onBack, onChanged }: Props) {
   const colors = getThemeColors(theme)
   const [agents, setAgents] = useState<LoadedAgent[]>([])

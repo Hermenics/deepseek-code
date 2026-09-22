@@ -1,5 +1,6 @@
 import Box from '../../../ink/components/Box.js'
 import Text from '../../../ink/components/Text.js'
+import { useThemeColors } from '../../design-system/ThemeProvider.js'
 interface CommandDropdownProps {
   matches: string[]
   selectedIdx: number
@@ -7,7 +8,9 @@ interface CommandDropdownProps {
   descriptions?: Record<string, string>
 }
 
+/** Renders the slash-command completion list: a window of up to 6 rows kept around the selected match, each with its description truncated to the terminal width. */
 export function CommandDropdown({ matches, selectedIdx, columns, descriptions = {} }: CommandDropdownProps) {
+  const colors = useThemeColors()
   const MAX_VISIBLE = 6
   const total = matches.length
   const CMD_WIDTH = 22
@@ -28,9 +31,9 @@ export function CommandDropdown({ matches, selectedIdx, columns, descriptions = 
         const truncDesc = desc.length > descMaxLen ? desc.slice(0, descMaxLen - 1) + '…' : desc
         return (
           <Box key={vi} flexDirection="row">
-            <Text color="#888888">{'│ '}</Text>
-            <Text color={isSelected ? 'cyan' : undefined}>{cmd.padEnd(CMD_WIDTH)}</Text>
-            <Text color={isSelected ? 'cyan' : '#888888'}>{truncDesc}</Text>
+            <Text color={colors.rule}>{'│ '}</Text>
+            <Text color={isSelected ? colors.primary : undefined}>{cmd.padEnd(CMD_WIDTH)}</Text>
+            <Text color={isSelected ? colors.primary : colors.textDim}>{truncDesc}</Text>
           </Box>
         )
       })}

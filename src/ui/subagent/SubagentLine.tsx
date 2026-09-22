@@ -9,22 +9,21 @@ import type { SubAgentRole } from '../../tools/SubAgent/permissions.js'
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
-const ROLE_COLORS: Record<string, string> = {
-  reader: 'cyan',
-  writer: 'yellow',
-  executor: 'green',
-  reviewer: 'magenta',
-  unrestricted: 'red',
+function getRoleColor(role: SubAgentRole, colors: ReturnType<typeof getThemeColors>): string {
+  return {
+    reader: colors.h2,
+    writer: colors.warning,
+    executor: colors.success,
+    reviewer: colors.h3,
+    unrestricted: colors.error,
+  }[role] ?? colors.textDim
 }
 
-function getRoleColor(role: SubAgentRole): string {
-  return ROLE_COLORS[role] ?? 'gray'
-}
-
-function getConfidenceColor(confidence: number): string {
-  if (confidence >= 0.8) return 'green'
-  if (confidence >= 0.5) return 'yellow'
-  return 'red'
+/** Success color at 80%+ confidence, warning at 50%+, error below. */
+function getConfidenceColor(confidence: number, colors: ReturnType<typeof getThemeColors>): string {
+  if (confidence >= 0.8) return colors.success
+  if (confidence >= 0.5) return colors.warning
+  return colors.error
 }
 
 function formatDuration(ms: number): string {
@@ -49,6 +48,7 @@ function truncate(str: string, max: number): string {
   return str.length > max ? str.slice(0, max - 1) + '…' : str
 }
 
+/** One tree row for a subagent: name, role and task, then a spinner with latest tool and elapsed time while running, or a done/blocked/failed summary with tools, duration, confidence, tokens, cost and verification. */
 export function SubagentLine({ agent, isLast, theme = 'dark' }: SubagentLineProps): React.ReactElement {
   const colors = getThemeColors(theme)
   const agentColor = getAgentColor(agent.colorIndex, colors)
@@ -70,7 +70,7 @@ export function SubagentLine({ agent, isLast, theme = 'dark' }: SubagentLineProp
       <Text color={colors.textDim}>{treeChar}</Text>
       <Text color={agentColor} bold>{agent.agentName ?? 'Subagent'}</Text>
       {agent.role && (
-        <Text color={getRoleColor(agent.role)}>[{agent.role}]</Text>
+        <Text color={getRoleColor(agent.role, colors)}>[{agent.role}]</Text>
       )}
       <Text color={colors.textSubtle}>({taskLabel})</Text>
 
@@ -99,7 +99,7 @@ export function SubagentLine({ agent, isLast, theme = 'dark' }: SubagentLineProp
             <Text color={colors.textDim}>· {formatDuration(agent.durationMs)}</Text>
           )}
           {agent.confidence !== null && (
-            <Text color={getConfidenceColor(agent.confidence)}>· {Math.round(agent.confidence * 100)}%</Text>
+            <Text color={getConfidenceColor(agent.confidence, colors)}>· {Math.round(agent.confidence * 100)}%</Text>
           )}
           {agent.tokens !== null && (
             <Text color={colors.textDim}>· {formatTokens(agent.tokens)}</Text>
@@ -108,10 +108,10 @@ export function SubagentLine({ agent, isLast, theme = 'dark' }: SubagentLineProp
             <Text color={colors.warning}>{formatCost(agent.costUsd)}</Text>
           )}
           {agent.verified === true && (
-            <Text color="green">✓✓</Text>
+            <Text color={colors.success}>✓✓</Text>
           )}
           {agent.verified === false && (
-            <Text color="red">⚠ unverified</Text>
+            <Text color={colors.error}>⚠ unverified</Text>
           )}
         </>
       )}

@@ -58,6 +58,7 @@ function createBlockList(subnets: readonly Subnet[], family: IpFamily): BlockLis
 const blockedIpv4 = createBlockList(BLOCKED_IPV4_SUBNETS, 'ipv4')
 const blockedIpv6 = createBlockList(BLOCKED_IPV6_SUBNETS, 'ipv6')
 
+/** True for any address in a special-purpose (non-globally-routable) range. Anything that isn't a valid IP literal also counts as blocked (fail closed). */
 function isBlockedIp(ip: string): boolean {
   const family = isIP(ip)
   if (family === 4) return blockedIpv4.check(ip, 'ipv4')
@@ -70,6 +71,7 @@ function isBlockedIp(ip: string): boolean {
   return true
 }
 
+/** Parse `url`, accepting only http: and https:; null otherwise. */
 function parseHttpUrl(url: string): URL | null {
   try {
     const parsed = new URL(url)
@@ -83,6 +85,7 @@ function isValidUrl(url: string): boolean {
   return parseHttpUrl(url) !== null
 }
 
+/** Pre-DNS check on the URL's host: localhost names, the GCP metadata host and blocked IP literals. Non-http(s) URLs are blocked too. */
 function isBlockedUrl(url: string): boolean {
   const parsed = parseHttpUrl(url)
   if (!parsed) return true
@@ -93,6 +96,7 @@ function isBlockedUrl(url: string): boolean {
 
 interface ResolvedTarget { address: string; family: 4 | 6 }
 
+/** Resolve the host (2s DNS timeout) and return the first address only if every resolved address is public. Returns null on any failure. The caller pins the request to this address to prevent DNS rebinding. */
 async function resolvePublicTarget(url: string): Promise<ResolvedTarget | null> {
   try {
     const parsed = new URL(url)
@@ -117,6 +121,7 @@ async function resolvePublicTarget(url: string): Promise<ResolvedTarget | null> 
   }
 }
 
+/** Raised when a response body goes over MAX_BODY_BYTES. */
 class ResponseTooLargeError extends Error {
   constructor() {
     super(`response body exceeds ${MAX_BODY_BYTES} bytes`)
@@ -124,6 +129,7 @@ class ResponseTooLargeError extends Error {
   }
 }
 
+/** Read the body as text, rejecting early on an oversized Content-Length and cancelling the stream once MAX_BODY_BYTES is exceeded. */
 async function readBodyWithinLimit(response: Response): Promise<string> {
   const contentLength = Number(response.headers.get('content-length'))
   if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
@@ -157,6 +163,7 @@ async function readBodyWithinLimit(response: Response): Promise<string> {
   }
 }
 
+/** Crude HTML-to-text: drops script/style blocks and tags, decodes common entities (`&amp;` last, to avoid double-unescaping) and collapses whitespace. */
 function stripHtml(html: string): string {
   return html
     // Remove scripts e styles completos (conteúdo + tag).
@@ -181,6 +188,7 @@ function stripHtml(html: string): string {
     .trim()
 }
 
+/** Tool that fetches an http(s) URL and returns up to 20k chars of stripped text. SSRF-hardened: every hop, redirects included (max 5), must resolve only to public IPs, and the request is pinned to the checked IP. Body size and total time are capped. */
 export const WebFetch: Tool = {
   name: 'web_fetch',
   description: 'Fetch content from a URL. Returns the page text.',
@@ -254,6 +262,7 @@ export const WebFetch: Tool = {
   },
 }
 
+/** Tool that runs a query (trimmed to 300 chars) through DuckDuckGo's HTML endpoint via WebFetch, so the same SSRF and size limits apply. */
 export const WebSearch: Tool = {
   name: 'web_search',
   description: 'Search the public web for an exact model ID or technical topic. Returns search result text and links.',

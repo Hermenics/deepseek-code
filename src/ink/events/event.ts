@@ -1,3 +1,4 @@
+/** Minimal event base holding the stopImmediatePropagation flag that EventEmitter.emit honours. */
 export class Event {
   private _didStopImmediatePropagation = false
 

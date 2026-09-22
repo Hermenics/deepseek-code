@@ -263,6 +263,7 @@ export function formatActivityItem(item: ActivityItem, columns: number, now = Da
   return truncate(`${prefix}  ${truncate(item.description, descriptionWidth)}  ${suffix}`, columns)
 }
 
+/** Text lines for the expanded detail panel of the selected activity item (idle group, workflow run or single agent). */
 function detailLines(item: ActivityItem, now: number): string[] {
   if (item.kind === 'idle-group') {
     return [

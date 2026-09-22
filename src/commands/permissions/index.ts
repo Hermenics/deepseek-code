@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/permissions`: shows the current tool permission settings. */
 const command: Command = {
   name: 'permissions',
   aliases: [],

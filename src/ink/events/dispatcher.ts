@@ -17,6 +17,7 @@ type DispatchListener = {
   phase: 'capturing' | 'at_target' | 'bubbling'
 }
 
+/** Returns the node's capture or bubble handler prop for an event type, resolved through HANDLER_FOR_EVENT. */
 function getHandler(
   node: EventTarget,
   eventType: string,

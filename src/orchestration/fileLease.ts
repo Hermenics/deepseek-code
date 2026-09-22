@@ -23,6 +23,7 @@ function abortError(signal: AbortSignal): unknown {
   return signal.reason ?? new Error('Lease acquisition cancelled')
 }
 
+/** Sleep for `ms`, rejecting early with the signal's reason when it aborts. */
 async function delay(ms: number, signal?: AbortSignal): Promise<void> {
   if (signal?.aborted) throw abortError(signal)
   await new Promise<void>((resolve, reject) => {
@@ -33,6 +34,7 @@ async function delay(ms: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
+/** Probe a PID with signal 0; only ESRCH counts as dead (EPERM means the process exists). */
 function processAlive(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false
   try { process.kill(pid, 0); return true } catch (error) {
@@ -40,6 +42,7 @@ function processAlive(pid: number): boolean {
   }
 }
 
+/** Atomically rename a lease directory to a unique quarantine name, then delete it. Returns false if it was already gone. */
 async function moveAside(path: string, label: string): Promise<boolean> {
   const quarantine = `${path}.${label}-${randomUUID()}`
   try {
@@ -52,6 +55,7 @@ async function moveAside(path: string, label: string): Promise<boolean> {
   return true
 }
 
+/** Remove a lease whose owner process is dead. A lease with a missing or unreadable owner.json is only reclaimed after 30s, giving a new owner time to finish writing it. */
 async function reclaimIfStale(path: string): Promise<boolean> {
   try {
     const owner = JSON.parse(await readFile(join(path, 'owner.json'), 'utf8')) as Partial<LeaseOwner>

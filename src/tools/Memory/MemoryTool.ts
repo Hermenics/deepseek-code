@@ -2,6 +2,7 @@ import { Tool } from '../types.js'
 import { loadMemory, addEntry, replaceEntry, removeEntry } from '../../agent/memory.js'
 import type { MemoryTarget } from '../../agent/memory.js'
 
+/** Tool that lists, adds, replaces or removes entries in the persistent agent or user memory. It prefers the session's memory store and falls back to the global memory module. */
 export const MemoryTool: Tool = {
   name: 'memory',
   description:

@@ -17,6 +17,7 @@ export function computeGhostText(value: string, cursorOffset: number): InlineGho
   return getArgumentHint(value)
 }
 
+/** Shows a suggested reply as ghost text, only while the input is empty and the suggestion is not blank. */
 export function getSuggestedReplyGhost(value: string, suggestion: string | undefined): InlineGhostText | null {
   if (value.length > 0 || !suggestion?.trim()) return null
   const text = suggestion.trim()

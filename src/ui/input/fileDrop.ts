@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { isAbsolute } from 'node:path'
 
+/** Strips shell backslash escapes. On Windows a backslash is kept unless it escapes whitespace, a quote or another backslash, since it is also the path separator there. */
 function unescapePath(value: string): string {
   let result = ''
   for (let i = 0; i < value.length; i++) {
@@ -17,6 +18,7 @@ function unescapePath(value: string): string {
   return result
 }
 
+/** Turns one dropped token into a path: resolves file:// URLs ('' if invalid), strips surrounding quotes and shell escapes, and keeps the leading \\ of quoted Windows UNC paths. */
 function decodePath(value: string): string {
   let candidate = value.trim()
   if (/^file:\/\//i.test(candidate)) {
@@ -42,6 +44,7 @@ function decodePath(value: string): string {
   return unescapePath(candidate)
 }
 
+/** Splits a multi-file drop into paths using shell-style quotes and backslash escapes, decoding each token with decodePath. */
 function splitShellPaths(value: string): string[] {
   const paths: string[] = []
   let token = ''
@@ -93,6 +96,7 @@ export function normalizeDroppedPath(value: string): string | null {
   return candidates.join(' ')
 }
 
+/** Inserts a dropped path at `offset`, padding with spaces so it never sticks to neighbouring text; returns the new text and the offset just after the insertion. */
 export function insertDroppedPath(text: string, offset: number, droppedPath: string): { text: string; offset: number } {
   const before = text.slice(0, offset)
   const after = text.slice(offset)

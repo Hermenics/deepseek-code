@@ -33,6 +33,7 @@ const CONFIRMATIONS: Record<string, string> = {
   ar:          '!رائع! الآن، من فضلك، أعد تشغيل الأمر الذي استخدمته لبدء تشغيلي',
 }
 
+/** Localized "restart me" message for a language name or code, with an English fallback. */
 function getConfirmation(lang: string): string {
   return CONFIRMATIONS[lang.toLowerCase().trim()]
     ?? 'Perfect! Now please run the command you used to start me again!'
@@ -42,6 +43,7 @@ interface Props {
   onDone(language: string): void
 }
 
+/** First-run prompt asking which language to converse in; after Enter it reports the choice and shows a localized "run the command again" message. Ctrl+C exits the process. */
 export function LanguageSetup({ onDone }: Props) {
   const [input, setInput] = useState('')
   const [confirmed, setConfirmed] = useState<string | null>(null)

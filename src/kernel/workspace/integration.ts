@@ -180,6 +180,7 @@ export class IntegrationPipeline {
     return [...this.active.values()].map(r => structuredClone(r))
   }
 
+  /** Upserts the integration's current state into `integration_results`. */
   private persistResult(result: IntegrationResult): void {
     this.store.run(
       `INSERT OR REPLACE INTO integration_results
@@ -193,6 +194,7 @@ export class IntegrationPipeline {
     )
   }
 
+  /** Loads persisted results, keeping only the latest attempt per task. */
   private rehydrate(): void {
     // Order by started_at ASC so later attempts overwrite earlier results for the same task_id.
     const rows = this.store.query<IntegrationRow>('SELECT * FROM integration_results ORDER BY started_at ASC')
@@ -231,6 +233,7 @@ export interface GcResult {
   errors: string[]
 }
 
+/** Decides which task worktrees are safe to delete. It only classifies and emits `WorktreePreserved`/`WorktreeRemoved` events; the caller performs the actual removal. */
 export class WorktreeGC {
   constructor(
     private readonly events: EventBus,

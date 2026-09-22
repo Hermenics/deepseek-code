@@ -79,12 +79,14 @@ export function normalizeKeybinding(value: unknown): string | undefined {
   return [...['ctrl', 'alt', 'shift'].filter(modifier => modifiers.has(modifier)), key].join('+')
 }
 
+/** Normalizes a configured value (one string or a list) into unique canonical bindings, or undefined when none are valid so the action keeps its defaults. */
 function configuredBindings(value: KeybindingValue | undefined): readonly string[] | undefined {
   const values = typeof value === 'string' ? [value] : Array.isArray(value) ? value : []
   const valid = [...new Set(values.map(normalizeKeybinding).filter((binding): binding is string => binding !== undefined))]
   return valid.length > 0 ? valid : undefined
 }
 
+/** Reads keybindings from settings, preferring `interface.keybindings` over the top-level `keybindings` key. */
 function settingsBindings(settings: DeepSeekSettings | undefined): KeybindingsSettings | undefined {
   return settings?.interface?.keybindings ?? settings?.keybindings
 }
@@ -107,10 +109,12 @@ export function resolveKeybindings(overrides?: KeybindingsSettings): ResolvedKey
   return resolved
 }
 
+/** Resolves the effective keybindings from an already-loaded settings object. */
 export function keybindingsFromSettings(settings: DeepSeekSettings | undefined): ResolvedKeybindings {
   return resolveKeybindings(settingsBindings(settings))
 }
 
+/** Loads the merged settings for `cwd` and resolves the effective keybindings from them. */
 export async function loadKeybindings(cwd?: string): Promise<ResolvedKeybindings> {
   return keybindingsFromSettings(await loadMergedSettings(cwd))
 }
@@ -138,6 +142,7 @@ export function resolveKeybindingAction(key: KeyEvent, bindings?: ResolvedKeybin
   return KEYBINDING_ACTIONS.find(action => resolved[action].includes(normalized))
 }
 
+/** Bindings for an action name (from the defaults when no resolved map is given); an empty list for unknown actions. */
 export function getKeybindingsForAction(action: string, bindings?: ResolvedKeybindings): readonly string[] {
   return isKeybindingAction(action) ? (bindings ?? DEFAULT_KEYBINDINGS)[action] : []
 }

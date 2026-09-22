@@ -32,6 +32,7 @@ export function shouldVerify(result: SubAgentResult, explicitVerify?: boolean): 
   return result.filesChanged.length > 0 || result.issuesFound.length > 0 || result.confidence < 0.7
 }
 
+/** System prompt and JSON payload for the independent verifier. The candidate's claims are passed as untrusted data next to the mechanical evidence that already passed. */
 export function buildVerifierPrompt(
   originalTask: string,
   result: SubAgentResult,
@@ -56,6 +57,7 @@ export function buildVerifierPrompt(
   }
 }
 
+/** Validate a submit_verification payload; `verified` is true only for status CONFIRMED. */
 export function validateVerificationResult(value: unknown): VerificationResult {
   const validation = validateSchema<VerificationPayload>(VERIFICATION_RESULT_SCHEMA, value)
   if (!validation.valid) throw new StructuredOutputError('INVALID_RESULT', `Invalid verification result: ${validation.errors.join('; ')}`, JSON.stringify(value))
@@ -71,6 +73,7 @@ export function parseVerificationResult(text: string): VerificationResult {
   return validateVerificationResult(value)
 }
 
+/** One-line verdict for the user: status, reason and any issues. Falls back to CONFIRMED/REFUTED from `verified` when no status is present. */
 export function formatVerificationForUser(result: Pick<VerificationResult, 'verified' | 'reason' | 'issues'> & Partial<Pick<VerificationResult, 'status' | 'evidence'>>): string {
   const status = result.status ?? (result.verified ? 'CONFIRMED' : 'REFUTED')
   const parts = [`[Verification: ${status}]`, result.reason]

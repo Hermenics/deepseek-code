@@ -4,6 +4,7 @@ import { assertSafePath } from '../shared/pathSafety.js'
 
 const DEFAULT_MAX_LINES = 500
 
+/** Read-only tool returning a line-numbered slice of a file (first 500 lines by default) with a header giving the total and how to continue. The path must pass `assertSafePath`. */
 export const ReadFile: Tool = {
   name: 'read_file',
   description: `Read a file with line numbers. Use it instead of shell cat/sed/head.

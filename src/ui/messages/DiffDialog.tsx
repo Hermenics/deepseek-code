@@ -15,6 +15,7 @@ export interface DiffDialogProps {
   theme: ThemeName
 }
 
+/** Full diff of one file inside a Dialog with a line-numbered gutter; Enter or Esc closes it. */
 export function DiffDialog({ path, lines, onClose, theme }: DiffDialogProps) {
   const colors = getThemeColors(theme)
   const cols = process.stdout.columns ?? 80

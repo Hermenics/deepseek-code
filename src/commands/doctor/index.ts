@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/doctor`: runs diagnostics on the runtime, workspace, credentials and MCP setup. */
 const command: Command = {
   name: 'doctor',
   aliases: [],

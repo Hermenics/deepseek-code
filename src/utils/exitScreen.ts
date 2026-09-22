@@ -12,6 +12,7 @@ export const EXIT_LOGO = `██████╗ ███████╗██�
 ╚██████╗╚██████╔╝██████╔╝███████╗
  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝`
 
+/** Builds the text printed on exit: disables mouse tracking, leaves the alternate screen if used, clears the terminal and shows the logo plus the `--resume` command. */
 export function formatExitScreen(sessionId: string, alternateScreen: boolean): string {
   const leaveAlternateScreen = alternateScreen ? '\x1b[?1049l' : ''
   return [

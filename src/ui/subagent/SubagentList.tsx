@@ -3,6 +3,7 @@ import Box from '../../ink/components/Box.js'
 import { SubagentLine } from './SubagentLine.js'
 import type { SubagentListProps } from './types.js'
 
+/** Tree of subagent status lines (├─/└─), or nothing when there are no subagents. */
 export function SubagentList({ agents, theme = 'dark' }: SubagentListProps): React.ReactElement | null {
   if (agents.length === 0) return null
 

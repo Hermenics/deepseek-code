@@ -12,6 +12,7 @@ export interface InstallResult {
   error?: string
 }
 
+/** True only when `name` resolves to a strict child of `skillsDir`, guarding against path traversal. */
 function isPathSafe(skillsDir: string, name: string): boolean {
   const base = resolve(skillsDir)
   const target = resolve(base, name)
@@ -19,11 +20,13 @@ function isPathSafe(skillsDir: string, name: string): boolean {
   return rel.length > 0 && !rel.startsWith('..') && !isAbsolute(rel)
 }
 
+/** Checks for a directory by spawning `test -d` (POSIX-only). */
 async function dirExists(path: string): Promise<boolean> {
   const proc = Bun.spawn(['test', '-d', path], { stdout: 'pipe', stderr: 'pipe' })
   return (await proc.exited) === 0
 }
 
+/** Shallow-clones `owner/repo` from GitHub, validates its SKILL.md, strips `.git`, moves it into `skillsDir/<name>` and records it in the registry. Never throws; failures come back as `{ ok: false, error }` with temp files cleaned up. */
 export async function installSkill(repo: string, skillsDir: string): Promise<InstallResult> {
   const url = `https://github.com/${repo}.git`
   const tmpDir = join(tmpdir(), `dsk-skill-${randomBytes(6).toString('hex')}`)
@@ -120,6 +123,7 @@ export async function installSkill(repo: string, skillsDir: string): Promise<Ins
   }
 }
 
+/** Unregisters an installed skill and deletes its directory. */
 export async function removeSkill(name: string, skillsDir: string): Promise<InstallResult> {
   // Security: validate name
   if (!validateSkillName(name) || !isPathSafe(skillsDir, name)) {
@@ -138,6 +142,7 @@ export async function removeSkill(name: string, skillsDir: string): Promise<Inst
   return { ok: true, name }
 }
 
+/** Re-clones the skill's registered repo and swaps it in place, backing up the old copy first and restoring it if the move or registry write fails. The new manifest name must match the installed one. */
 export async function updateSkill(name: string, skillsDir: string): Promise<InstallResult> {
   // Security: validate name
   if (!validateSkillName(name) || !isPathSafe(skillsDir, name)) {
@@ -258,6 +263,7 @@ export async function updateSkill(name: string, skillsDir: string): Promise<Inst
   }
 }
 
+/** Returns the skills recorded in the registry (not a filesystem scan). */
 export async function listSkills(skillsDir: string): Promise<SkillEntry[]> {
   const registry = readRegistry(skillsDir)
   return Object.values(registry.skills)

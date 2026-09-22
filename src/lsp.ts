@@ -16,21 +16,25 @@ export interface LspRequest {
   fileContent?: string
 }
 
+/** Picks the LSP `languageId` for a file: the server's explicit override, else a guess from the extension, else `plaintext`. */
 function languageIdFor(filePath: string, server: LspServerSettings): string {
   if (server.languageId) return server.languageId
   return ({ '.ts': 'typescript', '.tsx': 'typescriptreact', '.js': 'javascript', '.jsx': 'javascriptreact', '.py': 'python', '.rs': 'rust', '.go': 'go' } as Record<string, string>)[extname(filePath)] ?? 'plaintext'
 }
 
+/** Returns the first configured language server whose extensions include the file's extension (case-insensitive), or null. */
 export function findLspServer(settings: DeepSeekSettings, filePath: string): LspServerSettings | null {
   const extension = extname(filePath).toLowerCase()
   return settings.lsp?.servers?.find(server => server.extensions.map(value => value.toLowerCase()).includes(extension)) ?? null
 }
 
+/** Encodes a JSON-RPC message with the `Content-Length` header framing the LSP base protocol requires. */
 export function frameLspMessage(value: unknown): Buffer {
   const body = Buffer.from(JSON.stringify(value))
   return Buffer.concat([Buffer.from(`Content-Length: ${body.length}\r\n\r\n`), body])
 }
 
+/** One short-lived stdio connection to a language server process, used for a single request and then closed. */
 class LspConnection {
   private readonly process: ChildProcess
   private readonly stdin: Writable
@@ -61,10 +65,15 @@ class LspConnection {
     })
   }
 
+  /** Writes a framed JSON-RPC message to the server's stdin without waiting for a reply. */
   private send(value: unknown): void {
     this.stdin.write(frameLspMessage(value))
   }
 
+  /**
+   * Parses the next complete framed message out of the stdout buffer, waiting for more data as needed.
+   * Rejects if the process errored or exited before a full message arrived.
+   */
   private async nextMessage(): Promise<Record<string, unknown>> {
     while (true) {
       const end = this.buffer.indexOf('\r\n\r\n')
@@ -86,6 +95,7 @@ class LspConnection {
     }
   }
 
+  /** Sends a JSON-RPC request and waits for the reply with the matching id, discarding notifications and other messages. */
   private async request(method: string, params: unknown): Promise<unknown> {
     const id = this.nextId++
     this.send({ jsonrpc: '2.0', id, method, params })
@@ -98,6 +108,10 @@ class LspConnection {
     }
   }
 
+  /**
+   * Performs the initialize handshake, opens the document (except for workspace symbols) and issues the requested operation.
+   * `line` and `character` are 1-based and converted to the protocol's 0-based positions.
+   */
   async run(request: LspRequest): Promise<unknown> {
     const rootUri = pathToFileURL(request.workspacePath).href
     await this.request('initialize', { processId: null, rootUri, capabilities: {}, workspaceFolders: [{ uri: rootUri, name: 'workspace' }] })
@@ -119,6 +133,7 @@ class LspConnection {
     throw new Error(`Unsupported LSP operation: ${request.operation}`)
   }
 
+  /** Best-effort `shutdown`/`exit` notification followed by an unconditional kill of the server process. */
   async close(): Promise<void> {
     try {
       this.send({ jsonrpc: '2.0', id: this.nextId++, method: 'shutdown', params: null })
@@ -131,6 +146,7 @@ class LspConnection {
   }
 }
 
+/** Spawns the matching user-configured language server, runs one request under `lsp.timeoutMs` (default 10s) and always tears the server down. */
 export async function runLspRequest(settings: DeepSeekSettings, request: LspRequest): Promise<unknown> {
   if (!request.filePath && request.operation !== 'workspace_symbols') throw new Error('A file path is required for this LSP operation.')
   const server = request.filePath ? findLspServer(settings, request.filePath) : settings.lsp?.servers?.[0]

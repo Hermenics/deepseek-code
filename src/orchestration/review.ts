@@ -82,11 +82,13 @@ function validateFindings(value: unknown): ReviewFindingInput[] {
   })
 }
 
+/** Stable finding ID: SHA-256 over the normalized title, description, file and line, so the same finding from different reviewers collapses into one. */
 function fingerprint(finding: ReviewFindingInput): string {
   const canonical = [finding.title, finding.description, finding.file ?? '', finding.line ?? ''].map(value => String(value).trim().toLowerCase()).join('\0')
   return createHash('sha256').update(canonical).digest('hex')
 }
 
+/** Merge findings with the same fingerprint, unioning their perspectives and evidence. */
 function deduplicate(items: Array<{ finding: ReviewFindingInput; perspective: ReviewPerspective }>): ReviewFindingInputWithId[] {
   const unique = new Map<string, ReviewFindingInputWithId>()
   for (const { finding, perspective } of items) {
@@ -100,6 +102,7 @@ function deduplicate(items: Array<{ finding: ReviewFindingInput; perspective: Re
   return [...unique.values()]
 }
 
+/** Require exactly one schema-valid assessment per finding; throws on unknown, duplicate or missing finding IDs. */
 function validateAssessments(value: unknown, findings: ReviewFindingInputWithId[]): VerificationAssessment[] {
   if (!Array.isArray(value)) throw new Error('Verifier result must be an array')
   const expected = new Set(findings.map(finding => finding.findingId))
@@ -115,6 +118,7 @@ function validateAssessments(value: unknown, findings: ReviewFindingInputWithId[
   return assessments
 }
 
+/** Mark every finding PLAUSIBLE, recording why independent verification did not happen. */
 function unverified(findings: ReviewFindingInputWithId[], error: string): NormalizedReviewFinding[] {
   return findings.map(finding => ({
     ...finding, classification: 'PLAUSIBLE', verificationReason: 'Independent verification unavailable',
@@ -122,6 +126,7 @@ function unverified(findings: ReviewFindingInputWithId[], error: string): Normal
   }))
 }
 
+/** Run one read-only reviewer task per perspective in parallel, deduplicate their findings, optionally classify them with an independent verifier task and optionally run a gap-sweep task. Reviewer, verifier and sweep failures are reported in the result instead of thrown. */
 export async function runMultiAgentReview(session: OrchestratorSession, input: MultiAgentReviewInput): Promise<MultiAgentReviewResult> {
   const perspectives = [...new Set(input.perspectives ?? REVIEW_PERSPECTIVES)]
   const reviewHandles = perspectives.map(perspective => ({

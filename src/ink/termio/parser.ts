@@ -26,6 +26,7 @@ import { defaultStyle } from './types.js'
 // Grapheme Utilities
 // =============================================================================
 
+/** Rough emoji check over the symbol, dingbat, pictograph and regional-indicator blocks. */
 function isEmoji(codePoint: number): boolean {
   return (
     (codePoint >= 0x2600 && codePoint <= 0x26ff) ||
@@ -36,6 +37,7 @@ function isEmoji(codePoint: number): boolean {
   )
 }
 
+/** Approximate East Asian wide/fullwidth ranges (Hangul, CJK, fullwidth forms). */
 function isEastAsianWide(codePoint: number): boolean {
   return (
     (codePoint >= 0x1100 && codePoint <= 0x115f) ||
@@ -60,6 +62,7 @@ function hasMultipleCodepoints(str: string): boolean {
   return false
 }
 
+/** Terminal column width of a grapheme. Any multi-codepoint cluster is assumed 2 wide, combining sequences included. */
 function graphemeWidth(grapheme: string): 1 | 2 {
   if (hasMultipleCodepoints(grapheme)) return 2
   const codePoint = grapheme.codePointAt(0)
@@ -78,6 +81,7 @@ function* segmentGraphemes(str: string): Generator<Grapheme> {
 // Sequence Parsing
 // =============================================================================
 
+/** Splits CSI params on ';' or ':' (colon sub-params are flattened), reading empty fields as 0. */
 function parseCSIParams(paramStr: string): number[] {
   if (paramStr === '') return []
   return paramStr.split(/[;:]/).map(s => (s === '' ? 0 : parseInt(s, 10)))
@@ -276,6 +280,7 @@ export class Parser {
   inLink = false
   linkUrl: string | undefined
 
+  /** Clears buffered input, the SGR style and hyperlink state, as for a fresh stream. */
   reset(): void {
     this.tokenizer.reset()
     this.style = defaultStyle()
@@ -306,6 +311,7 @@ export class Parser {
     }
   }
 
+  /** Segments text into graphemes stamped with the current style, splitting out embedded BELs as 'bell' actions. */
   private processText(text: string): Action[] {
     // Handle BEL characters embedded in text
     const actions: Action[] = []
@@ -336,6 +342,7 @@ export class Parser {
     return actions
   }
 
+  /** Turns one escape sequence into actions. SGR only updates the running style, and OSC 8 updates inLink/linkUrl. */
   private processSequence(seq: string): Action[] {
     const seqType = identifySequence(seq)
 

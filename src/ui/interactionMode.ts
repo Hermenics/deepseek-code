@@ -46,6 +46,7 @@ const TOOL_PERMISSIONS: Record<InteractionMode, Set<string>> = {
   review: new Set(READ_ONLY_TOOLS),
 }
 
+/** Checks the mode's tool permission matrix; auto allows everything, and MCP tools (names containing `__`) are allowed wherever shell is. */
 export function canUseTool(mode: InteractionMode, tool: string): boolean {
   // Auto mode: zero restrictions, everything is allowed
   if (mode === 'auto') return true
@@ -56,6 +57,7 @@ export function canUseTool(mode: InteractionMode, tool: string): boolean {
   return TOOL_PERMISSIONS[mode].has(tool)
 }
 
+/** Lists the native tool names the mode's permission matrix allows (dynamic MCP tools are not included). */
 export function getToolsForMode(mode: InteractionMode): string[] {
   return [...TOOL_PERMISSIONS[mode]]
 }
@@ -97,10 +99,12 @@ const DESTRUCTIVE_PATTERNS = [
   /\bfdisk\b/,
 ]
 
+/** Heuristically flags shell commands that delete or irreversibly rewrite data (rm -rf, git reset --hard, force push, mkfs, ...). */
 export function isDestructiveShell(command: string): boolean {
   return DESTRUCTIVE_PATTERNS.some((pattern) => pattern.test(command))
 }
 
+/** True when a write/edit/patch tool call targets a path containing `.deepseek`, i.e. the agent's own configuration. */
 export function isConfigWrite(toolName: string, args: Record<string, unknown>): boolean {
   if (!['write_file', 'edit_file', 'patch_file'].includes(toolName)) return false
   const filePath = (args.path ?? args.file_path ?? '') as string

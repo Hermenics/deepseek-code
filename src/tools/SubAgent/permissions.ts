@@ -22,11 +22,13 @@ const PROFILE_TOOLS: Record<PermissionProfile, Set<string> | '*'> = {
   'coordinator-integrator': '*',
 }
 
+/** Whether the orchestration permission profile may call `toolName`; `coordinator-integrator` allows everything. */
 export function isToolAllowedForProfile(profile: PermissionProfile, toolName: string): boolean {
   const tools = PROFILE_TOOLS[profile]
   return tools === '*' || tools.has(toolName)
 }
 
+/** Tool allowlist for a permission profile, or `'*'` when unrestricted. */
 export function getToolNamesForProfile(profile: PermissionProfile): string[] | '*' {
   const tools = PROFILE_TOOLS[profile]
   return tools === '*' ? '*' : [...tools]

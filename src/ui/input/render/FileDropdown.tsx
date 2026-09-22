@@ -1,6 +1,7 @@
 import Box from '../../../ink/components/Box.js'
 import Text from '../../../ink/components/Text.js'
 import path from 'path'
+import { useThemeColors } from '../../design-system/ThemeProvider.js'
 
 interface FileDropdownProps {
   files: string[]
@@ -9,7 +10,9 @@ interface FileDropdownProps {
   query: string
 }
 
+/** Renders the @-mention file completion list: up to 6 rows around the selection showing file name and truncated parent directory, or "No files found" when there are no matches. */
 export function FileDropdown({ files, selectedIdx, columns, query: _query }: FileDropdownProps) {
+  const colors = useThemeColors()
   const MAX_VISIBLE = 6
 
   const total = files.length
@@ -23,8 +26,8 @@ export function FileDropdown({ files, selectedIdx, columns, query: _query }: Fil
     return (
       <Box flexDirection="column">
         <Box flexDirection="row">
-          <Text color="#888888">{'│ '}</Text>
-          <Text color="#888888">No files found</Text>
+          <Text color={colors.rule}>{'│ '}</Text>
+          <Text color={colors.textDim}>No files found</Text>
         </Box>
       </Box>
     )
@@ -44,11 +47,11 @@ export function FileDropdown({ files, selectedIdx, columns, query: _query }: Fil
 
         return (
           <Box key={filePath} flexDirection="row">
-            <Text color="#888888">{'│ '}</Text>
-            <Text color={isSelected ? 'cyan' : undefined} bold={isSelected}>
+            <Text color={colors.rule}>{'│ '}</Text>
+            <Text color={isSelected ? colors.primary : undefined} bold={isSelected}>
               {fileName.padEnd(NAME_WIDTH)}
             </Text>
-            <Text color={isSelected ? '#88cccc' : '#666666'}>
+            <Text color={isSelected ? colors.h2 : colors.textSubtle}>
               {truncDir}
             </Text>
           </Box>

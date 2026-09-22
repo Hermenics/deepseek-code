@@ -17,6 +17,7 @@ interface Props {
   onCancel(): void
 }
 
+/** Vertical model picker showing each model's description and context limit (supplied descriptions win over built-in ones); arrows or j/k move, Enter selects, Esc cancels. */
 export function ModelSelector({ currentModel, models, onSelect, onCancel, descriptions, columns = process.stdout.columns ?? 80, getContextLimit }: Props) {
   const [idx, setIdx] = useState(() => {
     const i = models.indexOf(currentModel)

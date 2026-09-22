@@ -2,6 +2,7 @@ import { Tool } from '../types.js'
 import { readFile, writeFile } from 'fs/promises'
 import { resolveSafePath } from '../shared/pathSafety.js'
 
+/** Tool that writes a `## section` into the workspace DEEPSEEK.md, replacing that section if it exists and appending it otherwise. Section names are restricted to a safe character set. */
 export const UpdateKnowledge: Tool = {
   name: 'update_knowledge',
   description:
@@ -65,6 +66,7 @@ export const UpdateKnowledge: Tool = {
   },
 }
 
+/** Escape RegExp metacharacters so a heading can be matched literally. */
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }

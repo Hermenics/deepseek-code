@@ -3,6 +3,7 @@ import { join } from 'path'
 import { homedir } from 'os'
 import pkg from '../../package.json' with { type: 'json' }
 
+/** Installed package version; exported as a function so tests can stub it. */
 export const _getVersion = () => pkg.version
 
 export const COOLDOWN_MS = 60 * 60 * 1000
@@ -12,6 +13,7 @@ const DEEPSEEK_DIR = join(homedir(), '.deepseek')
 const COOLDOWN_PATH = join(DEEPSEEK_DIR, 'update-cooldown')
 const DISMISSED_PATH = join(DEEPSEEK_DIR, 'dismissed-update-version')
 
+/** Semver-ish comparison: true if `latest` has a higher numeric version, or is the stable release of the same prerelease `current`. */
 function isNewer(latest: string, current: string): boolean {
   const parse = (v: string) => {
     const [main, pre] = v.split('-', 2)
@@ -29,6 +31,10 @@ function isNewer(latest: string, current: string): boolean {
   return false
 }
 
+/**
+ * Asks the npm registry for the latest version unless a cooldown is active. Returns the versions when an
+ * update exists, else null. Never throws; failures only set a shorter retry cooldown.
+ */
 export async function checkForUpdate(): Promise<{ current: string; latest: string } | null> {
   try {
     const content = readFileSync(COOLDOWN_PATH, 'utf-8').trim()
@@ -78,6 +84,7 @@ function saveCooldown(delayMs: number): void {
   }
 }
 
+/** Remembers a version the user chose to ignore so its update notice is not shown again. */
 export function dismissVersion(version: string): void {
   try {
     mkdirSync(DEEPSEEK_DIR, { recursive: true })
@@ -87,6 +94,7 @@ export function dismissVersion(version: string): void {
   }
 }
 
+/** True if this exact version was previously dismissed. */
 export function isDismissed(version: string): boolean {
   try {
     return readFileSync(DISMISSED_PATH, 'utf-8').trim() === version

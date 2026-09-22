@@ -26,6 +26,7 @@ export interface GoalEvaluation {
   evaluated_at: string
 }
 
+/** Goal lifecycle on top of `GoalRepo`: creation with criteria, evaluation, completion, no-progress detection and pause/resume/block/cancel, each emitting goal events. Active time is accumulated whenever a goal leaves `active`. */
 export class GoalEngine {
   readonly repo: GoalRepo
 
@@ -188,6 +189,7 @@ export class GoalEngine {
     return goal.time_used_seconds + Math.max(0, Math.floor((Date.now() - started) / 1000))
   }
 
+  /** Short stable fingerprint of criteria results, compared across evaluations to spot a stuck goal. */
   private hashEvaluation(e: GoalEvaluation): string {
     return createHash('sha256').update(JSON.stringify(e.criteria_results)).digest('hex').slice(0, 16)
   }

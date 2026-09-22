@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/goal`: shows, sets, edits, pauses, resumes or clears the persistent session goal; `--turns <n>` caps automatic continuations. */
 const goalCommand: Command = {
   name: 'goal',
   aliases: [],

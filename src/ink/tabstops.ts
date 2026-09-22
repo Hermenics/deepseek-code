@@ -6,6 +6,7 @@ import { createTokenizer } from './termio/tokenize.js'
 
 const DEFAULT_TAB_INTERVAL = 8
 
+/** Replaces tabs with spaces up to the next `interval`-column tab stop, measuring columns by display width and passing ANSI escape sequences through untouched. */
 export function expandTabs(
   text: string,
   interval = DEFAULT_TAB_INTERVAL,

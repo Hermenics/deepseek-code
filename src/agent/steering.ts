@@ -2,6 +2,7 @@ import { join } from 'path'
 import { readFile } from 'fs/promises'
 import { globFiles } from '../utils/fs.js'
 
+/** Concatenates every `.deepseek/steering/*.md` file, each under a `--- <file> ---` header; unreadable files are skipped. */
 export async function loadSteering(cwd = process.cwd()): Promise<string> {
   const steeringDir = join(cwd, '.deepseek', 'steering')
   const files = await globFiles(/\.md$/, steeringDir)

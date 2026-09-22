@@ -3,9 +3,11 @@ import { isDeepStrictEqual } from 'node:util'
 import { validateTaskMessage } from './schema.js'
 import type { TaskMessageType, TaskMessageV1 } from './types.js'
 
+/** In-memory store of messages exchanged between the coordinator and tasks. */
 export class TaskMailbox {
   private readonly messages = new Map<string, TaskMessageV1>()
 
+  /** Validate and store a message. Re-sending an existing messageId with identical content is idempotent (`duplicate: true`); a conflicting reuse of the ID throws. */
   send(input: {
     messageId?: string
     senderId: string
@@ -42,6 +44,7 @@ export class TaskMailbox {
     return { message: structuredClone(message), duplicate: false }
   }
 
+  /** Mark a message processed; returns false only when the ID is unknown. */
   acknowledge(messageId: string): boolean {
     const message = this.messages.get(messageId)
     if (!message) return false
@@ -50,6 +53,7 @@ export class TaskMailbox {
     return true
   }
 
+  /** Load messages from a snapshot; only allowed while the mailbox is empty. */
   restore(messages: TaskMessageV1[]): void {
     if (this.messages.size > 0) throw new Error('Mailbox can only be restored while empty')
     for (const message of messages) {
@@ -60,6 +64,7 @@ export class TaskMailbox {
     }
   }
 
+  /** Return cloned messages, optionally filtered by recipient and status. */
   list(recipientId?: string, status?: TaskMessageV1['status']): TaskMessageV1[] {
     return [...this.messages.values()]
       .filter(message => !recipientId || message.recipientId === recipientId)

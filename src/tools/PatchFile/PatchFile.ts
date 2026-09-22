@@ -4,6 +4,7 @@ import { assertExecutionActive, assertSafePath, atomicWriteFile } from '../share
 
 type DiffLine = { type: 'added' | 'removed' | 'context'; text: string; lineNo: number }
 
+/** LCS line diff rendered as +/-/context lines for the UI diff view. O(m*n) memory, so it returns [] when either side exceeds 5000 lines. */
 function computeDiff(oldLines: string[], newLines: string[], _filePath?: string): DiffLine[] {
   // Guard: skip expensive diff for very large files to prevent OOM
   if (oldLines.length > 5000 || newLines.length > 5000) {
@@ -45,6 +46,7 @@ export function closestMatchHint(source: string, snippet: string): string {
   return ' — re-read the file with read_file; it may have changed since you last saw it'
 }
 
+/** Tool that replaces one exact, unique occurrence of `old_content`. Paths go through `assertSafePath`, CRLF files keep CRLF endings, and the write is atomic. Returns a diff payload. */
 export const PatchFile: Tool = {
   name: 'patch_file',
   description:

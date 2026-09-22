@@ -60,6 +60,7 @@ export function resolveEdges(partial?: Partial<Edges>): Edges {
   }
 }
 
+/** Smallest rectangle containing both a and b. */
 export function unionRect(a: Rectangle, b: Rectangle): Rectangle {
   const minX = Math.min(a.x, b.x)
   const minY = Math.min(a.y, b.y)
@@ -68,6 +69,7 @@ export function unionRect(a: Rectangle, b: Rectangle): Rectangle {
   return { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
 }
 
+/** Intersects rect with the 0..size area; a rect fully outside comes back with zero width/height. */
 export function clampRect(rect: Rectangle, size: Size): Rectangle {
   const minX = Math.max(0, rect.x)
   const minY = Math.max(0, rect.y)
@@ -90,6 +92,7 @@ export function withinBounds(size: Size, point: Point): boolean {
   )
 }
 
+/** Clamps value to [min, max]; an omitted bound is not enforced. */
 export function clamp(value: number, min?: number, max?: number): number {
   if (min !== undefined && value < min) return min
   if (max !== undefined && value > max) return max

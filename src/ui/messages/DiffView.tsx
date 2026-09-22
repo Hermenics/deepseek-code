@@ -20,12 +20,14 @@ interface Props {
   showWordDiff?: boolean
 }
 
+/** Drops a leading unified-diff sigil (`+`, `-` or space) from a line's text. */
 function stripSigil(text: string): string {
   return text.startsWith('+') || text.startsWith('-') || text.startsWith(' ')
     ? text.slice(1)
     : text
 }
 
+/** Inline file-write diff with a clickable header, line-numbered gutter and word-level highlights on removed/added line pairs; shows at most DIFF_MAX_LINES lines plus a "more lines" note. */
 export function DiffView({ path, added, removed, firstChanged, lines, theme, onOpen, showWordDiff = true }: Props) {
   const colors = getThemeColors(theme)
   const cols = process.stdout.columns ?? 80
@@ -56,7 +58,7 @@ export function DiffView({ path, added, removed, firstChanged, lines, theme, onO
       <Box flexDirection="row" gap={1} paddingLeft={2} onClick={onOpen}>
         <Text color={colors.success}>{STATUS_ICONS.assistant}</Text>
         <Text color={colors.textDim}>{'Write'}</Text>
-        <Text color="cyan">{path}</Text>
+        <Text color={colors.info}>{path}</Text>
       </Box>
 
       {/* Stats */}

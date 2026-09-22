@@ -67,6 +67,7 @@ function removeTrailingCommas(s: string): string {
 
 // ─── Brace Balancing ─────────────────────────────────────────────────────────
 
+/** Returns the net number of unclosed `{` outside string literals (negative when there are extra `}`). */
 function countOpenBraces(s: string): number {
   let open = 0
   let inString = false
@@ -86,6 +87,7 @@ function countOpenBraces(s: string): number {
   return open
 }
 
+/** Appends the `}` needed to close any unbalanced objects, for model output that was cut off mid-JSON. */
 function completeBraces(s: string): string {
   const open = countOpenBraces(s)
   if (open > 0) return s + '}'.repeat(open)
@@ -94,6 +96,11 @@ function completeBraces(s: string): string {
 
 // ─── Main Entry Point ────────────────────────────────────────────────────────
 
+/**
+ * Best-effort JSON parse of model output: strips code fences, starts at the first `{`/`[`, then retries with
+ * progressively more aggressive repairs (brace completion, backslashes, unquoted keys, trailing commas, truncation).
+ * Returns null instead of throwing when nothing parses.
+ */
 export function robustParseJSON(str: string): any {
   if (!str) return null
   let sanitized = str.trim()

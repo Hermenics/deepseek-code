@@ -5,7 +5,7 @@ import { MarkdownText } from '../messages/MarkdownText.js'
 import ScrollBox from '../../ink/components/ScrollBox.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
-import type { ThemeName } from '../theme.js'
+import { getThemeColors, type ThemeName } from '../theme.js'
 
 export type PlanApprovalResult =
   | { approved: true }
@@ -24,7 +24,9 @@ interface Props {
   onDecide: (result: PlanApprovalResult) => void
 }
 
+/** Shows a submitted plan in a scrollable box and asks the user to accept it (y) or reject it with typed feedback (n); Esc or Ctrl+C in the selector aborts. */
 export function PlanApprovalPrompt({ planContent, planSummary, theme, onDecide }: Props) {
+  const colors = getThemeColors(theme)
   const [phase, setPhase] = useState<'select' | 'feedback'>('select')
   const [selected, setSelected] = useState(0)
   const [feedbackText, setFeedbackText] = useState('')
@@ -69,12 +71,12 @@ export function PlanApprovalPrompt({ planContent, planSummary, theme, onDecide }
     <Box flexDirection="column" marginTop={1} marginBottom={1}>
       {planSummary && (
         <Box marginBottom={1} marginLeft={1}>
-          <Text color="cyan" bold>{planSummary}</Text>
+          <Text color={colors.primary} bold>{planSummary}</Text>
         </Box>
       )}
 
-      <Box border borderStyle="rounded" borderColor="cyan" paddingLeft={2} paddingRight={2} flexDirection="column">
-        <Text color="cyan">{'◆ Plan'}</Text>
+      <Box border borderStyle="rounded" borderColor={colors.primary} paddingLeft={2} paddingRight={2} flexDirection="column">
+        <Text color={colors.primary}>{'◆ Plan'}</Text>
         <Box marginTop={1}>
           <ScrollBox height={scrollHeight} flexDirection="column" width="100%">
             <MarkdownText content={planContent} theme={theme} />
@@ -87,17 +89,17 @@ export function PlanApprovalPrompt({ planContent, planSummary, theme, onDecide }
           <Box flexDirection="column" marginTop={1} marginLeft={2}>
             {SELECT_OPTIONS.map((opt, i) => (
               <Box key={opt.key} flexDirection="row" gap={2}>
-                <Text color={i === selected ? 'cyan' : 'white'}>
+                <Text color={i === selected ? colors.primary : colors.text}>
                   {i === selected ? '❯' : ' '} [{opt.key}]
                 </Text>
-                <Text color={i === selected ? 'cyan' : '#888888'}>
+                <Text color={i === selected ? colors.primary : colors.textDim}>
                   {opt.label}
                 </Text>
               </Box>
             ))}
           </Box>
           <Box marginLeft={2}>
-            <Text color="#888888">{'  ↑↓ navigate  ·  Enter confirm  ·  y/n shortcuts  ·  Ctrl+C abort'}</Text>
+            <Text color={colors.textDim}>{'  ↑↓ navigate  ·  Enter confirm  ·  y/n shortcuts  ·  Ctrl+C abort'}</Text>
           </Box>
         </>
       )}
@@ -107,19 +109,19 @@ export function PlanApprovalPrompt({ planContent, planSummary, theme, onDecide }
           <Box
             border
             borderStyle="rounded"
-            borderColor="yellow"
+            borderColor={colors.warning}
             paddingLeft={2}
             paddingRight={2}
             marginTop={1}
             flexDirection="column"
           >
-            <Text color="yellow">{'✎ Feedback (what should change?)'}</Text>
+            <Text color={colors.warning}>{'✎ Feedback (what should change?)'}</Text>
             <Box marginTop={1}>
-              <Text>{feedbackText}<Text color="#888888">{'█'}</Text></Text>
+              <Text>{feedbackText}<Text color={colors.primary}>{'█'}</Text></Text>
             </Box>
           </Box>
           <Box marginLeft={2}>
-            <Text color="#888888">{'  Enter send  ·  Esc back'}</Text>
+            <Text color={colors.textDim}>{'  Enter send  ·  Esc back'}</Text>
           </Box>
         </>
       )}

@@ -14,10 +14,12 @@ export interface CompactState {
   lastCompactTimestamp: number
 }
 
+/** Fresh auto-compact state: no recorded failures and no previous compaction. */
 export function createCompactState(): CompactState {
   return { consecutiveFailures: 0, lastCompactTimestamp: 0 }
 }
 
+/** Builds the auto-compact config from `compaction.*` settings, falling back to the legacy `autoCompact*` keys and then the defaults. */
 export function createAutoCompactConfig(
   settings: { autoCompact?: boolean; autoCompactThreshold?: number; compaction?: { enabled?: boolean; threshold?: number } },
   defaultThreshold: number,

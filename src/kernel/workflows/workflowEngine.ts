@@ -9,6 +9,7 @@ export interface WorkflowPhase { title: string; fan_out: number; role: 'planner'
 export interface WorkflowRun { run_id: string; workflow_name: string; workflow_version: number; status: 'queued' | 'running' | 'completed' | 'failed'; current_phase?: string; task_ids: string[]; session_id: string; started_at: string; completed_at?: string; error?: string }
 export interface WorkflowContext { task: string; context?: string; artifacts?: Record<string, unknown> }
 
+/** Runs phased workflow definitions by spawning `fan_out` tasks per phase in dependency order and waiting for each phase before the next. Runs are persisted to `workflow_runs`; runs left `running` by a crash are marked failed on startup. */
 export class WorkflowEngine {
   private readonly runs = new Map<string, WorkflowRun>()
 
@@ -63,11 +64,13 @@ export class WorkflowEngine {
 
   private fail(run: WorkflowRun, message: string): void { run.status = 'failed'; run.error = message; run.completed_at = new Date().toISOString(); this.persistRun(run); this.events.emit('WorkflowFailed', { run_id: run.run_id, error: message }, {}) }
 
+  /** Updates the in-memory run map and upserts the run row. */
   private persistRun(run: WorkflowRun): void {
     this.runs.set(run.run_id, run)
     this.store.run(`INSERT OR REPLACE INTO workflow_runs (run_id, workflow_name, workflow_version, status, current_phase, task_ids, session_id, started_at, completed_at, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, run.run_id, run.workflow_name, run.workflow_version, run.status, run.current_phase ?? null, JSON.stringify(run.task_ids), run.session_id, run.started_at, run.completed_at ?? null, run.error ?? null)
   }
 
+  /** Loads all persisted runs into memory, marking any still `running` as failed because they did not survive the restart. */
   private rehydrate(): void {
     const rows = this.store.query<WorkflowRunRow>('SELECT * FROM workflow_runs')
     for (const row of rows) {
@@ -83,6 +86,7 @@ export class WorkflowEngine {
     }
   }
 
+  /** Orders phases so dependencies come first (DFS). Cycles are not detected, and unknown `depends_on` titles are dropped here and caught later by the dependency check in `start`. */
   private topologicalSort(phases: WorkflowPhase[]): WorkflowPhase[] {
     const m = new Map(phases.map(p => [p.title, p])); const v = new Set<string>(); const s: WorkflowPhase[] = []
     const visit = (t: string) => { if (v.has(t)) return; v.add(t); const p = m.get(t); if (p?.depends_on) for (const d of p.depends_on) visit(d); if (p) s.push(p) }
@@ -90,10 +94,16 @@ export class WorkflowEngine {
   }
 }
 
+/** Fills `${task}` and `${context}` placeholders in a phase prompt template. */
 function substitute(template: string, ctx: WorkflowContext): string { return template.replace(/\$\{task\}/g, () => ctx.task).replace(/\$\{context\}/g, () => ctx.context ?? '') }
+/** Parses a JSON array column, returning [] for malformed or non-array values. */
 function parseArray(v: string): string[] { try { const p = JSON.parse(v); return Array.isArray(p) ? p : [] } catch { return [] } }
+/** Promise that rejects with `Error('timeout')` after `ms`. */
 function timeout(ms: number): Promise<never> { return new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)) }
 
+/** Built-in workflow: three parallel reviewers find issues, then two verifiers check the findings. */
 export const REVIEW_WORKFLOW: WorkflowDefinition = { name: 'multi-perspective-review', version: 1, phases: [{ title: 'Find', fan_out: 3, role: 'reviewer', prompt_template: 'Review for issues: ${task}\n\nContext: ${context}', timeout_ms: 60_000 }, { title: 'Verify', fan_out: 2, role: 'verifier', prompt_template: 'Verify findings. Task: ${task}', depends_on: ['Find'], timeout_ms: 60_000 }] }
+/** Built-in workflow: plan, implement, then review in sequence. */
 export const IMPLEMENT_WORKFLOW: WorkflowDefinition = { name: 'implement-and-review', version: 1, phases: [{ title: 'Plan', fan_out: 1, role: 'planner', prompt_template: 'Plan: ${task}\n\nContext: ${context}', timeout_ms: 60_000 }, { title: 'Implement', fan_out: 1, role: 'writer', prompt_template: 'Implement: ${task}', depends_on: ['Plan'], timeout_ms: 120_000 }, { title: 'Review', fan_out: 2, role: 'reviewer', prompt_template: 'Review: ${task}', depends_on: ['Implement'], timeout_ms: 60_000 }] }
+/** Built-in workflow: four parallel readers research, then one planner synthesises. */
 export const RESEARCH_WORKFLOW: WorkflowDefinition = { name: 'deep-research', version: 1, phases: [{ title: 'Scan', fan_out: 4, role: 'reader', prompt_template: 'Research: ${task}', timeout_ms: 60_000 }, { title: 'Synthesize', fan_out: 1, role: 'planner', prompt_template: 'Synthesize: ${task}', depends_on: ['Scan'], timeout_ms: 60_000 }] }

@@ -19,10 +19,12 @@ export interface FileCheckpointManifest {
 
 let currentSessionId: string | null = null
 
+/** Sets the module-level session id that file-mutating tools use when recording checkpoints. */
 export function setCheckpointSession(id: string): void {
   currentSessionId = id
 }
 
+/** Returns the session id set by setCheckpointSession, or null before a session is active. */
 export function getCheckpointSession(): string | null {
   return currentSessionId
 }
@@ -43,6 +45,7 @@ function getManifestPath(sessionId: string): string {
   return join(getSessionDir(sessionId), 'manifest.json')
 }
 
+/** Derives a short, collision-resistant backup filename from the file path and snapshot time. */
 function makeBackupName(filePath: string, timestamp: number): string {
   const hash = createHash('sha256')
     .update(`${filePath}:${timestamp}`)
@@ -51,6 +54,7 @@ function makeBackupName(filePath: string, timestamp: number): string {
   return `${hash}.bak`
 }
 
+/** Reads the session's checkpoint manifest, falling back to an empty one when it is missing or unreadable. */
 async function loadManifest(sessionId: string): Promise<FileCheckpointManifest> {
   try {
     return await readJson<FileCheckpointManifest>(getManifestPath(sessionId))
@@ -63,6 +67,10 @@ async function saveManifest(manifest: FileCheckpointManifest): Promise<void> {
   await writeJson(getManifestPath(manifest.sessionId), manifest)
 }
 
+/**
+ * Snapshots a file's current content before a tool modifies it and appends the entry to the session manifest.
+ * A file that does not exist yet is stored as an empty backup, which rollback treats as "delete the file".
+ */
 export async function createFileCheckpoint(
   sessionId: string,
   filePath: string,
@@ -87,6 +95,7 @@ export async function createFileCheckpoint(
   await saveManifest(manifest)
 }
 
+/** Restores (or deletes, for files that did not exist) the most recent checkpointed file and pops it from the manifest. */
 export async function rollbackLast(sessionId: string): Promise<string> {
   const manifest = await loadManifest(sessionId)
   const entry = manifest.entries.pop()
@@ -109,6 +118,7 @@ export async function rollbackLast(sessionId: string): Promise<string> {
   return `Restored: ${entry.path}`
 }
 
+/** Restores every checkpointed file newest-first, clears the manifest and returns a human-readable summary. */
 export async function rollbackAll(sessionId: string): Promise<string> {
   const manifest = await loadManifest(sessionId)
   if (manifest.entries.length === 0) return 'Nothing to rollback.'
@@ -141,6 +151,7 @@ export async function rollbackAll(sessionId: string): Promise<string> {
   return lines.join('\n')
 }
 
+/** Returns the session's checkpoint entries ordered newest first. */
 export async function listFileCheckpoints(sessionId: string): Promise<FileCheckpointEntry[]> {
   const manifest = await loadManifest(sessionId)
   return [...manifest.entries].reverse()

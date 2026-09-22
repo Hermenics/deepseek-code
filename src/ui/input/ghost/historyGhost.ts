@@ -1,5 +1,6 @@
 import type { InlineGhostText } from './types.js'
 
+/** Inline completion from history: the remaining suffix of the most recent entry that extends the input (at least 2 characters typed). */
 export function getHistoryGhost(value: string, history: string[]): InlineGhostText | null {
   if (value.length < 2) return null
 

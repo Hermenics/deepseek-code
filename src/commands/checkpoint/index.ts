@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/checkpoint`: saves (default), lists or restores session checkpoints. */
 const command: Command = {
   name: 'checkpoint',
   aliases: [],

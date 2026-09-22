@@ -24,6 +24,7 @@ export function placeholderSpanAt(
   return null
 }
 
+/** Immutable cursor over a MeasuredText: every move or edit returns a new Cursor. Left/right and deletes step by whole graphemes. */
 export class Cursor {
   readonly offset: number
   readonly measuredText: MeasuredText
@@ -33,6 +34,7 @@ export class Cursor {
     this.offset = Math.max(0, Math.min(this.text.length, offset))
   }
 
+  /** Builds a cursor whose text wraps at `columns - 1`, reserving a cell for the cursor. Internal edits therefore pass `measuredText.columns + 1` to keep the same width. */
   static fromText(text: string, columns: number, offset: number = 0): Cursor {
     return new Cursor(new MeasuredText(text, Math.max(1, columns - 1)), offset)
   }
@@ -51,18 +53,21 @@ export class Cursor {
     return new Cursor(this.measuredText, this.measuredText.nextOffset(this.offset))
   }
 
+  /** Moves to the same display column on the previous line; stays put on the first line. */
   up(): Cursor {
     const pos = this.getPosition()
     if (pos.line <= 0) return this
     return new Cursor(this.measuredText, this.measuredText.getOffsetFromPosition({ line: pos.line - 1, column: pos.column }))
   }
 
+  /** Moves to the same display column on the next line; stays put on the last line. */
   down(): Cursor {
     const pos = this.getPosition()
     if (pos.line >= this.measuredText.lineCount - 1) return this
     return new Cursor(this.measuredText, this.measuredText.getOffsetFromPosition({ line: pos.line + 1, column: pos.column }))
   }
 
+  /** Moves to the start of the current word, or of the previous word when already at a word start (word segmentation via Intl, punctuation skipped). */
   prevWord(): Cursor {
     if (this.offset <= 0) return this
     const boundaries = this.measuredText.getWordBoundaries()
@@ -82,6 +87,7 @@ export class Cursor {
     return new Cursor(this.measuredText, target)
   }
 
+  /** Moves to the start of the next word, or to the end of the text when there is none. */
   nextWord(): Cursor {
     if (this.offset >= this.text.length) return this
     const boundaries = this.measuredText.getWordBoundaries()
@@ -109,6 +115,7 @@ export class Cursor {
     return Cursor.fromText(nextText, this.measuredText.columns + 1, this.offset + text.length)
   }
 
+  /** Deletes the grapheme before the cursor, or the whole `[Text #n]`/`[Image #n]` placeholder it touches. */
   backspace(): Cursor {
     if (this.offset === 0) return this
     const placeholder = placeholderSpanAt(this.text, this.offset, 'before')
@@ -117,6 +124,7 @@ export class Cursor {
     return this.cut(start, this.offset)
   }
 
+  /** Deletes the grapheme after the cursor, or the whole `[Text #n]`/`[Image #n]` placeholder it touches. */
   del(): Cursor {
     if (this.offset >= this.text.length) return this
     const placeholder = placeholderSpanAt(this.text, this.offset, 'after')
@@ -131,6 +139,7 @@ export class Cursor {
     return Cursor.fromText(nextText, this.measuredText.columns + 1, start)
   }
 
+  /** Kills from the cursor to the end of the line (the newline itself when already there) and pushes the killed text to the kill ring. */
   deleteToLineEnd(): { cursor: Cursor; killed: string } {
     const end = this.endOfLine().offset
     const realEnd = end === this.offset && this.text[this.offset] === '\n' ? this.offset + 1 : end
@@ -140,6 +149,7 @@ export class Cursor {
     return { cursor: Cursor.fromText(nextText, this.measuredText.columns + 1, this.offset), killed }
   }
 
+  /** Kills from the start of the line to the cursor and pushes the killed text to the kill ring. */
   deleteToLineStart(): { cursor: Cursor; killed: string } {
     const start = this.startOfLine().offset
     const killed = this.text.slice(start, this.offset)
@@ -148,6 +158,7 @@ export class Cursor {
     return { cursor: Cursor.fromText(nextText, this.measuredText.columns + 1, start), killed }
   }
 
+  /** Kills back to the previous word start and pushes the killed text to the kill ring. */
   deleteWordBefore(): { cursor: Cursor; killed: string } {
     const start = this.prevWord().offset
     const killed = this.text.slice(start, this.offset)
@@ -156,6 +167,7 @@ export class Cursor {
     return { cursor: Cursor.fromText(nextText, this.measuredText.columns + 1, start), killed }
   }
 
+  /** Kills forward to the next word start and pushes the killed text to the kill ring. */
   deleteWordAfter(): Cursor {
     const end = this.nextWord().offset
     if (end <= this.offset) return this

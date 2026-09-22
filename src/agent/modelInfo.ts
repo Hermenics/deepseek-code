@@ -36,11 +36,13 @@ const CATALOG_DESCRIPTIONS: Record<string, string> = {
   'gpt-5.4-mini': 'Fast, efficient model for coding, computer use, and subagents',
 }
 
+/** Looks up a built-in description for a model id (provider prefix stripped): exact catalog match first, then suffix patterns. */
 export function getKnownDescription(id: string): string {
   const modelId = id.split('/').pop() ?? id
   return CATALOG_DESCRIPTIONS[modelId] ?? PATTERN_DESCRIPTIONS.find((p) => p.pattern.test(modelId))?.description ?? ''
 }
 
+/** Reads ~/.deepseek/config.json synchronously, returning an empty object when it is missing or corrupt. */
 function loadConfig(): Record<string, any> {
   try {
     if (existsSync(CONFIG_PATH)) return JSON.parse(readFileSync(CONFIG_PATH, 'utf-8'))
@@ -56,6 +58,7 @@ function saveConfig(config: Record<string, any>): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2))
 }
 
+/** Returns cached model descriptions that are non-generic and backed by an http(s) source URL. */
 function loadCachedDescriptions(): Record<string, string> {
   const config = loadConfig()
   const descriptions = config.modelDescriptions as Record<string, unknown> | undefined
@@ -67,10 +70,15 @@ function loadCachedDescriptions(): Record<string, string> {
   ) as Record<string, string>
 }
 
+/** Detects boilerplate or placeholder descriptions (e.g. "context window unknown") that should not be shown or cached. */
 export function isGenericModelDescription(description: string): boolean {
   return /context window(?: size)?(?: is)? unknown|model details and context window size are unknown|AI model variant|\bline model\b|\bmodel\s*;\s*\d[\d,.]*\s+context\b|OpenAI general-purpose model|fast,? efficient general-purpose|cost-sensitive.*high-volume/i.test(description)
 }
 
+/**
+ * Merges researched descriptions into the config cache. Only non-generic entries with an http(s) source URL are kept,
+ * both for the new batch and for previously cached entries.
+ */
 export function saveCachedDescriptions(descriptions: Record<string, string>, sources: Record<string, string> = {}): void {
   const config = loadConfig()
   const previousSources = config.modelDescriptionSources ?? {}

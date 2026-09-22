@@ -1,5 +1,6 @@
 import type { Command } from '../types.js'
 
+/** `/files`: lists the files modified during this session. */
 const command: Command = {
   name: 'files',
   aliases: [],

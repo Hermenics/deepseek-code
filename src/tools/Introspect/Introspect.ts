@@ -325,6 +325,7 @@ When something fails, inspect the tool or command error first. Do not bypass a m
 DeepSeek Code is fully open-source under the Apache-2.0 license. Contributions are welcome at https://github.com/Hermenics/deepseek-code
 `.trim()
 
+/** Read-only tool that returns the built-in DeepSeek Code reference text (DOCS) so the model can answer questions about the product itself. */
 export const Introspect: Tool = {
   name: 'introspect',
   description: 'Get full documentation about DeepSeek Code: what it is, how it works, available tools, agents, steering files, commands and usage. Use this when the user asks about DeepSeek Code itself.',

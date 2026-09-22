@@ -10,6 +10,7 @@ interface Props {
   onCancel(): void
 }
 
+/** Free-text `/language` prompt; Enter submits the trimmed value (ignored when empty), Esc cancels. */
 export function LanguageInput({ currentLanguage, onDone, onCancel }: Props) {
   const [value, setValue] = useState('')
 

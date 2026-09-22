@@ -78,6 +78,7 @@ export type Options = {
   waitUntilExit?: () => Promise<void>;
   onFrame?: (event: FrameEvent) => void;
 };
+/** One Ink instance per stdout: owns the React container and DOM root, lays out and paints frames (double-buffered, diffed by LogUpdate), and manages terminal modes, alt-screen, text selection, search highlight, mouse/keyboard dispatch and cleanup on exit. */
 export default class Ink {
   private readonly log: LogUpdate;
   private readonly terminal: Terminal;
@@ -289,6 +290,7 @@ export default class Ink {
       });
     }
   }
+  /** SIGCONT handler: after the process is resumed from suspension, re-enters the alt screen, or on the main screen resets both frames and the log so the next render starts fresh instead of diffing against content the shell may have overwritten. */
   private handleResume = () => {
     if (!this.options.stdout.isTTY) {
       return;
@@ -429,6 +431,7 @@ export default class Ink {
     // without the pop we'd accumulate depth on each editor round-trip).
     this.options.stdout.write('\x1b[?1004h' + (supportsExtendedKeys() ? DISABLE_KITTY_KEYBOARD + ENABLE_KITTY_KEYBOARD + ENABLE_MODIFY_OTHER_KEYS : ''));
   }
+  /** Renders one frame: paints the laid-out tree, keeps any selection anchored across ScrollBox movement, applies selection/search overlays, diffs against the previous frame and writes the patches to the terminal. No-op while unmounted or paused; reschedules itself while a scroll drain is pending. */
   onRender() {
     if (this.isUnmounted || this.isPaused) {
       return;
@@ -772,6 +775,7 @@ export default class Ink {
       flickers
     });
   }
+  /** Flushes pending React work, renders a final frame, then stops rendering until `resume()`. */
   pause(): void {
     // Flush pending React updates and render before pausing.
     // @ts-ignore flushSyncFromReconciler exists in react-reconciler 0.31 but not in @types/react-reconciler
@@ -779,6 +783,7 @@ export default class Ink {
     this.onRender();
     this.isPaused = true;
   }
+  /** Re-enables rendering after `pause()` and renders immediately. */
   resume(): void {
     this.isPaused = false;
     this.onRender();
@@ -1283,12 +1288,14 @@ export default class Ink {
       }
     };
   }
+  /** Cancels the pending drag-selection auto-scroll tick, if any. */
   private stopSelectionAutoScroll(): void {
     if (this.selectionAutoScrollTimer !== null) {
       clearTimeout(this.selectionAutoScrollTimer);
       this.selectionAutoScrollTimer = null;
     }
   }
+  /** Schedules one auto-scroll tick for an edge drag; no-op if one is already pending. */
   private scheduleSelectionAutoScroll(): void {
     if (this.selectionAutoScrollTimer !== null) return;
     this.selectionAutoScrollTimer = setTimeout(() => {
@@ -1296,6 +1303,7 @@ export default class Ink {
       this.runSelectionAutoScroll();
     }, SELECTION_AUTO_SCROLL_INTERVAL_MS);
   }
+  /** While a selection drag holds the pointer at or beyond the transcript's top/bottom edge, scrolls the registered target toward it (faster the further out, capped) and schedules the next tick. */
   private runSelectionAutoScroll(): void {
     const target = this.selectionScrollTarget;
     const point = this.selectionDragPoint;
@@ -1313,6 +1321,7 @@ export default class Ink {
     target.scrollBy(direction * amount);
     this.scheduleSelectionAutoScroll();
   }
+  /** Called whenever the selection mutates: stops auto-scroll once dragging ends, schedules a throttled repaint and notifies selection subscribers. */
   private notifySelectionChange(): void {
     if (!this.selection.isDragging) this.stopSelectionAutoScroll();
     // Mouse motion can arrive much faster than a terminal frame. Reuse Ink's
@@ -1343,10 +1352,12 @@ export default class Ink {
     if (!this.altScreenActive) return null;
     return findPointerDragTarget(this.rootNode, col, row);
   }
+  /** Updates hover state for the nodes under the pointer (mode-1003 motion), dispatching enter/leave against the tracked hovered set. Alt-screen only. */
   dispatchHover(col: number, row: number): void {
     if (!this.altScreenActive) return;
     dispatchHover(this.rootNode, col, row, this.hoveredNodes);
   }
+  /** Dispatches a key event to the focused element (or the root), then applies the default Tab / Shift+Tab focus cycling unless a handler called preventDefault(). */
   dispatchKeyboardEvent(parsedKey: ParsedKey): void {
     const target = this.focusManager.activeElement ?? this.rootNode;
     const event = new KeyboardEvent(parsedKey);
@@ -1459,6 +1470,7 @@ export default class Ink {
     listener: (...args: unknown[]) => void;
   }> = [];
   private wasRawMode = false;
+  /** Detaches Ink's stdin `readable` listeners and turns raw mode off so an external program (e.g. an editor) can read the terminal. Undo with `resumeStdin()`. */
   suspendStdin(): void {
     const stdin = this.options.stdin;
     if (!stdin.isTTY) {
@@ -1489,6 +1501,7 @@ export default class Ink {
       this.wasRawMode = true;
     }
   }
+  /** Re-attaches the stdin listeners removed by `suspendStdin()` and restores raw mode if it was on. */
   resumeStdin(): void {
     const stdin = this.options.stdin;
     if (!stdin.isTTY) {
@@ -1529,12 +1542,14 @@ export default class Ink {
   private writeRaw(data: string): void {
     this.options.stdout.write(data);
   }
+  /** Sets where the native cursor should be parked after each frame. A null declaration with `clearIfNode` only clears when that node still owns the declaration, so an unmounting input can't wipe a newer one. */
   private setCursorDeclaration: CursorDeclarationSetter = (decl, clearIfNode) => {
     if (decl === null && clearIfNode !== undefined && this.cursorDeclaration?.node !== clearIfNode) {
       return;
     }
     this.cursorDeclaration = decl;
   };
+  /** Renders `node` synchronously inside the internal App (input, selection and mouse wiring) and the TerminalWriteProvider. */
   render(node: ReactNode): void {
     this.currentNode = node;
     const tree = <App stdin={this.options.stdin} stdout={this.options.stdout} stderr={this.options.stderr} exitOnCtrlC={this.options.exitOnCtrlC} onExit={this.unmount} terminalColumns={this.terminalColumns} terminalRows={this.terminalRows} selection={this.selection} onSelectionChange={this.notifySelectionChange} onCopySelection={this.copySelectionForInput} onClickAt={this.dispatchClick} findPointerDragTarget={this.findPointerDragTarget} onHoverAt={this.dispatchHover} getHyperlinkAt={this.getHyperlinkAt} onOpenHyperlink={this.openHyperlink} onMultiClick={this.handleMultiClick} onSelectionDrag={this.handleSelectionDrag} onStdinResume={this.reassertTerminalModes} onCursorDeclaration={this.setCursorDeclaration} dispatchKeyboardEvent={this.dispatchKeyboardEvent}>
@@ -1548,6 +1563,7 @@ export default class Ink {
     // @ts-ignore flushSyncWork exists in react-reconciler but not in @types/react-reconciler
     reconciler.flushSyncWork();
   }
+  /** Tears down the instance: renders a last frame, restores console/stderr, synchronously resets every terminal mode (alt screen, mouse, keyboard protocols, focus, paste, cursor), unmounts the React tree, frees Yoga and settles the exit promise. Safe to call more than once. */
   unmount(error?: Error | number | null): void {
     if (this.isUnmounted) {
       return;
@@ -1629,6 +1645,7 @@ export default class Ink {
       this.resolveExitPromise();
     }
   }
+  /** Returns a promise that resolves on unmount, or rejects if unmount was given an Error. */
   async waitUntilExit(): Promise<void> {
     this.exitPromise ||= new Promise((resolve, reject) => {
       this.resolveExitPromise = resolve;
@@ -1636,6 +1653,7 @@ export default class Ink {
     });
     return this.exitPromise;
   }
+  /** Drops the current front frame (main-screen TTY only) so the next render redraws from scratch instead of diffing against what was previously on screen. */
   resetLineCount(): void {
     if (this.options.stdout.isTTY) {
       // Swap so old front becomes back (for screen reuse), then reset front
@@ -1666,6 +1684,7 @@ export default class Ink {
     this.backFrame.screen.charPool = this.charPool;
     this.backFrame.screen.hyperlinkPool = this.hyperlinkPool;
   }
+  /** Redirects console.* output to the debug/error logs so it can't corrupt the rendered frame; returns a function that restores the original methods. */
   patchConsole(): () => void {
     // biome-ignore lint/suspicious/noConsole: intentionally patching global console
     const con = console;

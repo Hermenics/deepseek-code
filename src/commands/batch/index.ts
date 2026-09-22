@@ -6,6 +6,7 @@ const MAX_PROMPT_LENGTH = 16_384
 const MAX_TOTAL_PROMPT_BYTES = 128 * 1024
 const MAX_TIMEOUT_MS = 3_600_000
 
+/** Hard limits enforced on `/batch` input and execution options. */
 export const BATCH_LIMITS = Object.freeze({
   maxItems: MAX_BATCH_ITEMS,
   maxPromptLength: MAX_PROMPT_LENGTH,
@@ -47,6 +48,7 @@ export interface BatchExecutionOptions {
   maxCostUsd?: number
 }
 
+/** Workflow script that fans the batch prompts out to parallel agent calls. */
 export const BATCH_WORKFLOW_SCRIPT = `export const meta = {"name":"batch","description":"Run independent prompts in parallel"};
 return parallel(args.prompts.map(prompt => () => agent(prompt)));`
 
@@ -56,6 +58,7 @@ function error(message: string): BatchParseError {
   return { type: 'unknown', input: `${message} ${usage}` }
 }
 
+/** Normalises batch prompts and throws if the count, per-prompt length or total byte size exceeds `BATCH_LIMITS`. */
 function validatePrompts(value: unknown): string[] {
   if (!Array.isArray(value) || value.length === 0) throw new Error(usage)
   if (value.length > MAX_BATCH_ITEMS) throw new Error(`Batch supports at most ${MAX_BATCH_ITEMS} prompts`)
@@ -91,6 +94,7 @@ function validateExecutionOptions(options: BatchExecutionOptions): void {
   }
 }
 
+/** Re-validates a batch command at execution time, since callers may pass values that never went through `parseBatchCommand`. */
 function validateCommand(command: unknown): BatchCommand {
   if (!command || typeof command !== 'object' || (command as { type?: unknown }).type !== 'batch') {
     throw new Error('Invalid batch command')
@@ -150,6 +154,7 @@ export async function executeBatchCommand(command: unknown, options: BatchExecut
   }
 }
 
+/** `/batch <a> -- <b> ...`: runs up to 17 independent prompts in parallel as one workflow. */
 const batchCommand = {
   name: 'batch',
   aliases: [],

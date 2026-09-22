@@ -82,11 +82,16 @@ function toWorkspaceRelative(workspace: string, path: string): string {
   return relative(workspace, absolute) || path
 }
 
+/** Keep the last `limit` characters of trimmed output, prefixed with an ellipsis when cut. */
 function tail(text: string, limit: number): string {
   const trimmed = text.trim()
   return trimmed.length <= limit ? trimmed : `…${trimmed.slice(-limit)}`
 }
 
+/**
+ * Mechanically check a subagent's claims before any model verification: compare declared changes with what git saw become dirty during the run, confirm cited paths exist, and run `agents.verifyCommand` when files changed.
+ * Any issue marks the result refuted.
+ */
 export async function groundResult(input: GroundingInput): Promise<GroundingReport> {
   const { workspace, baseline, result, verifyCommand, signal } = input
   const issues: string[] = []

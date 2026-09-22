@@ -41,7 +41,7 @@ import ScrollBox, { type ScrollBoxHandle } from '../ink/components/ScrollBox.js'
 import { useSelection } from '../ink/hooks/use-selection.js'
 import { Scrollbar } from './layout/Scrollbar.js'
 import { getThemeColors } from './theme.js'
-import { ThemeProvider } from './design-system/index.js'
+import { ThemeProvider, useThemeColors } from './design-system/index.js'
 import { PlanApprovalPrompt, type PlanApprovalResult } from './plan/PlanApprovalPrompt.js'
 import { newPlanPath, buildPlanModeInjection } from '../agent/planMode.js'
 import { readSavedWorkflow, refreshWorkflowCommands } from '../workflows/commands.js'
@@ -279,6 +279,7 @@ async function readLimitedStatusLineOutput(
   }
 }
 
+/** Terminates a status-line command, signalling its whole process group first (non-Windows) so shell children do not outlive the timeout. */
 function killStatusLineProcess(child: { pid: number; kill(signal?: number | NodeJS.Signals): void }, processGroup: boolean): void {
   if (processGroup && !isWindows) {
     try { process.kill(-child.pid, 'SIGTERM') } catch { /* the shell may have exited already */ }
@@ -468,6 +469,7 @@ interface PlanApprovalState {
   reject(reason: string): void
 }
 
+/** Root TUI component for an interactive session: owns the conversation, agent loop, input, interaction mode, permission/plan/question prompts, subagent and workflow activity, and its overlay screens (config, model picker, workflow monitor, diff dialog). */
 export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, onLogout, onExit, language, enchant, sessionId, initialSession, headerProvider, headerAgent, initialSettings, alternateScreen = false, workspaceTrusted = false }: {
   initialAgent?: LoadedAgent | null
   initialMessage?: string | null
@@ -535,6 +537,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const workflowRuns = useWorkflowRuns(agent.workflows)
   const activeWorkflowRuns = useActiveWorkflowRuns(agent.workflows)
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
+  const colors = getThemeColors(theme)
   const messagesRef = useRef(messages)
   messagesRef.current = messages
   useEffect(() => {
@@ -2707,7 +2710,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             thinkingStartedAt={thinkingStartedAtRef.current}
           />
           {focusedSubagent && focusedAgent && (focusedAgent.status === 'running' || focusedAgent.status === 'queued' || focusedAgent.status === 'blocked') && (
-            <Text color="#888888">
+            <Text color={colors.textDim}>
               {`  ◌ ${focusedAgent.lastToolInfo ? `⚙ ${focusedAgent.lastToolInfo} · ` : ''}${focusedAgent.toolCount} tools${focusedAgent.tokens != null ? ` · ↓ ${focusedAgent.tokens >= 1000 ? `${(focusedAgent.tokens / 1000).toFixed(1)}k` : focusedAgent.tokens} tok` : ''}`}
             </Text>
           )}
@@ -2842,7 +2845,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   )
 }
 
+/** Inline warning box asking for a y/n confirmation; n, Esc and Ctrl+C all decline. */
 function ConfirmPrompt({ message, onConfirm }: { message: string; onConfirm: (yes: boolean) => void }) {
+  const colors = useThemeColors()
   useInput((input: string, key: Key) => {
     if (key.ctrl && input === 'c') { onConfirm(false); return }
     if (input === 'y') onConfirm(true)
@@ -2851,14 +2856,15 @@ function ConfirmPrompt({ message, onConfirm }: { message: string; onConfirm: (ye
 
   return (
     <Box flexDirection="column" marginTop={1} marginBottom={1}>
-      <Box border borderStyle="rounded" borderColor="yellow" paddingLeft={1} paddingRight={1}>
-        <Text color="yellow">{'⚠ ' + message}</Text>
+      <Box border borderStyle="rounded" borderColor={colors.warning} paddingLeft={1} paddingRight={1}>
+        <Text color={colors.warning}>{'⚠ ' + message}</Text>
       </Box>
-      <Text color="#888888">{'  [y] confirm  [n/Esc] cancel'}</Text>
+      <Text color={colors.textDim}>{'  [y] confirm  [n/Esc] cancel'}</Text>
     </Box>
   )
 }
 
+/** Numbered choices for a permission request: workflow requests get run once / view code / always allow script / deny; others get allow once, a session- or directory-scoped allow, deny, and (for plain permission requests) always allow. */
 function permissionOptions(request: ToolPermissionRequest) {
   if (request.reason === 'workflow') {
     return [
@@ -2885,6 +2891,7 @@ function permissionOptions(request: ToolPermissionRequest) {
   return options
 }
 
+/** One-line description of the action awaiting permission: the workflow name, `$ command`, or the tool with its path, cwd or action. */
 function toolPermissionSummary({ toolName, args }: ToolPermissionRequest): string {
   const input = args as Record<string, unknown>
   if (toolName === 'workflow' && typeof input.script === 'string') {
@@ -2898,6 +2905,7 @@ function toolPermissionSummary({ toolName, args }: ToolPermissionRequest): strin
   return toolName
 }
 
+/** Confirmation box for a tool call that needs approval, with keyboard-selectable options (number keys, arrows + Enter) and an inline workflow-code viewer; Esc and Ctrl+C deny. */
 function ToolPermissionPrompt({
   request,
   onDecide,
@@ -2905,6 +2913,7 @@ function ToolPermissionPrompt({
   request: ToolPermissionRequest
   onDecide: (result: ToolPermissionResult) => void
 }) {
+  const colors = useThemeColors()
   const [selected, setSelected] = useState(0)
   const [showWorkflowCode, setShowWorkflowCode] = useState(false)
   const options = permissionOptions(request)
@@ -2933,38 +2942,38 @@ function ToolPermissionPrompt({
 
   return (
     <Box flexDirection="column" marginTop={1} marginBottom={1}>
-      <Box border borderStyle="rounded" borderColor="cyan" paddingLeft={2} paddingRight={2} flexDirection="column">
-        <Text color="cyan">{'◆ Confirmation required'}</Text>
+      <Box border borderStyle="rounded" borderColor={colors.primary} paddingLeft={2} paddingRight={2} flexDirection="column">
+        <Text color={colors.primary}>{'◆ Confirmation required'}</Text>
         <Box marginTop={1} flexDirection="row" gap={1}>
-          <Text color="#888888">tool:</Text>
-          <Text color="yellow">{request.toolName}</Text>
+          <Text color={colors.textDim}>tool:</Text>
+          <Text color={colors.warning}>{request.toolName}</Text>
         </Box>
         <Box flexDirection="row" gap={1}>
-          <Text color="#888888">action:</Text>
-          <Text color="#888888">{preview}</Text>
+          <Text color={colors.textDim}>action:</Text>
+          <Text color={colors.textDim}>{preview}</Text>
         </Box>
-        <Text color="yellow">{reason}</Text>
+        <Text color={colors.warning}>{reason}</Text>
       </Box>
       <Box flexDirection="column" marginTop={1} marginLeft={2}>
         {options.map((opt, i) => (
           <Box key={opt.key} flexDirection="row" gap={2}>
-            <Text color={i === selected ? 'cyan' : 'white'}>
+            <Text color={i === selected ? colors.primary : colors.text}>
               {i === selected ? '❯' : ' '} [{opt.key}]
             </Text>
-            <Text color={i === selected ? 'cyan' : '#888888'}>
+            <Text color={i === selected ? colors.primary : colors.textDim}>
               {opt.label}
             </Text>
           </Box>
         ))}
       </Box>
       {showWorkflowCode && request.reason === 'workflow' && (
-        <Box borderStyle="round" borderColor="#666666" paddingLeft={1} paddingRight={1} marginTop={1} flexDirection="column">
-          <Text color="#888888">workflow.js</Text>
+        <Box borderStyle="round" borderColor={colors.rule} paddingLeft={1} paddingRight={1} marginTop={1} flexDirection="column">
+          <Text color={colors.textDim}>workflow.js</Text>
           <Text>{String((request.args as Record<string, unknown>).script ?? '')}</Text>
         </Box>
       )}
       <Box marginLeft={2}>
-        <Text color="#888888">{'  ↑↓ navigate  ·  Enter confirm  ·  Esc deny  ·  [3] aborts agent'}</Text>
+        <Text color={colors.textDim}>{'  ↑↓ navigate  ·  Enter confirm  ·  Esc deny  ·  [3] aborts agent'}</Text>
       </Box>
     </Box>
   )
