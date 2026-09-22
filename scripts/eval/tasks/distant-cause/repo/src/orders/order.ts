@@ -21,6 +21,7 @@ export interface Order {
 
 let nextId = 1
 
+/** Turns a cart into an order with line totals, subtotal, shipping and total. */
 export function createOrder(cart: Cart): Order {
   const lines = cart.lines.map((line) => ({
     sku: line.sku,

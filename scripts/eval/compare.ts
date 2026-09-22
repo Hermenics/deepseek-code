@@ -53,6 +53,7 @@ export function classifyOutcome(r: Pick<EvalRecord, 'pass' | 'timedOut' | 'overB
 const FIXED_PRICE_MODEL = 'deepseek-flash'
 export const FIXED_PRICE_AT = new Date('2026-01-04T12:00:00Z')
 
+/** Prices token usage at one fixed rate (Flash, off-peak) so labels compare on usage, not on the price in effect. */
 export function fixedCostUsd(usage: { promptTokens?: number; completionTokens?: number; cachedTokens?: number }): number {
   return estimateCost(FIXED_PRICE_MODEL, {
     promptTokens: usage.promptTokens ?? 0, completionTokens: usage.completionTokens ?? 0, cachedTokens: usage.cachedTokens ?? 0,
@@ -69,6 +70,7 @@ export function wilson(k: number, n: number, z = 1.96): [number, number] {
   return [Math.max(0, center - half), Math.min(1, center + half)]
 }
 
+/** Small seeded PRNG so the bootstrap interval is reproducible for a given --seed. */
 function mulberry32(seed: number) {
   return () => {
     seed = (seed + 0x6d2b79f5) | 0
@@ -78,7 +80,9 @@ function mulberry32(seed: number) {
   }
 }
 
+/** Share of true values in a list of pass results. */
 const rate = (xs: boolean[]) => xs.filter(Boolean).length / xs.length
+/** Cost of one record: fixedCostUsd when present, else a fixed-price estimate from its tokens, else its raw costUsd. */
 const costOf = (r: EvalRecord) => r.fixedCostUsd ?? (r.promptTokens !== undefined ? fixedCostUsd(r) : r.costUsd ?? 0)
 
 export interface TaskRow { task: string; a?: { pass: number; n: number }; b?: { pass: number; n: number }; diff?: number }
@@ -91,7 +95,9 @@ export interface Comparison {
   promoted: boolean
 }
 
+/** Compares two labels: per-label pass rate and cost, per-task paired difference, and a task-clustered bootstrap interval. */
 export function compare(a: EvalRecord[], b: EvalRecord[], options: { iterations?: number; seed?: number } = {}): Comparison {
+  /** Groups pass results by task. */
   const byTask = (records: EvalRecord[]) => {
     const map = new Map<string, boolean[]>()
     for (const r of records) map.set(r.task, [...(map.get(r.task) ?? []), r.pass])
@@ -115,6 +121,7 @@ export function compare(a: EvalRecord[], b: EvalRecord[], options: { iterations?
 
   let paired: Comparison['paired'] = null
   if (shared.length > 0) {
+    /** Mean over shared tasks of the B-minus-A pass rate, using the runs `pick` selects. */
     const meanDiff = (pick: (t: string, runs: boolean[]) => boolean[]) =>
       shared.reduce((sum, t) => sum + rate(pick(t, tb.get(t)!)) - rate(pick(t, ta.get(t)!)), 0) / shared.length
     const diff = meanDiff((_, runs) => runs)
@@ -128,10 +135,12 @@ export function compare(a: EvalRecord[], b: EvalRecord[], options: { iterations?
       samples.push(tasksSample.reduce((sum, t) => sum + rate(pickN(tb.get(t)!)) - rate(pickN(ta.get(t)!)), 0) / tasksSample.length)
     }
     samples.sort((x, y) => x - y)
+    /** Value at quantile `q` of the sorted bootstrap samples. */
     const at = (q: number) => samples[Math.min(samples.length - 1, Math.floor(q * samples.length))]!
     paired = { tasks: shared.length, diff, ci90: [at(0.05), at(0.95)] }
   }
 
+  /** Pass count, Wilson interval, outcome breakdown and cost per pass for one label. */
   const summarize = (records: EvalRecord[]) => {
     const pass = records.filter((r) => r.pass).length
     const outcomes: Record<string, number> = {}
@@ -148,12 +157,14 @@ export function compare(a: EvalRecord[], b: EvalRecord[], options: { iterations?
   return { labels, tasks, paired, costRatio, promoted }
 }
 
+/** Where a task sits in the rotation rule: counts for the metric at 30–70%, a regression test above, a checker suspect below. */
 export function rotationBand(passRate: number): 'metric' | 'regression' | 'checker-suspect' {
   if (passRate > 0.7) return 'regression'
   if (passRate < 0.3) return 'checker-suspect'
   return 'metric'
 }
 
+/** Reads every record of `results/<label>.jsonl`. */
 async function readLabel(label: string): Promise<EvalRecord[]> {
   const text = await readFile(join(import.meta.dir, 'results', `${label}.jsonl`), 'utf8')
   return text.split('\n').filter((line) => line.trim()).map((line) => JSON.parse(line) as EvalRecord)
@@ -167,11 +178,14 @@ if (import.meta.main) {
   if (positionals.length !== 2) throw new Error('usage: bun scripts/eval/compare.ts <labelA> <labelB> [--tasks a,b] [--iterations 5000] [--seed 1]')
   const [labelA, labelB] = positionals as [string, string]
   const only = opts.tasks ? new Set(opts.tasks.split(',').map((t) => t.trim())) : undefined
+  /** Applies the --tasks filter. */
   const keep = (records: EvalRecord[]) => (only ? records.filter((r) => only.has(r.task)) : records)
   const [a, b] = [keep(await readLabel(labelA)), keep(await readLabel(labelB))]
   const result = compare(a, b, { iterations: Number(opts.iterations), seed: Number(opts.seed) })
 
+  /** Formats a fraction as a whole percentage. */
   const pct = (x: number) => `${(x * 100).toFixed(0)}%`
+  /** Formats a fraction as signed percentage points. */
   const signed = (x: number) => `${x >= 0 ? '+' : ''}${(x * 100).toFixed(0)}pp`
   console.table(Object.fromEntries([labelA, labelB].map((label, i) => {
     const s = result.labels[i]!

@@ -36,12 +36,14 @@ function workflow(runId: string): WorkflowRun {
   }
 }
 
+/** Renders nothing and reports every list of active runs the hook produces. */
 function Probe({ manager, onRuns }: { manager: WorkflowManager; onRuns(runs: WorkflowRun[]): void }) {
   const runs = useActiveWorkflowRuns(manager)
   useEffect(() => { onRuns(runs) }, [onRuns, runs])
   return null
 }
 
+/** Renders nothing and reports every list of workflow runs the history hook produces. */
 function HistoryProbe({ manager, onRuns }: { manager: WorkflowManager; onRuns(runs: WorkflowRun[]): void }) {
   const runs = useWorkflowRuns(manager)
   useEffect(() => { onRuns(runs) }, [onRuns, runs])

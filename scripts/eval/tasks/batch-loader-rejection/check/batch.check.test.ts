@@ -7,6 +7,7 @@ function within<T>(promise: Promise<T>, ms = 1_000): Promise<T> {
   return Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('call did not settle')), ms))])
 }
 
+/** Loader whose batch function answers each call with the next scripted response and records the keys it received. */
 function scripted(responses: Array<(keys: string[]) => Promise<Array<string | Error>>>) {
   const batches: string[][] = []
   const loader = new BatchLoader<string, string>((keys) => {

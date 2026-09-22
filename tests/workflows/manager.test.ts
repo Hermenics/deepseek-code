@@ -10,6 +10,7 @@ setDefaultTimeout(15_000)
 const roots: string[] = []
 afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))))
 
+/** WorkflowManager over a temporary project whose agent calls go to `runAgent`. */
 async function setup(agentRunner?: ConstructorParameters<typeof WorkflowManager>[0]['agentRunner']) {
   const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-manager-'))
   roots.push(root)
@@ -467,6 +468,7 @@ describe('WorkflowManager — interrupted runs', () => {
 })
 
 describe('renameReplacing', () => {
+  /** Error carrying a Node errno code. */
   const busy = (code: string) => Object.assign(new Error(code), { code })
 
   test('retries a Windows rename blocked by a reader until it succeeds', async () => {
@@ -477,6 +479,7 @@ describe('renameReplacing', () => {
 
   test('fails fast off Windows and for unrelated errors', async () => {
     let calls = 0
+    /** Rename that always fails with EPERM. */
     const failing = async () => { calls++; throw busy('EPERM') }
     await expect(renameReplacing('a', 'b', { platform: 'linux', renameFile: failing })).rejects.toThrow('EPERM')
     await expect(renameReplacing('a', 'b', { platform: 'win32', renameFile: async () => { calls++; throw busy('ENOENT') } })).rejects.toThrow('ENOENT')

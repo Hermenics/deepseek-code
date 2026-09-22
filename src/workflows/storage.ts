@@ -66,6 +66,7 @@ function stable(value: unknown): string {
   return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${stable(child)}`).join(',')}}`
 }
 
+/** Stable SHA-256 of a workflow value, used to match approvals and replays. */
 export function hashWorkflowValue(value: unknown): string {
   return createHash('sha256').update(typeof value === 'string' ? value : stable(value)).digest('hex')
 }
@@ -92,6 +93,7 @@ export async function renameReplacing(
   }
 }
 
+/** Writes JSON through a temporary file and a rename, so readers never see a partial file. */
 async function atomicJson(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
   const temporary = `${path}.${randomUUID()}.tmp`
@@ -99,6 +101,7 @@ async function atomicJson(path: string, value: unknown): Promise<void> {
   await renameReplacing(temporary, path)
 }
 
+/** Writes text privately (0600) through a temporary file and a rename. */
 async function privateText(path: string, value: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
   const temporary = `${path}.${randomUUID()}.tmp`

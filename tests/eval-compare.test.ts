@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import { isPeakTime } from '../src/agent/cost.js'
 import { FIXED_PRICE_AT, classifyOutcome, compare, fixedCostUsd, rotationBand, wilson, type EvalRecord } from '../scripts/eval/compare.js'
 
+/** Eval records for one task from a list of pass results. */
 const runs = (task: string, passes: boolean[], extra: Partial<EvalRecord> = {}): EvalRecord[] =>
   passes.map((pass) => ({ task, pass, costUsd: 0.01, ...extra }))
 

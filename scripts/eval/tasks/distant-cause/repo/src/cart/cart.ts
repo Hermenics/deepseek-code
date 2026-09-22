@@ -13,10 +13,12 @@ export interface Cart {
   lines: CartLine[]
 }
 
+/** Price of one cart line: unit price times quantity. */
 export function lineTotal(cart: Cart, line: CartLine): Money {
   return multiply(unitPrice(line.sku, cart.currency), line.quantity)
 }
 
+/** Sum of every line in the cart. */
 export function cartSubtotal(cart: Cart): Money {
   return sum(cart.lines.map((line) => lineTotal(cart, line)), cart.currency)
 }

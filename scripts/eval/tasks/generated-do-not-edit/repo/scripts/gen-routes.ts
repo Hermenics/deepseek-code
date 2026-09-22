@@ -11,6 +11,7 @@ interface RouteSpec { name: string; path: string }
 const root = join(import.meta.dir, '..')
 const specs = JSON.parse(readFileSync(join(root, 'routes.json'), 'utf8')) as RouteSpec[]
 
+/** Compiles a route path into the regex source and parameter names the router uses. */
 function compile(path: string): { pattern: string; params: string[] } {
   const params = [...path.matchAll(/:(\w+)/g)].map((m) => m[1]!)
   const pattern = '^' + path.replace(/:\w+/, '([^/]+)') + '$'

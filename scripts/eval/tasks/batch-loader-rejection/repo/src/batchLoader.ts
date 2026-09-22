@@ -13,6 +13,7 @@ export class BatchLoader<K, V> {
 
   constructor(private batchFn: BatchFn<K, V>) {}
 
+  /** Loads one key, batched with the other keys requested in the same tick. */
   load(key: K): Promise<V> {
     const cached = this.cache.get(key)
     if (cached) return cached
@@ -24,14 +25,17 @@ export class BatchLoader<K, V> {
     return promise
   }
 
+  /** Loads several keys, in order. */
   loadMany(keys: K[]): Promise<V[]> {
     return Promise.all(keys.map((key) => this.load(key)))
   }
 
+  /** Forgets the cached result for a key. */
   clear(key: K): void {
     this.cache.delete(key)
   }
 
+  /** Sends the queued keys to the batch function and settles each waiting caller. */
   private async dispatch(): Promise<void> {
     const batch = this.queue
     this.queue = []

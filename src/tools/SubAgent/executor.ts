@@ -52,6 +52,7 @@ export interface SubAgentLoopResult<T = never> {
 
 export function buildToolPreview(toolName: string, args: Record<string, unknown>): string {
   const str = (value: unknown) => typeof value === 'string' ? value : JSON.stringify(value)
+  /** Shortens a preview to `length` characters. */
   const truncate = (value: string, length = 50) => value.length > length ? `${value.slice(0, length)}…` : value
   const selected: Record<string, unknown> = {
     read_file: args.path, write_file: args.path, patch_file: args.path, edit_file: args.path,
@@ -73,6 +74,7 @@ function outputLimit(provider: ProviderConfig, options: SubAgentLoopOptions<unkn
   return provider.provider === 'deepseek' ? { max_tokens: options.effort === 'low' ? 8192 : 32768 } : {}
 }
 
+/** Runs a subagent until it answers or calls its terminal tool, tracking tokens and cost against the task budget. */
 export async function runSubAgentLoop<T = never>(
   prompt: string,
   task: string,

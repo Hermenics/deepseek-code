@@ -210,6 +210,7 @@ describe('plan tools outside /plan', () => {
         lastUserMessage: string
         executeToolWithChecks(tc: object, args: Record<string, unknown>, cb: AgentCallbacks, lifecycle: object): Promise<{ result: string }>
       }
+      /** Fake tool execution that records the call. */
       const exec = (name: string, args: Record<string, unknown>) => internals.executeToolWithChecks(
         { id: `call-${name}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }, args, trackedCallbacks(), {},
       )
@@ -284,9 +285,11 @@ describe('read before edit', () => {
 })
 
 describe('outside-workspace refusal (A5)', () => {
+  /** Model response that makes one tool call. */
   const toolCallResponse = (name: string, args: object) => () => (async function* () {
     yield { choices: [{ delta: { tool_calls: [{ index: 0, id: `call-${name}`, function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: 'tool_calls' }] }
   })()
+  /** Callbacks that count finished turns and deny aborts and record tool calls. */
   const denyTracking = () => {
     const cb = {
       done: 0, denyAborted: 0, calls: [] as string[],
@@ -326,6 +329,7 @@ describe('outside-workspace refusal (A5)', () => {
 
   it("'reject' for any other reason fails closed like 'deny'", async () => {
     const reasons: string[] = []
+    /** Permission handler that records the reason and answers 'reject'. */
     const rejectAll = async (request: { reason: string }) => { reasons.push(request.reason); return 'reject' as const }
 
     for (const [name, args, setup] of [
@@ -404,6 +408,7 @@ describe('stream idle timeout', () => {
   it('retries a request that never sends a chunk instead of hanging the turn', async () => {
     const { agent, requests } = await scriptedAgent([silentResponse(), () => textResponse('Recovered.')])
     const internals = agent as unknown as Record<string, unknown>
+    /** Captures the request signal before delegating to the scripted client. */
     const create = (internals.client as { chat: { completions: { create: (body: object, options?: { signal?: AbortSignal }) => unknown } } }).chat.completions
     const scripted = create.create
     create.create = (body: object, options?: { signal?: AbortSignal }) => { internals.lastRequestSignal = options?.signal; return scripted(body, options) }

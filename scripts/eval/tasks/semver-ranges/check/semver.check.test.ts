@@ -2,6 +2,7 @@ import { expect, it } from 'bun:test'
 import { readdirSync, readFileSync } from 'node:fs'
 import { satisfies } from '../src/semver'
 
+/** Checks each [range, version, expected] triple, reporting the failing case by name. */
 const cases = (list: Array<[string, string, boolean]>) => {
   for (const [range, version, expected] of list) expect({ range, version, ok: satisfies(version, range) }).toEqual({ range, version, ok: expected })
 }
