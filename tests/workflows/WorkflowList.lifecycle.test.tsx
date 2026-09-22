@@ -21,6 +21,12 @@ afterEach(() => {
   for (const terminal of terminals.splice(0)) terminal.isTTY = false
 })
 
+/** Waits for the next poll to land; a fixed sleep one tick past the interval flakes on a loaded CI runner. */
+async function until(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!condition() && Date.now() < deadline) await Bun.sleep(25)
+}
+
 function workflow(runId: string): WorkflowRun {
   const now = new Date().toISOString()
   return {
@@ -63,7 +69,7 @@ test('active workflow hook refreshes external sessions and removes stale rows', 
   try {
     await Bun.sleep(100)
     current = [workflow('second')]
-    await Bun.sleep(1_200)
+    await until(() => snapshots.at(-1)?.[0] === 'second')
     expect(snapshots.at(-1)).toEqual(['second'])
   } finally {
     instance.unmount()
@@ -92,7 +98,7 @@ test('history workflow hook refreshes external sessions for the monitor', async 
   try {
     await Bun.sleep(100)
     current = [workflow('second')]
-    await Bun.sleep(1_200)
+    await until(() => snapshots.at(-1)?.[0] === 'second')
     expect(snapshots.at(-1)).toEqual(['second'])
   } finally {
     instance.unmount()
