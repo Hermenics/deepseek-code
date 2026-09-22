@@ -2,10 +2,10 @@
 /**
  * Agent-quality eval (improvement plan, step 0).
  *
- * Runs each task in a throwaway git repo with the real Agent from src/ (not dist/), then copies
- * the task's hidden checks in and runs `bun test`. A run passes when that exits 0 and the run finished within
- * its time limit and both budgets. `outcome` splits the failures by cause (see compare.ts classifyOutcome)
- * and `hiddenPass` records the hidden checks alone, for diagnosis only. Compare labels with compare.ts.
+ * Runs each task in a throwaway git repo with the real Agent from src/ (not dist/), runs the repo's own
+ * `bun test`, then copies the task's hidden checks in and runs them alone. A run passes when both exit 0 and
+ * the run finished within its time limit and both budgets. `outcome` splits the failures by cause (see
+ * compare.ts classifyOutcome) and `hiddenPass` records the hidden checks alone. Compare labels with compare.ts.
  *
  *   bun scripts/eval/run.ts [--tasks a,b] [--runs 3] [--label baseline] [--model id] [--mode build] [--timeout 10] [--keep]
  *                           [--official] [--budget 1] [--run-budget 0.3] [--effort low|high|max]
@@ -81,7 +81,7 @@ if (!providerConfig && !process.env.DEEPSEEK_API_KEY) throw new Error('No saved 
 const model = opts.model ?? (opts.official ? 'deepseek-flash' : undefined)
 // Host only: the key and any path or query never reach the results file.
 const baseURLHost = (() => {
-  const url = providerConfig?.baseURL ?? process.env.DEEPSEEK_BASE_URL
+  const url = (providerConfig?.provider === 'local' ? providerConfig.localBaseUrl : undefined) ?? providerConfig?.baseURL ?? process.env.DEEPSEEK_BASE_URL
   try { return url ? new URL(url).host : 'default' } catch { return 'invalid' }
 })()
 setShellConfirmHandler(async () => false)
@@ -133,6 +133,12 @@ async function runOnce(task: string, run: number) {
   })
 
   const tools: Record<string, number> = {}
+  // Latest token breakdown per delegated task (subagents + their verifiers); the parent's stats only
+  // carry its own tokens, so the fixed-price cost adds these.
+  const delegated = new Map<string, { promptTokens?: number; completionTokens?: number; cachedTokens?: number }>()
+  const unsubscribe = agent.orchestrator.subscribe((event) => {
+    if (event.type === 'metrics_updated' && event.taskId) delegated.set(event.taskId, event.payload.metrics as { promptTokens?: number })
+  })
   let error: string | undefined
   let timedOut = false
   let denyAborted = false
@@ -171,18 +177,27 @@ async function runOnce(task: string, run: number) {
     .at(-1)?.slice(-1500)
   const effort = agent.effortLevel
   const budgetLevel = agent.settings.budget ?? 'default'
+  unsubscribe()
+  const delegatedUsage = { promptTokens: 0, completionTokens: 0, cachedTokens: 0 }
+  for (const m of delegated.values()) {
+    delegatedUsage.promptTokens += m.promptTokens ?? 0
+    delegatedUsage.completionTokens += m.completionTokens ?? 0
+    delegatedUsage.cachedTokens += m.cachedTokens ?? 0
+  }
   await agent.shutdown()
 
   // Hash of everything the agent changed, so identical outputs across runs are visible.
   await git('add', '-A')
   const diff = await git('diff', '--cached', '--binary', 'HEAD')
   const diffHash = createHash('sha256').update(diff.stdout).digest('hex').slice(0, 16)
+  // Visible tests first, then the hidden checks alone, so neither suite runs twice.
+  const visible = await execa('bun', ['test'], { cwd: dir, reject: false, all: true, timeout: 120_000 })
   await cp(join(TASKS_DIR, task, 'check'), join(dir, '__eval_check__'), { recursive: true })
-  const check = await execa('bun', ['test'], { cwd: dir, reject: false, all: true, timeout: 120_000 })
-  const hidden = await execa('bun', ['test', './__eval_check__'], { cwd: dir, reject: false, timeout: 120_000 })
+  const hidden = await execa('bun', ['test', './__eval_check__'], { cwd: dir, reject: false, all: true, timeout: 120_000 })
+  const hiddenPass = hidden.exitCode === 0
   // Usage recorded after the last budget poll can still push a run over, so check the final cost too.
   const withinBudget = stats.costUsd <= runBudgetUsd && spentUsd + stats.costUsd <= budgetUsd
-  const pass = check.exitCode === 0 && !timedOut && !overBudget && withinBudget
+  const pass = visible.exitCode === 0 && hiddenPass && !timedOut && !overBudget && withinBudget
   // Failed runs keep the whole conversation (reasoning, tool calls and results) for diagnosis.
   let transcriptPath: string | undefined
   if (!pass) {
@@ -192,10 +207,15 @@ async function runOnce(task: string, run: number) {
   }
   const outcome = classifyOutcome({ pass, timedOut, overBudget, error, finalMessage, denyAborted })
   const record = {
-    label, task, run, pass, outcome, hiddenPass: hidden.exitCode === 0, timedOut, overBudget, denyAborted, error, durationMs,
+    label, task, run, pass, outcome, hiddenPass, timedOut, overBudget, denyAborted, error, durationMs,
     model: usedModel, mode: opts.mode, effort, budgetLevel, baseURLHost, diffHash, finalMessage, commit, dirty, tools, ...stats,
-    fixedCostUsd: fixedCostUsd(stats),
-    checkOutput: pass ? undefined : tail(check.all ?? ''),
+    delegatedUsage,
+    fixedCostUsd: fixedCostUsd({
+      promptTokens: stats.promptTokens + delegatedUsage.promptTokens,
+      completionTokens: stats.completionTokens + delegatedUsage.completionTokens,
+      cachedTokens: stats.cachedTokens + delegatedUsage.cachedTokens,
+    }),
+    checkOutput: pass ? undefined : tail(`${visible.all ?? ''}\n--- hidden checks ---\n${hidden.all ?? ''}`),
     transcriptPath,
   }
   await appendFile(resultsFile, JSON.stringify(record) + '\n')

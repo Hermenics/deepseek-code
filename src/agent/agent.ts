@@ -103,7 +103,10 @@ class StreamIdleError extends Error {
 // A stalled upstream (a gateway that accepts a request and never answers) otherwise holds the turn
 // until the caller gives up. Thinking models stream reasoning deltas, so a silent window this long
 // means the request is dead, not slow.
-const streamIdleTimeoutMs = () => Number(process.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS) || 120_000
+const streamIdleTimeoutMs = () => {
+  const configured = Number(process.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS)
+  return Number.isFinite(configured) && configured > 0 ? configured : 120_000
+}
 
 class DenyAbortError extends Error {
   constructor() { super('deny-abort') }

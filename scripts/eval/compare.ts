@@ -121,6 +121,7 @@ export function compare(a: EvalRecord[], b: EvalRecord[], options: { iterations?
     const random = mulberry32(options.seed ?? 1)
     const pickN = <T>(xs: T[]) => Array.from(xs, () => xs[Math.floor(random() * xs.length)]!)
     const iterations = options.iterations ?? 5000
+    if (!Number.isInteger(iterations) || iterations < 1) throw new Error(`iterations must be a positive integer, got ${iterations}`)
     const samples: number[] = []
     for (let i = 0; i < iterations; i++) {
       const tasksSample = pickN(shared)
