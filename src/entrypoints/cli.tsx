@@ -101,6 +101,8 @@ import { getLastProjectSession, listSessions, loadSession, newSessionId, type Se
 import { loadSettingsSnapshot } from '../settings/repository.js'
 import type { DeepSeekSettings } from '../settings/types.js'
 import { formatExitScreen } from '../utils/exitScreen.js'
+import { exitWhenTerminalCloses } from '../utils/terminalLoss.js'
+import { auditLog } from '../agent/auditLog.js'
 import { relaunchCurrentInvocation } from '../utils/relaunch.js'
 import pkg from '../../package.json' with { type: 'json' }
 
@@ -427,18 +429,48 @@ root.render(<Root />)
 
 let exiting = false
 
-/** Idempotent shutdown: unmounts Ink, prints the exit banner synchronously and exits the process. */
+/** Idempotent shutdown: unmounts Ink, prints the exit banner synchronously and exits the process — even when the terminal is gone and every write fails with EIO. */
 function cleanExit(code = 0): void {
   if (exiting) return
   exiting = true
-  root.unmount()
-  // Sync write is intentional: process.exit must not interrupt the banner.
-  // Ink already restored the alternate screen during unmount; sending a
-  // second ?1049l would restore the shell's old cursor position on top.
-  writeSync(1, formatExitScreen(SESSION_ID, false))
-  process.exit(code)
+  try {
+    root.unmount()
+    // Sync write is intentional: process.exit must not interrupt the banner.
+    // Ink already restored the alternate screen during unmount; sending a
+    // second ?1049l would restore the shell's old cursor position on top.
+    writeSync(1, formatExitScreen(SESSION_ID, false))
+  } finally {
+    process.exit(code)
+  }
 }
 
 // Handle clean exit
 process.on('SIGINT', () => cleanExit(0))
 process.on('SIGTERM', () => cleanExit(0))
+if (process.stdin.isTTY) exitWhenTerminalCloses(cleanExit)
+
+/** Stack (or string form) of anything thrown or rejected. */
+const describeError = (error: unknown) => error instanceof Error ? error.stack ?? error.message : String(error)
+
+/**
+ * An uncaught exception leaves the app in an unknown state, so exit — but not via
+ * the default crash, whose stack is printed inside the alternate screen and wiped
+ * when it closes. Restore the terminal first, show the error, record it, exit 1.
+ */
+function crashExit(error: unknown): void {
+  const detail = describeError(error)
+  if (!exiting) {
+    exiting = true
+    try { root.unmount() } catch { /* terminal may be gone */ }
+    try { writeSync(2, `\nDeepSeek Code crashed: ${detail}\n`) } catch { /* terminal may be gone */ }
+  }
+  setTimeout(() => process.exit(1), 1000) // don't let a stuck log write keep a crashed app alive
+  void auditLog({ type: 'error', source: 'uncaughtException', message: detail }).finally(() => process.exit(1))
+}
+
+process.on('uncaughtException', crashExit)
+// Stray rejections were always tolerated in production; keep running, but stop
+// hiding them: they land in this session's audit log.
+process.on('unhandledRejection', reason => {
+  void auditLog({ type: 'error', source: 'unhandledRejection', message: describeError(reason) })
+})
