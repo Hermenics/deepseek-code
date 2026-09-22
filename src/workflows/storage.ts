@@ -66,22 +66,47 @@ function stable(value: unknown): string {
   return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, child]) => `${JSON.stringify(key)}:${stable(child)}`).join(',')}}`
 }
 
+/** Stable SHA-256 of a workflow value, used to match approvals and replays. */
 export function hashWorkflowValue(value: unknown): string {
   return createHash('sha256').update(typeof value === 'string' ? value : stable(value)).digest('hex')
 }
 
+const WINDOWS_RENAME_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
+
+/**
+ * On Windows a rename onto a file another handle is reading (a concurrent reader, an antivirus scan)
+ * fails with EPERM/EACCES/EBUSY for a few milliseconds; POSIX never does. Retry briefly, as graceful-fs does.
+ */
+export async function renameReplacing(
+  from: string,
+  to: string,
+  { platform = process.platform, renameFile = rename, attempts = 10 }: { platform?: string; renameFile?: (from: string, to: string) => Promise<void>; attempts?: number } = {},
+): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await renameFile(from, to)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? ''
+      if (platform !== 'win32' || !WINDOWS_RENAME_CODES.has(code) || attempt >= attempts) throw error
+      await new Promise((resolve) => setTimeout(resolve, attempt * 10))
+    }
+  }
+}
+
+/** Writes JSON through a temporary file and a rename, so readers never see a partial file. */
 async function atomicJson(path: string, value: unknown): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
   const temporary = `${path}.${randomUUID()}.tmp`
   await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 })
-  await rename(temporary, path)
+  await renameReplacing(temporary, path)
 }
 
+/** Writes text privately (0600) through a temporary file and a rename. */
 async function privateText(path: string, value: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 })
   const temporary = `${path}.${randomUUID()}.tmp`
   await writeFile(temporary, value, { mode: 0o600 })
-  await rename(temporary, path)
+  await renameReplacing(temporary, path)
 }
 
 async function readJson<T>(path: string): Promise<T | undefined> {

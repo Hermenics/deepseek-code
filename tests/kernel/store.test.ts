@@ -73,7 +73,8 @@ describe('Store', () => {
       upgraded?.close()
       rmSync(dir, { recursive: true, force: true })
     }
-  })
+    // Two SQLite files and five migrations: fast alone, but slower than 5s on a loaded full-suite run.
+  }, 20_000)
 
   it('should execute within a transaction', () => {
     store = new Store({ memory: true })

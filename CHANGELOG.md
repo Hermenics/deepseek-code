@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- Added: `scripts/eval/compare.ts` compares two eval labels — pass rate with a 95% Wilson interval, the paired difference per task, a 90% bootstrap interval that resamples tasks and then runs, cost per pass at one fixed price, and the promotion and 30–70% rotation rules
+- Added: Every eval record now carries `outcome` (pass, agent_fail, timeout, budget, infra_error, deny_abort), `hiddenPass`, a hash of the diff, the base URL host (never the key), effort, budget level and `fixedCostUsd`; old results stay readable and `pass` keeps its meaning
+- Added: `--effort low|high|max` on the eval runner, and memory is switched off for eval runs with `DEEPSEEK_DISABLE_MEMORY=1` so runs cannot learn from one another
+- Added: Three hard eval tasks — `batch-loader-rejection` (same failure family as `inflight-dedup`), `harness-quirk` (the bug is in a test helper and scratch files must be cleaned up) and `distant-cause` (the symptom is four files away from the cause, and the hidden check covers the other callers)
+- Added: Four more hard eval tasks after the re-baseline saturated the first set — `swr-background-refresh`, `generated-do-not-edit` (the fix belongs in the generator, and regenerating must reproduce the committed file), `semver-ranges` (npm range and prerelease semantics, checked against the `semver` package) and `convention-ambiguity` (the new method must follow the repository's Result, error-code and logger conventions)
+- Added: A permission handler can answer `reject`: on a path outside the workspace the model gets a path error and the turn continues; for every other kind of request it fails closed exactly like `deny`. The eval runner now answers `reject` instead of ending the turn
+- Enhanced: The environment block tells the model that shell commands see the working directory at `/mnt`, while file tools use the real path
+- Fixed: A streaming request that goes silent for two minutes (`DEEPSEEK_STREAM_IDLE_TIMEOUT_MS`) is aborted and retried when nothing had arrived yet, and fails the turn with a clear error when it stalls mid-answer, instead of holding the turn until the caller gives up
+- Fixed: A denied tool call is reported through `onToolCall` before the turn stops, so it shows up in the UI and in eval records instead of vanishing
+- Fixed: Subagents price their full usage (cache misses, cache hits, output) with the shared cost table, so `maxCostUsd` — including the $0.50 cap of the "I'm broke" level — is enforced, and stops the subagent mid-run instead of never firing
+- Fixed: Subagent and verifier spend is added to the session cost shown by `/cost` and used by budgets
+- Fixed: Subagents on the official DeepSeek API request the same output ceiling as the main agent instead of the 4K default that truncates long file writes
+- Fixed: The eval runner's header promised that destructive shell commands were denied; it grants them per session, and now says so
+- Tests: `reject` failing closed at the permission, risk, agent-config and workflow prompts, a free repro of the silent turn end on an outside-workspace deny, subagent cost enforcement and aggregation, and the compare statistics
+
 ## 0.7.5
 
 - Added: A spending level (`budget`) in Settings / Agent Behavior — "I'm broke", "I'm comfortable" and "I'm loaded" — moving thinking depth, delegation width, model review and compaction together, so the choice is about the wallet instead of six separate knobs
