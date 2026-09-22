@@ -95,6 +95,16 @@ function formatVerificationFeedback(result: VerificationResult, attempt: number)
   ].join('\n')
 }
 
+/** No chunk arrived for the idle window; the request is aborted and retried like a dropped connection. */
+class StreamIdleError extends Error {
+  constructor(ms: number) { super(`No response from the model for ${Math.round(ms / 1000)}s`) }
+}
+
+// A stalled upstream (a gateway that accepts a request and never answers) otherwise holds the turn
+// until the caller gives up. Thinking models stream reasoning deltas, so a silent window this long
+// means the request is dead, not slow.
+const streamIdleTimeoutMs = () => Number(process.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS) || 120_000
+
 class DenyAbortError extends Error {
   constructor() { super('deny-abort') }
 }
@@ -1855,7 +1865,7 @@ export class Agent {
         // for every provider, and a proxy in front of the model turns most of them into 5xx.
         const transientStatus = err.status !== undefined && [408, 409, 429, 500, 502, 503, 504, 529].includes(err.status)
         const networkCode = err.code ?? err.cause?.code
-        const transientNetwork = err.name === 'APIConnectionError' || (networkCode !== undefined && ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'EAI_AGAIN', 'UND_ERR_SOCKET'].includes(networkCode))
+        const transientNetwork = e instanceof StreamIdleError || err.name === 'APIConnectionError' || (networkCode !== undefined && ['ECONNRESET', 'ECONNREFUSED', 'ETIMEDOUT', 'EPIPE', 'EAI_AGAIN', 'UND_ERR_SOCKET'].includes(networkCode))
         if ((transientStatus || transientNetwork) && attempt < delays.length) {
           await this.waitForRetry(delays[attempt]!, signal)
           continue
@@ -1864,6 +1874,59 @@ export class Agent {
       }
     }
     throw new Error('unreachable')
+  }
+
+  /**
+   * Opens a streaming completion guarded by an idle watchdog. The first chunk is awaited inside
+   * withRetry, so a request that never answers is retried; a stream that goes silent after it has
+   * started fails the turn with StreamIdleError instead of re-sending text the UI already showed.
+   */
+  private openStream(body: Record<string, unknown>): Promise<AsyncIterable<any>> {
+    const turnSignal = this.abortController!.signal
+    return this.withRetry(async () => {
+      const idleMs = streamIdleTimeoutMs()
+      const attempt = new AbortController()
+      const forwardAbort = () => attempt.abort(turnSignal.reason)
+      turnSignal.addEventListener('abort', forwardAbort, { once: true })
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const arm = () => {
+        clearTimeout(timer)
+        timer = setTimeout(() => attempt.abort(new StreamIdleError(idleMs)), idleMs)
+      }
+      const release = () => {
+        clearTimeout(timer)
+        turnSignal.removeEventListener('abort', forwardAbort)
+      }
+      const idleError = () => (attempt.signal.reason instanceof StreamIdleError && !turnSignal.aborted ? attempt.signal.reason : undefined)
+      arm()
+      try {
+        const stream = await this.client.chat.completions.create(body as any, { signal: attempt.signal }) as unknown as AsyncIterable<any>
+        const iterator = stream[Symbol.asyncIterator]()
+        const first = await iterator.next()
+        arm()
+        return (async function* () {
+          try {
+            if (first.done) return
+            yield first.value
+            while (true) {
+              const next = await iterator.next()
+              if (next.done) return
+              arm()
+              yield next.value
+            }
+          } catch (error) {
+            throw idleError() ?? error
+          } finally {
+            release()
+            // An early break must still close the underlying HTTP stream, as a direct for-await would.
+            void iterator.return?.()?.catch(() => {})
+          }
+        })()
+      } catch (error) {
+        release()
+        throw idleError() ?? error
+      }
+    })
   }
 
   private waitForRetry(delayMs: number, signal = this.abortController?.signal): Promise<void> {
@@ -2046,17 +2109,15 @@ export class Agent {
       let stream: AsyncIterable<any>
       try {
         const effortParams = this.getEffortApiParams()
-        stream = await this.withRetry(() =>
-          this.client.chat.completions.create({
-            model: this.model,
-            messages: apiMessages,
-            tools: this.getAvailableOpenAITools(),
-            stream: true,
-            stream_options: { include_usage: true },
-            ...effortParams,
-            ...this.getSamplingParams(),
-          } as any, { signal: this.abortController!.signal }) as any
-        )
+        stream = await this.openStream({
+          model: this.model,
+          messages: apiMessages,
+          tools: this.getAvailableOpenAITools(),
+          stream: true,
+          stream_options: { include_usage: true },
+          ...effortParams,
+          ...this.getSamplingParams(),
+        })
       } catch (e: unknown) {
         if (this.abortController?.signal.aborted) {
           cb.onDone()
