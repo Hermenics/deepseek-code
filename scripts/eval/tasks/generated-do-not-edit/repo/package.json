@@ -1,0 +1,9 @@
+{
+  "name": "eval-routes",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "gen": "bun scripts/gen-routes.ts",
+    "test": "bun test"
+  }
+}

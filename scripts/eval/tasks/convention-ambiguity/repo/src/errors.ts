@@ -1,0 +1,6 @@
+export type AccountError =
+  | 'ACCOUNT_NOT_FOUND'
+  | 'ACCOUNT_FROZEN'
+  | 'INSUFFICIENT_FUNDS'
+  | 'INVALID_AMOUNT'
+  | 'SAME_ACCOUNT'
