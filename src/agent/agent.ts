@@ -1898,18 +1898,28 @@ export class Agent {
         turnSignal.removeEventListener('abort', forwardAbort)
       }
       const idleError = () => (attempt.signal.reason instanceof StreamIdleError && !turnSignal.aborted ? attempt.signal.reason : undefined)
+      // Race every read against the abort: a response body that ignores its signal must not hold the turn.
+      const aborted = new Promise<never>((_, reject) => {
+        attempt.signal.addEventListener('abort', () => reject(attempt.signal.reason ?? new Error('Request aborted')), { once: true })
+      })
+      aborted.catch(() => {})
       arm()
       try {
-        const stream = await this.client.chat.completions.create(body as any, { signal: attempt.signal }) as unknown as AsyncIterable<any>
+        const stream = await Promise.race([
+          this.client.chat.completions.create(body as any, { signal: attempt.signal }) as unknown as Promise<AsyncIterable<any>>,
+          aborted,
+        ])
         const iterator = stream[Symbol.asyncIterator]()
-        const first = await iterator.next()
+        const read = () => Promise.race([iterator.next(), aborted])
+        let first: IteratorResult<any>
+        try { first = await read() } catch (error) { void iterator.return?.()?.catch(() => {}); throw error }
         arm()
         return (async function* () {
           try {
             if (first.done) return
             yield first.value
             while (true) {
-              const next = await iterator.next()
+              const next = await read()
               if (next.done) return
               arm()
               yield next.value

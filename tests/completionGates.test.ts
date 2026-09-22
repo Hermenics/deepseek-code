@@ -370,6 +370,37 @@ describe('stream idle timeout', () => {
     })()
   }
 
+  /** The upstream sends headers and then nothing, and its body ignores the abort signal. */
+  const deafResponse = () => (): AsyncIterable<object> => ({
+    [Symbol.asyncIterator]: () => ({
+      next: () => new Promise<IteratorResult<object>>(() => {}),
+      return: async () => ({ done: true as const, value: undefined }),
+    }),
+  })
+
+  it('retries a stream whose body never delivers a chunk, even when it ignores abort', async () => {
+    const { agent, requests } = await scriptedAgent([deafResponse(), () => textResponse('Recovered.')])
+    const cb = trackedCallbacks()
+    const tokens: string[] = []
+    cb.onToken = (t: string) => { tokens.push(t) }
+
+    await agent.run('go', cb)
+
+    expect(requests).toHaveLength(2)
+    expect(tokens.join('')).toContain('Recovered.')
+  }, 5_000)
+
+  it('ends the turn promptly on abort while a deaf stream is open', async () => {
+    process.env.DEEPSEEK_STREAM_IDLE_TIMEOUT_MS = '100000'
+    const { agent } = await scriptedAgent([deafResponse()])
+    const cb = trackedCallbacks()
+    setTimeout(() => agent.abort(), 100)
+
+    await agent.run('go', cb)
+
+    expect(cb.done).toBe(1)
+  }, 5_000)
+
   it('retries a request that never sends a chunk instead of hanging the turn', async () => {
     const { agent, requests } = await scriptedAgent([silentResponse(), () => textResponse('Recovered.')])
     const internals = agent as unknown as Record<string, unknown>
