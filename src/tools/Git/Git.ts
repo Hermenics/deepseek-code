@@ -21,6 +21,7 @@ Actions:
 - status: show working tree status (git status --short)
 - diff: show unstaged changes. Optional: file=<path> to diff specific file, staged=true for staged changes
 - log: show recent commits. Optional: n=<number> (default 20)
+- batch: run multiple read-only status, diff, or log operations in one call. Requires operations=[{action, file?, staged?, n?}, ...]
 - add: stage files. Requires: files=["path1","path2"] or files=["."].
 - commit: create a commit. Requires: message=<string>
 - branch: list branches. Optional: create=<name> to create+switch, switch=<name> to switch
@@ -32,8 +33,20 @@ Actions:
     properties: {
       action: {
         type: 'string',
-        enum: ['status', 'diff', 'log', 'add', 'commit', 'branch', 'stash', 'pull', 'push'],
+        enum: ['status', 'diff', 'log', 'batch', 'add', 'commit', 'branch', 'stash', 'pull', 'push'],
         description: 'Git action to perform',
+      },
+      operations: {
+        type: 'array',
+        description: 'Read-only operations for batch; action must be status, diff, or log',
+        items: {
+          type: 'object',
+          properties: {
+            action: { type: 'string', enum: ['status', 'diff', 'log'] },
+            file: { type: 'string' }, staged: { type: 'boolean' }, n: { type: 'number' },
+          },
+          required: ['action'],
+        },
       },
       message: { type: 'string', description: 'Commit message (required for commit)' },
       files: {
@@ -67,6 +80,44 @@ Actions:
     const switchBranch = (args as { switch?: string }).switch
 
     switch (action) {
+      case 'batch': {
+        const operations = (args as { operations?: Array<Record<string, unknown>> }).operations
+        if (!Array.isArray(operations) || !operations.length || operations.some(operation => !operation || !['status', 'diff', 'log'].includes(String(operation.action)))) {
+          return 'Error: batch requires a non-empty operations array containing only status, diff, or log actions'
+        }
+        if (operations.some(operation =>
+          operation.action === 'status' && (operation.file !== undefined || operation.staged !== undefined || operation.n !== undefined) ||
+          operation.action === 'diff' && operation.n !== undefined ||
+          operation.action === 'log' && (operation.file !== undefined || operation.staged !== undefined),
+        )) {
+          return 'Error: batch options are action-specific (diff: file, staged; log: n; status: none)'
+        }
+        const results: Array<{ action: string; options: Record<string, unknown>; result: string }> = []
+        for (let start = 0; start < operations.length; start += 5) {
+          const batch = operations.slice(start, start + 5)
+          const batchResults = await Promise.all(batch.map(async options => {
+            const operation = String(options.action)
+            return {
+              action: operation,
+              options,
+              result: await Git.execute({
+                action: operation,
+                ...(operation === 'diff' ? { file: options.file as string | undefined, staged: options.staged as boolean | undefined } : {}),
+                ...(operation === 'log' ? { n: options.n as number | undefined } : {}),
+              }, context),
+            }
+          }))
+          results.push(...batchResults)
+        }
+        return results.map(({ action: operation, options, result }) => {
+          const details = operation === 'diff'
+            ? [typeof options.file === 'string' && options.file ? `file=${options.file}` : undefined,
+              typeof options.staged === 'boolean' ? `staged=${options.staged}` : undefined]
+            : operation === 'log' && typeof options.n === 'number' ? [`n=${options.n}`] : []
+          const label = details.filter(Boolean).join(', ')
+          return `### ${operation}${label ? ` (${label})` : ''}\n${result}`
+        }).join('\n\n')
+      }
       case 'status': {
         const { out } = await git(['status', '--short', '--branch'], context)
         return out || 'Working tree clean'

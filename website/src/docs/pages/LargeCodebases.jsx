@@ -35,7 +35,7 @@ const LIMITS = [
   ["grep results", "200 lines", "The result reports when additional matches were omitted."],
   ["glob results", "500 files", "Narrow the pattern when the result is truncated."],
   ["recursive folder list", "1,000 entries / depth 5", "Unreadable directories are marked and skipped."],
-  ["default file read", "200 lines", "Continue with explicit start and end line numbers."],
+  ["default file read", "500 lines", "Continue with explicit start and end line numbers."],
   ["shell output", "50,000 characters", "Prefer a narrow command instead of relying on truncation."],
   ["custom-agent file context", "50,000 characters total", "Patterns share one budget across all injected files."],
 ];
@@ -177,11 +177,11 @@ export default function LargeCodebases() {
         <section id="reading">
           <h2><span className="anchor">#</span>Reading large files</h2>
           <p>
-            A default file read returns the first 200 numbered lines and reports the total. Continue with
+            A default file read returns the first 500 numbered lines and reports the total. Continue with
             explicit one-based, inclusive ranges. Search for a symbol first when you do not know which range
             matters.
           </p>
-          <CodeBlock lang="text">{"Read src/router.ts around lines 420–520.\nIf the handler delegates elsewhere, follow only those calls.\nDo not reread the first 200 lines unless they contain required shared state."}</CodeBlock>
+          <CodeBlock lang="text">{"Read src/router.ts around lines 420–520.\nIf the handler delegates elsewhere, follow only those calls.\nDo not reread the first 500 lines unless they contain required shared state."}</CodeBlock>
           <p>
             Numbered output makes a later edit or reference stable within the current snapshot. If another tool
             changes the file, search again before relying on old line numbers.

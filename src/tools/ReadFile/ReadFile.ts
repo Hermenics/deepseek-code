@@ -7,7 +7,7 @@ const DEFAULT_MAX_LINES = 500
 /** Read-only tool returning a line-numbered slice of a file (first 500 lines by default) with a header giving the total and how to continue. The path must pass `assertSafePath`. */
 export const ReadFile: Tool = {
   name: 'read_file',
-  description: `Read a file with line numbers. Use it instead of shell cat/sed/head.
+  description: `Read one or several files with line numbers. Pass path for one file or paths for several files in one call. Use it instead of shell cat/sed/head.
 - Without start_line/end_line: returns the first ${DEFAULT_MAX_LINES} lines plus the total line count
 - With start_line and/or end_line: returns exactly that range
 - Read large files in chunks (e.g. start_line=${DEFAULT_MAX_LINES + 1}, end_line=${DEFAULT_MAX_LINES * 2}); read a file before editing it`,
@@ -15,13 +15,20 @@ export const ReadFile: Tool = {
     type: 'object',
     properties: {
       path: { type: 'string', description: 'File path' },
+      paths: { type: 'array', items: { type: 'string' }, description: 'File paths to read together; use instead of path' },
       start_line: { type: 'number', description: 'First line to read (1-indexed, inclusive). Defaults to 1.' },
       end_line: { type: 'number', description: 'Last line to read (1-indexed, inclusive). Defaults to start_line + 499.' },
     },
-    required: ['path'],
+    anyOf: [{ required: ['path'] }, { required: ['paths'] }],
   },
   async execute(args, context) {
-    const filePath = await assertSafePath(args.path as string, context)
+    const paths = args.paths
+    if (paths !== undefined) {
+      if (!Array.isArray(paths) || !paths.length || !paths.every(path => typeof path === 'string' && path.trim())) return 'Error: paths must be a non-empty array of file paths'
+      return (await Promise.all(paths.map(path => ReadFile.execute({ ...args, path, paths: undefined }, context)))).join('\n\n')
+    }
+    if (typeof args.path !== 'string' || !args.path.trim()) return 'Error: path is required'
+    const filePath = await assertSafePath(args.path, context)
 
     let content: string
     try {

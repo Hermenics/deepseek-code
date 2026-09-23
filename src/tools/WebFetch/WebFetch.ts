@@ -166,6 +166,13 @@ async function readBodyWithinLimit(response: Response): Promise<string> {
 /** Crude HTML-to-text: drops script/style blocks and tags, decodes common entities (`&amp;` last, to avoid double-unescaping) and collapses whitespace. */
 function stripHtml(html: string): string {
   return html
+    // Decode one layer before stripping tags so entity-encoded markup cannot reappear afterward.
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
     // Remove scripts e styles completos (conteúdo + tag).
     // The closing-tag regex accepts attributes (`</script foo="bar">`) because
     // browsers tolerate that parser error and would execute the script body.
@@ -173,15 +180,9 @@ function stripHtml(html: string): string {
     .replace(/<style\b[^>]*>[\s\S]*?<\/style[^>]*>/gi, ' ')
     // Remove todas as outras tags
     .replace(/<[^>]+>/g, ' ')
-    // Decodifica entidades HTML comuns. The ampersand is decoded LAST so an
+    // The ampersand is decoded LAST so an
     // entity like &amp;lt; (which means a literal "&lt;", not "<") does not get
     // double-unescaped into "<" (CodeQL js/double-escaping).
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
     .replace(/&amp;/g, '&')
     // Colapsa espaços em branco excessivos
     .replace(/\s+/g, ' ')

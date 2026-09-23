@@ -4,6 +4,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import {
   countActiveActivities,
+  shouldPinHeader,
   hasActivityToOpen,
   canMessageSubagent,
   canControlWorkflowRun,
@@ -19,6 +20,13 @@ import {
   validateSubagentStatusLineConfig,
   type ActivityFocusSelection,
 } from '../../src/ui/App.js'
+
+test('header is pinned only when more than 21 transcript rows remain', () => {
+  expect(shouldPinHeader(30, 80, 3, false)).toBe(false)
+  expect(shouldPinHeader(31, 80, 3, false)).toBe(true)
+  expect(shouldPinHeader(31, 80, 4, false)).toBe(false)
+  expect(shouldPinHeader(40, 80, 3, false, true)).toBe(false)
+})
 import type { SubagentState } from '../../src/ui/subagent/types.js'
 import type { WorkflowRun } from '../../src/workflows/types.js'
 

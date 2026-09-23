@@ -5,7 +5,6 @@ import type { Tool } from '../types.js'
 import type { ToolExecutionContext } from '../../orchestration/types.js'
 import { createLLMClient } from '../../agent/llmClient.js'
 import { estimateCost, type TokenUsage } from '../../agent/cost.js'
-import { SUBAGENT_MAX_ITERATIONS } from '../../constants.js'
 import { resolvePermission } from '../../permissions/matcher.js'
 import { assessRisk } from '../../permissions/risk.js'
 import { loadMergedSettings } from '../../settings/loader.js'
@@ -15,6 +14,8 @@ import { isToolAllowedForProfile } from './permissions.js'
 import { TaskRuntimeError } from '../../orchestration/lifecycle.js'
 import { isDeepStrictEqual } from 'node:util'
 import { runPermissionRequestHooks } from '../../hooks/lifecycle.js'
+
+const CONTEXTLESS_TIMEOUT_MS = 120_000
 
 export interface ExecutorCallbacks {
   onToolUse?(id: string, tool: string, info?: string): void
@@ -131,8 +132,12 @@ export async function runSubAgentLoop<T = never>(
     return drained
   }
 
-  for (let iteration = 0; iteration < SUBAGENT_MAX_ITERATIONS; iteration++) {
+  const contextlessDeadline = options.context ? undefined : Date.now() + CONTEXTLESS_TIMEOUT_MS
+  while (true) {
     if (options.context?.signal?.aborted) throw options.context.signal.reason
+    if (contextlessDeadline !== undefined && Date.now() >= contextlessDeadline) {
+      throw new TaskRuntimeError('TIMED_OUT', `Subagent exceeded the default ${CONTEXTLESS_TIMEOUT_MS}ms time limit without a task context`)
+    }
     drainQuestions()
     const effortParams = (provider.provider === 'deepseek' || provider.provider === 'bedrock') && options.effort
       ? options.effort === 'low'
@@ -155,7 +160,7 @@ export async function runSubAgentLoop<T = never>(
     usageTotals.cachedTokens += responseUsage.cachedTokens
     const taskTokens = (base?.totalTokens ?? 0) + totalTokens
     const taskCostUsd = (base?.costUsd ?? 0) + costUsd
-    // Persist after every paid response so every exit (budget, invalid output, iteration limit, a
+    // Persist after every paid response so every exit (budget, invalid output, a
     // throwing caller) leaves the real spend in the task's metrics instead of zero.
     if (options.context?.taskId && options.context.session) {
       try {
@@ -324,5 +329,4 @@ export async function runSubAgentLoop<T = never>(
       messages.push({ role: 'tool', tool_call_id: call.id, content: result })
     }
   }
-  throw new StructuredOutputError('MAX_ITERATIONS', `Subagent reached maximum iteration limit (${SUBAGENT_MAX_ITERATIONS})`, raw.join('\n'))
 }

@@ -8,7 +8,6 @@ import {
   CONTEXT_COMPACT_THRESHOLD,
   DIFF_MAX_LINES,
   CHECKPOINT_MAX,
-  SUBAGENT_MAX_ITERATIONS,
   REFINER_MAX_TOKENS,
   REFINER_MIN_LENGTH,
 } from '../src/constants.js'
@@ -50,11 +49,6 @@ describe('Constants', () => {
     expect(CHECKPOINT_MAX).toBeGreaterThan(0)
   })
 
-  it('SUBAGENT_MAX_ITERATIONS should be between 1 and 50', () => {
-    expect(SUBAGENT_MAX_ITERATIONS).toBeGreaterThanOrEqual(1)
-    expect(SUBAGENT_MAX_ITERATIONS).toBeLessThanOrEqual(50)
-  })
-
   it('REFINER_MAX_TOKENS should be positive', () => {
     expect(REFINER_MAX_TOKENS).toBeGreaterThan(0)
   })
@@ -72,7 +66,6 @@ describe('Constants', () => {
     expect(CONTEXT_COMPACT_THRESHOLD).toBe(0.85)
     expect(DIFF_MAX_LINES).toBe(50)
     expect(CHECKPOINT_MAX).toBe(20)
-    expect(SUBAGENT_MAX_ITERATIONS).toBe(50)
     expect(REFINER_MAX_TOKENS).toBe(1024)
     expect(REFINER_MIN_LENGTH).toBe(30)
   })

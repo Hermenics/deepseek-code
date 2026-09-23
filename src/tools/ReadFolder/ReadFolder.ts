@@ -58,16 +58,26 @@ async function listDir(
 /** Read-only tool listing a directory, optionally recursive up to 5 levels and 1000 entries. The dir must pass `assertSafeDir`. */
 export const ReadFolder: Tool = {
   name: 'read_folder',
-  description: 'List files and directories.',
+  description: 'List one or several directories. Pass paths to list multiple directories in one call.',
   parameters: {
     type: 'object',
     properties: {
       path: { type: 'string', description: 'Directory path' },
+      paths: { type: 'array', items: { type: 'string' }, description: 'Directory paths to list independently in one call; use instead of path' },
       recursive: { type: 'boolean', description: 'Recurse into subdirs' },
     },
-    required: ['path'],
+    anyOf: [{ required: ['path'] }, { required: ['paths'] }],
   },
   async execute(args, context) {
+    if (args.paths !== undefined) {
+      if (!Array.isArray(args.paths) || !args.paths.length || !args.paths.every(path => typeof path === 'string' && path.trim())) return 'Error: paths must be a non-empty array of directory paths'
+      const results = await Promise.all(args.paths.map(async dir => ({
+        dir,
+        result: await ReadFolder.execute({ ...args, path: dir, paths: undefined }, context),
+      })))
+      return results.map(({ dir, result }) => `### ${dir}\n${result}`).join('\n\n')
+    }
+    if (typeof args.path !== 'string' || !args.path.trim()) return 'Error: path is required'
     const dirPath = await assertSafeDir(args.path as string, context)
     const ignoreRoot = path.resolve(context?.workspacePath ?? process.cwd())
 

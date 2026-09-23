@@ -42,7 +42,6 @@ const INFERRED_ROLES = [
 ];
 
 const LIMITS = [
-  ["SUBAGENT_MAX_ITERATIONS", "50", "Max loop iterations per sub-agent"],
   ["timeoutMs", "120000 (2 min)", "Default per-task timeout"],
   ["concurrency", "5", "Parallel tasks per session"],
   ["maxTasks", "17", "Total tasks per session"],
@@ -171,8 +170,8 @@ export default function SubAgents() {
   }
 }`}</CodeBlock>
           <p>
-            A sub-agent runs its own loop capped at <code className="inline">SUBAGENT_MAX_ITERATIONS</code> (50),
-            gets role-filtered tools, and is isolated to a permission profile —{" "}
+            A sub-agent loops until it returns a result, is cancelled, times out, or reaches its token or cost
+            budget. It gets role-filtered tools and is isolated to a permission profile —{" "}
             <code className="inline">researcher-readonly</code>, <code className="inline">tester</code>,{" "}
             <code className="inline">writer-worktree</code>, or <code className="inline">coordinator-integrator</code>.
             It must terminate by calling <code className="inline">submit_result</code> <b>exactly once</b> with a

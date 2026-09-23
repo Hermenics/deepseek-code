@@ -153,7 +153,7 @@ export default function Architecture() {
             <li><b>Micro-compact</b> — stale read-only tool results are collapsed before any LLM round-trip (feature-flagged).</li>
             <li><b>Auto-compact</b> — when context usage is above threshold, with a circuit breaker that disables itself after repeated failures.</li>
             <li><b>Prompt refinement</b> — optional; prompts ≥ 30 characters are rewritten by a refiner model unless disabled.</li>
-            <li><b>Loop</b> — up to <code className="inline">MAX_AGENT_ITERATIONS = 100</code> iterations.</li>
+            <li><b>Loop</b> — no iteration cap; the turn runs until the model answers or the user aborts.</li>
             <li><b>Streaming</b> — All providers stream by default; Bedrock R1 is bridged from the AWS event stream and <code className="inline">DEEPSEEK_NO_STREAM=1</code> selects the aggregated path.</li>
             <li><b>Parallel calls</b> — a batch runs concurrently only when every tool is in the{" "}
               <code className="inline">PARALLEL_SAFE</code> set: <code className="inline">subagent</code>,{" "}

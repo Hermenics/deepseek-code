@@ -101,6 +101,12 @@ describe('Individual Tool Validation', () => {
       const result = await tool.execute({ path: 'package.json' })
       expect(result).toContain('deepseek-code')
     })
+
+    it('reads several files in one call', async () => {
+      const result = await tool.execute({ paths: ['package.json', 'tsconfig.json'] })
+      expect(result).toContain('package.json  ')
+      expect(result).toContain('tsconfig.json  ')
+    })
   })
 
   describe('read_folder', () => {
@@ -114,6 +120,14 @@ describe('Individual Tool Validation', () => {
       const result = await tool.execute({ path: '.' })
       expect(result).toContain('src')
       expect(result).toContain('package.json')
+    })
+
+    it('lists several directories in one call', async () => {
+      const result = await tool.execute({ paths: ['src', 'tests'] })
+      expect(result).toContain('### src')
+      expect(result).toContain('### tests')
+      expect(result).toContain('agent')
+      expect(result).toContain('agent.test.ts')
     })
 
     it('should handle non-existent directory gracefully', async () => {
@@ -137,6 +151,12 @@ describe('Individual Tool Validation', () => {
     it('should find pattern in files', async () => {
       const result = await tool.execute({ pattern: 'deepseek-code', path: '.' })
       expect(result.length).toBeGreaterThan(0)
+    })
+
+    it('searches several patterns in one call', async () => {
+      const result = await tool.execute({ patterns: ['"name"', '"version"'], path: '.' })
+      expect(result).toContain('### "name"')
+      expect(result).toContain('### "version"')
     })
   })
 
@@ -163,6 +183,20 @@ describe('Individual Tool Validation', () => {
     it('should handle list action', async () => {
       const result = await tool.execute({ action: 'list' })
       expect(typeof result).toBe('string')
+    })
+
+    it('adds, updates, and removes items in one call', async () => {
+      await tool.execute({ action: 'clear' })
+      const added = await tool.execute({ action: 'batch', operations: [{ action: 'add', title: 'one' }, { action: 'add', title: 'two' }] })
+      expect(added.match(/Added:/g)).toHaveLength(2)
+      const items = (await tool.execute({ action: 'list' })).split('\n')
+      const first = items[0]!.match(/\] ([^:]+):/)![1]
+      const second = items[1]!.match(/\] ([^:]+):/)![1]
+      const changed = await tool.execute({ action: 'batch', operations: [{ action: 'update', id: first, status: 'done' }, { action: 'remove', id: second }] })
+      expect(changed).toContain('Updated')
+      expect(changed).toContain('Removed')
+      expect(await tool.execute({ action: 'list' })).toContain('[done]')
+      await tool.execute({ action: 'clear' })
     })
   })
 })

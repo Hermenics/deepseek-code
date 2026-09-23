@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import useInput from '../../ink/hooks/use-input.js'
 import type { Key } from '../../ink/events/input-event.js'
 import { loadInputHistory } from '../../agent/inputHistory.js'
@@ -21,6 +21,8 @@ import { CommandDropdown } from './render/CommandDropdown.js'
 import { FileDropdown } from './render/FileDropdown.js'
 import { InputChrome } from './render/InputChrome.js'
 import Box from '../../ink/components/Box.js'
+import measureElement from '../../ink/measure-element.js'
+import type { DOMElement } from '../../ink/dom.js'
 import Text from '../../ink/components/Text.js'
 import { getAtMention, searchFiles } from './fileMatcher.js'
 import { isFullscreenActive } from '../../utils/fullscreen.js'
@@ -107,6 +109,7 @@ export function InputBox({
   keybindings,
   suggestedReply,
   onSuggestedReplyDismiss,
+  onHeightChange,
 }: {
   onSubmit: (text: string, images?: PromptImage[]) => void
   isLoading: boolean
@@ -134,6 +137,7 @@ export function InputBox({
   keybindings?: KeybindingsSettings
   suggestedReply?: string
   onSuggestedReplyDismiss?: () => void
+  onHeightChange?: (height: number) => void
 }) {
   const theme = useTheme()
   const colors = useThemeColors()
@@ -151,6 +155,11 @@ export function InputBox({
   const historyRef = useRef(new InputHistory())
   const bufferRef = useRef(new InputBuffer())
   const fileSearchRequestRef = useRef(0)
+  const inputRef = useRef<DOMElement>(null)
+
+  useLayoutEffect(() => {
+    if (inputRef.current) onHeightChange?.(measureElement(inputRef.current).height)
+  })
 
   useEffect(() => {
     if (!showFullscreenHint) setFullscreenHintVisible(false)
@@ -532,7 +541,7 @@ export function InputBox({
       : null
 
   return (
-    <Box flexDirection="column">
+    <Box ref={inputRef} flexDirection="column">
       {fullscreenHintVisible && showFullscreenHint && isFullscreenActive() && (
         <Box justifyContent="flex-end">
           <Text dimColor>{"Don't like this screen? Change it in /config"}</Text>

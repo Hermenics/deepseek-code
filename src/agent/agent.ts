@@ -2087,19 +2087,7 @@ export class Agent {
 
   /** Model and tool loop for one turn: streams a response, runs its tool calls, and repeats until the model answers. */
   private async runLoop(cb: AgentCallbacks) {
-    const MAX_AGENT_ITERATIONS = 100
-    let iterations = 0
     while (true) {
-      if (++iterations > MAX_AGENT_ITERATIONS) {
-        const message = `⚠ Stopped after ${MAX_AGENT_ITERATIONS} tool iterations in one turn. The work so far is kept; send "continue" to resume, or narrow the request.`
-        this.messages.push({ role: 'assistant', content: message })
-        this.orchestrator.emit('error', { code: 'MAX_ITERATIONS', message })
-        cb.onToken(message)
-        await saveHistory(this.messages)
-        cb.onDone()
-        return
-      }
-
       // Sanitize messages for the API: reasoning_content must be preserved for all models
       const rawMessages = getMessagesAfterBoundary(this.messages)
       const apiMessages = this.getApiMessages(rawMessages)
@@ -2738,66 +2726,75 @@ export class Agent {
     let approvedExternalDirectory = false
     let executionExternalPaths = [...this.sessionApprovedDirectories]
     const pathTool = PATH_TOOL_ARGUMENTS[tc.function.name]
-    const requestedPath = pathTool && typeof effectiveArgs[pathTool.key] === 'string'
-      ? effectiveArgs[pathTool.key] as string
-      : undefined
+    const requestedPaths = pathTool
+      ? ['read_file', 'read_folder'].includes(tc.function.name) && Array.isArray(effectiveArgs.paths)
+        ? effectiveArgs.paths.filter((value): value is string => typeof value === 'string')
+        : typeof effectiveArgs[pathTool.key] === 'string'
+          ? [effectiveArgs[pathTool.key] as string]
+          : []
+      : []
 
-    if (pathTool && requestedPath) {
+    if (pathTool && requestedPaths.length > 0) {
       const pathContext = this.orchestrator.toolContext({
         workspacePath: this.workspacePath,
         signal: this.abortController?.signal,
       })
-      const targetPath = resolvePathForContext(requestedPath, pathContext)
-      if (!isPathContained(this.workspacePath, targetPath)) {
-        const externalDirectory = await resolveExternalApprovalDirectory(requestedPath, pathTool.isDirectory, pathContext)
-        // Persisted workflow runs (scripts, journals) are DeepSeek Code's own state, not user
-        // data: reading them back is part of the workflow contract and must not prompt.
-        const workflowState = this.workflows.stateDirectory
-        const workflowStateRead = READ_ONLY_PATH_TOOLS.has(tc.function.name) && isPathContained(workflowState, targetPath)
-        approvedExternalDirectory = workflowStateRead || [...this.sessionApprovedDirectories]
-          .some(directory => isPathContained(directory, externalDirectory))
-        if (workflowStateRead) executionExternalPaths = [...this.sessionApprovedDirectories, workflowState]
-        if (!approvedExternalDirectory) {
-          const hookDecision = await this.permissionHookDecision(tc.function.name, effectiveArgs)
-          if (hookDecision.decision === 'block') {
-            const blockMsg = hookDecision.reason ?? `Tool '${tc.function.name}' blocked by PermissionRequest hook.`
-            cb.onToolCall(tc.function.name, effectiveArgs)
-            cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
-            return { tc, result: blockMsg }
-          }
-          if (hookDecision.approved) {
-            approvedThisCall = true
-            executionExternalPaths = [...this.sessionApprovedDirectories, externalDirectory]
-          } else if (!this.toolPermissionHandler) {
-            // Preserve the existing fail-closed path error for non-interactive callers.
-            await resolveSafePath(requestedPath, pathContext)
-          }
-          else {
-            const decision = await this.toolPermissionHandler({
-              toolName: tc.function.name,
-              args: effectiveArgs,
-              reason: 'outside_workspace',
-              externalDirectory,
-              riskDescription: riskResult?.requiresConfirmation ? `${riskResult.level} risk: ${riskResult.description}` : undefined,
-            })
-            if (decision === 'reject') {
-              throw new Error(`Path '${requestedPath}' is outside the workspace (${this.workspacePath}) and access was refused. Use a path inside the workspace.`)
+      for (const requestedPath of requestedPaths) {
+        const pathArgs = Array.isArray(effectiveArgs.paths)
+          ? { ...effectiveArgs, path: requestedPath, paths: undefined }
+          : effectiveArgs
+        const targetPath = resolvePathForContext(requestedPath, pathContext)
+        if (!isPathContained(this.workspacePath, targetPath)) {
+          const externalDirectory = await resolveExternalApprovalDirectory(requestedPath, pathTool.isDirectory, pathContext)
+          // Workflow state is readable outside the workspace without a prompt.
+          const workflowState = this.workflows.stateDirectory
+          const workflowStateRead = READ_ONLY_PATH_TOOLS.has(tc.function.name) && isPathContained(workflowState, targetPath)
+          const alreadyApproved = workflowStateRead || [...this.sessionApprovedDirectories]
+            .some(directory => isPathContained(directory, externalDirectory))
+          if (requestedPaths.length === 1) approvedExternalDirectory ||= alreadyApproved
+          if (workflowStateRead) executionExternalPaths = [...new Set([...executionExternalPaths, workflowState])]
+          if (!alreadyApproved) {
+            const hookDecision = await this.permissionHookDecision(tc.function.name, pathArgs)
+            if (hookDecision.decision === 'block') {
+              const blockMsg = hookDecision.reason ?? `Tool '${tc.function.name}' blocked by PermissionRequest hook.`
+              cb.onToolCall(tc.function.name, pathArgs)
+              cb.onToolResult(tc.function.name, blockMsg, pathArgs)
+              return { tc, result: blockMsg }
             }
-            if (decision === 'deny') {
-              auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...effectiveArgs, __denied_external_path: externalDirectory } })
-              throw new DenyAbortError()
+            if (hookDecision.approved) {
+              if (requestedPaths.length === 1) approvedThisCall = true
+              executionExternalPaths = [...new Set([...executionExternalPaths, externalDirectory])]
+            } else if (!this.toolPermissionHandler) {
+              // Preserve the existing fail-closed path error for non-interactive callers.
+              await resolveSafePath(requestedPath, pathContext)
+            } else {
+              const decision = await this.toolPermissionHandler({
+                toolName: tc.function.name,
+                args: pathArgs,
+                reason: 'outside_workspace',
+                externalDirectory,
+                riskDescription: riskResult?.requiresConfirmation ? `${riskResult.level} risk: ${riskResult.description}` : undefined,
+              })
+              if (decision === 'reject') {
+                throw new Error(`Path '${requestedPath}' is outside the workspace (${this.workspacePath}) and access was refused. Use a path inside the workspace.`)
+              }
+              if (decision === 'deny') {
+                auditLog({ type: 'tool_call', tool: tc.function.name, args: { ...pathArgs, __denied_external_path: externalDirectory } })
+                throw new DenyAbortError()
+              }
+              if (requestedPaths.length === 1) approvedThisCall = true
+              if (decision === 'directory') {
+                this.sessionApprovedDirectories.add(externalDirectory)
+                if (requestedPaths.length === 1) approvedExternalDirectory = true
+              }
+              executionExternalPaths = [...new Set([...executionExternalPaths, externalDirectory])]
             }
-            approvedThisCall = true
-            if (decision === 'directory') {
-              this.sessionApprovedDirectories.add(externalDirectory)
-              approvedExternalDirectory = true
-            }
-            executionExternalPaths = [...this.sessionApprovedDirectories, externalDirectory]
           }
         }
       }
 
-      if (['write_file', 'patch_file', 'edit_file'].includes(tc.function.name)) {
+      if (['write_file', 'patch_file', 'edit_file'].includes(tc.function.name) && requestedPaths.length === 1) {
+        const requestedPath = requestedPaths[0]!
         const safePath = await resolveSafePath(requestedPath, this.orchestrator.toolContext({
           workspacePath: this.workspacePath,
           signal: this.abortController?.signal,
@@ -2809,8 +2806,13 @@ export class Agent {
 
     // Plan and Review may inspect Git and stateful helper tools, but never mutate them.
     if ((isReviewMode(this.interactionMode) || this.interactionMode === 'plan') && tc.function.name === 'git') {
-      const action = String(effectiveArgs.action ?? '')
-      if (!['status', 'diff', 'log'].includes(action)) {
+      const actions = effectiveArgs.action === 'batch' && Array.isArray(effectiveArgs.operations)
+        ? effectiveArgs.operations.map((operation) => operation && typeof operation === 'object'
+          ? String((operation as Record<string, unknown>).action ?? '')
+          : '')
+        : [String(effectiveArgs.action ?? '')]
+      if (actions.some(action => !['status', 'diff', 'log'].includes(action))) {
+        const action = actions.find(candidate => !['status', 'diff', 'log'].includes(candidate))!
         const blockMsg = `Git action '${action}' is blocked in ${this.interactionMode} mode; only status, diff and log are read-only.`
         cb.onToolCall(tc.function.name, effectiveArgs)
         cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
@@ -3043,6 +3045,23 @@ export class Agent {
 
   /** Records a file's mtime after a successful read or write so readBeforeEditError can catch unread or externally changed files. */
   private async recordFileSeen(toolName: string, args: Record<string, unknown>, result: string): Promise<void> {
+    if (toolName === 'read_file' && Array.isArray(args.paths)) {
+      const pathContext = this.orchestrator.toolContext({
+        workspacePath: this.workspacePath,
+        signal: this.abortController?.signal,
+      })
+      for (const path of args.paths) {
+        if (typeof path !== 'string') continue
+        const filePath = resolvePathForContext(path, pathContext)
+        const hasResultHeader = result.split(/\r?\n/).some(line =>
+          line.startsWith(`[${filePath}  `) && line.includes(' lines total  showing '),
+        )
+        if (!hasResultHeader) continue
+        const modified = await stat(filePath).then(s => s.mtimeMs, () => undefined)
+        if (modified !== undefined) this.fileSeenTimes.set(filePath, modified)
+      }
+      return
+    }
     if ((toolName !== 'read_file' && !FILE_WRITE_TOOLS.includes(toolName)) || typeof args.path !== 'string' || /^(Error|\{"error")/.test(result)) return
     const filePath = resolve(this.workspacePath, args.path)
     const modified = await stat(filePath).then((s) => s.mtimeMs, () => undefined)

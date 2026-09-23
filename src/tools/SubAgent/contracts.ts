@@ -12,7 +12,7 @@ export interface SubAgentResult {
 
 /** Raised when a subagent's terminal output is missing or fails schema validation; `rawOutput` keeps the offending text for diagnostics. */
 export class StructuredOutputError extends Error {
-  constructor(readonly code: 'INVALID_RESULT' | 'MAX_ITERATIONS', message: string, readonly rawOutput: string) {
+  constructor(readonly code: 'INVALID_RESULT', message: string, readonly rawOutput: string) {
     super(message)
     this.name = 'StructuredOutputError'
   }

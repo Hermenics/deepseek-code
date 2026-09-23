@@ -57,6 +57,13 @@ import type { PromptImage, PromptInput } from '../types/input.js'
 
 export type AgentPhase = 'idle' | 'refining' | 'executing'
 
+/** Pin the header only when the transcript and TODO area retain more than 21 rows; otherwise it scrolls with the transcript. */
+export function shouldPinHeader(rows: number, columns: number, inputHeight: number, fullMode: boolean, largerPromptActive = false): boolean {
+  if (largerPromptActive) return false
+  const headerHeight = columns < 60 ? 4 : 5
+  return rows - headerHeight - inputHeight - 1 - (fullMode ? 1 : 0) > 21
+}
+
 const ACTIVE_SUBAGENT_STATES = new Set<SubagentState['status']>(['queued', 'running', 'blocked'])
 const ACTIVE_WORKFLOW_STATES = new Set<WorkflowRun['status']>(['queued', 'running', 'paused'])
 
@@ -518,6 +525,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const sessionTitleRef = useRef<string | null>(initialSession?.title ?? null)
   const titleRequestedRef = useRef(Boolean(initialSession?.title))
   const [messages, setMessages] = useState<Message[]>([])
+  const [inputHeight, setInputHeight] = useState(3)
   const [streamText, setStreamText] = useState('')
   const [thinkingText, setThinkingText] = useState('')
   const [streamRole, setStreamRole] = useState<'assistant' | 'terminal'>('assistant')
@@ -1319,7 +1327,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           } else if (name === 'write_file' || name === 'patch_file') {
             setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${result}` }])
           } else if (name === 'read_file' || name === 'read_folder' || name === 'glob' || name === 'grep') {
-            const argPreview = args?.path ?? args?.pattern ?? ''
+            const argPreview = Array.isArray(args?.paths) ? args.paths.join(', ') : args?.path ?? args?.pattern ?? ''
             setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${String(argPreview)}` }])
           } else if (name === 'ask_user_questions') {
             setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${summarizeToolResult(name, result)}` }])
@@ -2671,6 +2679,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }
 
   const termRows = process.stdout.rows || 24
+  const largerPromptActive = Boolean(showModelSelector || showEffortSelector || askUserState || toolPermissionState || planApprovalState || confirmState)
+  const pinHeader = shouldPinHeader(termRows, process.stdout.columns ?? 80, inputHeight, fullMode, largerPromptActive)
   const activityCount = countActiveActivities(subagentsRef.current.agents, activeWorkflowRuns)
   const activityAvailable = hasActivityToOpen(subagentsRef.current.agents, activeWorkflowRuns)
   const focusedAgent = focusedSubagent ? subagentsRef.current.agents.find(a => a.id === focusedSubagent.id) ?? null : null
@@ -2687,8 +2697,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   return (
     <ThemeProvider value={theme}>
     <Box flexDirection="column" width="100%" height={alternateScreen ? termRows : undefined}>
-      {/* Fullscreen pins the header above the scrolling transcript; inline mode keeps it in the transcript since the terminal owns scrollback. */}
-      {alternateScreen && <Box flexShrink={0}><Header provider={agent.provider ?? headerProvider} agentName={focusedSubagent ? '@' + (focusedSubagent.agentName ?? 'subagent') : headerAgent ?? null} theme={theme} /></Box>}
+      {/* Fullscreen pins the header when there is room; otherwise, and in inline mode, it lives in the scrolling transcript. */}
+      {alternateScreen && pinHeader && <Box flexShrink={0}><Header provider={agent.provider ?? headerProvider} agentName={focusedSubagent ? '@' + (focusedSubagent.agentName ?? 'subagent') : headerAgent ?? null} theme={theme} /></Box>}
       <Box flexDirection="row" flexGrow={1}>
       <TranscriptArea flexGrow={1} {...transcriptProps}>
         <Box flexDirection="column">
@@ -2703,7 +2713,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             activeAgent={focusedSubagent ? (focusedSubagent.agentName ?? 'subagent') : activeAgent}
             headerProvider={agent.provider ?? headerProvider}
             headerAgent={focusedSubagent ? '@' + (focusedSubagent.agentName ?? 'subagent') : headerAgent}
-            showHeader={!alternateScreen}
+            showHeader={!alternateScreen || !pinHeader}
             showToolCalls={interfaceSettings.showToolCalls}
             showDiffs={interfaceSettings.showDiffs}
             showWordDiff={featureFlags.wordDiff}
@@ -2718,7 +2728,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             </Text>
           )}
           {!focusedSubagent && toolStatus && interfaceSettings.showToolCalls !== false && <ToolUseDisplay tool={toolStatus} />}
-          {!focusedSubagent && <TodoPanel />}
           {!focusedSubagent && isLoading && (interfaceSettings.reducedMotion
             ? <Text dimColor>{agentPhase === 'refining' ? 'Refining…' : 'Working…'}</Text>
             : <LoadingSpinner toolCallCount={toolCallCount} phase={agentPhase} activeTool={toolStatus && !toolStatus.done ? toolStatus.name : null} />)}
@@ -2736,6 +2745,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
       {/* Footer */}
       <Box flexDirection="column" flexShrink={0}>
+        {!focusedSubagent && <TodoPanel />}
         {btw ? (
           <Text dimColor>{isLoading ? 'The main agent is still working.' : 'Side question active.'}</Text>
         ) : showModelSelector ? (
@@ -2792,6 +2802,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           />
         ) : (
           <InputBox
+            onHeightChange={setInputHeight}
             onSubmit={handleSubmit}
             isLoading={isLoading}
             toolCallCount={toolCallCount}

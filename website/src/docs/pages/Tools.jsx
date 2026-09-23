@@ -16,10 +16,10 @@ const TOC = [
 ];
 
 const READ = [
-  ["read_file", "path", "start_line, end_line", "Read a file. Defaults to a 200-line window from start_line."],
-  ["read_folder", "path", "recursive", "List files and directories."],
+  ["read_file", "path or paths", "start_line, end_line", "Read one or several files. Defaults to a 500-line window from start_line."],
+  ["read_folder", "path or paths", "recursive", "List one or several directories."],
   ["glob", "pattern", "cwd", "Find files matching a glob pattern."],
-  ["grep", "pattern", "path, include", "Regex search. include filters by file glob, e.g. \"*.ts\"."],
+  ["grep", "pattern or patterns", "path, include", "Regex search. include filters by file glob, e.g. \"*.ts\"."],
   ["web_fetch", "url", "—", "Fetch a URL and return the page text."],
 ];
 
@@ -31,7 +31,7 @@ const WRITE = [
 
 const SHELL = [
   ["shell", "command", "timeout", "Run a shell command. Default timeout 5 minutes. Worker tasks are sandboxed."],
-  ["git", "action", "message, items, file, staged, n, create, switch, pop, force", "Structured git operations."],
+  ["git", "action", "operations, message, files, file, staged, n, create, switch, pop, force", "Structured Git operations; batch accepts only read-only status, diff, and log actions."],
 ];
 
 const NAV = [
@@ -52,7 +52,7 @@ const INTERACTION = [
 const STATE = [
   ["memory", "action, target", "content, match", "Read or modify the memory store. target is agent or user."],
   ["update_knowledge", "section, content", "—", "Record knowledge under a named section."],
-  ["todo", "action", "title, id, status", "Manage the session todo list."],
+  ["todo", "action", "title, id, status, operations", "Manage the session todo list, including ordered batches."],
   ["create_goal", "objective", "maxTokens", "Create a persistent goal with an optional token budget."],
   ["get_goal", "—", "—", "Read the current goal."],
   ["update_goal", "status", "blockedReason", "Update goal status. blockedReason is required when status is blocked."],
@@ -148,10 +148,10 @@ export default function Tools() {
           <h2><span className="anchor">#</span>Reading & search</h2>
           <ToolTable rows={READ} />
           <p>
-            <code className="inline">read_file</code> defaults to a <b>200-line window</b>:{" "}
+            <code className="inline">read_file</code> defaults to a <b>500-line window</b>:{" "}
             <code className="inline">end_line</code> falls back to{" "}
-            <code className="inline">start_line + 199</code> rather than to the end of the file. Reading a
-            10,000-line file therefore costs 200 lines of context by default, not 10,000 — the model has to
+            <code className="inline">start_line + 499</code> rather than to the end of the file. Reading a
+            10,000-line file therefore costs 500 lines of context by default, not 10,000 — the model has to
             ask for more explicitly, which makes large reads a decision rather than an accident.
           </p>
           <p>
@@ -161,8 +161,13 @@ export default function Tools() {
             <code className="inline">node_modules</code> or a build directory is the difference between four
             matches and four hundred.
           </p>
+          <p>
+            Pass <code className="inline">patterns</code> to run several independent regex searches in one call;
+            each result is labeled with its pattern. <code className="inline">read_folder</code> accepts
+            <code className="inline">paths</code> to list several directories the same way.
+          </p>
           <CodeBlock lang="json">{`{ "name": "grep", "arguments": {
-    "pattern": "refreshToken",
+    "patterns": ["refreshToken", "accessToken"],
     "path": "src",
     "include": "*.ts"
 } }`}</CodeBlock>
@@ -219,7 +224,10 @@ export default function Tools() {
           </p>
           <CodeBlock lang="json">{`{ "name": "git", "arguments": { "action": "commit", "message": "fix token refresh race" } }
 { "name": "git", "arguments": { "action": "diff", "staged": true } }
-{ "name": "git", "arguments": { "action": "log", "n": 5 } }`}</CodeBlock>
+{ "name": "git", "arguments": { "action": "log", "n": 5 } }
+{ "name": "git", "arguments": { "action": "batch", "operations": [
+  { "action": "status" }, { "action": "diff", "file": "src/agent.ts" }, { "action": "log", "n": 5 }
+] } }`}</CodeBlock>
         </section>
 
         <section id="nav">

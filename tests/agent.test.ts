@@ -3,7 +3,8 @@ import { Agent, canonicalResearchUrl, evidenceUrls } from '../src/agent/agent.js
 import type { AgentCallbacks, ToolPermissionResult } from '../src/agent/agent.js'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { ReadFile } from '../src/tools/ReadFile/ReadFile.js'
 
 const TEST_HISTORY_PATH = join(tmpdir(), `deepseek-code-agent-history-${process.pid}.json`)
 const ORIGINAL_HISTORY_PATH = process.env.DEEPSEEK_HISTORY_PATH
@@ -180,6 +181,33 @@ describe('Agent class', () => {
         const raw = agent.getRawMessages()
         const boundary = raw.findIndex((message) => message.role === '__compact_boundary__')
         expect(String((raw[boundary + 1] as any)?.content)).toContain('COMPACT_CONTEXT_SENTINEL')
+      } finally {
+        await agent.shutdown()
+        await rm(root, { recursive: true, force: true })
+      }
+    })
+  })
+
+  describe('read-before-edit records', () => {
+    it('records successful batched reads after a failed path and through a symlink', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'deepseek-agent-read-seen-'))
+      const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' }, { projectRoot: root, logFile: null, snapshotFile: null })
+      try {
+        await agent.readyPromise
+        if (process.platform === 'win32') return
+        const target = join(root, 'target.txt')
+        const alias = join(root, 'alias.txt')
+        await writeFile(target, 'source', 'utf8')
+        await symlink(target, alias)
+        const context = agent.orchestrator.toolContext({ workspacePath: root })
+        const result = await ReadFile.execute({ paths: ['missing.txt', 'alias.txt'] }, context)
+        const internals = agent as unknown as {
+          recordFileSeen(toolName: string, args: Record<string, unknown>, result: string): Promise<void>
+          fileSeenTimes: Map<string, number>
+        }
+        await internals.recordFileSeen('read_file', { paths: ['missing.txt', 'alias.txt'] }, result)
+        expect(internals.fileSeenTimes.has(join(root, 'missing.txt'))).toBe(false)
+        expect(internals.fileSeenTimes.get(alias)).toBe((await stat(alias)).mtimeMs)
       } finally {
         await agent.shutdown()
         await rm(root, { recursive: true, force: true })
@@ -519,12 +547,17 @@ describe('Agent error propagation', () => {
     }
   }
 
-  it('ends the turn with a resumable notice when the iteration limit is reached', async () => {
+  it('continues past 100 tool iterations until the model finishes', async () => {
     const agent = new Agent({ provider: 'vertex', gcpProject: 'test', gcpLocation: 'global', gcpCredentials: '/tmp/test-service-account.json' })
     resolveReady(agent)
     // Vertex streams now — the mock returns a fresh async-iterable stream per call
+    let calls = 0
     const create = mock(async () => ({
       [Symbol.asyncIterator]: async function* () {
+        if (++calls > 100) {
+          yield { choices: [{ delta: { content: 'Done' } }] }
+          return
+        }
         yield {
           choices: [{ delta: { tool_calls: [{ index: 0, id: 'loop', function: { name: 'unknown_tool', arguments: '{}' } }] } }],
           usage: { total_tokens: 1, prompt_tokens: 1, completion_tokens: 0 },
@@ -535,8 +568,8 @@ describe('Agent error propagation', () => {
     const cb = makeTrackedCallbacks()
     await agent.run('loop', cb)
     expect(cb.onDone).toHaveBeenCalledTimes(1)
-    expect(create).toHaveBeenCalledTimes(100)
-    expect(cb.onToken).toHaveBeenCalledWith(expect.stringContaining('Stopped after 100 tool iterations'))
+    expect(create.mock.calls.length).toBeGreaterThan(100)
+    expect(cb.onToken).toHaveBeenCalledWith('Done')
   })
 
   describe('run(): erros da API devem propagar', () => {

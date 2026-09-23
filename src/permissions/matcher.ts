@@ -60,6 +60,7 @@ function getMatchContent(toolName: string, args: Record<string, unknown>): strin
     case 'shell':
       return typeof args.command === 'string' ? args.command : undefined
     case 'read_file':
+    case 'read_folder':
     case 'write_file':
     case 'patch_file':
       return typeof args.path === 'string' ? args.path : undefined
@@ -92,6 +93,20 @@ export function resolvePermission(
   toolName: string,
   args: Record<string, unknown>,
 ): PermissionDecision {
+  if (toolName.toLowerCase() === 'git' && args.action === 'batch' && Array.isArray(args.operations)) {
+    const decisions = args.operations.map(operation => resolvePermission(permissions, 'git', {
+      action: (operation as Record<string, unknown>)?.action,
+    }))
+    return decisions.includes('deny') ? 'deny' : decisions.includes('ask') ? 'ask' : 'allow'
+  }
+  if (['read_file', 'read_folder'].includes(toolName.toLowerCase()) && Array.isArray(args.paths)) {
+    const decisions = args.paths.map(path => resolvePermission(permissions, toolName, { path }))
+    return decisions.includes('deny') ? 'deny' : decisions.includes('ask') ? 'ask' : 'allow'
+  }
+  if (toolName.toLowerCase() === 'grep' && Array.isArray(args.patterns)) {
+    const decisions = args.patterns.map(pattern => resolvePermission(permissions, 'grep', { pattern }))
+    return decisions.includes('deny') ? 'deny' : decisions.includes('ask') ? 'ask' : 'allow'
+  }
   const normalizedToolName = toolName.toLowerCase()
   const defaultDecision = (): PermissionDecision =>
     normalizedToolName === 'shell' || normalizedToolName === 'web_fetch' ? 'ask' : 'allow'

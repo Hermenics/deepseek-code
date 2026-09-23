@@ -33,7 +33,7 @@ const DISPLAY = [
 ];
 
 const LIMITS = [
-  ["read_file", "200 lines by default", "Header reports total, shown range, and the next start_line."],
+  ["read_file", "500 lines by default", "Header reports total, shown range, and the next start_line."],
   ["read_folder", "1,000 entries; five recursive levels", "Explicit truncation note asks for a narrower path."],
   ["grep", "200 matching lines", "Returns total matches and says the first 200 are shown."],
   ["glob", "500 files", "Returns total matches and says the first 500 are shown."],

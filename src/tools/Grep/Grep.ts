@@ -38,17 +38,26 @@ function unsupportedGrepOptions(error: unknown): boolean {
 /** Tool that regex-searches files, using native grep when it supports NUL-separated output and `jsGrep` otherwise. The search dir must pass `assertSafeDir`, and .deepseekignore matches are filtered out. */
 export const Grep: Tool = {
   name: 'grep',
-  description: 'Search for a regex pattern in files using grep.',
+  description: 'Search for one or several regex patterns in files using grep. Use patterns to run multiple searches in one call.',
   parameters: {
     type: 'object',
     properties: {
       pattern: { type: 'string', description: 'Regex pattern' },
+      patterns: { type: 'array', items: { type: 'string' }, description: 'Regex patterns to search independently in one call; use instead of pattern' },
       path: { type: 'string', description: 'Directory to search (default: .)' },
       include: { type: 'string', description: 'File glob filter, e.g. "*.ts"' },
     },
-    required: ['pattern'],
+    anyOf: [{ required: ['pattern'] }, { required: ['patterns'] }],
   },
   async execute(args, context) {
+    if (args.patterns !== undefined) {
+      if (!Array.isArray(args.patterns) || !args.patterns.length || !args.patterns.every(pattern => typeof pattern === 'string' && pattern.length > 0)) return 'Error: patterns must be a non-empty array of regex patterns'
+      const results = await Promise.all(args.patterns.map(async pattern => ({
+        pattern,
+        result: await Grep.execute({ ...args, pattern, patterns: undefined }, context),
+      })))
+      return results.map(({ pattern, result }) => `### ${pattern}\n${result}`).join('\n\n')
+    }
     const dir = await assertSafeDir((args.path as string) || '.', context)
     const pattern = args.pattern as string
     const include = args.include as string | undefined

@@ -247,6 +247,21 @@ describe('task workspace isolation', () => {
     expect(await Git.execute({ action: 'branch', switch: '--evil' }, context)).toContain('Error')
   })
 
+  it('batches only read-only git queries', async () => {
+    const root = await gitRepo()
+    const context = { sessionId: 's', workspacePath: root, projectRoot: root, permissionProfile: 'coordinator-integrator' as const }
+    const result = await Git.execute({ action: 'batch', operations: [
+      { action: 'log', n: 1 }, { action: 'status' }, { action: 'diff', file: 'package.json' },
+      { action: 'log', n: 2 }, { action: 'diff' }, { action: 'status' },
+    ] }, context)
+    expect(result.split('\n\n').map(block => block.split('\n')[0])).toEqual([
+      '### log (n=1)', '### status', '### diff (file=package.json)', '### log (n=2)', '### diff', '### status',
+    ])
+    expect(await Git.execute({ action: 'batch', operations: [{ action: 'status', file: 'package.json' }] }, context)).toContain('action-specific')
+    expect(await Git.execute({ action: 'batch', operations: [{ action: 'diff', n: 5 }] }, context)).toContain('action-specific')
+    expect(await Git.execute({ action: 'batch', operations: [{ action: 'status' }, { action: 'push' }] }, context)).toContain('only status, diff, or log')
+  })
+
   it('sandboxes tester shell to a read-only workspace and strips inherited state', async () => {
     const root = await tempRoot('deepseek-mas-shell-')
     const context = { sessionId: 's', workspacePath: root, projectRoot: root, permissionProfile: 'tester' as const }

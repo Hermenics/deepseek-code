@@ -14,7 +14,7 @@ const LIMITS = [
   ["glob", "500 files", "Returns a truncation summary after the first 500 matches."],
   ["grep", "200 matching lines", "Reports total matches when output is truncated."],
   ["read_folder", "1,000 entries", "Recursive traversal stops after five directory levels."],
-  ["read_file", "200 lines by default", "Explicit line ranges page through the rest."],
+  ["read_file", "500 lines by default", "Explicit line ranges page through the rest."],
 ];
 
 export default function SearchTools() {
@@ -63,6 +63,11 @@ then read only the surrounding ranges needed to explain the real flow.`}</CodeBl
             distinguishes actual search failures.
           </p>
           <p>
+            Pass one <code className="inline">pattern</code> for a single search or a
+            <code className="inline">patterns</code> array to run independent searches in one call. Each
+            section of the result is labeled with the pattern that produced it.
+          </p>
+          <p>
             Results include path and line number. They are textual evidence, not a complete call graph:
             generated names, re-exports, aliases, dynamic access, and type-level relationships can require
             LSP or surrounding source reads.
@@ -75,6 +80,10 @@ then read only the surrounding ranges needed to explain the real flow.`}</CodeBl
             Folder listing shows files and directories beneath a known path. Use shallow listing to orient
             first; request recursion only for a small subtree. Heavy and protected directories are skipped,
             and permission-denied children are labeled without failing the entire traversal.
+          </p>
+          <p>
+            Use <code className="inline">paths</code> to list several directories in one call; each listing
+            is labeled with its requested path.
           </p>
         </section>
 

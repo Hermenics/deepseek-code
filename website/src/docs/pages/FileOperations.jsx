@@ -12,8 +12,8 @@ const TOC = [
 ];
 
 const OPERATIONS = [
-  ["read_file", "Inspect a known file", "First 200 numbered lines by default; request ranges for more."],
-  ["read_folder", "Orient within a directory", "Optional recursion, five levels deep, at most 1,000 entries."],
+  ["read_file", "Inspect one or several known files", "First 500 numbered lines per file by default; request ranges for more."],
+  ["read_folder", "Orient within one or several directories", "Optional recursion, five levels deep, at most 1,000 entries per directory."],
   ["edit_file", "Change exact substrings on known lines", "Smallest payload; all requested edits validate before the write, and the result shows the edited lines at their new numbers."],
   ["patch_file", "Replace one unique multi-line block", "Fails when the old block is missing (naming the closest match) or appears more than once."],
   ["write_file", "Create a file or replace it completely", "Creates parent directories; best for new files or intentional rewrites."],
@@ -48,14 +48,15 @@ Preserve unrelated working-tree edits, then show and verify the resulting diff.`
         <section id="read">
           <h2><span className="anchor">#</span>Reading files and folders</h2>
           <p>
-            File reads are UTF-8 and always return 1-indexed line numbers. Without a range, the first 200
+            File reads are UTF-8 and always return 1-indexed line numbers. Without a range, the first 500
             lines are returned with the total line count and the next suggested start line. Explicit start
             and end lines are inclusive and let the agent inspect a large file in bounded chunks.
           </p>
           <p>
             Folder listing can be shallow or recursive. Recursive traversal stops after five nested levels
             and 1,000 results. Unreadable child directories are labeled and skipped instead of hiding the
-            rest of the listing.
+            rest of the listing. Pass <code className="inline">paths</code> to list several directories in
+            one call; pass <code className="inline">path</code> for one.
           </p>
         </section>
 

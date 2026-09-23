@@ -88,6 +88,16 @@ describe('WebFetch tool', () => {
     expect(result).toContain('resto')
   })
 
+  it('strips markup revealed by one layer of HTML entity decoding', async () => {
+    const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
+    global.fetch = mock(() => Promise.resolve(okResponse('safe &lt;script&gt;alert(1)&lt;/script&gt; &#60;style&#62;hidden&#60;/style&#62; &amp;lt;b&amp;gt;'))) as any
+    const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
+    expect(result).not.toContain('alert(1)')
+    expect(result).not.toContain('hidden')
+    expect(result).toContain('safe')
+    expect(result).toContain('&lt;b&gt;')
+  })
+
   it('trunca conteúdo em 20.000 chars', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     const longContent = 'a'.repeat(30000)

@@ -159,8 +159,8 @@ DEEPSEEK_BASE_URL=http://gateway.internal/v1 deepseek --pipe "list likely regres
             no tool calls. Read-only tool batches may run concurrently; mixed or mutating batches run in order.
           </p>
           <p>
-            After 100 tool iterations in one turn the loop stops with a notice; the work so far is kept, and
-            sending "continue" resumes it. Before a turn ends, the
+            The loop continues until the model answers, the task is cancelled, or a separate request or
+            usage budget stops it. Before a turn ends, the
             runtime can send the model back to work: a reply cut off at the output-token limit continues (up to
             three times), a reply with no text and no tool calls is retried (up to twice), and todo items added or
             updated during the turn are raised once. Provider requests retry status 429 and 503 up to

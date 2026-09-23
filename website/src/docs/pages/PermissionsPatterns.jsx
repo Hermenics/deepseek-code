@@ -19,8 +19,9 @@ const SUBJECTS = [
   ["read_file", "path", "read_file(src/*)"],
   ["write_file", "path", "write_file(docs/*)"],
   ["patch_file", "path", "patch_file(src/*)"],
+  ["read_folder", "path", "read_folder(src/*)"],
   ["web_fetch", "url", "web_fetch(https://docs.example.com/*)"],
-  ["grep", "pattern only", "grep(TASK_*)"],
+  ["grep", "pattern or each item in patterns[]", "grep(TASK_*)"],
   ["Any other tool", "No pattern subject", "Use the bare tool name for an all-use rule"],
 ];
 
@@ -123,14 +124,15 @@ Bash(git status)         # becomes "bash", not "shell"`}</CodeBlock>
             <tbody>{SUBJECTS.map(([tool, subject, example]) => <tr key={tool}><td><code className="inline">{tool}</code></td><td><code className="inline">{subject}</code></td><td><code className="inline">{example}</code></td></tr>)}</tbody>
           </table></div>
           <p>
-            The permission matcher does not pattern-match <code className="inline">read_folder</code> paths,
-            glob working directories, edit-file paths, Git actions, workflow scripts, or arbitrary JSON
-            serialization. A parenthesized rule for an unsupported tool never matches because there is no subject.
+            The permission matcher does not pattern-match glob working directories, edit-file paths, Git actions,
+            workflow scripts, or arbitrary JSON serialization. A parenthesized rule for an unsupported tool never
+            matches because there is no subject.
           </p>
           <p>
             For <code className="inline">grep</code>, the subject is the regular-expression search pattern—not the
-            directory being searched. <code className="inline">grep(secret*)</code> says nothing about which
-            folder can be searched. Filesystem containment remains a separate check.
+            directory being searched. With <code className="inline">patterns</code>, each pattern is checked
+            independently and a deny on any item denies the call. <code className="inline">grep(secret*)</code>
+            says nothing about which folder can be searched. Filesystem containment remains a separate check.
           </p>
           <p>
             Permission matching uses the arguments after any PreToolUse hook rewrite. A hook cannot obtain

@@ -34,6 +34,22 @@ const terminal = {
 }
 
 describe('subagent terminal protocol', () => {
+  it('stops a context-less loop after the default elapsed-time limit', async () => {
+    const originalNow = Date.now
+    let now = 0
+    Date.now = () => now
+    const client = { chat: { completions: { create: async () => {
+      now = 120_000
+      return response({ content: null, tool_calls: [{ id: 'loop', type: 'function', function: { name: 'unknown', arguments: '{}' } }] })
+    } } } } as any
+    try {
+      await expect(runSubAgentLoop('system', 'task', 'id', [], provider, 'fake', { client }))
+        .rejects.toMatchObject({ code: 'TIMED_OUT' })
+    } finally {
+      Date.now = originalNow
+    }
+  })
+
   it('returns one schema-valid terminal result', async () => {
     const result = await runSubAgentLoop('system', 'task', 'id', [], provider, 'fake', { client: fakeClient([terminalArgs(valid)]), terminal })
     expect(result.terminalResult).toEqual(valid)

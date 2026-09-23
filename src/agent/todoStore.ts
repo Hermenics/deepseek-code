@@ -38,6 +38,14 @@ export function updateTodo(id: string, status: TodoStatus): boolean {
   return true
 }
 
+/** Removes one item by id. */
+export function removeTodo(id: string): boolean {
+  if (!todos.some((t) => t.id === id)) return false
+  todos = todos.filter((t) => t.id !== id)
+  notify()
+  return true
+}
+
 export function clearTodos(): void {
   todos = []
   notify()
