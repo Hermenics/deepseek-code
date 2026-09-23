@@ -1,7 +1,5 @@
 # Changelog
 
-## Unreleased
-
 ## 0.7.7
 
 - Enhanced: The TUI has its own "Sonar" look instead of a Claude Code-like one — a rounded input box with the agent label in its border, a user bar, an assistant diamond, tool lines with their status on the right, a sonar-pulse spinner, a braille wave while thinking, and an end-of-turn wave line with the duration and tool count
