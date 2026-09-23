@@ -56,7 +56,7 @@ export function DiffView({ path, added, removed, firstChanged, lines, theme, onO
     <Box flexDirection="column" marginTop={1}>
       {/* Header */}
       <Box flexDirection="row" gap={1} paddingLeft={2} onClick={onOpen}>
-        <Text color={colors.success}>{STATUS_ICONS.assistant}</Text>
+        <Text color={colors.primary}>{STATUS_ICONS.tool}</Text>
         <Text color={colors.textDim}>{'Write'}</Text>
         <Text color={colors.info}>{path}</Text>
       </Box>

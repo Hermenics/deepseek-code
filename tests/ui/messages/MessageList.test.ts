@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
 import React from 'react'
 import { PassThrough } from 'stream'
 import { renderSync, invalidateInkFrame } from '../../../src/ink/root.js'
-import { MessageList, formatToolLine, shouldShowWorkDivider, getNormalMessageItems, dividerLine, formatWorkedDuration, workedLine, WORK_TRUNCATED_LABEL } from '../../../src/ui/messages/MessageList.js'
+import { FullModeBar, MessageList, formatToolLine, shouldShowWorkDivider, getNormalMessageItems, dividerLine, formatWorkedDuration, workedLine, turnToolCount, WORK_TRUNCATED_LABEL } from '../../../src/ui/messages/MessageList.js'
 import type { Message } from '../../../src/ui/App.js'
 
 describe('shouldShowWorkDivider', () => {
@@ -66,10 +66,31 @@ describe('normal transcript truncation', () => {
     expect(items.map(item => item.kind)).toEqual(['message', 'message', 'message'])
   })
 
-  it('formats the finished duration like the Codex ghost line', () => {
+  it('formats the finished duration as a sonar wave with the tool count', () => {
     expect(formatWorkedDuration(16 * 60_000 + 32_000)).toBe('16m 32s')
-    expect(workedLine(16 * 60_000 + 32_000, 120)).toHaveLength(119)
-    expect(workedLine(16 * 60_000 + 32_000, 120)).toContain('─ Worked for 16m 32s ')
+    // Leading blank line + exactly `width` visible columns (the newline is not a column).
+    expect(workedLine(16 * 60_000 + 32_000, 120)).toHaveLength(121)
+    expect(workedLine(16 * 60_000 + 32_000, 120).slice(1)).toHaveLength(120)
+    expect(workedLine(16 * 60_000 + 32_000, 120)).toContain('∿∿ 16m 32s ∿')
+    expect(workedLine(2000, 120, 1)).toContain('∿∿ 2s · 1 tool ∿')
+    expect(workedLine(2000, 120, 3)).toContain('∿∿ 2s · 3 tools ∿')
+    // Narrower than the label: clipped, never wider than the row
+    expect(workedLine(2000, 10, 3).slice(1)).toHaveLength(10)
+  })
+
+  it('counts only the tools of the turn that ends at the reply', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'a' },
+      { role: 'tool', content: '✓ shell → x' },
+      { role: 'assistant', content: 'one' },
+      { role: 'user', content: 'b' },
+      { role: 'tool', content: '✓ read_file → y' },
+      { role: 'thinking', content: 'hm' },
+      { role: 'tool', content: '✓ grep → z' },
+      { role: 'assistant', content: 'two' },
+    ]
+    expect(turnToolCount(messages, 2)).toBe(1)
+    expect(turnToolCount(messages, 7)).toBe(2)
   })
 })
 
@@ -152,13 +173,14 @@ async function renderMessageList(props: {
   thinkingText?: string
   fullMode?: boolean
   thinkingStartedAt?: number | null
+  element?: React.ReactElement
 }) {
   const stdout = new FakeTerminal(120, 10)
   const chunks: string[] = []
   stdout.on('data', chunk => chunks.push(String(chunk)))
 
   const instance = renderSync(
-    React.createElement(MessageList, {
+    props.element ?? React.createElement(MessageList, {
       messages: props.messages,
       streamText: props.streamText ?? '',
       thinkingText: props.thinkingText,
@@ -287,10 +309,10 @@ describe('MessageList render', () => {
     }
   })
 
-  it('shows the verbose footer in full mode', async () => {
+  it('renders the verbose footer bar', async () => {
     const { text, cleanup } = await renderMessageList({
       messages: [],
-      fullMode: true,
+      element: React.createElement(FullModeBar, { theme: 'dark' }),
     })
     try {
       expect(text).toContain('Full mode · ctrl+o to toggle')
@@ -300,8 +322,8 @@ describe('MessageList render', () => {
     }
   })
 
-  it('hides the verbose footer outside full mode', async () => {
-    const { text, cleanup } = await renderMessageList({ messages: [] })
+  it('keeps the verbose footer out of the transcript (App renders it under the input)', async () => {
+    const { text, cleanup } = await renderMessageList({ messages: [], fullMode: true })
     try {
       expect(text).not.toContain('Full mode · ctrl+o to toggle')
     } finally {
@@ -350,7 +372,7 @@ describe('MessageList render', () => {
     try {
       expect(text).toContain(WORK_TRUNCATED_LABEL)
       expect(text).toContain('done')
-      expect(text).toContain('─ Worked for 2s ')
+      expect(text).toContain('∿∿ 2s · 1 tool ')
       expect(text).not.toContain('shell')
     } finally {
       cleanup()

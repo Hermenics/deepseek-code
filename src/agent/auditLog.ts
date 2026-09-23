@@ -17,6 +17,7 @@ export type AuditEvent =
   | { type: 'checkpoint'; id: string; label?: string }
   | { type: 'session_end'; totalTokens: number }
   | { type: 'mcp_server_load'; serverName: string; transport: string }
+  | { type: 'error'; source: 'uncaughtException' | 'unhandledRejection'; message: string }
 
 let initialized = false
 
