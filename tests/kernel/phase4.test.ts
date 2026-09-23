@@ -91,6 +91,8 @@ describe('PathOwnership', () => {
     expect(result.ok).toBe(false)
   })
 
+  // File-backed SQLite reopened across a restart: every commit fsyncs, which costs
+  // ~150ms on Windows CI runners, so these can pass 5s there without hanging.
   it('should rehydrate path claims across restarts', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsk-claim-'))
     const dbPath = join(dir, 'kernel.db')
@@ -115,7 +117,7 @@ describe('PathOwnership', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
-  })
+  }, 20_000)
 })
 
 // ── IntegrationPipeline ─────────────────────────────────────────────
@@ -180,6 +182,8 @@ describe('IntegrationPipeline', () => {
     expect(result.rolled_back).toBe(false)
   })
 
+  // File-backed SQLite reopened across a restart: every commit fsyncs, which costs
+  // ~150ms on Windows CI runners, so these can pass 5s there without hanging.
   it('should rehydrate integration results across restarts', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsk-int-'))
     const dbPath = join(dir, 'kernel.db')
@@ -206,7 +210,7 @@ describe('IntegrationPipeline', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
-  })
+  }, 20_000)
 
   it('should track multiple integrations', async () => {
     await pipeline.start({ task_id: 'a', workspace_path: '/w', project_root: '/', base_commit: '1', files_changed: [] })

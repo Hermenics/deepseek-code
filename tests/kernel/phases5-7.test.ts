@@ -424,7 +424,9 @@ describe('Benchmark Harness', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
-  })
+    // File-backed SQLite reopened across a restart: every commit fsyncs, which costs
+    // ~150ms on Windows CI runners, so this can pass 5s there without hanging.
+  }, 20_000)
 
   // Gate C: Goal correctness — no false completion
   it('Gate C: goal with failed required criteria cannot complete', () => {

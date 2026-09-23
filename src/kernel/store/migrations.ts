@@ -24,15 +24,21 @@ function appliedVersions(db: Database): Set<number> {
   return new Set(rows.map((r) => r.version))
 }
 
-/** Applies pending migrations in ascending version order and records each one. Migrations are not wrapped in a transaction, so a failing `up` can leave partial changes. */
+/** Applies pending migrations in ascending version order and records each one, each migration atomically in its own transaction. */
 export function runMigrations(db: Database, migrations: Migration[]): void {
   const applied = appliedVersions(db)
   const sorted = [...migrations].sort((a, b) => a.version - b.version)
 
   for (const migration of sorted) {
     if (applied.has(migration.version)) continue
-    db.exec(migration.up)
-    db.run('INSERT INTO _schema_version (version, name) VALUES (?, ?)', [migration.version, migration.name])
+    // One transaction per migration: a failing `up` leaves no partial schema,
+    // and a file-backed WAL database commits (fsyncs) once per migration
+    // instead of once per statement — ~50 fsyncs per fresh database, which
+    // took over 5s on Windows CI runners.
+    db.transaction(() => {
+      db.exec(migration.up)
+      db.run('INSERT INTO _schema_version (version, name) VALUES (?, ?)', [migration.version, migration.name])
+    })()
   }
 }
 

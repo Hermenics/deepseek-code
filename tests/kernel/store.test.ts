@@ -76,6 +76,14 @@ describe('Store', () => {
     // Two SQLite files and five migrations: fast alone, but slower than 5s on a loaded full-suite run.
   }, 20_000)
 
+  it('should roll back a migration that fails partway, leaving no partial schema', () => {
+    store = new Store({ memory: true })
+    const broken = { version: 99, name: 'broken', up: 'CREATE TABLE half_done (id TEXT); CREATE TABLE half_done (id TEXT);' }
+    expect(() => store.migrate([broken])).toThrow()
+    expect(store.query('SELECT name FROM sqlite_master WHERE name = \'half_done\'').length).toBe(0)
+    expect(store.query('SELECT version FROM _schema_version WHERE version = 99').length).toBe(0)
+  })
+
   it('should execute within a transaction', () => {
     store = new Store({ memory: true })
     store.migrate(MIGRATIONS)
