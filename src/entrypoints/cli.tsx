@@ -97,7 +97,7 @@ import type { ThemeName, ProviderConfig } from '../types/provider.js'
 import { migrateConfigIfNeeded, logout as doLogout } from '../utils/credentials.js'
 import { getGlobalPackageManagers } from '../utils/bun-global-package.js'
 import { loadAgentConfig, type LoadedAgent } from '../agent/config.js'
-import { getLastProjectSession, listSessions, loadSession, newSessionId, type SessionData } from '../agent/session.js'
+import { getLastProjectSession, hasSavedSession, listSessions, loadSession, newSessionId, type SessionData } from '../agent/session.js'
 import { loadSettingsSnapshot } from '../settings/repository.js'
 import type { DeepSeekSettings } from '../settings/types.js'
 import { formatExitScreen } from '../utils/exitScreen.js'
@@ -274,8 +274,7 @@ if (!ARGV.update) {
       } else {
         process.stdout.write(`Updated! Launching DeepSeek Code ${update.latest}...\n`)
         try {
-          relaunchCurrentInvocation()
-          process.exit(0)
+          process.exit(await relaunchCurrentInvocation())
         } catch (error) {
           process.stderr.write(`Could not relaunch DeepSeek Code: ${(error as Error).message}\n`)
           process.exit(1)
@@ -438,7 +437,7 @@ function cleanExit(code = 0): void {
     // Sync write is intentional: process.exit must not interrupt the banner.
     // Ink already restored the alternate screen during unmount; sending a
     // second ?1049l would restore the shell's old cursor position on top.
-    writeSync(1, formatExitScreen(SESSION_ID, false))
+    writeSync(1, formatExitScreen(hasSavedSession(SESSION_ID) ? SESSION_ID : null, false))
   } finally {
     process.exit(code)
   }

@@ -327,6 +327,7 @@ export default class Ink {
     // settling). Same-dimension events are no-ops; skip to avoid redundant
     // frame resets and renders.
     if (cols === this.terminalColumns && rows === this.terminalRows) return;
+    const widthChanged = cols !== this.terminalColumns;
     this.terminalColumns = cols;
     this.terminalRows = rows;
     this.altScreenParkPatch = makeAltScreenParkPatch(this.terminalRows);
@@ -356,6 +357,21 @@ export default class Ink {
     // layout is updated, causing a mismatch between viewport and content dimensions.
     if (this.currentNode !== null) {
       this.render(this.currentNode);
+      // Yoga can retain measured text heights from the old width even after
+      // the root width changes, leaving sibling positions overlapping.
+      if (widthChanged) {
+        const invalidateTextLayout = (node: dom.DOMElement) => {
+          if (node.nodeName === 'ink-text') dom.markDirty(node);
+          for (const child of node.childNodes ?? []) {
+            if (child.nodeName !== '#text') invalidateTextLayout(child);
+          }
+        };
+        invalidateTextLayout(this.rootNode);
+      }
+      // React may not commit host mutations on resize; calculate layout and
+      // paint explicitly after invalidating the measurements.
+      this.rootNode.onComputeLayout?.();
+      this.onRender();
     }
   };
   resolveExitPromise: () => void = () => {};

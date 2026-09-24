@@ -16,4 +16,11 @@ describe('formatExitScreen', () => {
   it('does not emit alternate-screen escape codes when fullscreen is disabled', () => {
     expect(formatExitScreen('session-123', false)).not.toContain('\x1b[?1049l')
   })
+
+  it('shows only the logo when no session was saved', () => {
+    const output = formatExitScreen(null, false)
+    expect(output).toContain(EXIT_LOGO)
+    expect(output).not.toContain('To continue this session')
+    expect(output).not.toContain('--resume')
+  })
 })

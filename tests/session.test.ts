@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
-import { mkdtemp, readFile, readdir, rm } from 'fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { basename, join } from 'path'
 import { createHash } from 'crypto'
@@ -42,6 +42,41 @@ describe('session', () => {
   })
 
   describe('saveSession / loadSession', () => {
+    it('reports a session as resumable only after it is saved, even from another cwd', async () => {
+      const { hasSavedSession, newSessionId, saveSession } = await getModule()
+      const id = newSessionId()
+      expect(hasSavedSession(id)).toBe(false)
+      expect(hasSavedSession('../outside')).toBe(false)
+      await saveSession({
+        id,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        cwd: '/tmp/another-project',
+        model: 'deepseek-chat',
+        provider: 'deepseek',
+        language: null,
+        activeAgent: null,
+        agentMessages: [],
+        uiMessages: [{ role: 'user', content: 'hello' }],
+        filesModified: [],
+      })
+      expect(hasSavedSession(id)).toBe(true)
+    })
+
+    it('rejects invalid session data in legacy and project directories', async () => {
+      const { hasSavedSession } = await getModule()
+      const id = '0123456789ab'
+      const root = join(testDir, '.deepseek', 'sessions')
+      await mkdir(root, { recursive: true })
+      await writeFile(join(root, `${id}.json`), '{ invalid json')
+      expect(hasSavedSession(id)).toBe(false)
+
+      const projectDir = join(root, 'project')
+      await mkdir(projectDir, { recursive: true })
+      await writeFile(join(projectDir, `${id}.json`), JSON.stringify({ id, cwd: '/tmp', agentMessages: [] }))
+      expect(hasSavedSession(id)).toBe(false)
+    })
+
     it('salva na pasta do projeto dentro de ~/.deepseek/sessions', async () => {
       const { saveSession, newSessionId } = await getModule()
       const cwd = process.cwd()

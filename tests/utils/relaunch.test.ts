@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'bun:test'
-import { getCurrentInvocation } from '../../src/utils/relaunch.js'
+import { describe, expect, it, spyOn } from 'bun:test'
+import { getCurrentInvocation, relaunchCurrentInvocation } from '../../src/utils/relaunch.js'
 
 describe('relaunch invocation', () => {
   it('preserves the runtime, entrypoint, and original arguments', () => {
@@ -23,5 +23,28 @@ describe('relaunch invocation', () => {
 
   it('rejects a missing entrypoint instead of launching an unrelated command', () => {
     expect(() => getCurrentInvocation([], '', '/usr/bin/bun')).toThrow('without an entrypoint')
+  })
+
+  it('keeps the parent alive until the replacement exits', async () => {
+    let finish!: (code: number) => void
+    const exited = new Promise<number>(resolve => { finish = resolve })
+    const spawn = spyOn(Bun, 'spawn').mockReturnValue({ exited } as ReturnType<typeof Bun.spawn>)
+    try {
+      let settled = false
+      const relaunch = relaunchCurrentInvocation(['--resume', 'abc123']).then(code => {
+        settled = true
+        return code
+      })
+      await Promise.resolve()
+      expect(settled).toBe(false)
+      expect(spawn).toHaveBeenCalledWith(
+        getCurrentInvocation(['--resume', 'abc123']),
+        expect.objectContaining({ stdin: 'inherit', stdout: 'inherit', stderr: 'inherit' }),
+      )
+      finish(23)
+      expect(await relaunch).toBe(23)
+    } finally {
+      spawn.mockRestore()
+    }
   })
 })

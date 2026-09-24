@@ -1,6 +1,7 @@
 import { basename, join, resolve } from 'path'
 import { homedir } from 'os'
 import { mkdir, readdir, unlink, rm, writeFile } from 'fs/promises'
+import { readFileSync, readdirSync } from 'fs'
 import { createHash, randomBytes } from 'crypto'
 import { readJson, writeRaw } from '../utils/fs.js'
 import type { MessageOrBoundary } from './compactBoundary.js'
@@ -109,6 +110,37 @@ export async function updateSessionTitle(id: string, title: string, cwd = proces
 /** Generates a 12-hex-char session id (the format exportSession validates). */
 export function newSessionId(): string {
   return randomBytes(6).toString('hex')
+}
+
+/** Whether this session can actually be resumed, including after /cwd moves it to another project directory. */
+function isResumableSessionFile(path: string, id: string): boolean {
+  try {
+    const session = JSON.parse(readFileSync(path, 'utf8')) as Partial<SessionData>
+    return session !== null && typeof session === 'object'
+      && session.id === id
+      && typeof session.createdAt === 'string'
+      && typeof session.updatedAt === 'string'
+      && typeof session.cwd === 'string' && session.cwd.length > 0
+      && typeof session.model === 'string' && session.model.length > 0
+      && typeof session.provider === 'string' && session.provider.length > 0
+      && Array.isArray(session.agentMessages)
+      && Array.isArray(session.uiMessages)
+      && Array.isArray(session.filesModified)
+  } catch {
+    return false
+  }
+}
+
+export function hasSavedSession(id: string): boolean {
+  if (!/^[a-f0-9]{12}$/i.test(id)) return false
+  const root = getLegacySessionsDir()
+  try {
+    if (isResumableSessionFile(join(root, `${id}.json`), id)) return true
+    return readdirSync(root, { withFileTypes: true })
+      .some(entry => entry.isDirectory() && isResumableSessionFile(join(root, entry.name, `${id}.json`), id))
+  } catch {
+    return false
+  }
 }
 
 /** Writes a session to its per-project directory with a fresh updatedAt and prunes old sessions. Failures are swallowed. */
