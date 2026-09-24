@@ -48,6 +48,7 @@ function toText(html: string): string {
     .replace(/<br\s*\/?>/g, ' ')
     .replace(/<[^>]+>/g, '')
     .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_, name: string) => ENTITIES[name]!)
+    .replace(/<[^>]+>/g, '')
     .replace(/\s+/g, ' ')
     .trim()
 }
