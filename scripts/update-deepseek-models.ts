@@ -46,9 +46,8 @@ function toText(html: string): string {
   return html
     .replace(/<sup>[\s\S]*?<\/sup>/g, '')
     .replace(/<br\s*\/?>/g, ' ')
-    .replace(/<[^>]+>/g, '')
     .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_, name: string) => ENTITIES[name]!)
-    .replace(/<[^>]+>/g, '')
+    .replace(/[<>]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
 }
