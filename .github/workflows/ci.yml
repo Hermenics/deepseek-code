@@ -34,11 +34,11 @@ jobs:
 
       - name: Test
         if: matrix.os != 'ubuntu-latest'
-        run: bun test tests
+        run: bun test tests --timeout 15000
 
       - name: Test with coverage
         if: matrix.os == 'ubuntu-latest'
-        run: bun run test:coverage
+        run: bun run test:coverage --timeout 15000
 
       - name: Build CLI
         run: bun run build

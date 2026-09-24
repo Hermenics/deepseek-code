@@ -154,9 +154,11 @@ describe('Individual Tool Validation', () => {
     })
 
     it('searches several patterns in one call', async () => {
-      const result = await tool.execute({ patterns: ['"name"', '"version"'], path: '.' })
+      const result = await tool.execute({ patterns: ['"name"', '"version"'], path: 'website', include: 'package.json' })
       expect(result).toContain('### "name"')
       expect(result).toContain('### "version"')
+      expect(result).toContain('"name":')
+      expect(result).toContain('"version":')
     })
   })
 
