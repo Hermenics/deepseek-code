@@ -17,6 +17,7 @@ const TOC = [
 
 const HOME_TREE = [
   ["config.json", "file", "Private credentials plus legacy-compatible bootstrap values."],
+  ["provider-profiles.json", "file", "Private named provider connections, including keys and credential paths."],
   ["settings.json", "file", "User-level settings — the lowest-priority settings layer."],
   ["features.json", "file", "Feature-flag overrides. Unknown keys are filtered on load."],
   ["history.json", "file", "A bounded compatibility copy of recent agent messages; sessions are the resume source."],
@@ -88,7 +89,8 @@ const CLEANUP = [
   ["~/.deepseek/sessions/", "Careful", "You lose /sessions and --resume for those projects."],
   ["~/.deepseek/memory/", "Careful", "You lose everything the memory tool learned."],
   ["~/.deepseek/kernel.db", "Safe", "Normally absent. Belongs to the reference kernel subsystem, not the runtime."],
-  ["~/.deepseek/config.json", "Destructive", "You will be asked to configure a provider again."],
+  ["~/.deepseek/config.json", "Destructive", "Deleting this file does not remove saved provider profiles or credentials, and does not reset the active provider."],
+  ["~/.deepseek/provider-profiles.json", "Destructive", "You lose saved provider connections and their credentials."],
   [".deepseek/worktrees/", "Destructive", "Delete only via /worktree — raw rm can orphan git metadata."],
 ];
 
@@ -136,6 +138,7 @@ export default function DeepSeekDirectory() {
           <h2><span className="anchor">#</span>The home directory</h2>
           <CodeBlock lang="text">{`~/.deepseek/
 ├── config.json              private credentials + legacy bootstrap values
+├── provider-profiles.json   named providers and credentials (private)
 ├── settings.json            user-level settings
 ├── features.json            feature flags
 ├── history.json             bounded compatibility copy of recent agent messages
@@ -257,11 +260,11 @@ export default function DeepSeekDirectory() {
             </table>
           </div>
           <p>
-            <code className="inline">config.json</code> is separate from{" "}
-            <code className="inline">settings.json</code> on purpose. Config is the private credential store:
-            it may contain the DeepSeek API key, the Vertex service-account path and legacy bootstrap values.
-            Settings hold the layered, mergeable, non-secret configuration surface. The credentials file is
-            owner-readable only and must never be committed or shared.
+            <code className="inline">provider-profiles.json</code> holds named connections and their credential
+            fields. User settings hold <code className="inline">provider.activeProfileId</code>, plus the layered,
+            mergeable, non-secret settings. <code className="inline">config.json</code> remains for legacy
+            credentials and bootstrap values. Both private files have owner-only permissions and must never be
+            committed or shared.
           </p>
           <Note>
             Run <code className="inline">/doctor</code> to see the resolved value of every setting along with

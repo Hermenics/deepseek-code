@@ -2279,7 +2279,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             }
             const maxContinuations = cmd.maxContinuations ?? agent.settings.goal?.maxContinuations
             const newGoal = createGoal(cmd.objective, undefined, maxContinuations)
-            const injection = `Execute the following goal: "${cmd.objective}". When the goal is achieved, call update_goal with status "complete". If you are stuck on the same blocker for 3 consecutive turns, call update_goal with status "blocked" and describe the blocker.`
+            const injection = `Execute the following goal: "${cmd.objective}". When every part is achieved, call update_goal with status "complete" and completion_summary that explicitly says the whole goal is done and gives evidence for each part. A separate reviewer using the current model will check the claim; if it rejects completion, continue working. If you are stuck on the same blocker for 3 consecutive turns, call update_goal with status "blocked" and describe the blocker.`
             await runWithPrompt(`/goal ${cmd.objective}`, injection, interactionMode)
             return
           }

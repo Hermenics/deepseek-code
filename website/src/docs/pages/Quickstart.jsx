@@ -121,19 +121,19 @@ $ <span className="f">deepseek</span></CodeBlock>
 API key    sk-…
 Base URL   (optional — leave empty for api.deepseek.com)`}</CodeBlock>
           <p>
-            The base URL field is what makes this flow work for more than one setup. Leave it empty for the
-            hosted API; point it at <code className="inline">http://localhost:11434/v1</code> for Ollama or LM
-            Studio; point it at your gateway if you route through one.
+            Leave the base URL empty for the hosted API. A gateway-only key will fail the hosted API check;
+            setup then prompts for the gateway&apos;s OpenAI-compatible base URL, which is required to finish
+            configuring that connection. For Ollama or LM Studio without authentication, choose the <b> Local</b> provider and use <code className="inline">http://localhost:11434/v1</code> instead.
           </p>
           <p>
             Bedrock and Vertex are also supported and authenticate differently — an AWS profile and a GCP
             service account respectively. See <a href="/docs/providers">Providers</a>.
           </p>
           <p>
-            Configuration is split deliberately: credentials go to the owner-only file{" "}
-            <code className="inline">~/.deepseek/config.json</code>, while non-secret user preferences go to{" "}
-            <code className="inline">~/.deepseek/settings.json</code>. Never publish or commit the credentials
-            file.
+            Setup saves a named connection, including its credentials, in the owner-only
+            <code className="inline"> ~/.deepseek/provider-profiles.json</code>. Non-secret user preferences
+            go to <code className="inline">~/.deepseek/settings.json</code>. Never publish or commit the
+            profiles file.
           </p>
           <CodeBlock lang="bash">{`# skip the prompt entirely — useful in containers and CI
 export DEEPSEEK_API_KEY="sk-…"`}</CodeBlock>

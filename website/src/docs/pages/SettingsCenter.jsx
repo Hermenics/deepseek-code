@@ -34,6 +34,7 @@ const KINDS = [
 ];
 
 const ACTIONS = [
+  ["Provider profiles", "Add, edit, test and activate named connections; credentials stay in the private profiles file."],
   ["Test connection", "Uses the edited provider settings and saved credentials, reports latency, and caches model IDs for model selectors."],
   ["Refiner preview", "Runs the current refinement configuration on sample text without submitting a normal agent turn."],
   ["Permission preview", "Resolves a tool name plus optional JSON arguments to ALLOW, DENY or ASK."],
@@ -69,7 +70,7 @@ export default function SettingsCenter() {
             Editing a Project value therefore does not overwrite a higher-priority Local override.
           </p>
           <p>
-            Categories cover providers and models, agent behavior, context, permissions, agents, memory and
+            Categories cover provider profiles, models, spending level, agent behavior, context, permissions, agents, memory and
             sessions, Git, interface, hooks and advanced integrations. Search is global across those categories.
           </p>
         </section>

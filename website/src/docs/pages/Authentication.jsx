@@ -27,16 +27,17 @@ export default function Authentication() {
             are masked while typing. Escape returns to the previous step; Ctrl+C exits.
           </p>
           <p>
-            Provider identity and non-secret connection options are written to user settings. The DeepSeek
-            API key and Vertex service-account path are stored in the private credentials file. AWS uses the
-            normal credential provider chain; local endpoints require no secret.
+            Setup saves a named provider profile. The profile contains connection fields and, for the
+            DeepSeek API, its key; user settings point to the active profile. AWS uses the normal credential
+            provider chain; local endpoints require no secret.
           </p>
         </section>
 
         <section id="storage"><h2><span className="anchor">#</span>What is stored</h2>
           <div className="doc-table-wrap"><table className="doc-table"><thead><tr><th>File</th><th>Typical contents</th><th>Protection</th></tr></thead><tbody>
-            <tr><td><code className="inline">~/.deepseek/config.json</code></td><td>DeepSeek API key, Vertex credential path and legacy-compatible preferences.</td><td>Atomic writes with owner-only mode.</td></tr>
-            <tr><td><code className="inline">~/.deepseek/settings.json</code></td><td>Provider name, endpoint, region, profile, project, location and other user preferences.</td><td>Owner-only mode; still keep secrets out.</td></tr>
+            <tr><td><code className="inline">~/.deepseek/provider-profiles.json</code></td><td>Named providers, model choices, API keys and credential paths.</td><td>Atomic writes with owner-only mode.</td></tr>
+            <tr><td><code className="inline">~/.deepseek/config.json</code></td><td>Legacy credentials and compatibility bootstrap values.</td><td>Owner-only mode.</td></tr>
+            <tr><td><code className="inline">~/.deepseek/settings.json</code></td><td>Active profile ID and other user preferences.</td><td>Owner-only mode; still keep secrets out.</td></tr>
             <tr><td>AWS credential sources</td><td>Profile, environment credentials or temporary STS credentials.</td><td>Managed by the AWS toolchain, not copied by DeepSeek Code.</td></tr>
           </tbody></table></div>
           <Note>Commit project settings only after checking that they contain no credentials. User settings and config belong outside the repository.</Note>
@@ -44,9 +45,9 @@ export default function Authentication() {
 
         <section id="precedence"><h2><span className="anchor">#</span>Resolution order</h2>
           <p>
-            Interactive startup first loads saved provider configuration. If none is ready, a DeepSeek API
-            key in <code className="inline">DEEPSEEK_API_KEY</code> can start the default provider without the
-            setup UI. Provider fields in settings override compatible legacy values in the credentials file.
+            Interactive startup loads the active saved profile. If no profile is selected, it picks the first
+            available one; an older single-provider configuration can be migrated to a profile. Without a
+            ready profile, <code className="inline">DEEPSEEK_API_KEY</code> can supply the default provider.
           </p>
           <p>
             Headless mode uses the same saved configuration. If it finds neither a ready saved provider nor
@@ -100,18 +101,18 @@ export default function Authentication() {
 
         <section id="rotate"><h2><span className="anchor">#</span>Rotate credentials</h2>
           <p>
-            Open <code className="inline">/config</code>, choose User scope and edit the provider credential,
-            or update the external AWS/GCP source. Restart the session after changing provider identity or a
-            credential path. Vertex access tokens are cached in memory, so a new process is the cleanest way
-            to force credential rotation immediately.
+            Open <code className="inline">/config</code> → <b>Provider profiles</b> to edit and reactivate
+            a saved connection, or update its external AWS/GCP source. Vertex access tokens are cached in
+            memory, so restart the process when you need credential rotation to take effect immediately.
           </p>
         </section>
 
         <section id="logout"><h2><span className="anchor">#</span>Log out</h2>
           <CodeBlock lang="bash">{"deepseek logout"}</CodeBlock>
           <p>
-            Logout removes <code className="inline">~/.deepseek/config.json</code> and the legacy{" "}
-            <code className="inline">~/.deepseek/.env</code>. It does not delete settings, sessions, memory,
+            Logout removes <code className="inline">~/.deepseek/config.json</code>, the legacy{" "}
+            <code className="inline">~/.deepseek/.env</code>, and
+            <code className="inline"> ~/.deepseek/provider-profiles.json</code>. It does not delete settings, sessions, memory,
             AWS profiles, a Vertex JSON key, plugins or project files. The in-app{" "}
             <code className="inline">/logout</code> command performs the same credential cleanup and exits.
           </p>

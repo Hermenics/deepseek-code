@@ -10,7 +10,7 @@ const TOC = [
 ];
 
 const THEME_LIST = [
-  ["dark", "Default. Cyan/blue brand on black — the classic DeepSeek look"],
+  ["dark", "Default. Ocean blue on a dark navy canvas — the Sonar look"],
   ["light", "Blue brand on white, tuned for bright terminals"],
   ["dark-daltonized", "Dark with red/green success–error pairs replaced by blue/orange"],
   ["light-daltonized", "Light variant of the colorblind-friendly palette"],
@@ -22,7 +22,7 @@ const TOKEN_GROUPS = [
   [
     "Brand",
     [
-      ["primary / primaryShimmer", "Accent color and its shimmer variant (cyan/blue)"],
+      ["primary / primaryShimmer", "Ocean-blue accent color and its shimmer variant"],
     ],
   ],
   [
@@ -42,7 +42,7 @@ const TOKEN_GROUPS = [
     "Backgrounds",
     [
       ["userMessageBg / bashMessageBg", "Message surfaces (empty in most themes)"],
-      ["thinkingBg", "Thinking panel background — #111118 in dark, #f0f0f8 in light"],
+      ["thinkingBg", "Background of the expanded thinking panel"],
       ["selectionBg", "Selected region fill"],
     ],
   ],

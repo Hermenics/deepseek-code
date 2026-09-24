@@ -191,8 +191,10 @@ export default function ModelAndEffort() {
         <section id="effort">
           <h2><span className="anchor">#</span>Reasoning effort</h2>
           <p>
-            Effort is independent of model choice. The live main agent starts at
-            <code className="inline">high</code>. Run <code className="inline">/effort</code>,
+            Effort is independent of model choice. The live main agent starts at the configured
+            <a href="/docs/settings#spending"> spending level</a>: high by default, low on
+            <code className="inline"> broke</code>, and max on <code className="inline">loaded</code>.
+            Run <code className="inline">/effort</code>,
             <code className="inline">/effort status</code> or <code className="inline">/effort current</code>
             to open the selector. Left/Right adjusts, Enter applies and Escape cancels.
           </p>
@@ -201,7 +203,8 @@ export default function ModelAndEffort() {
             Valid explicit levels are <code className="inline">low</code>, <code className="inline">high</code>
             and <code className="inline">max</code>. The accepted aliases
             <code className="inline">auto</code> and <code className="inline">unset</code> both set
-            <code className="inline">high</code>; there is no adaptive automatic mode. Names are case-insensitive.
+            <code className="inline">high</code>; they do not re-enable budget steering in this process.
+            Names are case-insensitive.
           </p>
         </section>
 
@@ -235,7 +238,7 @@ export default function ModelAndEffort() {
             Neither a slash-command model switch nor effort selection writes the layered settings files.
             The next eligible session save records the active model as metadata, but session records contain no
             effort field. A new process resolves its model from provider setup and current settings and starts
-            effort at high.
+            effort from the configured spending level.
           </p>
           <p>
             Resume loads saved conversation messages but does not force the saved model back onto the new runtime.

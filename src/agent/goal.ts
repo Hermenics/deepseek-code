@@ -136,7 +136,7 @@ export function buildContinuationPrompt(goal: Goal, turnNumber: number): string 
     '',
     `${used}/${budget} tokens consumed. ${elapsed} elapsed.`,
     '',
-    `When achieved: call update_goal with status "complete".`,
+    `When every part is achieved: call update_goal with status "complete" and completion_summary that explicitly says the whole goal is done and gives evidence for each part. A separate reviewer will check the claim; if it rejects completion, continue working.`,
     `If blocked (3+ consecutive same reason): call update_goal with status "blocked" + describe blocker.`,
   ].join('\n')
 }

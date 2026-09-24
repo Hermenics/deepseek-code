@@ -40,11 +40,11 @@ const STATUS_BAR_ITEMS = [
 ];
 
 const MESSAGE_ROLES = [
-  ["user", "❯ prompt in the primary brand color"],
-  ["assistant", "● markdown-rendered reply"],
-  ["tool", "● tool line with a friendly name and per-tool icon; max 5 output lines, then “… N more lines”"],
+  ["user", "▌ prompt in the primary brand color"],
+  ["assistant", "◆ markdown-rendered reply; the final reply can show a wave line with time and tool count"],
+  ["tool", "▸ tool line with the success or error status at right; max 5 output lines, then “… N more lines”"],
   ["terminal", "$ shell output in magenta (bashBorder)"],
-  ["thinking", "◌ Thinking panel with dimmed markdown on the thinking background"],
+  ["thinking", "∿ collapsed by default; Ctrl+O expands the dimmed thinking panel"],
 ];
 
 const DIALOGS = [
@@ -87,7 +87,8 @@ export default function Interface() {
         <div className="hero">
           <h1>Interface (TUI)</h1>
           <p className="tagline">
-            Everything DeepSeek Code renders on your terminal — the input editor, status bar,
+            The Sonar interface: a rounded prompt with its agent label, a readable work transcript, and a wave
+            marking the end of a turn. Explore the input editor, status bar,
             message transcript, dialogs, and the vendored Ink renderer underneath.
           </p>
         </div>

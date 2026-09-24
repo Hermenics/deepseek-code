@@ -1,5 +1,69 @@
 [
   {
+    "version": "0.7.7",
+    "changes": [
+      "Enhanced: The TUI has its own \"Sonar\" look instead of a Claude Code-like one — a rounded input box with the agent label in its border, a user bar, an assistant diamond, tool lines with their status on the right, a sonar-pulse spinner, a braille wave while thinking, and an end-of-turn wave line with the duration and tool count",
+      "Enhanced: Fullscreen keeps the header pinned above the scrolling conversation, and the ctrl+o full-mode bar sits under the input box",
+      "Fixed: Raw mouse coordinates (like `2;10M`) no longer leak into the prompt when a mouse report arrives split across reads",
+      "Fixed: Closing the terminal (or its tmux session) now exits the app; it used to keep running forever with no terminal, rendering in the background, and ignored `kill`",
+      "Fixed: The published bundle is a production build; it used to run as a development build that wrote `~/.deepseek/logs/dev.log`, silently swallowed every uncaught exception and shipped React's development renderer. An uncaught exception now restores the terminal, prints the error and exits, and unhandled rejections are recorded in the session log",
+      "Fixed: In inline mode the `/` and `@` dropdowns open below the input instead of covering the header of an empty chat",
+      "Fixed: Tab on a suggested reply only puts it in the input for editing; Enter sends it",
+      "Fixed: Each database migration runs in one transaction, so a failure rolls back its partial schema changes and fresh databases need fewer disk syncs",
+      "Tests: `reject` failing closed at the permission, risk, agent-config and workflow prompts, a free repro of the silent turn end on an outside-workspace deny, subagent cost enforcement and aggregation, and the compare statistics; mouse reports split across reads, the launcher exiting on SIGTERM/SIGHUP (skipped on Windows), the Tab suggested-reply path, and atomic migration rollback"
+    ]
+  },
+  {
+    "version": "0.7.6",
+    "changes": [
+      "Added: `scripts/eval/compare.ts` compares two eval labels — pass rate with a 95% Wilson interval, the paired difference per task, a 90% bootstrap interval that resamples tasks and then runs, cost per pass at one fixed price, and the promotion and 30–70% rotation rules",
+      "Added: Every eval record now carries `outcome` (pass, agent_fail, timeout, budget, infra_error, deny_abort), `hiddenPass`, a hash of the diff, the base URL host (never the key), effort, budget level and `fixedCostUsd`; old results stay readable and `pass` keeps its meaning",
+      "Added: `--effort low|high|max` on the eval runner, and memory is switched off for eval runs with `DEEPSEEK_DISABLE_MEMORY=1` so runs cannot learn from one another",
+      "Added: Three hard eval tasks — `batch-loader-rejection` (same failure family as `inflight-dedup`), `harness-quirk` (the bug is in a test helper and scratch files must be cleaned up) and `distant-cause` (the symptom is four files away from the cause, and the hidden check covers the other callers)",
+      "Added: Four more hard eval tasks after the re-baseline saturated the first set — `swr-background-refresh`, `generated-do-not-edit` (the fix belongs in the generator, and regenerating must reproduce the committed file), `semver-ranges` (npm range and prerelease semantics, checked against the `semver` package) and `convention-ambiguity` (the new method must follow the repository's Result, error-code and logger conventions)",
+      "Added: A permission handler can answer `reject`: on a path outside the workspace the model gets a path error and the turn continues; for every other kind of request it fails closed exactly like `deny`. The eval runner now answers `reject` instead of ending the turn",
+      "Enhanced: The environment block tells the model that shell commands see the working directory at `/mnt`, while file tools use the real path",
+      "Fixed: A streaming request that goes silent for two minutes (`DEEPSEEK_STREAM_IDLE_TIMEOUT_MS`) is aborted and retried when nothing had arrived yet, and fails the turn with a clear error when it stalls mid-answer, instead of holding the turn until the caller gives up",
+      "Fixed: A denied tool call is reported through `onToolCall` before the turn stops, so it shows up in the UI and in eval records instead of vanishing",
+      "Fixed: Subagents price their full usage (cache misses, cache hits, output) with the shared cost table, so `maxCostUsd` — including the $0.50 cap of the \"I'm broke\" level — is enforced, and stops the subagent mid-run instead of never firing",
+      "Fixed: Subagent and verifier spend is added to the session cost shown by `/cost` and used by budgets",
+      "Fixed: Subagents on the official DeepSeek API request the same output ceiling as the main agent instead of the 4K default that truncates long file writes",
+      "Fixed: The eval runner's header promised that destructive shell commands were denied; it grants them per session, and now says so",
+      "Tests: `reject` failing closed at the permission, risk, agent-config and workflow prompts, a free repro of the silent turn end on an outside-workspace deny, subagent cost enforcement and aggregation, and the compare statistics"
+    ]
+  },
+  {
+    "version": "0.7.5",
+    "changes": [
+      "Added: A spending level (`budget`) in Settings / Agent Behavior — \"I'm broke\", \"I'm comfortable\" and \"I'm loaded\" — moving thinking depth, delegation width, model review and compaction together, so the choice is about the wallet instead of six separate knobs",
+      "Added: The middle level is exactly the behaviour the build already had, and every level merges underneath your own settings files, so a limit you wrote by hand is never undone by picking a level",
+      "Added: Mechanical verification of delegated work — the real `git` diff compared against what the subagent declared, the existence of every path it cited, and an optional `agents.verifyCommand` that its changes must survive",
+      "Added: The mechanical checks cost no tokens, run at every spending level, and can refute a result on their own, so no model's approval sits on top of a failing build or an edit that was never mentioned",
+      "Enhanced: A subagent's role is an explicit parameter defaulting to read-only, replacing keyword matching over the task description, which granted a shell for \"check if the build passes\" and withheld writes for \"fix the typo\"",
+      "Enhanced: Verification is chosen by what the agent did rather than by the confidence it reported, so a result that is certain and wrong is still checked",
+      "Enhanced: The verifier receives the mechanical findings and every claim the candidate made, and is asked to read the changed files itself rather than trust the summary",
+      "Enhanced: A base URL with no path is treated as an OpenAI-compatible server and reaches `/v1`; DeepSeek's own host and any path you wrote are left as they are",
+      "Enhanced: Provider types are named after what actually differs between them — \"Local model (no API key)\" sends no credentials, and an authenticating proxy belongs under DeepSeek API with a base URL",
+      "Fixed: A terminal that disappears mid-session — a closed window, a dropped SSH connection, a recycled pty — no longer takes the whole interface down with `setRawMode failed with errno: 5`",
+      "Fixed: Restoring the terminal on the way out no longer skips leaving raw mode when the reset sequences cannot be written, which could leave a shell unusable",
+      "Fixed: Settings applied immediately after startup are no longer reverted by the load the session begins with",
+      "Fixed: Empty setup fields no longer render a literal `…` that reads as text waiting to be deleted",
+      "Fixed: The settings list follows the terminal width instead of a fixed 38 columns, so labels and category descriptions stop being clipped on a roomy terminal, and a label never runs into its value",
+      "Fixed: While a settings field is open for editing, only the keys that actually work there are listed, instead of four stacked lines offering keys that would be typed into the field",
+      "Tests: Coverage for budget resolution and its precedence rules, mechanical grounding against a real repository, base URL normalization, raw mode on a revoked terminal, and settings column layout"
+    ]
+  },
+  {
+    "version": "0.7.4",
+    "changes": [
+      "Added: Provider profiles — save, edit, test and switch between named provider configurations, kept in `~/.deepseek/provider-profiles.json` with private file permissions",
+      "Added: `provider.activeProfileId` selects the active profile and is accepted only at User scope; a provider change requested during a turn applies once that turn finishes",
+      "Enhanced: `testProviderSettings` became `testProviderConfig` and takes a provider configuration directly, so a profile can be tested before it is activated",
+      "Fixed: Hook commands, `!` shell commands and the subagent status line run verbatim through `cmd.exe` on Windows; the default argument escaping turned a command's own quotes into `\\\"` and `cmd /s` then ran a mangled command",
+      "Tests: Cross-platform CI fixes — background shell tests skip without bubblewrap, the Bedrock mock no longer leaks `fromEnv` into the MoA tests through the process-wide module mock, and the tool-call error boundary test waits for initialization instead of relying on platform timing"
+    ]
+  },
+  {
     "version": "0.7.3",
     "changes": [
       "Added: Completion checks before a turn ends: a failed post-edit verification is fed back to the model (up to two retries per turn), todo items added or updated during the turn are raised once in Build and Auto modes, a reply with no text and no tool calls is sent back for another attempt, and a reply cut off at the output-token limit continues automatically (up to three times)",
@@ -32,6 +96,18 @@
       "Fixed: Prompts queued during a turn are still submitted when that turn ends with an error",
       "Fixed: Relaunching after an update hands the terminal to the new process immediately, so two processes no longer read the same input stream",
       "Tests: Add regression coverage for clipboard image decoding, dropped-path normalization, image placeholder remapping and deletion, multimodal prompt content, compaction serialization and `deepseek-flash` pricing"
+    ]
+  },
+  {
+    "version": "0.7.1",
+    "changes": [
+      "Added: Context limits are discovered from the provider's own model metadata (`context_length`, `context_window`, `max_input_tokens` and the like), so a model the build has never heard of still compacts at the right point",
+      "Added: An official model catalog is consulted for descriptions before asking a model to research an unknown ID, and context sizes are shown as `1M context` or `400k context` in the model selector",
+      "Enhanced: Model IDs carrying a provider prefix (`vendor/model`) resolve to the same entry as the bare ID for both context limits and descriptions",
+      "Enhanced: A cached model description is kept only when it carries an `http(s)` source URL and says something specific; generic filler such as \"AI model variant\" or \"context window unknown\" is discarded rather than shown",
+      "Fixed: Dropdowns render opaque, so the text underneath no longer shows through the command and file suggestion lists",
+      "Fixed: The command dropdown keys rows by position, so duplicate command names no longer collide during rendering",
+      "Tests: Coverage for context-limit discovery, model description filtering and prefixed model IDs"
     ]
   },
   {
@@ -769,6 +845,34 @@
       "Added: Effort command hint and improve type naming",
       "Added: Browser observer, history formatting, and input handling",
       "Chore: Update public directory path to external subdirectory"
+    ]
+  },
+  {
+    "version": "0.1.3",
+    "changes": [
+      "Changed: Automatic updates run as a silent background installation instead of showing an update notification or asking the user to install manually; the new version is available on the next launch",
+      "Changed: Global updates use npm directly, without detecting which package manager installed the CLI",
+      "Fixed: Update failures no longer interrupt the current session or display an update error in the TUI"
+    ]
+  },
+  {
+    "version": "0.1.2",
+    "changes": [
+      "Added: Subagent roles are inferred from the task, with role-specific tool permissions so delegated work receives only the tools appropriate to its role",
+      "Added: Subagents retain results from earlier tasks as session memory to provide context for later delegations; that memory resets at the start of each user turn",
+      "Added: Structured subagent results include confidence and metadata; verification can be requested explicitly or triggered for low-confidence file changes and review findings",
+      "Enhanced: Subagent prompts include role descriptions and relevant memory; the TUI shows role and verification status",
+      "Tests: Cover subagent result contracts, memory, permissions, verification and UI status"
+    ]
+  },
+  {
+    "version": "0.1.1",
+    "changes": [
+      "Added: Agent turns stop after 100 tool-use iterations to prevent an infinite loop, with a notice in the conversation when the limit is reached",
+      "Added: Context can be compacted during a turn when usage crosses its threshold, rather than waiting for the turn to finish",
+      "Added: `/effort` controls reasoning depth with `low`, `medium`, `high` and `max` levels; the selected level adjusts the agent prompt and provider thinking parameters, with `low` disabling thinking and `max` enabling extended reasoning",
+      "Fixed: Rejected tool calls remain consistent in the API conversation; parallel subagents keep the provider and model selected when they started",
+      "Enhanced: WebFetch preserves error context, Bedrock tool-call IDs use UUIDs, and the status bar and theme receive visual refinements"
     ]
   },
   {

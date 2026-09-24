@@ -1,7 +1,7 @@
 import React, { useRef } from "react";
-import { motion, useScroll, useTransform } from "framer-motion";
+import { motion } from "framer-motion";
 import { ArrowDown, Github, Copy } from "lucide-react";
-import TerminalMock from "./TerminalMock";
+import TerminalDemo from "./TerminalDemo";
 import useNpmVersion from "@/lib/useNpmVersion";
 
 const EASE = [0.76, 0, 0.24, 1];
@@ -19,11 +19,6 @@ function RevealLine({ children, delay = 0 }) {
 export default function Hero() {
   const version = useNpmVersion();
   const ref = useRef(null);
-  const { scrollYProgress } = useScroll({ target: ref, offset: ["start start", "end start"] });
-  const rotateX = useTransform(scrollYProgress, [0, 1], [0, 18]);
-  const scale = useTransform(scrollYProgress, [0, 1], [1, 0.86]);
-  const y = useTransform(scrollYProgress, [0, 1], [0, 120]);
-  const opacity = useTransform(scrollYProgress, [0, 0.9], [1, 0.3]);
 
   return (
     <section id="top" ref={ref} data-testid="hero" className="relative pt-36 md:pt-44 pb-24 md:pb-32 overflow-hidden">
@@ -55,8 +50,15 @@ export default function Hero() {
         </div>
       </div>
 
-      <div className="relative mt-24 md:mt-32 px-6 md:px-10 [perspective:1400px]">
-        <motion.div style={{ rotateX, scale, y, opacity }} className="max-w-[1440px] mx-auto [transform-style:preserve-3d] origin-top"><TerminalMock /></motion.div>
+      <div className="relative mt-24 md:mt-32 px-6 md:px-10">
+        <div className="max-w-[1440px] mx-auto">
+          <div className="mb-8 border-l-2 border-neon-blue pl-5 md:pl-7">
+            <p className="font-mono text-[11px] uppercase tracking-widest text-neon-blue mb-3">The CLI in action · Fullscreen TUI</p>
+            <h2 className="font-sans font-bold text-2xl md:text-4xl text-white">From prompt to working app.</h2>
+            <p className="font-mono text-sm text-white/60 mt-3">The original CSV analyzer walkthrough, rendered in the 0.7.8 terminal interface.</p>
+          </div>
+          <TerminalDemo />
+        </div>
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 1.6, duration: 1 }} className="mt-16 flex items-center justify-center gap-3 text-[10px] uppercase tracking-widest font-mono text-white/40"><ArrowDown className="w-3 h-3" strokeWidth={1.5} />scroll — the manifesto begins</motion.div>
       </div>
     </section>

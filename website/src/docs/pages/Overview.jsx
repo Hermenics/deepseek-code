@@ -1,6 +1,7 @@
 import { CodeBlock, Note, Toc, Icon } from "../Layout";
 import useNpmVersion from "../../lib/useNpmVersion";
 import { ModelTable } from "../deepseekModels";
+import TerminalDemo from "../../components/landing/TerminalDemo";
 
 const PROVIDERS = [
   { name: "DeepSeek API", badge: "default", auth: "API key from platform.deepseek.com", env: ["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"] },
@@ -26,6 +27,10 @@ const SLASH = [
   ["/help", "Show all commands"],
   ["/btw", "Ask a quick side question without interrupting the agent"],
   ["/checkpoint", "Manage checkpoints"],
+  ["/branch", "Fork this conversation into a new session"],
+  ["/background", "Run a prompt while keeping the TUI available"],
+  ["/batch", "Run independent prompts in parallel"],
+  ["/add-dir", "Approve another directory for this session"],
   ["/compact", "Summarize history to save context"],
   ["/clear", "Clear chat history"],
   ["/context", "Show context window usage breakdown (estimated)"],
@@ -56,7 +61,7 @@ const TOOLS = [
   "ReadFile", "WriteFile", "PatchFile", "Shell", "Glob", "Grep", "Git",
   "ReadFolder", "WebFetch", "SubAgent", "Memory", "Todo", "Introspect", "MoA",
   "EditFile", "Lsp", "AskAgent", "Workflow", "UpdateKnowledge", "SubmitPlan",
-  "WritePlan", "GetGoal", "CreateGoal", "UpdateGoal",
+  "WritePlan", "GetGoal", "CreateGoal", "UpdateGoal", "AskUserQuestions",
 ];
 
 const TOC = [
@@ -96,12 +101,10 @@ export default function Overview() {
             <span className="badge"><b>{version}</b></span>
           </div>
 
-          <div className="terminal-demo">
-            <img
-              src={`${process.env.PUBLIC_URL}/demo.gif`}
-              alt="DeepSeek Code TUI demo"
-            />
-          </div>
+        </div>
+
+        <div style={{ margin: "0 0 32px" }}>
+          <TerminalDemo />
         </div>
 
         <section id="what-is">
@@ -128,7 +131,7 @@ export default function Overview() {
 
         <section id="quick-start">
           <h2><span className="anchor">#</span>Quick start</h2>
-          <p className="lead">Install globally with Bun and run it inside any project.</p>
+          <p className="lead">Install globally with npm or Bun and run it inside any project.</p>
           <CodeBlock lang="bash">{`# npm
 $ npm install -g @hermenics/deepseek-code
 
@@ -147,8 +150,8 @@ $ cat src/index.tsx | deepseek --pipe --json "summarize"`}</CodeBlock>
         <section id="providers-sec">
           <h2><span className="anchor">#</span>Providers</h2>
           <p className="lead">
-            DeepSeek Code speaks natively to multiple LLM backends. Pick one at first launch
-            or switch anytime with <code className="inline">/model</code>.
+            DeepSeek Code speaks natively to multiple LLM backends. Pick a provider at first launch,
+            change it in <code className="inline">/config</code>, and choose its model with <code className="inline">/model</code>.
           </p>
           <div className="doc-table-wrap">
             <table className="doc-table">
@@ -178,7 +181,7 @@ $ cat src/index.tsx | deepseek --pipe --json "summarize"`}</CodeBlock>
             </table>
           </div>
           <Note>
-            Secrets are saved only to <code className="inline">~/.deepseek/config.json</code>; non-secret
+            Saved profile secrets live in <code className="inline">~/.deepseek/provider-profiles.json</code>; non-secret
             preferences use <code className="inline">settings.json</code> with{" "}
             <b>User &lt; Project &lt; Local</b> precedence.
           </Note>

@@ -6,6 +6,8 @@ const COMMANDS = [
   "/retry", "/cost", "/files", "/tools", "/system", "/permissions", "/btw",
   "/stats", "/memory", "/effort", "/skill", "/plugin", "/context", "/tasks",
   "/task", "/cwd", "/worktree", "/mobile", "/logout",
+  "/doctor", "/verify", "/catalog", "/features", "/goal", "/workflow",
+  "/workflows", "/branch", "/batch", "/background", "/add-dir",
 ];
 
 export default function Marquee() {
@@ -14,7 +16,7 @@ export default function Marquee() {
       <div className="max-w-[1440px] mx-auto px-6 md:px-10 mb-16 md:mb-20 grid md:grid-cols-12 gap-8">
         <div className="md:col-span-4">
           <div className="text-[11px] uppercase tracking-widest font-mono text-neon-blue mb-4">— interlude</div>
-          <div className="font-serif italic text-white/80 text-4xl md:text-5xl leading-tight">Thirty-four<br /><span className="text-white">verbs.</span></div>
+          <div className="font-serif italic text-white/80 text-4xl md:text-5xl leading-tight">Forty-four<br /><span className="text-white">verbs.</span></div>
         </div>
         <div className="md:col-span-6 md:col-start-7">
           <p className="font-mono text-sm text-white/60 leading-relaxed max-w-lg">A slash-command vocabulary as expressive as the shell it lives in — swap models, restore checkpoints, review plans, mint worktrees, beam a QR to your phone.</p>
@@ -38,7 +40,7 @@ export default function Marquee() {
       </div>
 
       <div className="max-w-[1440px] mx-auto px-6 md:px-10 mt-16 md:mt-20 text-[11px] uppercase tracking-widest font-mono text-white/40 flex flex-wrap justify-between gap-4">
-        <span>34 slash commands</span>
+        <span>44 slash commands</span>
         <span>type &nbsp;<span className="text-white">/</span>&nbsp; to autocomplete</span>
         <span>see /help</span>
       </div>

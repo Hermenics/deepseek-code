@@ -4,7 +4,7 @@ import {
   FileText, FileEdit, FileDiff, FolderOpen, Terminal as TerminalIcon,
   Search, Regex, GitBranch, Globe, Users, MessageCircleQuestion,
   Brain, ListChecks, Compass, BookOpen, Sparkles, ClipboardCheck,
-  PencilRuler, FileCode,
+  PencilRuler, FileCode, Waypoints, ListTree, Flag, Plus, RefreshCw, MessagesSquare,
 } from "lucide-react";
 import Chapter from "./Chapter";
 
@@ -28,6 +28,12 @@ const TOOLS = [
   { name: "moa", icon: Sparkles, note: "mixture of agents" },
   { name: "submit_plan", icon: ClipboardCheck, note: "plan for review" },
   { name: "write_plan", icon: PencilRuler, note: "author plan file" },
+  { name: "lsp", icon: Waypoints, note: "code intelligence" },
+  { name: "workflow", icon: ListTree, note: "run a workflow" },
+  { name: "get_goal", icon: Flag, note: "read active goal" },
+  { name: "create_goal", icon: Plus, note: "start a goal" },
+  { name: "update_goal", icon: RefreshCw, note: "track goal progress" },
+  { name: "ask_user_questions", icon: MessagesSquare, note: "ask for input" },
 ];
 
 const PARALLEL = new Set([
@@ -43,7 +49,7 @@ export default function ChapterI() {
       kicker="the toolset"
       title={
         <>
-          Nineteen tools.
+          Twenty-five tools.
           <br />
           <span className="text-white/50">Zero friction.</span>
         </>
@@ -101,8 +107,8 @@ export default function ChapterI() {
 
       <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
         {[
-          { k: "19", v: "core tools" },
-          { k: "34", v: "slash commands" },
+          { k: "25", v: "core tools" },
+          { k: "44", v: "slash commands" },
           { k: "8", v: "run in parallel" },
           { k: "42k+", v: "lines of source" },
         ].map((s) => (

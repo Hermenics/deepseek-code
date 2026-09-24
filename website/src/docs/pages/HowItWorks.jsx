@@ -29,6 +29,7 @@ const PERMISSION_RESULTS = [
   ["directory", "Approve this tool for the current directory tree."],
   ["always", "Persist an allow rule to settings so future sessions inherit it."],
   ["deny", "Reject the call. Raises DenyAbortError and unwinds the turn."],
+  ["reject", "Headless outside-workspace refusal: return a path error to the model. Other refusal points stop the turn."],
 ];
 
 const PERMISSION_REASONS = [
@@ -92,9 +93,14 @@ export default function HowItWorks() {
           <p>
             DeepSeek Code is not a chat window with a code plugin bolted on. It is a loop. You give it a
             goal; it calls a model; the model asks for tools; the tools run; the results go back into the
-            same conversation; the model calls again. The loop ends when the model stops asking for tools —
-            that is the only termination condition.
+            same conversation; the model calls again. A normal turn ends when the model replies without
+            tool calls. You can also abort the turn; there is no fixed iteration limit.
           </p>
+          <div className="agent-loop" role="img" aria-label="Your prompt enters the model. Tool requests pass permission checks, run in the workspace, and return results to the model until it replies.">
+            <span>Your prompt</span><b aria-hidden="true">→</b><span>Model</span><b aria-hidden="true">→</b>
+            <span>Permission checks</span><b aria-hidden="true">→</b><span>Workspace tools</span>
+            <span className="agent-loop-return">↳ Tool results return to the model until it replies</span>
+          </div>
           <div className="doc-table-wrap">
             <table className="doc-table">
               <thead>
@@ -113,8 +119,8 @@ export default function HowItWorks() {
           <p>
             The whole state of that loop lives in one place: a <code className="inline">messages</code> array
             held by the <code className="inline">Agent</code> class. It starts as a single system message and
-            grows by one entry per model reply and one entry per tool result. Nothing is hidden from it, and
-            nothing outside it influences the next model call.
+            grows by one entry per model reply and one entry per tool result. The system prompt, settings,
+            tool schemas, hooks and active provider also shape what happens on each iteration.
           </p>
           <CodeBlock lang="text">{`messages[0]  system     ← system prompt + memory + steering
 messages[1]  user       ← "fix the failing test in auth.test.ts"
@@ -126,8 +132,8 @@ messages[6]  tool       ← "edited 1 file"
 messages[7]  assistant  ← "Fixed. The assertion compared…"   ← no tool calls: turn ends`}</CodeBlock>
           <Note>
             This is why <a href="/docs/context-window">context</a> is the central resource of the product.
-            The loop has no memory other than this array, so every token in it is a token you are paying
-            for on <em>every subsequent</em> iteration of the same turn.
+            Conversation history is sent again on subsequent model calls, so large tool results keep
+            consuming context until they are compacted or cleared.
           </Note>
         </section>
 

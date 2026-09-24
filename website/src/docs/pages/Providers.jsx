@@ -24,6 +24,7 @@ const TOC = [
   { id: "bedrock", label: "Bedrock specifics" },
   { id: "vertex", label: "Vertex specifics" },
   { id: "switching", label: "Switching providers" },
+  { id: "profiles", label: "Saved provider profiles" },
   { id: "next", label: "Next steps" },
 ];
 
@@ -81,8 +82,10 @@ export default function Providers() {
             </table>
           </div>
           <Note>
-            Secrets are saved only to <code className="inline">~/.deepseek/config.json</code>,
-            never to the project.
+            Named provider profiles, including their credential fields, are saved in the owner-only
+            <code className="inline">~/.deepseek/provider-profiles.json</code>. The older
+            <code className="inline">config.json</code> remains a compatibility credential store.
+            Do not commit either file.
           </Note>
         </section>
 
@@ -191,10 +194,25 @@ Vertex:   https://{location}-aiplatform.googleapis.com/v1/projects/{project}/loc
           <CodeBlock lang="bash">$ deepseek
 ❯ /model</CodeBlock>
           <p>
-            This does not switch providers or write settings. Change <code className="inline">provider.name</code>
-            and related credentials in <code className="inline">/config</code> when the next session should use
-            another provider.
+            This changes the model within the active provider. To switch providers, open
+            <code className="inline">/config</code> and activate a saved provider profile.
           </p>
+        </section>
+
+        <section id="profiles">
+          <h2><span className="anchor">#</span>Saved provider profiles</h2>
+          <p>
+            Open <code className="inline">/config</code> → <b>Provider profiles</b> to add, edit, test,
+            activate or delete named connections such as Work and Local. A profile keeps its provider,
+            preferred model and connection fields together. The active profile ID is stored in user settings;
+            profiles and credentials live in <code className="inline">~/.deepseek/provider-profiles.json</code>
+            with owner-only permissions. A switch requested during a running turn takes effect after that turn.
+          </p>
+          <Note>
+            Choose <b>DeepSeek API</b> for an OpenAI-compatible proxy that requires an API key, and set its
+            base URL. Choose <b>Local</b> only for an endpoint that accepts requests without credentials;
+            Local sends no API key.
+          </Note>
         </section>
 
         <section id="next">

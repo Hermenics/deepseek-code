@@ -3,6 +3,7 @@ import { CodeBlock, Note, Toc } from "../Layout";
 const TOC = [
   { id: "levels", label: "The three levels" },
   { id: "resolution", label: "How a value is resolved" },
+  { id: "spending", label: "Spending level" },
   { id: "diagnostics", label: "Validation & unknown paths" },
   { id: "provider", label: "provider" },
   { id: "models", label: "model" },
@@ -24,6 +25,7 @@ const LEVELS = [
 ];
 
 const PROVIDER = [
+  ["provider.activeProfileId", "string", "User-level ID of the active named provider profile."],
   ["provider.name", "ProviderName", "deepseek, bedrock, vertex or local."],
   ["provider.endpoint", "string", "Base URL override — gateways, proxies, local runtimes."],
   ["provider.region", "string", "AWS region for Bedrock."],
@@ -223,6 +225,26 @@ export default function Settings() {
             optional <code className="inline">error</code>. A malformed project file does not prevent your user
             settings from loading — partial configuration beats no session.
           </p>
+        </section>
+
+        <section id="spending">
+          <h2><span className="anchor">#</span>Spending level</h2>
+          <p>
+            In <code className="inline">/config</code>, set <code className="inline">budget</code> to
+            <code className="inline"> broke</code>, <code className="inline">comfortable</code> (default), or
+            <code className="inline">loaded</code>. One choice adjusts reasoning effort, delegated review,
+            model panels, and, at the lowest level, concurrency and compaction. It is a cost preference,
+            not a USD spending limit for the main session.
+          </p>
+          <div className="doc-table-wrap"><table className="doc-table"><thead><tr><th>Level</th><th>Behavior</th></tr></thead><tbody>
+            <tr><td><code className="inline">broke</code></td><td>Low effort, no paid second-model review or MoA panel; earlier compaction and bounded delegation.</td></tr>
+            <tr><td><code className="inline">comfortable</code></td><td>High effort and the existing defaults.</td></tr>
+            <tr><td><code className="inline">loaded</code></td><td>Max effort and a second-model review of every delegated result.</td></tr>
+          </tbody></table></div>
+          <Note>
+            The level is merged below explicit settings. A value you set by hand still wins;
+            <code className="inline"> /effort</code> pins the current process&apos;s reasoning level until it exits.
+          </Note>
         </section>
 
         <section id="diagnostics">

@@ -654,6 +654,28 @@
 - Added: Browser observer, history formatting, and input handling
 - Chore: Update public directory path to external subdirectory
 
+## 0.1.3
+
+- Changed: Automatic updates run as a silent background installation instead of showing an update notification or asking the user to install manually; the new version is available on the next launch
+- Changed: Global updates use npm directly, without detecting which package manager installed the CLI
+- Fixed: Update failures no longer interrupt the current session or display an update error in the TUI
+
+## 0.1.2
+
+- Added: Subagent roles are inferred from the task, with role-specific tool permissions so delegated work receives only the tools appropriate to its role
+- Added: Subagents retain results from earlier tasks as session memory to provide context for later delegations; that memory resets at the start of each user turn
+- Added: Structured subagent results include confidence and metadata; verification can be requested explicitly or triggered for low-confidence file changes and review findings
+- Enhanced: Subagent prompts include role descriptions and relevant memory; the TUI shows role and verification status
+- Tests: Cover subagent result contracts, memory, permissions, verification and UI status
+
+## 0.1.1
+
+- Added: Agent turns stop after 100 tool-use iterations to prevent an infinite loop, with a notice in the conversation when the limit is reached
+- Added: Context can be compacted during a turn when usage crosses its threshold, rather than waiting for the turn to finish
+- Added: `/effort` controls reasoning depth with `low`, `medium`, `high` and `max` levels; the selected level adjusts the agent prompt and provider thinking parameters, with `low` disabling thinking and `max` enabling extended reasoning
+- Fixed: Rejected tool calls remain consistent in the API conversation; parallel subagents keep the provider and model selected when they started
+- Enhanced: WebFetch preserves error context, Bedrock tool-call IDs use UUIDs, and the status bar and theme receive visual refinements
+
 ## 0.1.0
 
 - Added: Integrate Model Context Protocol (MCP) support and enhance UI components with theme selection and improved message rendering.

@@ -36,6 +36,7 @@ const SESSION = [
   ["/retry", "—", "Re-run the last message."],
   ["/sessions", "export <id> md|json", "List sessions, or export one sanitized."],
   ["/checkpoint", "save [label] · list · restore <id>", "Snapshot or restore the conversation."],
+  ["/branch", "[title]", "Fork the conversation into a derived session while keeping this one."],
   ["/quit", "—", "Exit the application."],
 ];
 
@@ -52,6 +53,7 @@ const FILES = [
   ["/undo", "· all · list", "Restore the last modified file, all of them, or list entries."],
   ["/cwd", "[path]", "Show or change the working directory."],
   ["/worktree", "create · list · enter <name> · exit [keep] · status", "Isolated git worktrees. Aliases: ls, leave."],
+  ["/add-dir", "[remove] <path> · (no arguments to list)", "Approve or revoke an extra directory for this session; with no arguments, list approved directories."],
   ["/verify", "—", "Run the project's detected test command after confirmation."],
   ["/review", "[path]", "Multi-agent review of the project or one path."],
 ];
@@ -63,6 +65,8 @@ const AGENTS = [
   ["/tasks", "—", "Render the session task DAG with live state."],
   ["/btw", "<question>", "Ask a quick side question without interrupting the agent."],
   ["/plan", "<task>", "Read-only exploration ending in an approval dialog."],
+  ["/background", "<prompt>", "Run one prompt as a background workflow while the TUI stays available."],
+  ["/batch", "<prompt> -- <prompt> ...", "Run up to 17 independent prompts in parallel through a workflow."],
 ];
 
 const WORKFLOWS = [
@@ -133,7 +137,7 @@ export default function SlashCommands() {
         <div className="hero">
           <h1>Slash commands</h1>
           <p className="tagline">
-            41 built-in commands that act on the session rather than prompting the model — plus saved workflows and
+            44 built-in commands that act on the session rather than prompting the model — plus saved workflows and
             custom prompt commands — with their arguments,
             subcommands and aliases.
           </p>

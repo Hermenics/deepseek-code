@@ -35,6 +35,7 @@ const GROUPS = [
       ["/context · /ctx", "Show the context window usage breakdown (estimated)"],
       ["/files", "List the files modified by the agent this session"],
       ["/checkpoint [save [label]|list|restore <id>]", "Snapshot the session (save), list checkpoints, or restore one by id"],
+      ["/branch [title]", "Fork the conversation into a new derived session"],
       ["/compact", "Summarize history to save context window space"],
     ],
   },
@@ -60,6 +61,8 @@ const GROUPS = [
     items: [
       ["/task <id> <action>", "Inspect or control a task — status, cancel, resume, result, message, integrate, cleanup"],
       ["/tasks", "Show the session task DAG"],
+      ["/background <prompt>", "Run a prompt in the background through the workflow runtime"],
+      ["/batch <prompt> -- <prompt>", "Run independent prompts in parallel through a workflow (up to 17)"],
       ["/workflow run <name> [args] | pause|resume|stop|restart <run-id> | save <run-id> <name>", "Run or control a Dynamic Workflow"],
       ["/workflows", "Monitor Dynamic Workflow runs"],
     ],
@@ -69,6 +72,7 @@ const GROUPS = [
     items: [
       ["/cwd · /cd [path]", "Show or change the working directory"],
       ["/worktree · /wt [create|enter|exit|list|status]", "Create or manage an isolated Git worktree copy of the project"],
+      ["/add-dir [remove] <path>", "Approve or revoke access to an extra directory for this session"],
     ],
   },
   {
@@ -135,7 +139,7 @@ export default function Commands() {
         <section id="reference">
           <h2><span className="anchor">#</span>Reference</h2>
           <p>
-            All 41 built-in commands, grouped by intent. Aliases are shown after the <code className="inline">·</code>.
+            All 44 built-in commands, grouped by intent. Aliases are shown after the <code className="inline">·</code>.
           </p>
           {GROUPS.map((g) => (
             <div key={g.title}>

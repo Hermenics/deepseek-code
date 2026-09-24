@@ -218,16 +218,23 @@ const NAV = [
 
 /* ---------- Shared bits ---------- */
 export function CodeBlock({ lang, children }) {
-  const copy = useCallback((text) => {
-    if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
+  const preRef = useRef(null);
+  const [copied, setCopied] = useState(false);
+  const copy = useCallback(async () => {
+    if (!navigator.clipboard || !preRef.current) return;
+    try {
+      await navigator.clipboard.writeText(preRef.current.textContent || "");
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch { /* Clipboard access may be unavailable outside a secure context. */ }
   }, []);
   return (
     <div className="codeblock">
       <div className="codeblock-head">
         <span className="lang">{lang}</span>
-        <button className="copy" onClick={() => copy(typeof children === "string" ? children : "")}>Copy</button>
+        <button className="copy" type="button" onClick={copy} aria-label={`Copy ${lang} code`}>{copied ? "Copied" : "Copy"}</button>
       </div>
-      <pre>{children}</pre>
+      <pre ref={preRef}>{children}</pre>
     </div>
   );
 }
@@ -280,8 +287,18 @@ export default function Layout({ children }) {
     return localStorage.getItem("dsc-theme") || "light";
   });
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [navQuery, setNavQuery] = useState("");
   const rootRef = useRef(null);
   const location = useLocation();
+
+  useEffect(() => {
+    setMobileOpen(false);
+    if (location.hash) {
+      requestAnimationFrame(() => document.getElementById(decodeURIComponent(location.hash.slice(1)))?.scrollIntoView());
+    } else {
+      window.scrollTo(0, 0);
+    }
+  }, [location.pathname, location.hash]);
 
   useEffect(() => {
     if (rootRef.current) rootRef.current.dataset.theme = theme;
@@ -292,6 +309,10 @@ export default function Layout({ children }) {
     if (href === "/docs") return location.pathname === "/docs";
     return location.pathname === href || location.pathname.startsWith(`${href}/`);
   };
+  const visibleNav = NAV.map((group) => ({
+    ...group,
+    items: group.items.filter((item) => `${group.title} ${item.label}`.toLowerCase().includes(navQuery.trim().toLowerCase())),
+  })).filter((group) => group.items.length);
 
   return (
     <div className="dsc-docs" ref={rootRef}>
@@ -315,7 +336,7 @@ export default function Layout({ children }) {
             <button
               className="mobile-toggle"
               onClick={() => setMobileOpen((v) => !v)}
-              aria-label="Toggle navigation"
+              aria-label={mobileOpen ? "Close documentation navigation" : "Open documentation navigation"}
               aria-expanded={mobileOpen}
               aria-controls="docs-sidebar"
             >
@@ -339,7 +360,12 @@ export default function Layout({ children }) {
 
       <div className="shell">
         <aside id="docs-sidebar" className={`sidebar ${mobileOpen ? "mobile-open" : ""}`}>
-          {NAV.map((g) => (
+          <div className="sidebar-search">
+            <label htmlFor="docs-nav-search">Find a page</label>
+            <input id="docs-nav-search" type="search" value={navQuery} onChange={(event) => setNavQuery(event.target.value)} placeholder="Search page titles" />
+          </div>
+          {visibleNav.length === 0 && <p className="sidebar-empty">No matching pages.</p>}
+          {visibleNav.map((g) => (
             <div className="nav-group" key={g.title}>
               <div className="nav-group-title">{g.title}</div>
               <ul className="nav-list">

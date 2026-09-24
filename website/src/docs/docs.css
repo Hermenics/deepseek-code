@@ -192,6 +192,11 @@
 }
 .sidebar::-webkit-scrollbar { width: 6px; }
 .sidebar::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 6px; }
+.sidebar-search { padding: 0 10px 20px; }
+.sidebar-search label { display: block; margin-bottom: 6px; color: var(--text-muted); font-size: 12px; font-weight: 600; }
+.sidebar-search input { width: 100%; padding: 9px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg-elev); color: var(--text-strong); font: inherit; font-size: 13px; }
+.sidebar-search input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sidebar-empty { padding: 0 10px; color: var(--text-muted); font-size: 13px; }
 .nav-group { margin-bottom: 22px; }
 .nav-group-title {
   font-size: 11.5px;
@@ -229,6 +234,28 @@
   min-width: 0;
   max-width: 760px;
 }
+.agent-loop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-subtle);
+  margin: 20px 0 24px;
+}
+.agent-loop > span:not(.agent-loop-return) {
+  padding: 9px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 600;
+}
+.agent-loop > b { color: var(--accent); }
+.agent-loop-return { flex-basis: 100%; color: var(--text-muted); font-size: 13px; }
 .breadcrumb {
   font-size: 13px;
   color: var(--text-muted);
@@ -304,20 +331,7 @@
 .badge b { color: var(--text-strong); font-weight: 600; }
 .badge .sep { color: var(--text-faint); }
 
-/* Terminal mockup */
-.terminal-demo {
-  margin: 28px 0 8px;
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: var(--shadow-md);
-}
-.terminal-demo img {
-  display: block;
-  width: 100%;
-  height: auto;
-  transform: scale(1.06);
-  filter: saturate(1.25);
-}
+.demo-open { margin-top: 26px; }
 
 /* Sections */
 .dsc-docs section { margin-top: 56px; scroll-margin-top: 80px; }
@@ -687,6 +701,8 @@
     display: block;
     position: fixed;
     inset: 60px 0 0 0;
+    height: calc(100vh - 60px);
+    height: calc(100dvh - 60px);
     background: var(--bg);
     padding: 20px 20px 40px;
     z-index: 30;

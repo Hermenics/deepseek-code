@@ -229,6 +229,8 @@ export interface ToolExecutionContext {
   workflowManager?: import('../workflows/manager.js').WorkflowManager
   interactionMode?: import('../ui/interactionMode.js').InteractionMode
   askUser?: AskUserHandler
+  /** Separate model review required before an agent can mark its goal complete. */
+  verifyGoalCompletion?: (completionSummary: string) => Promise<string>
   emit?(type: TaskEventType, payload: Record<string, unknown>): void
 }
 
