@@ -12,6 +12,8 @@ const nativeGrepCapability = new Map<string, Promise<boolean>>()
 /** Probe once per platform (cached) whether the system grep accepts the `-rnzZ` flags the output parser relies on. */
 async function supportsNativeGrep(): Promise<boolean> {
   const platform = process.platform
+  // macOS grep accepts the probe flags but does not preserve the result contract with --include.
+  if (platform === 'darwin') return false
   const cached = nativeGrepCapability.get(platform)
   if (cached) return cached
 
