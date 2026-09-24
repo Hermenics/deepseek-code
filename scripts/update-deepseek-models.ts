@@ -43,11 +43,17 @@ const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'frida
 const RATE_KEYS = ['cacheHit', 'cacheMiss', 'output'] as const
 
 function toText(html: string): string {
-  return html
+  let text = html
     .replace(/<sup>[\s\S]*?<\/sup>/g, '')
     .replace(/<br\s*\/?>/g, ' ')
+  let previous: string
+  do {
+    previous = text
+    text = text.replace(/<[^>]+>/g, '')
+  } while (text !== previous)
+  // Decode entities last: encoded angle brackets are text, not markup to parse again.
+  return text
     .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_, name: string) => ENTITIES[name]!)
-    .replace(/[<>]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
 }
