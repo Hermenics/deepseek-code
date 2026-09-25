@@ -203,7 +203,7 @@ describe('output limit and repeated failures', () => {
 describe('plan tools outside /plan', () => {
   it('assigns a plan file on the first write_plan and does not pause for review in Auto mode', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsk-plan-tools-'))
-    const agent = new Agent(undefined, { projectRoot: dir })
+    const agent = new Agent(undefined, { projectRoot: dir, logFile: null, snapshotFile: null })
     try {
       await agent.readyPromise.catch(() => {})
       const internals = agent as unknown as {
