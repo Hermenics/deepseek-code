@@ -1,8 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.8.1
 
-- Added: Named steps — the agent plans its work before the first tool call and opens each group of tool calls with the new `step` tool, giving it a present-tense label shown while it runs ("Rodando os testes") and a past-tense one once it ends ("Rodou os testes")
+- Enhanced: After installing an update, the CLI clears the terminal and asks you to restart manually, avoiding an automatic process relaunch
+
+## 0.8.0
+
+- Added: Research evidence extraction accepts URLs without a scheme, such as `example.com`, and resolves them as HTTPS URLs
+- Added: Named steps — the agent plans its work before the first tool call and opens each group of tool calls with the new `step` tool, giving it a present-tense label shown while it runs ("Running the tests") and a past-tense one once it ends ("Ran the tests")
 - Added: A step stays open across model responses until the next one opens or the turn ends, and the runtime announces it before its batch runs, so parallel calls always land in the right group
 - Added: The system prompt teaches the model to plan its steps up front and to open each one in the same response as its first tool calls
 - Enhanced: A running step shows its label in bold with animated dots (`.` → `..` → `...`), or static dots with reduced motion, and its tool calls indented beneath it
