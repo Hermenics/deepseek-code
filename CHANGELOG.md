@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased
+
+- Added: Named steps — the agent plans its work before the first tool call and opens each group of tool calls with the new `step` tool, giving it a present-tense label shown while it runs ("Rodando os testes") and a past-tense one once it ends ("Rodou os testes")
+- Added: A step stays open across model responses until the next one opens or the turn ends, and the runtime announces it before its batch runs, so parallel calls always land in the right group
+- Added: The system prompt teaches the model to plan its steps up front and to open each one in the same response as its first tool calls
+- Enhanced: A running step shows its label in bold with animated dots (`.` → `..` → `...`), or static dots with reduced motion, and its tool calls indented beneath it
+- Enhanced: Once the turn ends, steps collapse into "Work truncated" with the rest of the work; ctrl+o shows every step with its tools
+- Fixed: A step cut short by Ctrl+C, a denied permission or an error keeps its present-tense label and is marked `✗ … · interrupted`, instead of looking finished
+- Tests: The step tool and its modes, step announcement order in a parallel batch, step open/close/interrupt helpers, running, interrupted and collapsed step rendering, and the dot animation frames
+
+## 0.7.10
+
+- Fixed: The exit screen only offers `deepseek --resume <id>` when that session was actually saved; quitting before any model turn used to print a resume command for a session that did not exist
+- Fixed: Resizing the terminal width in fullscreen no longer leaves a long conversation collapsed toward the top or overlapping the input; text is re-measured and the layout recomputed on every column change
+- Fixed: Relaunching after an automatic update waits for the new process instead of exiting under it, so the relaunched session keeps control of the terminal instead of failing with `setRawMode failed with errno: 5`
+- Fixed: On macOS, `grep` no longer uses the system grep, which accepts the flags the tool relies on but breaks its output format together with `--include`
+- Fixed: `scripts/update-deepseek-models.ts` removes HTML tags repeatedly until none are left and decodes entities only afterwards, so nested or entity-encoded markup can no longer survive into the model catalog
+- Chore: `bun test` discovers only the `tests` directory, so the intentionally failing eval fixtures under `scripts/eval/tasks` are never picked up by the unit suite
+- Tests: Session resumability, the exit screen without a saved session, relaunch waiting for the child process, long-content fullscreen resize, and a longer CI timeout with a steadier search-tool test
+
+## 0.7.9
+
+- Added: Goal completion is checked by a separate, tool-free request to the current model: `update_goal` with `status=complete` now requires a `completion_summary`, and the goal stays active unless the reviewer finds explicit, credible evidence that every part is done
+- Added: `release.sh --ai` asks Codex to recommend a patch, minor or major bump from the commits since the latest tag, and asks for confirmation before releasing with it; passing an explicit version still works
+- Docs: The landing page gains an interactive terminal demo, the documentation pages are refreshed, and the changelog now covers versions 0.1.1 to 0.1.3
+
+## 0.7.8
+
+- Enhanced: A turn is no longer stopped after 100 tool iterations; the agent keeps working until the task is done
+- Enhanced: Subagents have no fixed 50-iteration cap; one started without a task context stops after two minutes instead
+- Added: `read_file` and `read_folder` take `paths` to read several files or list several directories in one call, and `grep` takes `patterns` to run several searches at once
+- Added: `git` has a read-only `batch` action that runs several status, diff or log operations in one call, and `todo` gains `remove` and an ordered `batch` of add, update and remove operations
+- Enhanced: Permission rules are checked for every path, pattern or git operation in a batched call; one denied item denies the whole call and one item that needs approval asks for it
+- Enhanced: Fullscreen pins the header only while more than 21 rows remain for the conversation; on a short terminal, or while a model, effort, question, permission, plan or confirmation prompt is open, it scrolls with the transcript
+- Fixed: `web_fetch` decodes HTML entities before stripping tags, so entity-encoded markup can no longer turn back into tags in the text given to the model
+- Docs: The architecture, file operations, large codebases and permission pattern pages describe batched paths and patterns
+- Tests: Batched paths, patterns and git operations with their permission decisions, the subagent time limit, and the pinned-header layout
+
 ## 0.7.7
 
 - Enhanced: The TUI has its own "Sonar" look instead of a Claude Code-like one — a rounded input box with the agent label in its border, a user bar, an assistant diamond, tool lines with their status on the right, a sonar-pulse spinner, a braille wave while thinking, and an end-of-turn wave line with the duration and tool count
