@@ -86,6 +86,7 @@ if (process.stdout.isTTY) process.stdout.write('\x1b]0;DeepSeek\x07')
 import { useState, useEffect } from 'react'
 import { writeSync } from 'fs'
 import { createRoot } from '../ink/root.js'
+import { CURSOR_HOME, ERASE_SCREEN } from '../ink/termio/csi.js'
 import { App, getTrustedUserStatusLineConfig } from '../ui/App.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
@@ -103,7 +104,6 @@ import type { DeepSeekSettings } from '../settings/types.js'
 import { formatExitScreen } from '../utils/exitScreen.js'
 import { exitWhenTerminalCloses } from '../utils/terminalLoss.js'
 import { auditLog } from '../agent/auditLog.js'
-import { relaunchCurrentInvocation } from '../utils/relaunch.js'
 import pkg from '../../package.json' with { type: 'json' }
 
 /** Maps argv to a startup intent: subcommands (`update`, `logout`, `doctor`, `help`, `version`), `--resume [id]`, `agent <name> [msg]`, or an initial message. Only the first matching form is honoured. */
@@ -259,7 +259,7 @@ if (!ARGV.update) {
     })
     if (choice === 'update') {
       const { execa } = await import('execa')
-      process.stdout.write(`\nUpdating to ${update.latest}...\n`)
+      process.stdout.write(ERASE_SCREEN + CURSOR_HOME + `Updating to ${update.latest}...\n`)
       if (managers.length === 2) process.stdout.write(`Warning: ${pkg.name} is installed globally with npm and Bun; updating both in parallel.\n`)
       const results = await Promise.all(managers.map(async (pm) => ({
         result: await execa(pm, pm === 'bun' ? ['add', '-g', `${pkg.name}@${update.latest}`] : ['install', '-g', `${pkg.name}@${update.latest}`], { reject: false }),
@@ -272,13 +272,8 @@ if (!ARGV.update) {
         process.stderr.write('Update failed. Check the errors above.\n')
         process.exit(1)
       } else {
-        process.stdout.write(`Updated! Launching DeepSeek Code ${update.latest}...\n`)
-        try {
-          process.exit(await relaunchCurrentInvocation())
-        } catch (error) {
-          process.stderr.write(`Could not relaunch DeepSeek Code: ${(error as Error).message}\n`)
-          process.exit(1)
-        }
+        process.stdout.write(`Updated to ${update.latest}. Restart deepseek to use the new version.\n`)
+        process.exit(0)
       }
     } else if (choice === 'dismiss') {
       const { dismissVersion } = await import('../utils/update-notifier.js')
