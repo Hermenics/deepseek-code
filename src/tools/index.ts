@@ -11,6 +11,7 @@ import { SubAgent } from './SubAgent/SubAgent.js'
 import { PatchFile } from './PatchFile/PatchFile.js'
 import { UpdateKnowledge } from './UpdateKnowledge/UpdateKnowledge.js'
 import { Todo } from './Todo/Todo.js'
+import { Step } from './Step/Step.js'
 import { Git } from './Git/Git.js'
 import { MemoryTool } from './Memory/MemoryTool.js'
 import { MoATool } from './MoA/MoA.js'
@@ -26,7 +27,7 @@ import { Workflow } from './Workflow/Workflow.js'
 import { AskUserQuestions } from './AskUserQuestions/AskUserQuestions.js'
 
 /** Every built-in tool, in the order they are offered to the model. */
-export const allTools: Tool[] = [WriteFile, EditFile, PatchFile, ReadFile, ReadFolder, Grep, Glob, Lsp, Shell, Introspect, WebFetch, SubAgent, AskAgent, Workflow, UpdateKnowledge, Todo, Git, MemoryTool, MoATool, SubmitPlan, WritePlan, GetGoal, CreateGoal, UpdateGoal, AskUserQuestions]
+export const allTools: Tool[] = [WriteFile, EditFile, PatchFile, ReadFile, ReadFolder, Grep, Glob, Lsp, Shell, Introspect, WebFetch, SubAgent, AskAgent, Workflow, UpdateKnowledge, Todo, Step, Git, MemoryTool, MoATool, SubmitPlan, WritePlan, GetGoal, CreateGoal, UpdateGoal, AskUserQuestions]
 
 /** Built-in tools indexed by their model-facing name. */
 export const toolMap = new Map<string, Tool>(allTools.map((t) => [t.name, t]))

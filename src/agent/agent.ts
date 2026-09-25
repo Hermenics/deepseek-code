@@ -117,7 +117,7 @@ class DenyAbortError extends Error {
 }
 
 // Tools that are safe to run in parallel (read-only or isolated)
-const PARALLEL_SAFE = new Set(['subagent', 'ask_agent', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect'])
+const PARALLEL_SAFE = new Set(['subagent', 'ask_agent', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect', 'step'])
 
 const DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT_MD
 
@@ -502,6 +502,8 @@ export interface AgentCallbacks {
   /** Live tool call while its arguments are still streaming in. `argsText` is partial JSON. */
   onToolPending?(name: string, argsText: string): void
   onToolResult(name: string, result: string, args: Record<string, unknown>): void
+  /** The model opened a named step; fired before its batch runs so every call of the batch belongs to it. */
+  onStep?(step: { active: string; done: string }): void
   onDone(): void
   onPhaseChange?(phase: 'refining' | 'executing'): void
   onMicroCompact?(details: { freedTokensEstimate: number }): void
@@ -711,6 +713,15 @@ export class Agent {
     await runClaudeHookEvent(this.settings.hooks as HooksConfig, 'StopFailure', this.hookSessionId, {
       cwd: this.workspacePath, model: this.model, error: 'unknown', error_details: message,
     }, 'unknown')
+  }
+
+  /** Announces each valid `step` call in a batch before any of its tools run, so parallel results land in the right group. */
+  private announceSteps(calls: Array<{ name: string; args: unknown }>, cb: AgentCallbacks): void {
+    for (const call of calls) {
+      if (call.name !== 'step') continue
+      const { active, done } = (call.args ?? {}) as { active?: unknown; done?: unknown }
+      if (typeof active === 'string' && active.trim() && typeof done === 'string' && done.trim()) cb.onStep?.({ active: active.trim(), done: done.trim() })
+    }
   }
 
   /** Fires the PostToolBatch hook for a batch of tool calls; no-op without hooks or calls. */
@@ -2153,6 +2164,7 @@ export class Agent {
 
             // Execute each tool and append results as user messages
             const batchCalls: Array<Record<string, unknown>> = []
+            this.announceSteps(toolCalls.map((tc) => ({ name: tc.name, args: tc.args })), cb)
             for (const tc of toolCalls) {
               const fakeTc = { id: `bedrock-${randomUUID().slice(0, 8)}`, type: 'function' as const, function: { name: tc.name, arguments: JSON.stringify(tc.args) } }
               const { result } = await this.checkAndExecuteTool(fakeTc, tc.args, cb)
@@ -2207,6 +2219,7 @@ export class Agent {
 
         // Execute tools
         const parsedList = tcArray.map((tc: any) => parseToolCallArguments(tc, finishReason))
+        this.announceSteps(parsedList.map((call: { tc: { function: { name: string } }; parsedArgs: unknown }) => ({ name: call.tc.function.name, args: call.parsedArgs })), cb)
 
         const batchCalls: Array<Record<string, unknown>> = []
         for (const call of parsedList) {
@@ -2400,6 +2413,7 @@ export class Agent {
 
       // ── Parse all args first ───────────────────────────────────────────────
       const parsedList = tcArray.map((tc) => parseToolCallArguments(tc, finishReason))
+      this.announceSteps(parsedList.map((call) => ({ name: call.tc.function.name, args: call.parsedArgs })), cb)
 
       // ── Partition: parallel-safe vs sequential ─────────────────────────────
       const canParallelize = parsedList.every(({ tc }) => PARALLEL_SAFE.has(tc.function.name))

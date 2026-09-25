@@ -20,9 +20,9 @@ import {
 type RestrictedMode = Exclude<InteractionMode, 'auto'>
 
 const DOCUMENTED_MODE_TOOLS: Record<RestrictedMode, string[]> = {
-  review: ['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions'],
-  plan: ['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'write_plan', 'submit_plan'],
-  build: ['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'shell', 'write_file', 'edit_file', 'patch_file', 'update_knowledge', 'subagent', 'ask_agent', 'moa', 'update_goal'],
+  review: ['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'step', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions'],
+  plan: ['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'step', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'write_plan', 'submit_plan'],
+  build: ['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'step', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'shell', 'write_file', 'edit_file', 'patch_file', 'update_knowledge', 'subagent', 'ask_agent', 'moa', 'update_goal'],
 }
 
 function documentedTools(content: string, mode: RestrictedMode): string[] {
@@ -311,7 +311,7 @@ describe('interactionMode', () => {
       }
 
       const nativeTools = allTools.map((tool) => tool.name).sort()
-      expect(nativeTools).toHaveLength(25)
+      expect(nativeTools).toHaveLength(26)
       expect(getToolsForMode('auto').sort()).toEqual(nativeTools)
       expect(nativeTools.every((tool) => canUseTool('auto', tool))).toBe(true)
       expect(nativeTools.filter((tool) => !Object.values(DOCUMENTED_MODE_TOOLS).flat().includes(tool))).toEqual(['create_goal'])
@@ -323,7 +323,7 @@ describe('interactionMode', () => {
       expect(systemPrompt.split('\n').length).toBeLessThanOrEqual(160)
       expect(systemPrompt).not.toContain('## 17. Tool: write_file')
       expect(systemPrompt).not.toContain('## 45. CLI command reference')
-      expect(docs).toContain('| Auto | All 25 native tools and dynamically discovered MCP tools |')
+      expect(docs).toContain('| Auto | All 26 native tools and dynamically discovered MCP tools |')
     })
   })
 

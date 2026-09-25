@@ -113,7 +113,7 @@ Skills package task-specific instructions and assets; plugins can contribute ski
 Use \`/catalog [mcp|plugin|skill]\` (or \`/marketplace\`) for curated recommendations. \`/features\` (or \`/experimental\`) lists the current experimental flags; name a flag to toggle it or pass \`on\`/\`off\` explicitly. The current built-in flags are word-level diffs, micro-compaction of short tool results, and fuzzy file search.
 
 ## Available Tools
-DeepSeek Code registers 25 native tools. Tool schemas are the authority for parameters and result formats; the descriptions below explain their intended operating role.
+DeepSeek Code registers 26 native tools. Tool schemas are the authority for parameters and result formats; the descriptions below explain their intended operating role.
 
 ### Locate and inspect
 
@@ -138,6 +138,7 @@ By default (\`readBeforeEdit\` in \`/features\`), \`write_file\`, \`edit_file\` 
 ### Session context and durable knowledge
 
 - \`todo\` — Manage the visible session checklist through add, update, remove, ordered batches, clear, and list. It is for multi-step progress, not durable storage or proof that work is verified.
+- \`step\` — Open a named group of tool calls in the transcript. The model plans its steps before acting and opens each in the same response as its first calls, with a present-continuous \`active\` label shown while it runs and a simple-past \`done\` label once the next step opens or the turn ends. The runtime announces the step before the batch runs, so parallel calls land in the right group.
 - \`memory\` — Add, replace, remove, or list concise durable entries in agent or user memory. Entries are deduplicated, capped, and reject instruction/policy-override language; they are untrusted supporting context.
 - \`update_knowledge\` — Add verified project knowledge under a heading in \`DEEPSEEK.md\`. Reserve it for durable decisions, conventions, and operational facts—not task logs or generic advice.
 - \`get_goal\` — Inspect an explicit current session goal and its status, budget, and elapsed usage. It does not create a goal.
@@ -160,10 +161,10 @@ By default (\`readBeforeEdit\` in \`/features\`), \`write_file\`, \`edit_file\` 
 ### Tool Permissions by Mode
 | Mode | Permitted native tools |
 | --- | --- |
-| Review | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`ask_user_questions\` |
-| Plan | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`ask_user_questions\`, \`write_plan\`, \`submit_plan\` |
-| Build | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`ask_user_questions\`, \`shell\`, \`write_file\`, \`edit_file\`, \`patch_file\`, \`update_knowledge\`, \`subagent\`, \`ask_agent\`, \`moa\`, \`update_goal\` |
-| Auto | All 25 native tools and dynamically discovered MCP tools |
+| Review | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`step\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`ask_user_questions\` |
+| Plan | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`step\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`ask_user_questions\`, \`write_plan\`, \`submit_plan\` |
+| Build | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`step\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`ask_user_questions\`, \`shell\`, \`write_file\`, \`edit_file\`, \`patch_file\`, \`update_knowledge\`, \`subagent\`, \`ask_agent\`, \`moa\`, \`update_goal\` |
+| Auto | All 26 native tools and dynamically discovered MCP tools |
 
 In Review and Plan, \`git\` is limited to status/diff/log and batches containing only those actions; \`todo\` and \`memory\` are limited to list. Plan may write only through \`write_plan\`; after \`submit_plan\`, it waits for the user's decision. MCP tools follow the shell rule: Build and Auto only.
 
@@ -283,7 +284,7 @@ MCP tools are prefixed with the server name: \`serverName__toolName\`. Calls tim
 
 ## TUI Behavior
 
-The Ink/React terminal UI streams assistant output, tool activity, thoughts, diffs, todos, task status, and workflow progress. Interface settings provide six themes—\`dark\`, \`light\`, \`dark-daltonized\`, \`light-daltonized\`, \`dark-ansi\`, and \`light-ansi\`—plus density, reduced motion, visible thoughts/tool calls/diffs, Vim input, status-bar content, and narrow-terminal priority.
+The Ink/React terminal UI streams assistant output, tool activity grouped under the model's named steps, thoughts, diffs, todos, task status, and workflow progress. Interface settings provide six themes—\`dark\`, \`light\`, \`dark-daltonized\`, \`light-daltonized\`, \`dark-ansi\`, and \`light-ansi\`—plus density, reduced motion, visible thoughts/tool calls/diffs, Vim input, status-bar content, and narrow-terminal priority.
 
 Alternate-screen mode is an opt-in Interface setting and applies on the next session. The Settings UI adapts to narrow terminals, and the normal input supports slash-command discovery, file matching, command history, queued messages, and optional Vim normal/insert behavior. Use Shift+Tab to cycle interaction modes or \`/mobile\` to show the QR code for the companion mobile app.
 

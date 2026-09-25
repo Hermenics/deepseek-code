@@ -12,6 +12,7 @@ import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 import { useClock } from '../clock.js'
 import { isFullscreenActive } from '../../utils/fullscreen.js'
+import { stepToolFlags } from './steps.js'
 
 /** Splits a stored tool message into display name, argument preview and raw output; JSON `{arg, output}` details are unpacked, other JSON is summarized, and previews are clipped to 60 chars unless `full`. */
 export function formatToolLine(rawName: string, detail: string, full = false): { display: string; arg: string; output: string } {
@@ -126,6 +127,33 @@ export function getNormalMessageItems(messages: Message[]): DisplayMessage[] {
   return result
 }
 
+const ELLIPSIS_FRAMES = ['.  ', '.. ', '...']
+
+/** Running-step dots for a clock tick: `.` → `..` → `...`, one frame per 400ms (five 80ms ticks), padded so the row never shifts. */
+export function ellipsisFrame(tick: number): string {
+  return ELLIPSIS_FRAMES[Math.floor(tick / 5) % ELLIPSIS_FRAMES.length]!
+}
+
+/** Only mounted while a step runs, so finished transcripts never subscribe to the clock. */
+function AnimatedEllipsis() {
+  return <>{ellipsisFrame(useClock())}</>
+}
+
+/** Bold step heading: present tense with animated dots while running, past tense with a check once done, present tense with a cross when interrupted. */
+function StepHeading({ message, reducedMotion = false, theme }: { message: Message; reducedMotion?: boolean; theme: ThemeName }) {
+  const colors = getThemeColors(theme)
+  const running = message.doneLabel != null
+  const icon = running ? STATUS_ICONS.pending : message.interrupted ? STATUS_ICONS.error : STATUS_ICONS.success
+  const iconColor = running ? colors.primary : message.interrupted ? colors.warning : colors.success
+  return (
+    <Box flexDirection="row" paddingLeft={2} gap={1} marginTop={1}>
+      <Text color={iconColor}>{icon}</Text>
+      <Text bold color={colors.text}>{message.content}{running && (reducedMotion ? '...' : <AnimatedEllipsis />)}</Text>
+      {message.interrupted && <Text color={colors.textSubtle}>{'· interrupted'}</Text>}
+    </Box>
+  )
+}
+
 function WorkDivider({ theme }: { theme: ThemeName }) {
   const colors = getThemeColors(theme)
   return <Box marginTop={1}><Text color={colors.textSubtle}>{dividerLine()}</Text></Box>
@@ -168,7 +196,7 @@ export function getDiffPayload(content: string): DiffPayload | null {
 }
 
 /** Renders one transcript message by role (user, tool call with output preview and optional diff, terminal, thinking, assistant markdown); `fullMode` shows complete tool output and thinking. */
-function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = true, showWordDiff = true, compact = false, fullMode = false, onOpenDiff }: {
+function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = true, showWordDiff = true, compact = false, fullMode = false, reducedMotion = false, onOpenDiff }: {
   message: Message
   theme: ThemeName
   agentLabel: string
@@ -176,6 +204,7 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = t
   showWordDiff?: boolean
   compact?: boolean
   fullMode?: boolean
+  reducedMotion?: boolean
   onOpenDiff?: (diff: Pick<DiffPayload, 'path' | 'lines'>) => void
   key?: React.Key
 }) {
@@ -255,6 +284,8 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = t
       </Box>
     )
   }
+
+  if (m.role === 'step') return <StepHeading message={m} reducedMotion={reducedMotion} theme={theme} />
 
   if (m.role === 'terminal') {
     return (
@@ -356,7 +387,7 @@ export function Header({ provider, agentName, theme = 'dark' }: { provider: stri
 }
 
 /** Renders the conversation: header, messages (collapsing each turn's tool work to a "Work truncated" divider unless fullMode), a changed-files summary, live thinking and the currently streaming reply. */
-export function MessageList({ messages, streamText, thinkingText, streamRole = 'assistant', theme, activeAgent, headerProvider, headerAgent, showHeader = true, showToolCalls = true, showDiffs = true, showWordDiff = true, density = 'comfortable', fullMode = false, thinkingStartedAt = null, onOpenDiff }: {
+export function MessageList({ messages, streamText, thinkingText, streamRole = 'assistant', theme, activeAgent, headerProvider, headerAgent, showHeader = true, showToolCalls = true, showDiffs = true, showWordDiff = true, density = 'comfortable', fullMode = false, reducedMotion = false, thinkingStartedAt = null, onOpenDiff }: {
   messages: Message[]
   streamText: string
   thinkingText?: string
@@ -372,6 +403,8 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
   showWordDiff?: boolean
   density?: 'compact' | 'comfortable'
   fullMode?: boolean
+  /** Static dots instead of animated ones on running steps. */
+  reducedMotion?: boolean
   thinkingStartedAt?: number | null
   onOpenDiff?: (diff: Pick<DiffPayload, 'path' | 'lines'>) => void
 }) {
@@ -387,6 +420,7 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
     current.removed += diff.removed
     diffFiles.set(diff.path, current)
   }
+  const inStep = stepToolFlags(messages)
   const displayMessages = fullMode
     ? messages.map((message, index): DisplayMessage => ({ kind: 'message', message, index }))
     : getNormalMessageItems(messages)
@@ -404,7 +438,9 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
         return (
           <Box key={`${message.role}-${index}`} flexDirection="column">
             {showDivider && <WorkDivider theme={theme} />}
-            <MessageItem message={message} theme={theme} agentLabel={agentLabel} showDiffs={showDiffs} showWordDiff={showWordDiff} compact={showDivider || density === 'compact'} fullMode={fullMode} onOpenDiff={onOpenDiff} />
+            <Box flexDirection="column" paddingLeft={inStep[index] ? 2 : 0}>
+              <MessageItem message={message} theme={theme} agentLabel={agentLabel} showDiffs={showDiffs} showWordDiff={showWordDiff} compact={showDivider || density === 'compact'} fullMode={fullMode} reducedMotion={reducedMotion} onOpenDiff={onOpenDiff} />
+            </Box>
             {message.role === 'assistant' && message.workedMs != null && (
               <Text color={colors.textSubtle}>{workedLine(message.workedMs, undefined, turnToolCount(messages, index))}</Text>
             )}

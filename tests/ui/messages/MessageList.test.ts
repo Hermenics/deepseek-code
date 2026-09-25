@@ -2,7 +2,7 @@ import { describe, expect, it, beforeEach, afterEach } from 'bun:test'
 import React from 'react'
 import { PassThrough } from 'stream'
 import { renderSync, invalidateInkFrame } from '../../../src/ink/root.js'
-import { FullModeBar, MessageList, formatToolLine, shouldShowWorkDivider, getNormalMessageItems, dividerLine, formatWorkedDuration, workedLine, turnToolCount, WORK_TRUNCATED_LABEL } from '../../../src/ui/messages/MessageList.js'
+import { FullModeBar, MessageList, formatToolLine, shouldShowWorkDivider, getNormalMessageItems, dividerLine, formatWorkedDuration, workedLine, turnToolCount, WORK_TRUNCATED_LABEL, ellipsisFrame } from '../../../src/ui/messages/MessageList.js'
 import type { Message } from '../../../src/ui/App.js'
 
 describe('shouldShowWorkDivider', () => {
@@ -374,6 +374,69 @@ describe('MessageList render', () => {
       expect(text).toContain('done')
       expect(text).toContain('∿∿ 2s · 1 tool ')
       expect(text).not.toContain('shell')
+    } finally {
+      cleanup()
+    }
+  })
+})
+
+describe('MessageList step headings', () => {
+  const origColumns = process.stdout.columns
+  beforeEach(() => { (process.stdout as { columns?: number }).columns = 120 })
+  afterEach(() => { (process.stdout as { columns?: number }).columns = origColumns })
+
+  it('shows a running step in the present tense with its tools indented beneath', async () => {
+    const { text, cleanup } = await renderMessageList({
+      messages: [
+        { role: 'user', content: 'fix it' },
+        { role: 'step', content: 'Rodando os testes de UI', doneLabel: 'Rodou os testes de UI' },
+        { role: 'tool', content: '✓ read_file → src/ui/App.tsx' },
+      ],
+    })
+    try {
+      expect(text).toContain('○ Rodando os testes de UI.')
+      expect(text).toMatch(/\n {4}▸ Read src\/ui\/App\.tsx +✓/)
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('animates the running step dots and keeps them static under reduced motion', async () => {
+    const running: Message[] = [{ role: 'step', content: 'Rodando os testes', doneLabel: 'Rodou os testes' }]
+    expect([0, 5, 10, 15].map(ellipsisFrame)).toEqual(['.  ', '.. ', '...', '.  '])
+    const still = await renderMessageList({ messages: running, element: React.createElement(MessageList, { messages: running, streamText: '', theme: 'dark', reducedMotion: true }) })
+    try {
+      expect(still.text).toContain('○ Rodando os testes...')
+    } finally {
+      still.cleanup()
+    }
+  })
+
+  it('shows an interrupted step in the present tense with a cross, never as done', async () => {
+    const { text, cleanup } = await renderMessageList({
+      messages: [{ role: 'user', content: 'fix it' }, { role: 'step', content: 'Inspecionando os arquivos', interrupted: true }],
+    })
+    try {
+      expect(text).toContain('✗ Inspecionando os arquivos · interrupted')
+      expect(text).not.toContain('✓')
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('truncates step headings with the rest of the work once the turn is collapsed', async () => {
+    const { text, cleanup } = await renderMessageList({
+      messages: [
+        { role: 'user', content: 'fix it' },
+        { role: 'step', content: 'Leu o App' },
+        { role: 'tool', content: '✓ read_file → src/ui/App.tsx' },
+        { role: 'assistant', content: 'done', workedMs: 2000 },
+      ],
+    })
+    try {
+      expect(text).not.toContain('Leu o App')
+      expect(text).not.toContain('src/ui/App.tsx')
+      expect(text).toContain(WORK_TRUNCATED_LABEL)
     } finally {
       cleanup()
     }

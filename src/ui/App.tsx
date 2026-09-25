@@ -9,6 +9,7 @@ import { DiffDialog, type DiffLine } from './messages/DiffDialog.js'
 import { TodoPanel } from './messages/TodoPanel.js'
 import { ToolUseDisplay } from './messages/ToolUseDisplay.js'
 import { previewStreamingArgs, previewToolCallArgs, summarizeToolResult } from './messages/toolDisplay.js'
+import { closeSteps, interruptSteps, openStep } from './messages/steps.js'
 import { ignoreFileStatus, writeIgnoreDefaults, hasEditorAssociation, writeEditorAssociation, shouldOfferEditorAssociation, getEditorSettingsPath, IGNORE_FILE_NAME, shouldOfferIgnoreDefaults, markIgnoreDefaultsPrompted } from '../tools/shared/deepseekignore.js'
 import { useSubagents } from './subagent/index.js'
 import { useActiveWorkflowRuns, useWorkflowRuns } from './workflows/WorkflowList.js'
@@ -440,8 +441,12 @@ function processStreamedText(text: string): { thinking: string; content: string 
 }
 
 export interface Message {
-  role: 'user' | 'assistant' | 'tool' | 'terminal' | 'thinking'
+  role: 'user' | 'assistant' | 'tool' | 'terminal' | 'thinking' | 'step'
   content: string
+  /** Past-tense label of a running step; absent once the step is done. */
+  doneLabel?: string
+  /** The step ended by interruption, denial or error instead of finishing. */
+  interrupted?: boolean
   thinkingMs?: number
   workedMs?: number
 }
@@ -1118,6 +1123,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
   const handleAbort = useCallback(() => {
     agent.abort()
+    setMessages(interruptSteps)
     if (goalContinuationTimerRef.current) {
       clearTimeout(goalContinuationTimerRef.current)
       goalContinuationTimerRef.current = null
@@ -1236,6 +1242,24 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       thinkingAccum = ''
     }
 
+    // Moves the reply streamed so far into the transcript before a step heading or tool line.
+    const flushStreamedReply = () => {
+      const pending = (streamTextAccum + tokenBuffer).trim()
+      tokenBuffer = ''
+      streamTextAccum = ''
+      setStreamText('')
+      if (pending) {
+        const { thinking, content } = processStreamedText(pending)
+        if (thinking) mergeThinking(thinking)
+        flushThinkingMessage()
+        setThinkingText('')
+        if (content) setMessages((m) => [...m, { role: 'assistant', content }])
+      } else {
+        flushThinkingMessage()
+        setThinkingText('')
+      }
+    }
+
     // Live tool call being streamed by the model. Coalesced into the 50ms flush
     // below instead of re-rendering on every argument delta.
     let pendingTool: { name: string; args: string } | null = null
@@ -1275,27 +1299,19 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       await agent.run(images.length > 0 ? { text: prompt, images } : prompt, {
         onPhaseChange(phase) { setAgentPhase(phase) },
         onToken(token) { tokenBuffer += token },
-        onToolPending(name, argsText) { pendingTool = { name, args: argsText } },
+        onToolPending(name, argsText) { if (name !== 'step') pendingTool = { name, args: argsText } },
         onThinking(text) {
           if (thinkingStartedAtRef.current == null) thinkingStartedAtRef.current = Date.now()
           thinkingAccum += text
           setThinkingText(thinkingAccum)
         },
+        onStep(step) {
+          flushStreamedReply()
+          setMessages((m) => openStep(m, step))
+        },
         onToolCall(name, args) {
-          const pending = (streamTextAccum + tokenBuffer).trim()
-          tokenBuffer = ''
-          streamTextAccum = ''
-          setStreamText('')
-          if (pending) {
-            const { thinking, content } = processStreamedText(pending)
-            if (thinking) mergeThinking(thinking)
-            flushThinkingMessage()
-            setThinkingText('')
-            if (content) setMessages((m) => [...m, { role: 'assistant', content }])
-          } else {
-            flushThinkingMessage()
-            setThinkingText('')
-          }
+          flushStreamedReply()
+          if (name === 'step') return
           setToolCallCount((c) => c + 1)
           // Streamed preview is superseded by the real args — drop it so a late
           // flush cannot overwrite them.
@@ -1311,6 +1327,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           showActiveTool({ name, args: argsPreview, done: false })
         },
         onToolResult(name, result, args) {
+          if (name === 'step') return
           // Mark tool as done (shows checkmark briefly) then clear
           setToolStatus((prev) => prev?.name === name ? { ...prev, done: true, result: result.slice(0, 200) } : null)
           if (toolStatusClearTimerRef.current) {
@@ -1346,6 +1363,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           pendingTool = null
           setToolStatus(null)
           setStreamText('')
+          setMessages(closeSteps)
           if (pending) {
             const { thinking, content } = processStreamedText(pending)
             if (thinking) mergeThinking(thinking)
@@ -1479,7 +1497,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         onDenyAbort() {
           const workedMs = turnStartedAtRef.current == null ? undefined : Date.now() - turnStartedAtRef.current
           turnStartedAtRef.current = null
-          setMessages((m) => [...m, { role: 'assistant', content: '⛔ Execution aborted by user.', workedMs }])
+          setMessages((m) => [...interruptSteps(m), { role: 'assistant', content: '⛔ Execution aborted by user.', workedMs }])
         },
         onMicroCompact() {
           showCompactBadge('micro')
@@ -1493,6 +1511,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       clearInterval(flushInterval)
       const workedMs = turnStartedAtRef.current == null ? undefined : Date.now() - turnStartedAtRef.current
       turnStartedAtRef.current = null
+      setMessages(interruptSteps)
       setStreamText('')
       setThinkingText('')
       setToolStatus(null)
@@ -2707,6 +2726,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               ? (focusedAgent?.messages ?? [])
               : interfaceSettings.showThoughts === false ? messages.filter(message => message.role !== 'thinking') : messages}
             streamText={focusedSubagent ? '' : streamText}
+            reducedMotion={interfaceSettings.reducedMotion === true}
             thinkingText={focusedSubagent ? '' : (interfaceSettings.showThoughts === false ? '' : thinkingText)}
             streamRole={streamRole}
             theme={theme}
