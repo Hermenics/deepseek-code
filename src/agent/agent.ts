@@ -406,11 +406,11 @@ function toOpenAITools(tools: Tool[], mode: InteractionMode = 'auto'): ChatCompl
   }))
 }
 
-/** Normalizes an http(s) URL by dropping its fragment; null for non-strings, other protocols or URLs with credentials. Used to match model-cited sources against fetched evidence. */
+/** Normalizes an http(s) URL by dropping its fragment (scheme-less `host/path` is read as https); null for non-strings, other protocols or URLs with credentials. Used to match model-cited sources against fetched evidence. */
 export function canonicalResearchUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null
   try {
-    const url = new URL(value)
+    const url = new URL(/^[a-z][a-z0-9+.-]*:/i.test(value) ? value : `https://${value}`)
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null
     url.hash = ''
     return url.href
@@ -419,10 +419,10 @@ export function canonicalResearchUrl(value: unknown): string | null {
   }
 }
 
-/** Canonical research URLs mentioned in a piece of text. */
+/** Canonical research URLs mentioned in a piece of text, including scheme-less `host/path` display URLs (DuckDuckGo's HTML results strip hrefs). */
 export function evidenceUrls(text: string): Set<string> {
   const urls = new Set<string>()
-  for (const match of text.matchAll(/https?:\/\/[^\s<>"'`]+/gi)) {
+  for (const match of text.matchAll(/https?:\/\/[^\s<>"'`]+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}\/[^\s<>"'`]*/gi)) {
     const url = canonicalResearchUrl(match[0].replace(/[),.;:!?]+$/, ''))
     if (url) urls.add(url)
   }

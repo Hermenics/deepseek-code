@@ -71,6 +71,12 @@ describe('Agent class', () => {
       expect(canonicalResearchUrl('https://user:pass@example.com/model')).toBeNull()
       expect(evidenceUrls('Docs: https://example.com/model.')).toEqual(new Set(['https://example.com/model']))
     })
+
+    it('accepts scheme-less display URLs from search results', () => {
+      expect(evidenceUrls('GPT-6 Sol | GetLLMs getllms.org/models/gpt-6-sol Key Features')).toEqual(new Set(['https://getllms.org/models/gpt-6-sol']))
+      expect(canonicalResearchUrl('getllms.org/models/gpt-6-sol')).toBe('https://getllms.org/models/gpt-6-sol')
+      expect(evidenceUrls('gpt-5.6 and e.g. Node.js')).toEqual(new Set())
+    })
   })
 
   describe('constructor', () => {
