@@ -6,6 +6,7 @@ import { DIFF_MAX_LINES } from '../../constants.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 import { computeWordDiff } from './colorDiff.js'
+import { ToolLabel } from './ToolLabel.js'
 
 interface DiffLine { type: 'added' | 'removed' | 'context'; text: string; lineNo: number }
 
@@ -57,8 +58,7 @@ export function DiffView({ path, added, removed, firstChanged, lines, theme, onO
       {/* Header */}
       <Box flexDirection="row" gap={1} paddingLeft={2} onClick={onOpen}>
         <Text color={colors.primary}>{STATUS_ICONS.tool}</Text>
-        <Text color={colors.textDim}>{'Write'}</Text>
-        <Text color={colors.info}>{path}</Text>
+        <ToolLabel name="Write" arg={path} theme={theme} />
       </Box>
 
       {/* Stats */}

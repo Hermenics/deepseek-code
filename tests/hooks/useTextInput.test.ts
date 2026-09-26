@@ -402,3 +402,20 @@ describe('processTextInputKey', () => {
     })
   })
 })
+
+describe('Up/Down on a prompt that wraps without newlines', () => {
+  // Same word wrap InputLine draws: 'alpha beta gamma' at width 11 is `alpha beta` / `gamma`.
+  const text = 'alpha beta gamma'
+  const cursorAt = (offset: number) => Cursor.fromText(text, 12, offset)
+
+  it('moves up a drawn line instead of recalling history', () => {
+    const result = processTextInputKey(cursorAt(text.length), { name: 'up' }, { multiline: true })
+    expect(result).toMatchObject({ type: 'cursor', cursor: { offset: 5 } })
+  })
+
+  it('recalls history only from the first drawn line, and the next one only from the last', () => {
+    expect(processTextInputKey(cursorAt(3), { name: 'up' }, { multiline: true })).toEqual({ type: 'action', action: 'historyUp' })
+    expect(processTextInputKey(cursorAt(3), { name: 'down' }, { multiline: true })).toMatchObject({ type: 'cursor', cursor: { offset: 14 } })
+    expect(processTextInputKey(cursorAt(text.length), { name: 'down' }, { multiline: true })).toEqual({ type: 'action', action: 'historyDown' })
+  })
+})

@@ -210,6 +210,14 @@ async function pruneOldSessions(): Promise<void> {
   } catch {}
 }
 
+/** Deletes one saved session from every directory layout; a missing file is expected, any other failure is thrown. */
+export async function deleteSession(session: Pick<SessionData, 'id' | 'cwd'>): Promise<void> {
+  await Promise.all([getSessionsDir(session.cwd), getPreviousProjectDir(session.cwd), getLegacySessionsDir()]
+    .map(dir => unlink(join(dir, `${session.id}.json`)).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error
+    })))
+}
+
 /** Deletes all sessions for the current project, or every session when scope is `global`; returns how many were removed. */
 export async function clearSessions(scope: 'project' | 'global', cwd = process.cwd()): Promise<number> {
   const selected = scope === 'global' ? await listSessions() : await listSessions(cwd)

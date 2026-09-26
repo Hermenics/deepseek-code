@@ -81,3 +81,18 @@ describe('AskUserQuestions tool previews', () => {
     expect(summarizeStructuredPayload('{"error":"failed safely"}')).toBe('Error: failed safely')
   })
 })
+
+describe('tool error results', () => {
+  it('flags JSON and text errors and summarizes long JSON instead of clipping it raw', async () => {
+    const { isToolError, summarizeToolResult } = await import('../src/ui/messages/toolDisplay.js')
+    const longError = JSON.stringify({ error: `Line 50: "${'x'.repeat(120)}" not found` })
+    expect(isToolError(longError)).toBe(true)
+    expect(isToolError('Error: boom')).toBe(true)
+    expect(summarizeToolResult('edit_file', longError)).toStartWith('Error: Line 50:')
+    expect(summarizeToolResult('edit_file', longError)).not.toContain('{')
+
+    const ok = JSON.stringify({ path: `${process.cwd()}/src/math.js`, linesAffected: [50] })
+    expect(isToolError(ok)).toBe(false)
+    expect(summarizeToolResult('edit_file', ok)).toBe('src/math.js')
+  })
+})

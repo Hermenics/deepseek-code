@@ -16,7 +16,7 @@ import { computeGhostText, getSuggestedReplyGhost } from './ghost/index.js'
 import { COMMAND_DESCRIPTIONS } from '../../commands.js'
 import { getWorkflowCommandDescriptions } from '../../workflows/commands.js'
 import { getCustomCommandDescriptions } from '../../commands/custom.js'
-import { InputLine } from './render/InputLine.js'
+import { InputLine, inputWrapWidth } from './render/InputLine.js'
 import { CommandDropdown } from './render/CommandDropdown.js'
 import { FileDropdown } from './render/FileDropdown.js'
 import { InputChrome } from './render/InputChrome.js'
@@ -103,6 +103,7 @@ export function InputBox({
   fuzzyFileSearch = true,
   activityAvailable = false,
   onActivityOpen,
+  onAgentsOpen,
   isActive = true,
   placeholderOverride,
   showFullscreenHint = false,
@@ -130,6 +131,8 @@ export function InputBox({
   fuzzyFileSearch?: boolean
   activityAvailable?: boolean
   onActivityOpen?: () => void
+  /** ← on an empty prompt opens the command center (Codex's agents shortcut); ↓ keeps opening activity. */
+  onAgentsOpen?: () => void
   isActive?: boolean
   /** Show the "switch it in /config" hint. Caller hides it once the conversation starts. */
   showFullscreenHint?: boolean
@@ -142,7 +145,10 @@ export function InputBox({
   const theme = useTheme()
   const colors = useThemeColors()
   const cols = process.stdout.columns ?? 80
-  const [cursor, setCursor] = useState(() => Cursor.fromText('', cols))
+  const inputCols = cols - 4 // rounded border + paddingX of InputChrome
+  // Same wrap as InputLine draws (+1: Cursor.fromText reserves a cell), so ↑/↓ reach history only from the first/last drawn line.
+  const cursorCols = inputWrapWidth(inputCols) + 1
+  const [cursor, setCursor] = useState(() => Cursor.fromText('', cursorCols))
   const [fullscreenHintVisible, setFullscreenHintVisible] = useState(showFullscreenHint)
   const [pastedTexts, setPastedTexts] = useState<string[]>([])
   const [pastedImages, setPastedImages] = useState<PromptImage[]>([])
@@ -153,6 +159,11 @@ export function InputBox({
   const [fileSelectedIdx, setFileSelectedIdx] = useState(0)
 
   const historyRef = useRef(new InputHistory())
+  /** Recalls the next history entry. As in Claude Code, ↑ lands on its first line and ↓ on its last, so pressing the same arrow again keeps walking history instead of moving through the entry's lines. */
+  const recallHistory = (direction: 'historyUp' | 'historyDown', draft: string) => {
+    const entry = direction === 'historyUp' ? historyRef.current.up(draft) : historyRef.current.down()
+    if (entry !== undefined) updateCursor(Cursor.fromText(entry, cursorCols, direction === 'historyUp' ? 0 : entry.length))
+  }
   const bufferRef = useRef(new InputBuffer())
   const fileSearchRequestRef = useRef(0)
   const inputRef = useRef<DOMElement>(null)
@@ -186,7 +197,7 @@ export function InputBox({
   const escDouble = useDoublePress({
     timeout: 800,
     onDoublePress: () => {
-      updateCursor(Cursor.fromText('', cols))
+      updateCursor(Cursor.fromText('', cursorCols))
       setPastedTexts([])
       setPastedImages([])
       setSelectedIdx(0)
@@ -271,7 +282,7 @@ export function InputBox({
 
   const insertDroppedFile = (droppedPath: string) => {
     const inserted = insertDroppedPath(cursor.text, cursor.offset, droppedPath)
-    updateCursor(Cursor.fromText(inserted.text, cols, inserted.offset))
+    updateCursor(Cursor.fromText(inserted.text, cursorCols, inserted.offset))
     setSelectedIdx(0)
     historyRef.current.reset()
   }
@@ -314,7 +325,12 @@ export function InputBox({
       onModeChange?.()
       return
     }
-    if (activityAvailable && cursor.text.length === 0 && !showDropdown && !showFileDropdown && (key.downArrow || key.leftArrow)) {
+    // Plain ← must still mean "cursor left", so a remapped arrow never turns into navigation.
+    if (onAgentsOpen && key.leftArrow && action === 'cursorLeft' && cursor.text.length === 0 && !showDropdown && !showFileDropdown) {
+      onAgentsOpen()
+      return
+    }
+    if (activityAvailable && cursor.text.length === 0 && !showDropdown && !showFileDropdown && (key.downArrow || (key.leftArrow && !onAgentsOpen))) {
       onActivityOpen?.()
       return
     }
@@ -354,7 +370,7 @@ export function InputBox({
 
     if (key.ctrl && input === 'z') {
       const entry = key.shift ? bufferRef.current.redo() : bufferRef.current.undo()
-      if (entry) updateCursor(Cursor.fromText(entry.text, cols, entry.cursorOffset))
+      if (entry) updateCursor(Cursor.fromText(entry.text, cursorCols, entry.cursorOffset))
       return
     }
 
@@ -383,7 +399,7 @@ export function InputBox({
 
     // Tab only fills the input with the suggestion; Enter sends it, so it can be edited first.
     if (suggestedReply && cursor.text.length === 0 && action === 'acceptCompletion') {
-      updateCursor(Cursor.fromText(suggestedReply, cols, suggestedReply.length))
+      updateCursor(Cursor.fromText(suggestedReply, cursorCols, suggestedReply.length))
       return
     }
 
@@ -396,7 +412,7 @@ export function InputBox({
           const after = cursor.text.slice(mention.atEnd)
           const newText = before + '@' + chosen + ' ' + after
           const newOffset = mention.atStart + chosen.length + 2 // +2 for @ and space
-          updateCursor(Cursor.fromText(newText, cols, newOffset))
+          updateCursor(Cursor.fromText(newText, cursorCols, newOffset))
         }
       }
       return
@@ -410,7 +426,7 @@ export function InputBox({
     if (showDropdown && (action === 'acceptCompletion' || (key.return && !key.ctrl && !key.shift))) {
       const chosen = matches[selectedIdx]!
       onSubmit(chosen)
-      updateCursor(Cursor.fromText('', cols))
+      updateCursor(Cursor.fromText('', cursorCols))
       setPastedTexts([])
       setPastedImages([])
       setSelectedIdx(0)
@@ -423,7 +439,7 @@ export function InputBox({
       const submitted = prepareSubmittedPrompt(cursor.text)
       if (submitted.text.trim()) {
         submitOrQueueWhileLoading(submitted.text, submitted.images)
-        updateCursor(Cursor.fromText('', cols))
+        updateCursor(Cursor.fromText('', cursorCols))
         setPastedTexts([])
         setPastedImages([])
       }
@@ -444,13 +460,12 @@ export function InputBox({
           } else {
             submitPrompt(submitted.text, submitted.images)
           }
-          updateCursor(Cursor.fromText('', cols))
+          updateCursor(Cursor.fromText('', cursorCols))
           setPastedTexts([])
           setPastedImages([])
           setVimState(createVimState)
         } else if (chunk.action) {
-          const entry = chunk.action === 'historyUp' ? historyRef.current.up(chunk.cursor.text) : historyRef.current.down()
-          if (entry !== undefined) updateCursor(Cursor.fromText(entry, cols, entry.length))
+          recallHistory(chunk.action, chunk.cursor.text)
         }
         return
       }
@@ -474,15 +489,14 @@ export function InputBox({
           } else {
             submitPrompt(submitted.text, submitted.images)
           }
-          updateCursor(Cursor.fromText('', cols))
+          updateCursor(Cursor.fromText('', cursorCols))
           setPastedTexts([])
           setPastedImages([])
           historyRef.current.reset()
           setVimState(createVimState)
           return
         }
-        const entry = vim.action === 'historyUp' ? historyRef.current.up(cursor.text) : historyRef.current.down()
-        if (entry !== undefined) updateCursor(Cursor.fromText(entry, cols, entry.length))
+        recallHistory(vim.action, cursor.text)
         return
       }
       if (vim.type === 'noop' && vimState.mode === 'normal') return
@@ -490,9 +504,10 @@ export function InputBox({
 
     const result = processTextInputKey(cursor, keyEvent, { multiline: true, keybindings })
     if (result.type === 'cursor') {
+      // Only an edit ends history navigation; walking through a recalled entry's lines must not.
+      if (result.cursor.text !== cursor.text) historyRef.current.reset()
       updateCursor(result.cursor)
       setSelectedIdx(0)
-      historyRef.current.reset()
       return
     }
 
@@ -503,7 +518,7 @@ export function InputBox({
       } else {
         submitPrompt(submitted.text, submitted.images)
       }
-      updateCursor(Cursor.fromText('', cols))
+      updateCursor(Cursor.fromText('', cursorCols))
       setPastedTexts([])
       setPastedImages([])
       setSelectedIdx(0)
@@ -512,8 +527,7 @@ export function InputBox({
     }
 
     if (result.action === 'historyUp' || result.action === 'historyDown') {
-      const entry = result.action === 'historyUp' ? historyRef.current.up(cursor.text) : historyRef.current.down()
-      if (entry !== undefined) updateCursor(Cursor.fromText(entry, cols, entry.length))
+      recallHistory(result.action, cursor.text)
     }
   }, { isActive })
 
@@ -558,7 +572,7 @@ export function InputBox({
         >
           <InputLine
             cursor={cursor}
-            columns={cols - 4 /* rounded border + paddingX of InputChrome */}
+            columns={inputCols}
             placeholder={placeholder}
             ghostText={ghost?.text}
             prefix={''}

@@ -270,7 +270,7 @@ export const STATUS_ICONS = {
   assistant: '◆',
   user: '▌',
   prompt: '›',
-  tool: '▸',
+  tool: '▶',
   bash: '$',
   terminal: '$',
   agent: '◈',

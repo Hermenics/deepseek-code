@@ -1,4 +1,5 @@
 import type { Cursor } from '../cursor/index.js'
+import { wrapVisualLines } from '../cursor/MeasuredText.js'
 import Box from '../../../ink/components/Box.js'
 import Text from '../../../ink/components/Text.js'
 import { useThemeColors } from '../../design-system/ThemeProvider.js'
@@ -13,33 +14,9 @@ interface InputLineProps {
   prefixColor?: string
 }
 
-/**
- * Wraps a single line of text into multiple visual lines based on column width.
- * Word-aware: breaks at spaces when possible, force-breaks only if a single word exceeds maxWidth.
- */
-function wrapLine(line: string, maxWidth: number): { text: string; startOffset: number }[] {
-  if (maxWidth <= 0) maxWidth = 80
-  if (line.length <= maxWidth) {
-    return [{ text: line, startOffset: 0 }]
-  }
-  const segments: { text: string; startOffset: number }[] = []
-  let pos = 0
-  while (pos < line.length) {
-    if (pos + maxWidth >= line.length) {
-      segments.push({ text: line.slice(pos), startOffset: pos })
-      break
-    }
-    // ponytail: word-wrap — find last space within maxWidth, fallback to hard break
-    let breakAt = line.lastIndexOf(' ', pos + maxWidth)
-    if (breakAt <= pos) {
-      // Single word longer than maxWidth — force break
-      breakAt = pos + maxWidth
-    }
-    // Segment ends at breakAt (exclusive of the space); advance past the space
-    segments.push({ text: line.slice(pos, breakAt), startOffset: pos })
-    pos = line[breakAt] === ' ' ? breakAt + 1 : breakAt
-  }
-  return segments
+/** Width the input text wraps at inside `columns`; InputBox measures its cursor with this too, so ↑/↓ follow the drawn lines. */
+export function inputWrapWidth(columns: number, prefixLen = 0): number {
+  return Math.max(20, columns - 4 - prefixLen)
 }
 
 /** Renders the input text with a block cursor, word-wrapped to the terminal width and scrolled so the cursor stays inside a viewport of `maxVisibleLines` (default 10), with counts of hidden lines above/below. Empty input shows the ghost text or placeholder; otherwise ghost text trails the text (on multi-line input only when the cursor is on the last line). */
@@ -57,7 +34,7 @@ export function InputLine({
   const cursorPos = cursor.offset
   const prefixLen = prefix.length
   // Available width for text (leave some margin for the chrome and prefix)
-  const wrapWidth = Math.max(20, columns - 4 - prefixLen)
+  const wrapWidth = inputWrapWidth(columns, prefixLen)
 
   if (value === '') {
     return (
@@ -69,31 +46,13 @@ export function InputLine({
     )
   }
 
-  // Split by hard newlines (Shift+Enter)
-  const hardLines = value.split('\n')
   const maxVisible = maxVisibleLines ?? 10
 
-  // Build visual lines with word wrap
-  type VisualLine = {
-    text: string
-    hardLineIdx: number
-    offsetInValue: number // absolute offset in value where this visual line starts
-  }
-  const visualLines: VisualLine[] = []
-  let absoluteOffset = 0
-
-  for (let i = 0; i < hardLines.length; i++) {
-    const line = hardLines[i]!
-    const wrapped = wrapLine(line, wrapWidth)
-    for (const seg of wrapped) {
-      visualLines.push({
-        text: seg.text,
-        hardLineIdx: i,
-        offsetInValue: absoluteOffset + seg.startOffset,
-      })
-    }
-    absoluteOffset += line.length + 1 // +1 for the \n
-  }
+  // Newlines (Shift+Enter) and word wrap, shared with cursor movement
+  const visualLines = wrapVisualLines(value, wrapWidth).map(({ start, end }) => ({
+    text: value.slice(start, end),
+    offsetInValue: start,
+  }))
 
   // Single line, no wrap needed — use simple rendering
   if (visualLines.length === 1 && !value.includes('\n')) {

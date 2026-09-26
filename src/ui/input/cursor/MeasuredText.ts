@@ -2,6 +2,51 @@ import stringWidth from 'string-width'
 
 type Position = { line: number; column: number }
 type WordBoundary = { start: number; end: number; isWordLike: boolean }
+type VisualLine = { start: number; end: number }
+
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
+/** Visual lines of `text` as [start, end) offsets: split on newlines, then word-wrapped at `width` display columns, breaking after the last space that fits (the space itself is not drawn) and force-breaking a longer word between graphemes. The input renderer and cursor movement both use this, so arrows move over exactly the lines on screen. */
+export function wrapVisualLines(text: string, width: number): VisualLine[] {
+  const max = Math.max(1, width)
+  const lines: VisualLine[] = []
+  let lineStart = 0
+  for (const line of text.split('\n')) {
+    let start = 0
+    let used = 0
+    let lastSpace = -1
+    let pushed = false
+    const push = (end: number) => { lines.push({ start: lineStart + start, end: lineStart + end }); pushed = true }
+    for (const { index, segment } of graphemes.segment(line)) {
+      const cells = stringWidth(segment)
+      if (used + cells > max && index > start) {
+        if (segment === ' ') {
+          // The overflowing grapheme is the break itself: end here and swallow it.
+          push(index)
+          start = index + 1
+          used = 0
+          lastSpace = -1
+          continue
+        }
+        if (lastSpace > start) {
+          push(lastSpace)
+          start = lastSpace + 1
+        } else {
+          push(index)
+          start = index
+        }
+        used = stringWidth(line.slice(start, index))
+        lastSpace = -1
+      }
+      if (segment === ' ') lastSpace = index
+      used += cells
+    }
+    // A break that swallowed a trailing space leaves nothing to draw, so no empty line follows it.
+    if (start < line.length || !pushed) push(line.length)
+    lineStart += line.length + 1
+  }
+  return lines
+}
 
 /** Text plus wrap width with precomputed grapheme and word boundaries (Intl.Segmenter) for cursor math. The text is NFC-normalized, so offsets refer to the normalized string. */
 export class MeasuredText {
@@ -11,6 +56,7 @@ export class MeasuredText {
   private readonly graphemeBoundaries: number[]
   private readonly wordBoundaries: WordBoundary[]
   private wrappedTextCache: string[] | null = null
+  private visualLinesCache: VisualLine[] | null = null
 
   private static graphemeSegmenter = new Intl.Segmenter(undefined, {
     granularity: 'grapheme',
@@ -113,76 +159,35 @@ export class MeasuredText {
     return index
   }
 
-  /** Splits on newlines and hard-wraps each line at `columns` display width on grapheme boundaries (not word-aware). Cached per instance. */
+  /** Visual lines (see wrapVisualLines) as text. Cached per instance. */
   getWrappedText(): string[] {
-    if (this.wrappedTextCache) return this.wrappedTextCache
-
-    const result: string[] = []
-    const lines = this.text.split('\n')
-
-    for (const rawLine of lines) {
-      if (rawLine.length === 0) {
-        result.push('')
-        continue
-      }
-
-      let current = ''
-      let currentWidth = 0
-
-      for (const { segment } of MeasuredText.graphemeSegmenter.segment(rawLine)) {
-        const w = stringWidth(segment)
-        if (current.length > 0 && currentWidth + w > this.columns) {
-          result.push(current)
-          current = segment
-          currentWidth = w
-        } else {
-          current += segment
-          currentWidth += w
-        }
-      }
-      result.push(current)
-    }
-
-    this.wrappedTextCache = result.length > 0 ? result : ['']
+    this.wrappedTextCache ??= this.getVisualLines().map(({ start, end }) => this.text.slice(start, end))
     return this.wrappedTextCache
+  }
+
+  private getVisualLines(): VisualLine[] {
+    return this.visualLinesCache ??= wrapVisualLines(this.text, this.columns)
   }
 
   /** Number of visual lines after wrapping (not newline count). */
   get lineCount(): number {
-    return this.getWrappedText().length
+    return this.getVisualLines().length
   }
 
-  /** Converts an offset to { line, column } using newline-separated lines (not wrapped ones), with the column measured in display width. */
+  /** Converts an offset to its visual { line, column }, the column in display width. A line owns the offsets from its start up to the next line's start, so the space eaten at a word-wrap belongs to the line it ends. */
   getPositionFromOffset(offset: number): Position {
     const clamped = Math.max(0, Math.min(offset, this.text.length))
-    const before = this.text.slice(0, clamped)
-    const lines = before.split('\n')
-    const line = lines.length - 1
-    const lineText = lines[line] ?? ''
-    return { line, column: stringWidth(lineText) }
+    const lines = this.getVisualLines()
+    let line = 0
+    while (line + 1 < lines.length && lines[line + 1]!.start <= clamped) line++
+    return { line, column: stringWidth(this.text.slice(lines[line]!.start, clamped)) }
   }
 
-  /** Converts a { line, column } position back to an offset, clamping the column to the line. Lines are newline-separated lines, matching getPositionFromOffset, except for newline-free text on its last wrapped line. */
+  /** Converts a visual { line, column } back to an offset, clamping the line and the column to that line's text. */
   getOffsetFromPosition(position: Position): number {
-    const wrapped = this.getWrappedText()
-    const line = Math.max(0, Math.min(position.line, wrapped.length - 1))
-
-    const beforeLines = wrapped.slice(0, line)
-    let base = 0
-    for (const l of beforeLines) base += l.length
-
-    if (line < wrapped.length - 1 || this.text.includes('\n')) {
-      const hardLines = this.text.split('\n')
-      base = 0
-      for (let i = 0; i < line; i++) {
-        base += (hardLines[i] ?? '').length + 1
-      }
-      const lineText = hardLines[line] ?? ''
-      return base + this.displayWidthToStringIndex(lineText, position.column)
-    }
-
-    const lineText = wrapped[line] ?? ''
-    return base + this.displayWidthToStringIndex(lineText, position.column)
+    const lines = this.getVisualLines()
+    const { start, end } = lines[Math.max(0, Math.min(position.line, lines.length - 1))]!
+    return start + this.displayWidthToStringIndex(this.text.slice(start, end), position.column)
   }
 
   /** Display width of wrapped line `line` (0 when out of range). */

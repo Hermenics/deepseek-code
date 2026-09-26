@@ -3,6 +3,7 @@ export const TOOL_DISPLAY: Record<string, string> = {
   read_file:        'Read',
   write_file:       'Write',
   patch_file:       'Edit',
+  edit_file:        'Edit',
   read_folder:      'List',
   shell:            'Bash',
   grep:             'Grep',
@@ -62,7 +63,8 @@ export function summarizeStructuredPayload(payload: string): string {
     if (parsed && typeof parsed === 'object') {
       const record = parsed as Record<string, unknown>
       if (typeof record.error === 'string') return truncatePreview(`Error: ${record.error}`)
-      if (typeof record.path === 'string') return truncatePreview(record.path)
+      // Relative inside the project, so a clipped preview keeps the file name.
+      if (typeof record.path === 'string') return truncatePreview(record.path.replace(`${process.cwd()}/`, ''))
       const fieldCount = Object.keys(record).length
       return `${fieldCount} field${fieldCount === 1 ? '' : 's'}`
     }
@@ -70,6 +72,17 @@ export function summarizeStructuredPayload(payload: string): string {
     // Plain-text tool output remains readable below.
   }
   return truncatePreview(payload)
+}
+
+/** Whether a tool result reports a failure: a JSON `{ error }` object or text starting with `Error`. */
+export function isToolError(result: string): boolean {
+  if (/^\s*error\b/i.test(result)) return true
+  try {
+    const parsed: unknown = JSON.parse(result)
+    return !!parsed && typeof parsed === 'object' && typeof (parsed as Record<string, unknown>).error === 'string'
+  } catch {
+    return false
+  }
 }
 
 /** Routes a tool payload to the AskUserQuestions summarizer or the generic structured-payload summarizer. */
@@ -115,21 +128,4 @@ export function previewStreamingArgs(argsText: string): string {
   if (!value) return ''
   const unescaped = value.replace(/\\n/g, ' ').replace(/\\(.)/g, '$1')
   return unescaped.length > 60 ? unescaped.slice(0, 60) + '…' : unescaped
-}
-
-/** Visual style per tool type */
-export const TOOL_STYLE: Record<string, { icon: string; color: string }> = {
-  Read:            { icon: '▸', color: '#5599ff' },
-  Write:           { icon: '▸', color: '#44cc44' },
-  Edit:            { icon: '▸', color: '#44cc44' },
-  List:            { icon: '▸', color: '#5599ff' },
-  Bash:            { icon: '$', color: '#cc66ff' },
-  Grep:            { icon: '⌕', color: '#cccc44' },
-  Glob:            { icon: '⌕', color: '#cccc44' },
-  WebFetch:        { icon: '↗', color: '#44cccc' },
-  Agent:           { icon: '◈', color: '#44cccc' },
-  Git:             { icon: '⎇', color: '#ff8844' },
-  Introspect:      { icon: '◎', color: '#888888' },
-  UpdateKnowledge: { icon: '◎', color: '#888888' },
-  TodoWrite:       { icon: '☐', color: '#cccc44' },
 }

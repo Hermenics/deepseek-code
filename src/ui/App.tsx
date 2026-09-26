@@ -7,14 +7,15 @@ import { Agent, type ToolPermissionRequest, type ToolPermissionResult } from '..
 import { FullModeBar, Header, MessageList, getDiffPayload } from './messages/MessageList.js'
 import { DiffDialog, type DiffLine } from './messages/DiffDialog.js'
 import { TodoPanel } from './messages/TodoPanel.js'
-import { ToolUseDisplay } from './messages/ToolUseDisplay.js'
-import { previewStreamingArgs, previewToolCallArgs, summarizeToolResult } from './messages/toolDisplay.js'
+import { isToolError, previewStreamingArgs, previewToolCallArgs, summarizeToolResult } from './messages/toolDisplay.js'
 import { closeSteps, interruptSteps, openStep } from './messages/steps.js'
 import { ignoreFileStatus, writeIgnoreDefaults, hasEditorAssociation, writeEditorAssociation, shouldOfferEditorAssociation, getEditorSettingsPath, IGNORE_FILE_NAME, shouldOfferIgnoreDefaults, markIgnoreDefaultsPrompted } from '../tools/shared/deepseekignore.js'
 import { useSubagents } from './subagent/index.js'
 import { useActiveWorkflowRuns, useWorkflowRuns } from './workflows/WorkflowList.js'
 import { WorkflowMonitor } from './workflows/WorkflowMonitor.js'
 import { ActivityFooter, buildActivityItems } from './activity/index.js'
+import { AgentsOverview } from './agents/AgentsOverview.js'
+import { liveStatus } from './agents/overview.js'
 import { InputBox, LoadingSpinner } from './input/InputBox.js'
 import { QueuedMessagesList } from './input/QueuedMessagesList.js'
 import { enqueue, getImmediateBtwQuestion } from './queueLogic.js'
@@ -33,7 +34,7 @@ import type { ThemeName, ProviderConfig } from '../types/provider.js'
 import type { DeepSeekSettings, InterfaceSettings, SubagentStatusLineSettings } from '../settings/types.js'
 import { formatChatError } from '../utils/chatError.js'
 import { defaultShell, hasBinary, isWindows, scrubbedEnv, shellCommandArgs } from '../utils/platform.js'
-import { createSessionBranch, loadSession, saveSession, updateSessionTitle, type SessionData } from '../agent/session.js'
+import { createSessionBranch, deleteSession, listSessions, loadSession, saveSession, updateSessionTitle, type SessionData } from '../agent/session.js'
 import { getGoal, getElapsedSeconds, resumeGoal, updateGoal, buildContinuationPrompt, GOAL_MAX_CONTINUATIONS } from '../agent/goal.js'
 import { DEFAULT_MODE, nextMode, isBuildMode, isAutoMode, type InteractionMode } from './interactionMode.js'
 import Box from '../ink/components/Box.js'
@@ -41,7 +42,7 @@ import Text from '../ink/components/Text.js'
 import ScrollBox, { type ScrollBoxHandle } from '../ink/components/ScrollBox.js'
 import { useSelection } from '../ink/hooks/use-selection.js'
 import { Scrollbar } from './layout/Scrollbar.js'
-import { getThemeColors } from './theme.js'
+import { getThemeColors, STATUS_ICONS } from './theme.js'
 import { ThemeProvider, useThemeColors } from './design-system/index.js'
 import { PlanApprovalPrompt, type PlanApprovalResult } from './plan/PlanApprovalPrompt.js'
 import { newPlanPath, buildPlanModeInjection } from '../agent/planMode.js'
@@ -456,6 +457,7 @@ export interface ToolStatus {
   args: string
   done: boolean
   result?: string
+  error?: boolean
 }
 
 interface ConfirmState {
@@ -482,7 +484,7 @@ interface PlanApprovalState {
 }
 
 /** Root TUI component for an interactive session: owns the conversation, agent loop, input, interaction mode, permission/plan/question prompts, subagent and workflow activity, and its overlay screens (config, model picker, workflow monitor, diff dialog). */
-export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, onLogout, onExit, language, enchant, sessionId, initialSession, headerProvider, headerAgent, initialSettings, alternateScreen = false, workspaceTrusted = false }: {
+export function App({ initialAgent, initialMessage, theme: initialTheme, providerConfig, onThemeChange, onLogout, onExit, language, enchant, sessionId, initialSession, headerProvider, headerAgent, initialSettings, alternateScreen = false, workspaceTrusted = false, onSwitchSession }: {
   initialAgent?: LoadedAgent | null
   initialMessage?: string | null
   theme: ThemeName
@@ -498,6 +500,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   headerAgent?: string | null
   initialSettings?: DeepSeekSettings
   alternateScreen?: boolean
+  /** Remounts the app on another saved session, or on a fresh one with null (command center enter / n). */
+  onSwitchSession?: (session: SessionData | null) => void
+  /** Remount key: a new session id means a fresh App. */
+  key?: React.Key
   /** Allows executable UI extensions only after the host establishes workspace trust. */
   workspaceTrusted?: boolean
 }) {
@@ -598,6 +604,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [compactBadge, setCompactBadge] = useState<{ type: 'micro' | 'full'; triggeredAt: number } | null>(null)
   const [diffDialog, setDiffDialog] = useState<{ path: string; lines: DiffLine[] } | null>(null)
   const [activityOpen, setActivityOpen] = useState(false)
+  const [agentsOpen, setAgentsOpen] = useState(false)
   const [workflowMonitor, setWorkflowMonitor] = useState<{ runId?: string } | null>(null)
   const [focusedSubagent, setFocusedSubagent] = useState<{ id: string; agentName: string | null } | null>(null)
   const [fullMode, setFullMode] = useState(false)
@@ -1329,7 +1336,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         onToolResult(name, result, args) {
           if (name === 'step') return
           // Mark tool as done (shows checkmark briefly) then clear
-          setToolStatus((prev) => prev?.name === name ? { ...prev, done: true, result: result.slice(0, 200) } : null)
+          setToolStatus((prev) => prev?.name === name ? { ...prev, done: true, result: result.slice(0, 200), error: isToolError(result) } : null)
           if (toolStatusClearTimerRef.current) {
             clearTimeout(toolStatusClearTimerRef.current)
           }
@@ -1349,8 +1356,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           } else if (name === 'ask_user_questions') {
             setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${summarizeToolResult(name, result)}` }])
           } else if (!name.includes('__')) {
-            // Show other built-in tools too
-            setMessages((m) => [...m, { role: 'tool', content: `✓ ${name} → ${result.slice(0, 100)}` }])
+            // Summarize before clipping: cutting JSON mid-way left it unparseable and raw on screen.
+            const mark = isToolError(result) ? STATUS_ICONS.error : STATUS_ICONS.success
+            setMessages((m) => [...m, { role: 'tool', content: `${mark} ${name} → ${summarizeToolResult(name, result)}` }])
           }
         },
         onDone() {
@@ -2660,6 +2668,49 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     )
   }
 
+  if (agentsOpen) {
+    const now = new Date().toISOString()
+    const live: SessionData = {
+      id: sessionId ?? 'current',
+      title: sessionTitleRef.current ?? undefined,
+      createdAt: initialSession?.createdAt ?? now,
+      updatedAt: now,
+      cwd: agent.getWorkingDirectory(),
+      model: agent.model,
+      provider: agent.provider,
+      language: currentLanguage,
+      activeAgent: agent.activeAgent,
+      agentMessages: [],
+      uiMessages: messages,
+      filesModified: [],
+    }
+    const status = liveStatus({
+      loading: isLoading,
+      waitingOnUser: Boolean(toolPermissionState || askUserState || planApprovalState || confirmState),
+      subagents: subagentsRef.current.agents.map(subagent => subagent.status),
+    })
+    return (
+      <ThemeProvider value={theme}>
+        <AgentsOverview
+          current={{ session: live, status }}
+          listSaved={() => listSessions()}
+          theme={theme}
+          onClose={() => setAgentsOpen(false)}
+          onOpen={session => onSwitchSession?.(session)}
+          onNew={() => onSwitchSession?.(null)}
+          onRename={async (session, title) => {
+            if (session.id === sessionId) {
+              sessionTitleRef.current = title
+              titleRequestedRef.current = true
+            }
+            await updateSessionTitle(session.id, title, session.cwd)
+          }}
+          onDelete={session => deleteSession(session)}
+        />
+      </ThemeProvider>
+    )
+  }
+
   if (showConfigMenu) {
     return (
       <ConfigMenu
@@ -2731,6 +2782,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             reducedMotion={interfaceSettings.reducedMotion === true}
             thinkingText={focusedSubagent ? '' : (interfaceSettings.showThoughts === false ? '' : thinkingText)}
             streamRole={streamRole}
+            liveTool={focusedSubagent ? null : toolStatus}
             theme={theme}
             activeAgent={focusedSubagent ? (focusedSubagent.agentName ?? 'subagent') : activeAgent}
             headerProvider={agent.provider ?? headerProvider}
@@ -2749,7 +2801,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               {`  ◌ ${focusedAgent.lastToolInfo ? `⚙ ${focusedAgent.lastToolInfo} · ` : ''}${focusedAgent.toolCount} tools${focusedAgent.tokens != null ? ` · ↓ ${focusedAgent.tokens >= 1000 ? `${(focusedAgent.tokens / 1000).toFixed(1)}k` : focusedAgent.tokens} tok` : ''}`}
             </Text>
           )}
-          {!focusedSubagent && toolStatus && interfaceSettings.showToolCalls !== false && <ToolUseDisplay tool={toolStatus} />}
           {!focusedSubagent && isLoading && (interfaceSettings.reducedMotion
             ? <Text dimColor>{agentPhase === 'refining' ? 'Refining…' : 'Working…'}</Text>
             : <LoadingSpinner toolCallCount={toolCallCount} phase={agentPhase} activeTool={toolStatus && !toolStatus.done ? toolStatus.name : null} />)}
@@ -2842,6 +2893,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             fuzzyFileSearch={featureFlags.fuzzyFileSearch}
             activityAvailable={activityAvailable}
             onActivityOpen={() => setActivityOpen(true)}
+            onAgentsOpen={focusedSubagent || !onSwitchSession ? undefined : () => setAgentsOpen(true)}
             isActive={!activityOpen}
             showFullscreenHint={messages.length === 0}
             onExit={onExit}
@@ -2855,7 +2907,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           />
         )}
         {fullMode && <FullModeBar theme={theme} />}
-        <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} theme={theme} items={interfaceSettings.statusBar} narrowPriority={interfaceSettings.narrowPriority} compactBadge={compactBadge} activityCount={activityCount} />
+        <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} theme={theme} items={interfaceSettings.statusBar} narrowPriority={interfaceSettings.narrowPriority} compactBadge={compactBadge} activityCount={activityCount} agentsHint={Boolean(onSwitchSession) && !focusedSubagent} />
         {!btw && !showModelSelector && !showEffortSelector && !askUserState && !toolPermissionState && !planApprovalState && !confirmState && (
           <ActivityFooter
             agents={subagentsRef.current.agents}

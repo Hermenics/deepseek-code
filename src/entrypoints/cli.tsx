@@ -84,7 +84,8 @@ process.title = 'deepseek'
 if (process.stdout.isTTY) process.stdout.write('\x1b]0;DeepSeek\x07')
 
 import { useState, useEffect } from 'react'
-import { writeSync } from 'fs'
+import { existsSync, writeSync } from 'fs'
+import { resolve } from 'path'
 import { createRoot } from '../ink/root.js'
 import { CURSOR_HOME, ERASE_SCREEN } from '../ink/termio/csi.js'
 import { App, getTrustedUserStatusLineConfig } from '../ui/App.js'
@@ -237,6 +238,10 @@ if (logout) {
 }
 
 const SESSION_ID = newSessionId()
+/** Session shown now; the command center can switch it, and the exit screen reports this one. */
+let activeSessionId = SESSION_ID
+/** Agent resolved for the launch directory; only sessions of that project inherit it. */
+let startupAgent: LoadedAgent | null = null
 
 // ── Update check ────────────────────────────────────────────────────────────
 if (!ARGV.update) {
@@ -291,6 +296,7 @@ function Root() {
   const [initialAgent, setInitialAgent] = useState<LoadedAgent | null>(null)
   const [initialMessage, setInitialMessage] = useState<string | null>(null)
   const [initialSession, setInitialSession] = useState<SessionData | null>(null)
+  const [sessionId, setSessionId] = useState(SESSION_ID)
   const [resumeNotFound, setResumeNotFound] = useState(false)
   const [resumeChoices, setResumeChoices] = useState<SessionData[] | null>(null)
   const [savedLanguage, setSavedLanguage] = useState<string | null>(null)
@@ -298,6 +304,13 @@ function Root() {
   const [initialSettings, setInitialSettings] = useState<DeepSeekSettings>({})
   const [alternateScreen, setAlternateScreen] = useState(false)
   const [workspaceTrusted, setWorkspaceTrusted] = useState(false)
+
+  /** Shows a saved session under its own id, so saves update it in place instead of forking a copy. */
+  const openSavedSession = (session: SessionData) => {
+    activeSessionId = session.id
+    setInitialSession(session)
+    setSessionId(session.id)
+  }
 
   useEffect(() => {
     const init = async () => {
@@ -337,7 +350,7 @@ function Root() {
         if (resumeId) {
           const session = await loadSession(resumeId, process.cwd())
           if (session) {
-            setInitialSession(session)
+            openSavedSession(session)
           } else {
             setResumeNotFound(true)
           }
@@ -347,12 +360,13 @@ function Root() {
           else setResumeNotFound(true)
         } else if (settings.sessions?.autoResume === 'project-last') {
           const session = await getLastProjectSession(process.cwd())
-          if (session) setInitialSession(session)
+          if (session) openSavedSession(session)
         }
         const effectiveAgentName = agentName ?? settings.agents?.default ?? null
         if (effectiveAgentName) {
           try {
-            setInitialAgent(await loadAgentConfig(effectiveAgentName, process.cwd(), { includeUntrusted: true }))
+            startupAgent = await loadAgentConfig(effectiveAgentName, process.cwd(), { includeUntrusted: true })
+            setInitialAgent(startupAgent)
           } catch (e) { console.error((e as Error).message) }
         }
         if (msg) setInitialMessage(msg)
@@ -379,7 +393,7 @@ function Root() {
   }
 
   if (resumeChoices) {
-    return <ResumePicker sessions={resumeChoices} theme={theme} onSelect={(session) => { setInitialSession(session); setResumeChoices(null) }} onCancel={() => setResumeChoices(null)} />
+    return <ResumePicker sessions={resumeChoices} theme={theme} onSelect={(session) => { openSavedSession(session); setResumeChoices(null) }} onCancel={() => setResumeChoices(null)} />
   }
 
   if (!ready) {
@@ -392,6 +406,7 @@ function Root() {
 
   const application = (
     <App
+      key={sessionId}
       initialAgent={initialAgent}
       initialMessage={initialMessage}
       theme={theme}
@@ -400,7 +415,18 @@ function Root() {
       onLogout={() => { setReady(false); setProviderConfig(null) }}
       language={savedLanguage}
       enchant={savedEnchant}
-      sessionId={SESSION_ID}
+      sessionId={sessionId}
+      onSwitchSession={(session) => {
+        // Reopened sessions keep their id so the command center never lists them twice; one whose folder is
+        // gone reopens elsewhere, so it gets a fresh id instead of inheriting task snapshots from that folder.
+        activeSessionId = session && existsSync(session.cwd) ? session.id : newSessionId()
+        // The CLI prompt belongs to the first session; a remount must not send it again.
+        setInitialMessage(null)
+        // Another project resolves its own default agent in App rather than inheriting the launch directory's.
+        setInitialAgent(!session || resolve(session.cwd) === resolve(process.cwd()) ? startupAgent : null)
+        setInitialSession(session)
+        setSessionId(activeSessionId)
+      }}
       initialSession={initialSession}
       headerProvider={providerConfig?.provider ?? 'deepseek'}
       headerAgent={initialAgent?.config.name ?? null}
@@ -432,7 +458,7 @@ function cleanExit(code = 0): void {
     // Sync write is intentional: process.exit must not interrupt the banner.
     // Ink already restored the alternate screen during unmount; sending a
     // second ?1049l would restore the shell's old cursor position on top.
-    writeSync(1, formatExitScreen(hasSavedSession(SESSION_ID) ? SESSION_ID : null, false))
+    writeSync(1, formatExitScreen(hasSavedSession(activeSessionId) ? activeSessionId : null, false))
   } finally {
     process.exit(code)
   }

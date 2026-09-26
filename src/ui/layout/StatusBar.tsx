@@ -37,7 +37,7 @@ function ProgressBar({ percent, width = 20, theme = 'dark' }: { percent: number;
 }
 
 /** Bottom status line showing the configured items (mode, model, tokens, git branch refreshed every 30s, context %), a transient compaction badge and the background activity count; narrow terminals keep only the highest-priority items, and it renders nothing when there is nothing to show. */
-export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provider: _provider, contextPct = 0, interactionMode = 'build', theme = 'dark', items, narrowPriority, compactBadge, activityCount = 0 }: {
+export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provider: _provider, contextPct = 0, interactionMode = 'build', theme = 'dark', items, narrowPriority, compactBadge, activityCount = 0, agentsHint = false }: {
   tokenCount: number
   model: Model
   activeAgent: string | null
@@ -49,6 +49,8 @@ export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provid
   narrowPriority?: StatusBarItem[]
   compactBadge?: { type: 'micro' | 'full'; triggeredAt: number } | null
   activityCount?: number
+  /** Shows `← agents`, the command center shortcut (Codex's `← for agents`). */
+  agentsHint?: boolean
 }) {
   const colors = getThemeColors(theme)
   const [branch, setBranch] = useState('')
@@ -109,6 +111,7 @@ export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provid
         {activityCount > 0 && (
           <Text color={colors.textDim}>{isVeryNarrow ? `↓${activityCount}` : `↓ ${activityCount} ${activityCount === 1 ? 'activity' : 'activities'}`}</Text>
         )}
+        {agentsHint && !isNarrow && <Text color={colors.textDim}>{'← agents'}</Text>}
       </Box>
     </Box>
   )

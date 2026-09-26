@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-import { MeasuredText } from '../../src/ui/input/cursor/MeasuredText.js'
+import { MeasuredText, wrapVisualLines } from '../../src/ui/input/cursor/MeasuredText.js'
 
 describe('MeasuredText', () => {
   describe('constructor / normalization', () => {
@@ -161,5 +161,22 @@ describe('MeasuredText', () => {
       const mt = new MeasuredText('hello', 80)
       expect(mt.stringIndexToDisplayWidth('hello', 0)).toBe(0)
     })
+  })
+})
+
+describe('wrapVisualLines', () => {
+  const wrap = (text: string, width: number) => wrapVisualLines(text, width).map(line => text.slice(line.start, line.end))
+
+  it('wraps by display width, so double-width text never overflows the line', () => {
+    expect(wrap('中文中文中文', 5)).toEqual(['中文', '中文', '中文'])
+  })
+
+  it('never splits a grapheme when force-breaking a long word', () => {
+    expect(wrap('👍🏽👍🏽👍🏽', 3)).toEqual(['👍🏽', '👍🏽', '👍🏽'])
+  })
+
+  it('breaks after the last space that fits and drops that space', () => {
+    expect(wrap('alpha beta gamma', 11)).toEqual(['alpha beta', 'gamma'])
+    expect(wrap('aaaa ', 4)).toEqual(['aaaa'])
   })
 })

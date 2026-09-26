@@ -314,3 +314,14 @@ describe('session', () => {
     })
   })
 })
+
+describe('deleteSession', () => {
+  it('treats files missing from some layouts as deleted, but reports real failures', async () => {
+    const { deleteSession } = await getModule()
+    await expect(deleteSession({ id: 'aaaaaaaaaaaa', cwd: '/nowhere' })).resolves.toBeUndefined()
+
+    // A directory where the legacy session file would be makes unlink fail with something other than ENOENT.
+    await mkdir(join(testDir, '.deepseek', 'sessions', 'bbbbbbbbbbbb.json'), { recursive: true })
+    await expect(deleteSession({ id: 'bbbbbbbbbbbb', cwd: '/nowhere' })).rejects.toThrow()
+  })
+})

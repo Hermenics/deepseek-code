@@ -1,9 +1,11 @@
 import React from 'react'
-import type { Message } from '../App.js'
+import type { Message, ToolStatus } from '../App.js'
+import { ToolUseDisplay } from './ToolUseDisplay.js'
 import { DiffView } from './DiffView.js'
 import { DiffFileList, type DiffFileSummary } from './DiffFileList.js'
 import type { DiffLine } from './DiffDialog.js'
-import { summarizeAskUserPayload, summarizeToolPayload, TOOL_DISPLAY, TOOL_STYLE } from './toolDisplay.js'
+import { summarizeAskUserPayload, summarizeToolPayload, TOOL_DISPLAY } from './toolDisplay.js'
+import { ToolLabel } from './ToolLabel.js'
 import { MarkdownText } from './MarkdownText.js'
 import { DIVIDER_CHAR, getThemeColors, STATUS_ICONS } from '../theme.js'
 import type { ThemeName } from '../theme.js'
@@ -13,6 +15,7 @@ import Text from '../../ink/components/Text.js'
 import { useClock } from '../clock.js'
 import { isFullscreenActive } from '../../utils/fullscreen.js'
 import { stepToolFlags } from './steps.js'
+import { collapseToolGroups, ToolGroupLine } from './toolGroups.js'
 
 /** Splits a stored tool message into display name, argument preview and raw output; JSON `{arg, output}` details are unpacked, other JSON is summarized, and previews are clipped to 60 chars unless `full`. */
 export function formatToolLine(rawName: string, detail: string, full = false): { display: string; arg: string; output: string } {
@@ -254,33 +257,24 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = t
     const toolName = sep >= 0 ? raw.slice(0, sep) : raw
     const detail = sep >= 0 ? raw.slice(sep + 3) : ''
     const { display, arg, output } = formatToolLine(toolName, detail, fullMode)
-    const outputLines = output ? output.split(/\r?\n/).filter(Boolean) : []
-    const MAX_OUTPUT_LINES = 5
-    const trimmed = fullMode ? outputLines : outputLines.slice(0, MAX_OUTPUT_LINES)
-    const hasMore = !fullMode && outputLines.length > MAX_OUTPUT_LINES
-    const style = TOOL_STYLE[display] || { icon: '▸', color: colors.textDim }
+    // Tool output is transcript detail: only ctrl+o (full mode) shows it.
+    const outputLines = fullMode && output ? output.split(/\r?\n/).filter(Boolean) : []
     return (
       <Box flexDirection="column" paddingLeft={2}>
         <Box flexDirection="row" justifyContent="space-between" paddingRight={1}>
           <Box flexDirection="row" gap={1} flexShrink={1}>
             <Text color={colors.primary}>{STATUS_ICONS.tool}</Text>
-            <Text color={style.color}>{display}</Text>
-            {arg ? <Text color={colors.textSubtle}>{arg}</Text> : null}
+            <ToolLabel name={display} arg={arg} theme={theme} />
           </Box>
           {failed
             ? <Text color={colors.error}>{STATUS_ICONS.error}</Text>
             : <Text color={colors.success}>{STATUS_ICONS.success}</Text>}
         </Box>
-        {trimmed.map((line, i) => (
+        {outputLines.map((line, i) => (
           <Box key={i} paddingLeft={3}>
             <Text color={colors.textSubtle}>{line}</Text>
           </Box>
         ))}
-        {hasMore && (
-          <Box paddingLeft={3}>
-            <Text color={colors.textSubtle}>{'… ' + (outputLines.length - MAX_OUTPUT_LINES) + ' more lines'}</Text>
-          </Box>
-        )}
       </Box>
     )
   }
@@ -387,11 +381,13 @@ export function Header({ provider, agentName, theme = 'dark' }: { provider: stri
 }
 
 /** Renders the conversation: header, messages (collapsing each turn's tool work to a "Work truncated" divider unless fullMode), a changed-files summary, live thinking and the currently streaming reply. */
-export function MessageList({ messages, streamText, thinkingText, streamRole = 'assistant', theme, activeAgent, headerProvider, headerAgent, showHeader = true, showToolCalls = true, showDiffs = true, showWordDiff = true, density = 'comfortable', fullMode = false, reducedMotion = false, thinkingStartedAt = null, onOpenDiff }: {
+export function MessageList({ messages, streamText, thinkingText, streamRole = 'assistant', liveTool = null, theme, activeAgent, headerProvider, headerAgent, showHeader = true, showToolCalls = true, showDiffs = true, showWordDiff = true, density = 'comfortable', fullMode = false, reducedMotion = false, thinkingStartedAt = null, onOpenDiff }: {
   messages: Message[]
   streamText: string
   thinkingText?: string
   streamRole?: 'assistant' | 'terminal'
+  /** The running tool call; drawn right after the messages so it sits inside the open step. */
+  liveTool?: ToolStatus | null
   theme: ThemeName
   activeAgent?: string | null
   headerProvider?: string
@@ -423,7 +419,7 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
   const inStep = stepToolFlags(messages)
   const displayMessages = fullMode
     ? messages.map((message, index): DisplayMessage => ({ kind: 'message', message, index }))
-    : getNormalMessageItems(messages)
+    : collapseToolGroups(getNormalMessageItems(messages))
 
   return (
     <Box flexDirection="column" marginBottom={density === 'compact' ? 0 : 1}>
@@ -431,6 +427,11 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
       {displayMessages.map((item) => {
         if (item.kind === 'truncated') {
           return <Box key={`truncated-${item.index}`} marginTop={1}><Text color={colors.textSubtle}>{dividerLine(WORK_TRUNCATED_LABEL)}</Text></Box>
+        }
+        if (item.kind === 'group') {
+          return showToolCalls
+            ? <Box key={`group-${item.index}`} paddingLeft={inStep[item.index] ? 2 : 0}><ToolGroupLine group={item.group} theme={theme} /></Box>
+            : null
         }
         const { message, index } = item
         if (message.role === 'tool' && !showToolCalls) return null
@@ -447,6 +448,12 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
           </Box>
         )
       })}
+      {liveTool && showToolCalls && (
+        // Indented like a finished tool appended now; column so the row stretches and its status stays right-aligned.
+        <Box flexDirection="column" paddingLeft={stepToolFlags([...messages, { role: 'tool', content: '' }]).at(-1) ? 2 : 0}>
+          <ToolUseDisplay tool={liveTool} theme={theme} />
+        </Box>
+      )}
       {diffFiles.size > 0 && (
         <Box flexDirection="column" marginTop={1} paddingLeft={2}>
           <Text color={colors.textDim}>Changed files · Ctrl+D opens the latest diff</Text>

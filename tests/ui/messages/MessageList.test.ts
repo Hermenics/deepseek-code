@@ -261,23 +261,22 @@ describe('MessageList render', () => {
     }
   })
 
-  it('truncates tool output to 5 lines normally but shows every line in full mode', async () => {
+  it('hides tool output normally and shows every line in full mode', async () => {
     const output = Array.from({ length: 8 }, (_, i) => 'output-line-' + (i + 1)).join('\n')
     const toolMsg: Message = { role: 'tool', content: '✓ my_tool → ' + JSON.stringify({ arg: 'short', output }) }
 
     const normal = await renderMessageList({ messages: [toolMsg] })
     try {
-      expect(normal.text).toContain('… 3 more lines')
-      expect(normal.text).toContain('output-line-1')
-      expect(normal.text).not.toContain('output-line-8')
+      expect(normal.text).toContain('short')
+      expect(normal.text).not.toContain('output-line-1')
     } finally {
       normal.cleanup()
     }
 
     const full = await renderMessageList({ messages: [toolMsg], fullMode: true })
     try {
+      expect(full.text).toContain('output-line-1')
       expect(full.text).toContain('output-line-8')
-      expect(full.text).not.toContain('more lines')
     } finally {
       full.cleanup()
     }
@@ -395,7 +394,25 @@ describe('MessageList step headings', () => {
     })
     try {
       expect(text).toContain('○ Rodando os testes de UI.')
-      expect(text).toMatch(/\n {4}▸ Read src\/ui\/App\.tsx +✓/)
+      expect(text).toMatch(/\n {4}▶ Read 1 file \(ctrl\+o to expand\)/)
+    } finally {
+      cleanup()
+    }
+  })
+
+  it('draws the running tool inside the open step, right under its heading', async () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'fix it' },
+      { role: 'step', content: 'Lendo os arquivos', doneLabel: 'Leu os arquivos' },
+    ]
+    const { text, cleanup } = await renderMessageList({
+      messages,
+      element: React.createElement(MessageList, { messages, streamText: '', theme: 'dark', reducedMotion: true, liveTool: { name: 'read_file', args: 'package.json', done: false } }),
+    })
+    try {
+      expect(text).toMatch(/○ Lendo os arquivos\.\.\.\r?\n {4}▶ Read\(package\.json\)/)
+      // Spinner pinned to the right edge, not glued to the arg.
+      expect(text).toMatch(/▶ Read\(package\.json\) {40,}[◌○◎◉]/)
     } finally {
       cleanup()
     }

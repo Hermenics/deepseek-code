@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import type { ToolStatus } from '../App.js'
-import { previewToolCallArgs, summarizeToolPayload, TOOL_DISPLAY, TOOL_STYLE } from './toolDisplay.js'
+import { previewToolCallArgs, summarizeToolPayload, TOOL_DISPLAY } from './toolDisplay.js'
+import { ToolLabel } from './ToolLabel.js'
 import { getThemeColors, STATUS_ICONS } from '../theme.js'
 import type { ThemeName } from '../theme.js'
 import { useClock } from '../clock.js'
@@ -55,8 +56,6 @@ export function ToolUseDisplay({ tool, theme = 'dark' }: { tool: ToolStatus; the
     return () => clearInterval(t)
   }, [tool.name, tool.done])
 
-  const style = TOOL_STYLE[display] || { icon: '▸', color: colors.textDim }
-
   const failed = 'error' in tool && tool.error
   // Right-aligned status: sonar pulse while running, then ✓/✗
   const status = tool.done
@@ -68,8 +67,7 @@ export function ToolUseDisplay({ tool, theme = 'dark' }: { tool: ToolStatus; the
     <Box flexDirection="row" paddingLeft={2} paddingRight={1} justifyContent="space-between">
       <Box flexDirection="row" gap={1} flexShrink={1}>
         <Text color={colors.primary}>{STATUS_ICONS.tool}</Text>
-        <Text color={style.color}>{display}</Text>
-        {arg ? <Text color={colors.textSubtle}>{arg}</Text> : null}
+        <ToolLabel name={display} arg={arg} theme={theme} />
       </Box>
       <Box flexDirection="row" gap={1} flexShrink={0}>
         {!tool.done && elapsed > 0 && <Text color={colors.textDim}>{elapsed + 's'}</Text>}
