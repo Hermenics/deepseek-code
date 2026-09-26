@@ -198,15 +198,15 @@ $ deepseek --resume               # project-scoped interactive picker`}</CodeBlo
           </p>
           <p>
             Resume hydrates the saved model-facing messages, visible transcript and optional goal into a
-            <b> new process with a new session ID</b>. It does not force the saved provider, model or active-agent
+            <b> new process with the saved session ID</b>. It does not force the saved provider, model or active-agent
             metadata onto the live runtime; current credentials, CLI agent selection and effective settings win.
             It also does not restore process counters, the live modified-file tracker or the raw last prompt used
             by <code className="inline">/retry</code>.
           </p>
           <p>
-            Because the new ID selects a new orchestration snapshot, ordinary conversation resume does not
-            automatically reattach the prior session&apos;s task graph. Running and queued workers from the old
-            process should not be assumed to continue.
+            With the same ID and project root, the agent attempts to restore the matching task snapshot.
+            Running work from the old process is marked interrupted, and queued tasks without a runner are
+            blocked; old workers do not continue automatically.
           </p>
           <p>
             If an ID or picker selection cannot be resolved, the current UI displays “Session not found.

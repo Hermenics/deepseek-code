@@ -12,8 +12,8 @@ const TOC = [
 ];
 
 const EDIT_KEYS = [
-  ["Left / Right", "Move one grapheme cluster. Emoji and composed characters move as one unit."],
-  ["Up / Down", "Move between visual lines; at the top or bottom boundary, navigate prompt history."],
+  ["Left / Right", "Move one grapheme cluster. Left on an empty prompt opens the session command center."],
+  ["Up / Down", "Move between displayed lines; at the top or bottom boundary, navigate prompt history."],
   ["Home / End", "Move to the beginning or end of the current visual line."],
   ["Ctrl+A / Ctrl+E", "Move to the beginning or end of the current visual line."],
   ["Ctrl+B / Ctrl+F", "Move one grapheme left or right."],
@@ -121,8 +121,9 @@ export default function InputEditor() {
             neither one is the operating system clipboard.
           </p>
           <p>
-            The editor reflows when the terminal width changes. Vertical movement follows the rendered lines rather than
-            only hard newlines; moving above the first or below the last rendered line transfers control to input history.
+            The editor reflows when the terminal width changes. Cursor movement and rendering use the same word wrapping,
+            including wide characters. Moving above the first or below the last displayed line transfers control to input
+            history; each recalled multiline entry starts at the top when moving up or the bottom when moving down.
           </p>
         </section>
 
@@ -153,6 +154,12 @@ export default function InputEditor() {
             Selecting a slash-command completion executes it; it does not merely insert the text for another review step.
             Use ghost-text acceptance when you want insertion without immediate command dispatch.
           </Note>
+          <p>
+            From an empty prompt, <code className="inline">Left</code> opens the session command center;
+            <code className="inline">Down</code> opens live activity when available. See{" "}
+            <a href="/docs/session-lifecycle#command-center">Session lifecycle</a> for switching,
+            renaming and deleting saved sessions.
+          </p>
         </section>
 
         <section id="paste">

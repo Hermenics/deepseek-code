@@ -35,6 +35,7 @@ const CHOICES = [
   ["/compact", "Replace active history with an LLM-generated summary", "Keep decisions while freeing context", "No"],
   ["/undo", "Restore agent-written files from durable file checkpoints", "Reverse file changes", "Yes, for covered writes"],
   ["/checkpoint restore <id>", "Restore a saved model-message snapshot", "Return model context to a named point", "No automatic file rollback"],
+  ["Command center → n", "Create a fresh session ID in this process", "Start a separate conversation without leaving the CLI", "No"],
   ["Exit and run deepseek", "Create a fresh process and session ID", "Reset process-lifetime state as well", "No"],
 ];
 
@@ -179,8 +180,9 @@ export default function RetryAndClear() {
           </p>
           <CodeBlock lang="text">{"> /sessions export a1b2c3d4e5f6 md\nSanitized session export written to /home/you/acme/.deepseek/session-a1b2c3d4e5f6.sanitized.md\n\n> /clear"}</CodeBlock>
           <Note>
-            Starting a truly independent session requires exiting and launching <code className="inline">deepseek</code>
-            again. That creates a new ID and resets process-lifetime counters and approvals.
+            Press <code className="inline">Left</code> on an empty prompt and then
+            <code className="inline">n</code> in the command center to start a fresh session with a new ID.
+            Exiting and launching <code className="inline">deepseek</code> also creates a new process.
           </Note>
         </section>
 

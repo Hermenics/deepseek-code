@@ -19,6 +19,7 @@ const SESSION_KEYS = [
   ["Esc", "Abort the running turn; pressed twice with text, clears the input"],
   ["Ctrl+D", "Open the latest diff fullscreen (DiffDialog)"],
   ["Ctrl+O", "Toggle full display mode for expanded reasoning and untruncated tool details"],
+  ["Left on an empty prompt", "Open the session command center to switch, start, rename or delete sessions"],
   ["Shift+Tab", "Cycle interaction mode: plan → review → build → auto"],
   ["Ctrl+Z / Ctrl+Shift+Z", "Undo / redo where Ctrl+Z is not reserved for Unix suspension"],
 ];

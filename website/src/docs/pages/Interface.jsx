@@ -42,7 +42,7 @@ const STATUS_BAR_ITEMS = [
 const MESSAGE_ROLES = [
   ["user", "▌ prompt in the primary brand color"],
   ["assistant", "◆ markdown-rendered reply; the final reply can show a wave line with time and tool count"],
-  ["tool", "▸ tool line with the success or error status at right; max 5 output lines, then “… N more lines”"],
+  ["tool", "▸ tool name and argument with success or error status at right; Ctrl+O reveals output and individual read/search/list calls"],
   ["terminal", "$ shell output in magenta (bashBorder)"],
   ["thinking", "∿ collapsed by default; Ctrl+O expands the dimmed thinking panel"],
 ];

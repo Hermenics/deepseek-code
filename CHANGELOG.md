@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.0
+
+- Added: Press Left on an empty prompt to open the command center and switch between saved sessions across projects, or start a fresh session without leaving the CLI
+- Added: The command center shows the live session alongside saved ones, with status filters, project/status/model grouping, search, details, rename and confirmed deletion; switching away from active work is blocked
+- Enhanced: Resuming or reopening a saved session keeps its original ID, so later saves update that record instead of creating duplicate continuations; a missing project directory gets a fresh ID
+- Enhanced: Consecutive file reads, searches and directory listings collapse into a compact transcript summary; Ctrl+O reveals individual calls and their output, while running tools stay with their active step
+- Fixed: Tool failures show an error status, structured results get summarized before clipping, and input cursor movement follows the same word wrapping shown on screen; navigating multiline prompt history remains consistent
+- Fixed: Existing plugin MCP configuration paths are canonicalized before workspace approval checks
+
 ## 0.8.2
 
 - Added: Skills from native, project, user and installed-plugin locations; the prompt carries their descriptions, and the read-only `skill` tool loads matching instructions and bounded companion text only when needed

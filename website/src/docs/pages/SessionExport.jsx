@@ -84,6 +84,11 @@ export default function SessionExport() {
             across workspaces, with title, date, user-message count and working directory. The picker is the
             clearest way to copy the exact ID for the current project.
           </p>
+          <p>
+            Press <code className="inline">Left</code> on an empty prompt to open the command center when you
+            want to browse or switch sessions across projects without restarting the CLI. The
+            <code className="inline">--resume</code> picker remains scoped to the launch project.
+          </p>
         </section>
 
         <section id="command">

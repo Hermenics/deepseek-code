@@ -6,6 +6,7 @@ const TOC = [
   { id: "save", label: "When sessions are saved" },
   { id: "ids", label: "Session IDs" },
   { id: "list", label: "List saved sessions" },
+  { id: "command-center", label: "Command center" },
   { id: "resume", label: "Resume by ID or picker" },
   { id: "restored", label: "What resume restores" },
   { id: "auto", label: "Automatic project resume" },
@@ -32,7 +33,7 @@ const RESUME_BEHAVIOR = [
   ["Saved active agent", "Metadata only", "Startup agent selection comes from CLI arguments or current settings."],
   ["Modified-file tracker", "No", "The saved list is not rehydrated into the live tracker."],
   ["Last retryable prompt", "No", "Use a new prompt after resume; /retry initially has no in-process last message."],
-  ["Process counters", "No", "Duration, token, cost and tool-call counters begin with the new process."],
+  ["Process counters", "No", "Duration, token, cost and tool-call counters begin with the reopened app."],
 ];
 
 export default function SessionLifecycle() {
@@ -45,7 +46,7 @@ export default function SessionLifecycle() {
 
         <div className="hero">
           <h1>Session lifecycle</h1>
-          <p className="tagline">Understand when conversations become resumable, how project-scoped lookup works, and exactly what a resumed process does—and does not—restore.</p>
+          <p className="tagline">Start, switch and resume conversations while keeping each saved session's identity and recovery boundary clear.</p>
         </div>
 
         <section id="definition">
@@ -115,9 +116,9 @@ export default function SessionLifecycle() {
           </p>
           <CodeBlock lang="text">{"Resume this session:\ndeepseek --resume a1b2c3d4e5f6"}</CodeBlock>
           <p>
-            The ID identifies the record produced by the <em>current process</em>. Resuming an older record
-            launches a new process with a <b>new ID</b>, hydrates the old conversation into it, and saves later
-            work under that new ID. The source record is not edited as a continuation branch.
+            Resuming or reopening a saved record keeps <b>its original ID</b>. Later saves update that record,
+            so it appears only once in the command center. Starting a fresh session creates a new ID;
+            <code className="inline">/branch</code> creates an independent copy with its own ID.
           </p>
           <Note>
             <code className="inline">/quit</code> exits directly and does not print the resume hint. Copy the
@@ -137,6 +138,32 @@ export default function SessionLifecycle() {
             The list output currently does <b>not</b> print IDs. Use the project resume picker to see the exact
             ID attached to each card, or retain the command printed when the session exits.
           </p>
+        </section>
+
+        <section id="command-center">
+          <h2><span className="anchor">#</span>Switch sessions in the command center</h2>
+          <p>
+            Press <code className="inline">Left</code> on an empty prompt to open the command center. It shows
+            the current session and saved sessions across projects, with status tabs and a details pane on
+            wide terminals. Press <code className="inline">Enter</code> or <code className="inline">Right</code>{" "}
+            to open a selection, <code className="inline">n</code> for a fresh session, and
+            <code className="inline">Esc</code> to return to the prompt. A running turn or one waiting for
+            input must finish or be stopped before you switch or start a new session.
+          </p>
+          <p>
+            Use <code className="inline">Tab</code>/<code className="inline">Shift+Tab</code> to filter by
+            status, <code className="inline">g</code> to group by project, status or model, and
+            <code className="inline">f</code> to search titles, prompts and paths. Press
+            <code className="inline">r</code> to rename a selected session or
+            <code className="inline">Backspace</code> to request deletion of a saved session;
+            <code className="inline">y</code> confirms. The current session cannot be deleted.
+          </p>
+          <Note>
+            The command center's Working, Needs input and Ready statuses describe only this process's
+            current session. Other saved sessions are shown as Inactive; they do not continue running
+            in the background. Reopening one whose project directory no longer exists gives it a fresh ID
+            in the current workspace.
+          </Note>
         </section>
 
         <section id="resume">
@@ -176,9 +203,10 @@ export default function SessionLifecycle() {
             on the picker card because that card displays saved metadata while startup applies today&apos;s config.
           </p>
           <p>
-            Task-orchestration snapshots use the new process ID, so the old session&apos;s task graph is not
-            automatically attached to this continuation. Treat conversation resume and task recovery as
-            separate persistence surfaces.
+            Task snapshots are keyed by session ID and project root. When a saved session is reopened with
+            the same ID and workspace, the agent attempts to restore its snapshot; interrupted running tasks
+            are marked failed, and queued tasks without a runner are blocked. The snapshot does not restart
+            old worker processes.
           </p>
         </section>
 
@@ -234,17 +262,12 @@ export default function SessionLifecycle() {
         </section>
 
         <section id="unsupported">
-          <h2><span className="anchor">#</span>Unsupported lifecycle operations</h2>
+          <h2><span className="anchor">#</span>Lifecycle boundaries</h2>
           <p>
-            DeepSeek Code currently has no <code className="inline">--continue</code> shortcut, no in-TUI
-            session picker command, no session rename command, and no command that forks a saved record under
-            a chosen ID. Use <code className="inline">deepseek --resume</code> for the latest workflow and let
-            the new process create its own continuation ID.
-          </p>
-          <p>
-            There is also no public slash command for deleting saved sessions. Retention pruning is automatic;
-            do not treat <code className="inline">/clear</code> as deletion—it only clears live conversation
-            state and may later overwrite the current session record after another completed turn.
+            There is no <code className="inline">--continue</code> shortcut. The command center provides
+            interactive switching, renaming and confirmed deletion; <code className="inline">/branch</code>{" "}
+            forks a conversation under a new ID. <code className="inline">/clear</code> only clears live
+            conversation state and may later overwrite the saved record after another completed turn.
           </p>
         </section>
 

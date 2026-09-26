@@ -30,6 +30,7 @@
 - **Agentic coding** — reads/writes files, runs shell commands, searches code, manages git
 - **Multi-provider** — DeepSeek API, Amazon Bedrock, Google Vertex AI, or any local model (Ollama, LM Studio)
 - **Full TUI** — alternate-screen interface with streamed thinking, rich markdown, and vim mode
+- **Session command center** — press Left on an empty prompt to search, switch, rename or delete saved sessions across projects
 - **Unified agents** — scoped primary agents and sub-agents with editable base prompts
 - **Settings center** — fullscreen, searchable User/Project/Local configuration with visible origins
 - **MCP support** — connect to any Model Context Protocol server for extended tooling

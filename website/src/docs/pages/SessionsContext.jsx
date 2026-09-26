@@ -80,7 +80,7 @@ $ deepseek --resume a1b2c3d4e5f6`}</CodeBlock>
             current project.
           </p>
           <Note>
-            Resume hydrates old messages into a new process with a new session ID. Saved model, provider and
+            Resume hydrates old messages under the saved session ID. Saved model, provider and
             active-agent values are metadata: current credentials, CLI agent selection and effective settings
             choose the live runtime. The modified-file tracker, process counters and the raw prompt used by
             <code className="inline">/retry</code> are not restored.
@@ -107,10 +107,10 @@ $ deepseek --resume a1b2c3d4e5f6`}</CodeBlock>
             validated and the generic <code className="inline">AgentN</code> counter continues safely.
           </p>
           <Note>
-            Ordinary <code className="inline">deepseek --resume</code> is conversation continuation, not
-            same-ID orchestration recovery: the CLI creates a new ID before loading saved messages. It does
-            not automatically attach or reconcile the old task snapshot. Inspect old task artifacts separately
-            rather than assuming workers resumed.
+            Ordinary <code className="inline">deepseek --resume</code> now keeps the saved ID. When the
+            workspace still exists, the agent attempts to restore the matching task snapshot. Running tasks
+            from the old process become interrupted failures and queued tasks without a runner are blocked;
+            old workers do not restart automatically.
           </Note>
         </section>
 
@@ -291,7 +291,8 @@ $ deepseek --resume a1b2c3d4e5f6`}</CodeBlock>
             The command does not immediately rewrite or delete the saved record, so the older disk snapshot
             may remain briefly. Once a later main-agent turn completes, the same session ID is saved with the
             cleared history plus new messages, replacing that record&apos;s resumable conversation. Export anything
-            you need before clearing; use a new process when you need an independent session ID.
+            you need before clearing; choose <code className="inline">n</code> in the command center
+            or start a new process when you need an independent session ID.
           </p>
         </section>
       </main>

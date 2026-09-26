@@ -17,18 +17,18 @@ const TOC = [
 
 const VIEWS = [
   ["Model history", "The actual tool result paired to its tool-call ID. This is what the next model iteration receives."],
-  ["Interactive transcript", "A deliberately compact rendering: label, argument preview, selected output, or a structured diff."],
+  ["Interactive transcript", "A compact tool label and argument, grouped read-only work, or a structured diff; Ctrl+O expands saved detail."],
   ["Audit and events", "A diagnostic preview capped independently from both history and the TUI."],
 ];
 
 const DISPLAY = [
-  ["shell", "Bash label plus command; up to five non-empty output lines in normal mode."],
+  ["shell", "Bash label plus command; saved output lines appear in Full mode."],
   ["write_file / patch_file", "Structured diff card when the result is a valid diff payload."],
-  ["read_file / read_folder", "Path only after completion; file contents stay out of the visible transcript."],
-  ["glob / grep", "Pattern or path preview only; matches remain in model history."],
+  ["read_file / read_folder", "Consecutive successful reads and listings collapse into one count in normal mode."],
+  ["glob / grep", "Consecutive successful searches collapse into one count in normal mode."],
   ["subagent", "A compact working/done line rather than the worker's raw result."],
   ["ask_user_questions", "Question text and count while active; answer count or cancelled after completion instead of raw JSON."],
-  ["other built-ins", "A persisted completion detail capped to the first 100 characters."],
+  ["other built-ins", "A short summary of the complete result; JSON is summarized before its preview is clipped."],
   ["MCP tools", "Calls whose names contain a double underscore are not added to the normal transcript."],
 ];
 
@@ -101,9 +101,8 @@ export default function ToolResults() {
             While a tool runs, the status row shows a spinner, human display name, a human-readable preview of its
             primary argument capped near 60 characters, and elapsed seconds. The preview is assembled even while
             streamed JSON arguments are incomplete, so paths, commands and patterns can appear before the call ends.
-            Loading text also becomes tool-specific while a known tool is active. When it finishes, the callback
-            retains the first 200 result characters in transient state, while the row renders roughly the first 60
-            with a success marker before clearing.
+            Loading text also becomes tool-specific while a known tool is active. The running row stays with the
+            active step. On completion, its transient result preview shows a success or error marker before clearing.
           </p>
           <p>The persisted transcript applies tool-specific rendering:</p>
           <div className="doc-table-wrap"><table className="doc-table">
@@ -126,21 +125,19 @@ export default function ToolResults() {
         <section id="full">
           <h2><span className="anchor">#</span>Full mode</h2>
           <p>
-            Press <code className="inline">Ctrl+O</code> to toggle Full mode. It expands saved thinking, stops
-            truncating persisted argument previews at 60 characters, and shows all non-empty output lines present in a
-            transcript tool record. Normal mode shows at most five non-empty output lines and reports how many
-            remain.
+            Press <code className="inline">Ctrl+O</code> to toggle Full mode. It expands saved thinking,
+            individual read/search/list calls, full argument previews, and the non-empty output lines saved in
+            transcript tool records. Normal mode keeps those output lines hidden.
           </p>
           <CodeBlock lang="text">{`Normal mode
-✓ Bash  bun test
-   pass 1
-   pass 2
-   pass 3
-   pass 4
-   pass 5
-   … 23 more lines
+▸ Searched for 2 patterns, read 3 files (ctrl+o to expand)
+▸ Bash(bun test)  ✓
 
-Full mode · ctrl+o to toggle`}</CodeBlock>
+Full mode · Ctrl+O
+▸ Grep(pattern)  ✓
+▸ Read(src/example.ts)  ✓
+▸ Bash(bun test)  ✓
+   pass 1`}</CodeBlock>
           <p>
             Full mode is a display toggle only. It does not rerun a tool, modify model history, restore
             micro-compacted content, increase a tool's hard output ceiling, or reveal read/search contents that
@@ -218,8 +215,9 @@ then inspect only matches for settleInvoice. Do not treat the first page as exha
             paired, then the denial abort propagates.
           </p>
           <Note>
-            A success icon means the tool returned through its normal callback. Some tools encode operational
-            failure in their returned text. Read the content; do not infer success from the row color alone.
+            Results beginning with <code className="inline">Error</code> or containing a JSON
+            <code className="inline">error</code> string show an error marker. Other failure formats may need
+            their result text inspected; a success marker alone cannot prove the operation's outcome.
           </Note>
         </section>
 

@@ -1,6 +1,6 @@
 import React from "react";
 import { motion } from "framer-motion";
-import { Network, ShieldCheck, GitCommit, Layers, History } from "lucide-react";
+import { Network, ShieldCheck, GitCommit, History } from "lucide-react";
 import Chapter from "./Chapter";
 
 /**
@@ -38,16 +38,16 @@ const HIGHLIGHTS = [
     tag: "permissions",
   },
   {
-    icon: History,
+    icon: GitCommit,
     title: "File & git checkpoints",
     text: "Filesystem checkpoints + git worktrees keep multi-agent branches isolated and reversible.",
     tag: "checkpoints",
   },
   {
-    icon: Layers,
-    title: "Auto-compaction",
-    text: "Context is summarized at threshold, latest turns preserved — sessions run for hours, not minutes.",
-    tag: "context",
+    icon: History,
+    title: "Session command center",
+    text: "Press Left on an empty prompt to search, switch, rename or delete saved sessions across projects. Running work stays protected.",
+    tag: "sessions",
   },
 ];
 
@@ -67,7 +67,7 @@ export default function ChapterII() {
           agents.
         </>
       }
-      lead="Fan out sub-agents into isolated workspaces with configurable concurrency, depth and cost ceilings. Compose them with MoA. Recover with checkpoints. Audit everything."
+      lead="Fan out sub-agents into isolated workspaces with configurable concurrency, depth and cost ceilings. Compose them with MoA, manage saved sessions in the command center, recover with checkpoints and audit everything."
     >
       <div
         data-testid="architecture-tree"
