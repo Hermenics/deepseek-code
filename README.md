@@ -95,6 +95,7 @@ Each provider also exposes provider-specific models (Bedrock, Vertex, local).
 | `/verify` | Run the detected project test command |
 | `/sessions export <id> [json\|md]` | Export a sanitized session transcript |
 | `/catalog`, `/marketplace` | Browse curated MCP, plugin, and skill integrations |
+| `/skill list`, `/plugin list` | Inspect available skills and installed plugins |
 | `/permissions` | Explain mode, allow/deny rules, risk checks, and session approvals |
 | `/config`, `/settings` | Open the fullscreen settings center |
 | `/help` | Show all commands |
@@ -103,7 +104,9 @@ Each provider also exposes provider-specific models (Bedrock, Vertex, local).
 
 The agent has access to these tools out of the box:
 
-`ReadFile` · `WriteFile` · `EditFile` · `PatchFile` · `Shell` · `Glob` · `Grep` · `Lsp` · `Git` · `ReadFolder` · `WebFetch` · `SubAgent` · `AskAgent` · `Workflow` · `Memory` · `Todo` · `Introspect` · `MoA` · `AskUserQuestions`
+`ReadFile` · `WriteFile` · `EditFile` · `PatchFile` · `Shell` · `Glob` · `Grep` · `Lsp` · `Git` · `ReadFolder` · `WebFetch` · `Skill` · `SubAgent` · `AskAgent` · `Workflow` · `Memory` · `Todo` · `Introspect` · `MoA` · `AskUserQuestions`
+
+Skills are listed by origin and loaded on demand through the read-only `skill` tool. Plugins can contribute skills, slash commands, and MCP servers. Plugin MCP configs require workspace approval before their servers start. See [the extension architecture study](docs/skills-plugins-mcp-research.md).
 
 ## TUI behavior
 

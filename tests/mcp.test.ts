@@ -1,5 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test'
 import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
+import { Agent } from '../src/agent/agent.js'
+import * as mcp from '../src/agent/mcp.js'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -63,6 +65,138 @@ describe('MCP config', () => {
     await writeFile(path, JSON.stringify({ servers: { changed: { transport: 'stdio', command: 'does-not-exist' } } }))
     expect((await loadMcpTools(cwd, { enabled: true, trustFile })).approval).toBeDefined()
   })
+
+  it('requires separate approval for project and plugin MCP configs', async () => {
+    const plugins = join(cwd, 'plugins')
+    const plugin = join(plugins, 'sample')
+    const previous = process.env.DEEPSEEK_PLUGINS_DIR
+    process.env.DEEPSEEK_PLUGINS_DIR = plugins
+    try {
+      await mkdir(join(cwd, '.deepseek'), { recursive: true })
+      await mkdir(plugin, { recursive: true })
+      await writeFile(join(cwd, '.deepseek', 'mcp.json'), '{"servers":{}}')
+      await writeFile(join(plugins, 'registry.json'), JSON.stringify({ version: 1, plugins: { sample: { name: 'sample', commitHash: 'one' } } }))
+      await writeFile(join(plugin, 'plugin.json'), '{"name":"sample","mcpServers":"mcp.json"}')
+      await writeFile(join(plugin, 'mcp.json'), '{"servers":{}}')
+      const { approveMcpConfig, loadMcpTools } = await import('../src/agent/mcp.js')
+      const options = { enabled: true, trustFile: join(cwd, 'trust.json') }
+      const project = await loadMcpTools(cwd, options)
+      expect(project.approval?.canonicalPath).toBe(join(cwd, '.deepseek', 'mcp.json'))
+      await approveMcpConfig(cwd, project.approval!, options.trustFile)
+      const pluginPending = await loadMcpTools(cwd, options)
+      expect(pluginPending.approval?.canonicalPath).toBe(join(plugin, 'mcp.json'))
+      await approveMcpConfig(cwd, pluginPending.approval!, options.trustFile)
+      expect((await loadMcpTools(cwd, options)).approval).toBeUndefined()
+      await writeFile(join(plugins, 'registry.json'), JSON.stringify({ version: 1, plugins: { sample: { name: 'sample', commitHash: 'two' } } }))
+      expect((await loadMcpTools(cwd, options)).approval?.canonicalPath).toBe(join(plugin, 'mcp.json'))
+    } finally {
+      if (previous === undefined) delete process.env.DEEPSEEK_PLUGINS_DIR
+      else process.env.DEEPSEEK_PLUGINS_DIR = previous
+    }
+  }, 30_000)
+})
+
+describe('MCP tool bridge', () => {
+  it('keeps public names valid and distinct after normalization or truncation', async () => {
+    const { mcpToolName } = await import('../src/agent/mcp.js')
+    expect(mcpToolName('server', 'read')).toBe('server__read')
+    expect(mcpToolName('server', 'read/file')).not.toBe(mcpToolName('server', 'read:file'))
+    expect(mcpToolName('server', 'x'.repeat(100))).toHaveLength(64)
+    expect(mcpToolName('server', 'x'.repeat(100))).toMatch(/^[A-Za-z0-9_-]+$/)
+  })
+
+  it('surfaces MCP errors and preserves structured and non-text results', async () => {
+    const { formatMcpToolResult } = await import('../src/agent/mcp.js')
+    expect(() => formatMcpToolResult({ isError: true, content: [{ type: 'text', text: 'permission denied' }] })).toThrow('permission denied')
+    expect(formatMcpToolResult({ content: [{ type: 'text', text: 'summary' }], structuredContent: { count: 2 } })).toBe('{"count":2}')
+    expect(formatMcpToolResult({ content: [{ type: 'resource_link', uri: 'file:///tmp/x', name: 'x' }] })).toContain('resource_link')
+  })
+
+  it('loads an approved plugin MCP server, calls its tool, and closes it', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-mcp-plugin-'))
+    const pluginDir = join(root, 'plugins', 'echo-pack')
+    const previous = process.env.DEEPSEEK_PLUGINS_DIR
+    process.env.DEEPSEEK_PLUGINS_DIR = join(root, 'plugins')
+    let cleanup: (() => Promise<void>) | undefined
+    try {
+      await mkdir(pluginDir, { recursive: true })
+      await writeFile(join(root, 'plugins', 'registry.json'), JSON.stringify({ version: 1, plugins: { 'echo-pack': { name: 'echo-pack' } } }))
+      await writeFile(join(pluginDir, 'plugin.json'), '{"name":"echo-pack","mcpServers":"mcp.json"}')
+      await writeFile(join(pluginDir, 'mcp.json'), JSON.stringify({ mcpServers: { echo: { command: 'node', args: ['${PLUGIN_ROOT}/server.js'] } } }))
+      await writeFile(join(pluginDir, 'server.js'), `let buffer = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', chunk => {
+  buffer += chunk;
+  let end;
+  while ((end = buffer.indexOf('\\n')) >= 0) {
+    const line = buffer.slice(0, end); buffer = buffer.slice(end + 1);
+    if (!line) continue;
+    const request = JSON.parse(line);
+    if (request.id === undefined) continue;
+    let result;
+    if (request.method === 'initialize') result = { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fixture', version: '1.0' } };
+    else if (request.method === 'tools/list') result = { tools: [{ name: 'echo', inputSchema: { type: 'object', properties: { text: { type: 'string' } } } }] };
+    else if (request.method === 'tools/call') result = { content: [{ type: 'text', text: request.params.arguments.text }] };
+    else result = {};
+    process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }) + '\\n');
+  }
+});`)
+      const { loadMcpTools, approveMcpConfig } = await import('../src/agent/mcp.js')
+      const trustFile = join(root, 'trust.json')
+      const pending = await loadMcpTools(root, { enabled: true, trustFile })
+      expect(pending.approval?.canonicalPath).toBe(join(pluginDir, 'mcp.json'))
+      expect(pending.tools).toHaveLength(0)
+      await approveMcpConfig(root, pending.approval!, trustFile)
+      const loaded = await loadMcpTools(root, { enabled: true, trustFile, initialTimeoutMs: 5000 })
+      cleanup = loaded.cleanup
+      expect(loaded.errors).toEqual([])
+      expect(loaded.tools.map(tool => tool.name)).toEqual(['echo-pack__echo__echo'])
+      expect(await loaded.tools[0]!.execute({ text: 'hello' })).toBe('hello')
+    } finally {
+      await cleanup?.()
+      if (previous === undefined) delete process.env.DEEPSEEK_PLUGINS_DIR
+      else process.env.DEEPSEEK_PLUGINS_DIR = previous
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 30_000)
+})
+
+describe('Agent MCP reloads', () => {
+  it('waits for an approval reload before refreshing MCP tools', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-agent-mcp-approval-'))
+    const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' }, { projectRoot: root, logFile: null, snapshotFile: null })
+    await agent.readyPromise
+    const events: string[] = []
+    let release!: () => void
+    const blocked = new Promise<void>(resolve => { release = resolve })
+    let entered!: () => void
+    const started = new Promise<void>(resolve => { entered = resolve })
+    const approve = spyOn(mcp, 'approveMcpConfig').mockResolvedValue(undefined)
+    const load = spyOn(mcp, 'loadMcpTools').mockImplementation(async () => {
+      events.push('load')
+      if (events.filter(event => event === 'load').length === 1) { entered(); await blocked }
+      return { tools: [], errors: [], cleanup: async () => { events.push('close') } }
+    })
+    try {
+      const internals = agent as any
+      internals.mcpApprovalRequired = { canonicalPath: join(root, 'mcp.json'), hash: 'test' }
+      agent.setMcpApprovalHandler(async () => true)
+      await started
+      const refresh = agent.refreshExtensions()
+      await Promise.resolve()
+      expect(events).toEqual(['load'])
+      release()
+      await refresh
+      expect(events).toEqual(['load', 'close', 'load'])
+    } finally {
+      release()
+      load.mockRestore()
+      approve.mockRestore()
+      await agent.shutdown()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
 })
 
 // =============================================================================

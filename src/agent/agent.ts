@@ -117,7 +117,7 @@ class DenyAbortError extends Error {
 }
 
 // Tools that are safe to run in parallel (read-only or isolated)
-const PARALLEL_SAFE = new Set(['subagent', 'ask_agent', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect', 'step'])
+const PARALLEL_SAFE = new Set(['subagent', 'ask_agent', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect', 'step', 'skill'])
 
 const DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT_MD
 
@@ -599,6 +599,7 @@ export class Agent {
   private planSubmitHandler: ((planPath: string, summary?: string) => Promise<string>) | null = null
   private askUserHandler: AskUserHandler | null = null
   private mcpCleanup: (() => Promise<void>) | null = null
+  private mcpReload: Promise<void> = Promise.resolve()
   private mcpApprovalHandler: ((request: McpApprovalRequest) => Promise<boolean>) | null = null
   private mcpApprovalInFlight = false
 
@@ -617,30 +618,42 @@ export class Agent {
    * Bails out if the workspace changes mid-approval so tools from the old project are never installed; failures go to mcpErrors.
    */
   private async resolveMcpApproval(): Promise<void> {
-    const request = this.mcpApprovalRequired
-    if (!request || !this.mcpApprovalHandler || this.mcpApprovalInFlight) return
+    if (!this.mcpApprovalRequired || !this.mcpApprovalHandler || this.mcpApprovalInFlight) return
     const approvalWorkspace = this.workspacePath
     this.mcpApprovalInFlight = true
     try {
-      if (!await this.mcpApprovalHandler(request)) {
-        this.mcpApprovalRequired = null
-        return
+      while (this.mcpApprovalRequired && this.mcpApprovalHandler) {
+        const request = this.mcpApprovalRequired
+        if (!await this.mcpApprovalHandler(request)) {
+          this.mcpApprovalRequired = null
+          break
+        }
+        if (this.workspacePath !== approvalWorkspace) return
+        await approveMcpConfig(this.workspacePath, request)
+        if (this.workspacePath !== approvalWorkspace) return
+        await this.queueMcpReload(async () => {
+          if (this.workspacePath !== approvalWorkspace) return
+          await this.mcpCleanup?.()
+          const loaded = await loadMcpTools(this.workspacePath, { enabled: true })
+          if (this.workspacePath !== approvalWorkspace) { await loaded.cleanup?.(); return }
+          this.mcpApprovalRequired = loaded.approval ?? null
+          this.mcpErrors.push(...loaded.errors)
+          this.mcpCleanup = loaded.cleanup ?? null
+          this.installMcpTools(loaded.tools)
+        })
       }
-      if (this.workspacePath !== approvalWorkspace) return
-      await approveMcpConfig(this.workspacePath, request)
-      if (this.workspacePath !== approvalWorkspace) return
-      const loaded = await loadMcpTools(this.workspacePath, { enabled: true })
-      if (this.workspacePath !== approvalWorkspace) return
-      if (loaded.approval) throw new Error('MCP configuration changed while approval was pending')
-      this.mcpApprovalRequired = null
-      this.mcpErrors.push(...loaded.errors)
-      this.mcpCleanup = loaded.cleanup ?? null
-      this.installMcpTools(loaded.tools)
     } catch (error) {
       this.mcpErrors.push(`MCP approval failed: ${(error as Error).message}`)
     } finally {
       this.mcpApprovalInFlight = false
     }
+  }
+
+  /** Runs MCP connection changes one at a time, even if an earlier reload fails. */
+  private queueMcpReload(reload: () => Promise<void>): Promise<void> {
+    const next = this.mcpReload.then(reload, reload)
+    this.mcpReload = next.catch(() => undefined)
+    return next
   }
 
   /** Replaces the tool set with the built-ins plus the given MCP tools and rebuilds the name lookup. */
@@ -671,6 +684,32 @@ export class Agent {
     const messages: MessageOrBoundary[] = [{ role: 'system', content: this.systemPrompt }]
     if (this.projectContext) messages.push(this.createProjectContextMessage())
     return messages
+  }
+
+  /** Refreshes the skill catalog after a TUI install, update, or removal without discarding the conversation. */
+  async refreshSkillCatalog(): Promise<void> {
+    await this.readyPromise
+    const skills = await loadSkillPrompt(this.workspacePath)
+    const section = `<skills>\n${skills}\n</skills>`
+    this.projectContext = this.projectContext.replace(/<skills>[\s\S]*?<\/skills>/, section)
+    this.messages = this.messages.filter(message => !isProjectContextMessage(message))
+    const lastBoundary = this.messages.reduce((index, message, current) => isBoundaryMarker(message) ? current : index, -1)
+    this.messages.splice(lastBoundary >= 0 ? lastBoundary + 1 : 1, 0, this.createProjectContextMessage())
+    this.contextStale = true
+  }
+
+  /** Refreshes plugin skills and MCP connections after plugin management in the TUI. */
+  async refreshExtensions(): Promise<void> {
+    await this.refreshSkillCatalog()
+    await this.queueMcpReload(async () => {
+      await this.mcpCleanup?.()
+      const loaded = await loadMcpTools(this.workspacePath, { enabled: this.settings.mcp?.enabled === true })
+      this.mcpCleanup = loaded.cleanup ?? null
+      this.mcpErrors = loaded.errors
+      this.mcpApprovalRequired = loaded.approval ?? null
+      this.installMcpTools(loaded.tools)
+    })
+    if (this.mcpApprovalRequired && this.mcpApprovalHandler) void this.resolveMcpApproval()
   }
 
   /** Merges subagent UI callbacks into the orchestrator and workflow listeners; null clears every per-subagent listener but keeps onNote. */

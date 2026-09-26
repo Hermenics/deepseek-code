@@ -7,6 +7,7 @@ export interface PluginManifest {
   agents?: string | string[]
   skills?: string | string[]
   hooks?: string
+  mcpServers?: string | Record<string, unknown> | Array<string | Record<string, unknown>>
 }
 
 export interface PluginComponents {

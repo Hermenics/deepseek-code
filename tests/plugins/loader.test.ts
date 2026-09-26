@@ -226,4 +226,28 @@ describe('loadInstalledPlugins', () => {
     writePluginRegistry({ version: 1, plugins: {} }, pluginsDir)
     expect(loadInstalledPlugins(pluginsDir)).toEqual([])
   })
+
+  it('does not load registry paths or symlinks outside the plugin install root', () => {
+    if (process.platform === 'win32') return
+    const outside = mkdtempSync(join(tmpdir(), 'dsk-plugin-escape-'))
+    externalDirs.push(outside)
+    writeFileSync(join(outside, 'plugin.json'), '{"name":"escape"}')
+    symlinkSync(outside, join(pluginsDir, 'escape'), 'dir')
+    writePluginRegistry({ version: 1, plugins: {
+      escape: makeEntry('escape'),
+      '../outside': makeEntry('../outside'),
+    } }, pluginsDir)
+    expect(loadInstalledPlugins(pluginsDir)).toEqual([])
+  })
+
+  it('skips malformed registry entries without hiding valid plugins', () => {
+    const dir = join(pluginsDir, 'valid')
+    mkdirSync(dir)
+    writeFileSync(join(dir, 'plugin.json'), '{"name":"valid"}')
+    writeFileSync(join(pluginsDir, 'registry.json'), JSON.stringify({ version: 1, plugins: {
+      broken: null,
+      valid: makeEntry('valid'),
+    } }))
+    expect(loadInstalledPlugins(pluginsDir).map(plugin => plugin.entry.name)).toEqual(['valid'])
+  })
 })

@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, existsSync, realpathSync } from 'fs'
 import { isAbsolute, join, relative, resolve, sep } from 'path'
 import type { PluginManifest, LoadedPlugin, PluginComponents } from './types.js'
 import { readPluginRegistry, getPluginsDir } from './registry.js'
+import { PLUGIN_NAME_PATTERN } from './validation.js'
 
 /** Enumerates a plugin's commands, agents, skills and hooks from manifest paths (or conventional folders). Paths resolving outside the plugin root, including via symlinks, are ignored. */
 export function discoverComponents(pluginDir: string, manifest?: PluginManifest): PluginComponents {
@@ -94,15 +95,23 @@ export function loadInstalledPlugins(dir?: string): LoadedPlugin[] {
   const registry = readPluginRegistry(dir)
   const base = dir ?? getPluginsDir()
   const loaded: LoadedPlugin[] = []
+  let canonicalBase: string
+  try { canonicalBase = realpathSync(base) } catch { return loaded }
 
   for (const entry of Object.values(registry.plugins)) {
+    if (!entry || typeof entry.name !== 'string' || !PLUGIN_NAME_PATTERN.test(entry.name)) continue
     const pluginDir = join(base, entry.name)
     if (!existsSync(pluginDir)) {
       console.warn(`[plugins] skipping '${entry.name}': directory not found at ${pluginDir}`)
       continue
     }
+    try {
+      const canonicalDir = realpathSync(pluginDir)
+      const relativeDir = relative(canonicalBase, canonicalDir)
+      if (relativeDir === '..' || relativeDir.startsWith(`..${sep}`) || isAbsolute(relativeDir)) continue
+    } catch { continue }
     const manifest = readPluginManifest(pluginDir)
-    if (!manifest) {
+    if (!manifest || manifest.name !== entry.name) {
       console.warn(`[plugins] skipping '${entry.name}': could not read plugin.json in ${pluginDir}`)
       continue
     }

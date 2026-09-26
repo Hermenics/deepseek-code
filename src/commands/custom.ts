@@ -3,6 +3,7 @@ import { join, relative, resolve, dirname } from 'node:path'
 import { lstat, readdir, readFile, realpath, stat } from 'node:fs/promises'
 import type { CommandResult } from './types.js'
 import { escapesRoot } from '../utils/pathContainment.js'
+import { loadInstalledPlugins } from '../plugins/loader.js'
 
 const MAX_COMMANDS_PER_DIRECTORY = 256
 const MAX_COMMAND_BYTES = 128 * 1024
@@ -13,7 +14,7 @@ export interface CustomCommand {
   description: string
   prompt: string
   path: string
-  source: 'project' | 'user'
+  source: 'project' | 'user' | 'plugin'
 }
 
 let cached = new Map<string, CustomCommand>()
@@ -98,9 +99,25 @@ async function readDirectory(directory: string, source: CustomCommand['source'])
 /** Finds project and user (`~/.deepseek/commands`) custom commands; on name clashes the nearest project command wins over the user one. */
 export async function discoverCustomCommands(cwd: string): Promise<CustomCommand[]> {
   const directories = await projectDirectories(cwd)
+  const pluginCommands: CustomCommand[] = []
+  for (const plugin of loadInstalledPlugins()) {
+    const pluginRoot = await realpath(plugin.path).catch(() => null)
+    if (!pluginRoot) continue
+    for (const commandPath of [plugin.manifest.commands ?? 'commands'].flat().filter((path): path is string => typeof path === 'string')) {
+      const directory = resolve(plugin.path, commandPath)
+      try {
+        if (!contained(pluginRoot, await realpath(directory))) continue
+      } catch { continue }
+      for (const command of await readDirectory(directory, 'plugin')) {
+        const name = `${plugin.entry.name}-${command.name}`
+        if (NAME_PATTERN.test(name)) pluginCommands.push({ ...command, name })
+      }
+    }
+  }
   const groups = [
     ...(await Promise.all(directories.map(directory => readDirectory(directory, 'project')))),
     await readDirectory(join(homedir(), '.deepseek', 'commands'), 'user'),
+    pluginCommands,
   ]
   const selected = new Map<string, CustomCommand>()
   for (const command of groups.flat()) if (!selected.has(command.name)) selected.set(command.name, command)

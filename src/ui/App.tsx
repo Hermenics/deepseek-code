@@ -1764,7 +1764,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           const lines = [
             `Built-in tools (${builtIn.length}):`,
             ...builtIn.map((n) => `  ${n}`),
-            ...(mcp.length ? [`\nMCP tools (${mcp.length}):`, ...mcp.map((n) => `  ${n}`)] : []),
+            ...(mcp.length ? [`\nMCP tools (${mcp.length}):`, ...mcp.map((n) => `  \`${n}\``)] : []),
           ]
           setMessages((m) => [...m, { role: 'assistant', content: lines.join('\n') }])
           return
@@ -2033,35 +2033,27 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         }
         case 'skill': {
           if (cmd.action === 'help') {
-            setMessages((m) => [...m, { role: 'assistant', content: `Skill commands:\n  /skill install <owner/repo>  install a skill from GitHub\n  /skill list                  list installed skills\n  /skill remove <name>         remove an installed skill\n  /skill update <name>         update a skill to latest` }])
+            setMessages((m) => [...m, { role: 'assistant', content: `Skill commands:\n  /skill install <owner/repo>  install a skill from GitHub\n  /skill list                  list available skills\n  /skill remove <name>         remove an installed skill\n  /skill update <name>         update a skill to latest` }])
           } else if (cmd.action === 'error') {
             setMessages((m) => [...m, { role: 'assistant', content: `Error: ${cmd.message}` }])
           } else if (cmd.action === 'list') {
             setIsLoading(true)
             try {
-              const { listSkills } = await import('../skills/installer.js')
-              const { join } = await import('path')
-              const cwd = agent.getWorkingDirectory()
-              const primary = join(cwd, '.deepseek', 'skills')
-              const legacy = join(cwd, '.claude', 'skills')
-              const [primarySkills, legacySkills] = await Promise.all([
-                listSkills(primary).catch(() => []),
-                listSkills(legacy).catch(() => []),
-              ])
-              const merged = [...primarySkills]
-              const migrated: string[] = []
-              for (const ls of legacySkills) {
-                if (!merged.some(s => s.name === ls.name)) {
-                  merged.push(ls)
-                  migrated.push(ls.name)
-                }
-              }
-              if (!merged.length) {
-                setMessages((m) => [...m, { role: 'assistant', content: 'No skills installed via /skill. Use /skill install <owner/repo> to add one.' }])
+              const { listAvailableSkills } = await import('../skills/native.js')
+              const skills = await listAvailableSkills(agent.getWorkingDirectory())
+              if (!skills.length) {
+                setMessages((m) => [...m, { role: 'assistant', content: 'No skills available. Use /skill install <owner/repo> to add one.' }])
               } else {
-                const lines = merged.map((s) => `  ${s.name}  (${s.repo})  ${s.description}`)
-                const notice = migrated.length ? `\n\n⚠️ ${migrated.join(', ')} still in legacy .claude/skills. Reinstall to migrate to .deepseek/skills.` : ''
-                setMessages((m) => [...m, { role: 'assistant', content: `Installed skills:\n${lines.join('\n')}${notice}` }])
+                const groups = new Map<string, string[]>()
+                for (const skill of skills) {
+                  if (!groups.has(skill.source)) groups.set(skill.source, [])
+                  groups.get(skill.source)!.push(skill.name)
+                }
+                const lines = [...groups].flatMap(([source, names]) => [
+                  `${source} (${names.length}):`,
+                  ...Array.from({ length: Math.ceil(names.length / 3) }, (_, index) => `  ${names.slice(index * 3, index * 3 + 3).join(' · ')}`),
+                ])
+                setMessages((m) => [...m, { role: 'assistant', content: `Available skills (${skills.length}):\n${lines.join('\n')}` }])
               }
             } catch (e) {
               setMessages((m) => [...m, { role: 'assistant', content: `✗ ${(e as Error).message}` }])
@@ -2088,6 +2080,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               } else {
                 const result = await installSkill(cmd.repo, primary)
                 if (result.ok) {
+                  await agent.refreshSkillCatalog()
                   setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${result.name}' installed successfully.` }])
                 } else {
                   setMessages((m) => [...m, { role: 'assistant', content: `✗ ${result.error}` }])
@@ -2109,6 +2102,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               let result = await removeSkill(cmd.name, primary)
               if (!result.ok) result = await removeSkill(cmd.name, legacy)
               if (result.ok) {
+                await agent.refreshSkillCatalog()
                 setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${result.name}' removed.` }])
               } else {
                 setMessages((m) => [...m, { role: 'assistant', content: `✗ Skill '${cmd.name}' not found in .deepseek/skills or .claude/skills.` }])
@@ -2138,12 +2132,14 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
                   if (!installed.ok) throw new Error(installed.error ?? `Failed to install skill '${cmd.name}' in .deepseek/skills.`)
                   const removed = await removeSkill(cmd.name, legacy)
                   if (!removed.ok) throw new Error(removed.error ?? `Failed to remove legacy skill '${cmd.name}'.`)
+                  await agent.refreshSkillCatalog()
                   setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${cmd.name}' migrated from .claude/skills to .deepseek/skills and updated.` }])
                   setIsLoading(false)
                   return
                 }
               }
               if (result.ok) {
+                await agent.refreshSkillCatalog()
                 setMessages((m) => [...m, { role: 'assistant', content: `✓ Skill '${result.name}' updated.` }])
               } else {
                 setMessages((m) => [...m, { role: 'assistant', content: `✗ ${result.error}` }])
@@ -2192,6 +2188,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               const { installPlugin } = await import('../plugins/index.js')
               const result = await installPlugin(cmd.repo)
               if (result.ok) {
+                await agent.refreshExtensions()
+                await refreshCustomCommands(agent.getWorkingDirectory())
                 setMessages((m) => [...m, { role: 'assistant', content: `✓ Plugin '${result.name}' installed successfully.` }])
               } else {
                 setMessages((m) => [...m, { role: 'assistant', content: `✗ ${result.error}` }])
@@ -2207,6 +2205,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               const { removePlugin } = await import('../plugins/index.js')
               const result = await removePlugin(cmd.name)
               if (result.ok) {
+                await agent.refreshExtensions()
+                await refreshCustomCommands(agent.getWorkingDirectory())
                 setMessages((m) => [...m, { role: 'assistant', content: `✓ Plugin '${result.name}' removed.` }])
               } else {
                 setMessages((m) => [...m, { role: 'assistant', content: `✗ ${result.error}` }])
@@ -2223,6 +2223,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               const { updatePlugin } = await import('../plugins/index.js')
               const result = await updatePlugin(cmd.name)
               if (result.ok) {
+                await agent.refreshExtensions()
+                await refreshCustomCommands(agent.getWorkingDirectory())
                 setMessages((m) => [...m, { role: 'assistant', content: `✓ Plugin '${result.name}' updated.` }])
               } else {
                 setMessages((m) => [...m, { role: 'assistant', content: `✗ ${result.error}` }])

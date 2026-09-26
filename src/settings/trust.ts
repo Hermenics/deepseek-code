@@ -13,6 +13,7 @@ interface WorkspaceTrustFile {
   projects: Record<string, {
     agents: Record<string, string>
     mcp?: TrustedArtifact
+    mcpArtifacts?: Record<string, string>
   }>
 }
 
@@ -93,14 +94,16 @@ export class WorkspaceTrustStore {
   async isMcpApproved(artifact: TrustedArtifact): Promise<boolean> {
     const { key, state } = await this.project()
     const approval = state.projects[key]?.mcp
-    return approval?.canonicalPath === artifact.canonicalPath && approval.hash === artifact.hash
+    return (approval?.canonicalPath === artifact.canonicalPath && approval.hash === artifact.hash) ||
+      state.projects[key]?.mcpArtifacts?.[artifact.canonicalPath] === artifact.hash
   }
 
   /** Records the workspace's MCP config approval, replacing any previous one. */
   async approveMcp(artifact: TrustedArtifact): Promise<void> {
     const { key, state } = await this.project()
     const project = state.projects[key] ?? { agents: {} }
-    project.mcp = artifact
+    project.mcpArtifacts ??= {}
+    project.mcpArtifacts[artifact.canonicalPath] = artifact.hash
     state.projects[key] = project
     await writeTrustFile(this.file, state)
   }

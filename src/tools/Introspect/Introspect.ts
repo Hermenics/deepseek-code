@@ -113,7 +113,7 @@ Skills package task-specific instructions and assets; plugins can contribute ski
 Use \`/catalog [mcp|plugin|skill]\` (or \`/marketplace\`) for curated recommendations. \`/features\` (or \`/experimental\`) lists the current experimental flags; name a flag to toggle it or pass \`on\`/\`off\` explicitly. The current built-in flags are word-level diffs, micro-compaction of short tool results, and fuzzy file search.
 
 ## Available Tools
-DeepSeek Code registers 26 native tools. Tool schemas are the authority for parameters and result formats; the descriptions below explain their intended operating role.
+DeepSeek Code registers 27 native tools. Tool schemas are the authority for parameters and result formats; the descriptions below explain their intended operating role.
 
 ### Locate and inspect
 
@@ -161,10 +161,10 @@ By default (\`readBeforeEdit\` in \`/features\`), \`write_file\`, \`edit_file\` 
 ### Tool Permissions by Mode
 | Mode | Permitted native tools |
 | --- | --- |
-| Review | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`step\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`ask_user_questions\` |
-| Plan | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`step\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`ask_user_questions\`, \`write_plan\`, \`submit_plan\` |
-| Build | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`step\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`ask_user_questions\`, \`shell\`, \`write_file\`, \`edit_file\`, \`patch_file\`, \`update_knowledge\`, \`subagent\`, \`ask_agent\`, \`moa\`, \`update_goal\` |
-| Auto | All 26 native tools and dynamically discovered MCP tools |
+| Review | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`step\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`ask_user_questions\`, \`skill\` |
+| Plan | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`step\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`ask_user_questions\`, \`skill\`, \`write_plan\`, \`submit_plan\` |
+| Build | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`step\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`ask_user_questions\`, \`skill\`, \`shell\`, \`write_file\`, \`edit_file\`, \`patch_file\`, \`update_knowledge\`, \`subagent\`, \`ask_agent\`, \`moa\`, \`update_goal\` |
+| Auto | All 27 native tools and dynamically discovered MCP tools |
 
 In Review and Plan, \`git\` is limited to status/diff/log and batches containing only those actions; \`todo\` and \`memory\` are limited to list. Plan may write only through \`write_plan\`; after \`submit_plan\`, it waits for the user's decision. MCP tools follow the shell rule: Build and Auto only.
 

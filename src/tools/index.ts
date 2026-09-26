@@ -25,9 +25,10 @@ import { CreateGoal } from './CreateGoal/CreateGoal.js'
 import { UpdateGoal } from './UpdateGoal/UpdateGoal.js'
 import { Workflow } from './Workflow/Workflow.js'
 import { AskUserQuestions } from './AskUserQuestions/AskUserQuestions.js'
+import { Skill } from '../skills/native.js'
 
 /** Every built-in tool, in the order they are offered to the model. */
-export const allTools: Tool[] = [WriteFile, EditFile, PatchFile, ReadFile, ReadFolder, Grep, Glob, Lsp, Shell, Introspect, WebFetch, SubAgent, AskAgent, Workflow, UpdateKnowledge, Todo, Step, Git, MemoryTool, MoATool, SubmitPlan, WritePlan, GetGoal, CreateGoal, UpdateGoal, AskUserQuestions]
+export const allTools: Tool[] = [WriteFile, EditFile, PatchFile, ReadFile, ReadFolder, Grep, Glob, Lsp, Shell, Introspect, WebFetch, Skill, SubAgent, AskAgent, Workflow, UpdateKnowledge, Todo, Step, Git, MemoryTool, MoATool, SubmitPlan, WritePlan, GetGoal, CreateGoal, UpdateGoal, AskUserQuestions]
 
 /** Built-in tools indexed by their model-facing name. */
 export const toolMap = new Map<string, Tool>(allTools.map((t) => [t.name, t]))

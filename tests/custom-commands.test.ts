@@ -1,4 +1,5 @@
-import { describe, expect, it, afterEach } from 'bun:test'
+import { describe, expect, it, afterEach, spyOn } from 'bun:test'
+import * as fs from 'node:fs/promises'
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -50,5 +51,55 @@ describe('custom commands', () => {
     await writeFile(join(directory, '.deepseek', 'commands', 'review.md'), 'custom review prompt')
 
     expect(await resolveCommand('/review app.ts', directory)).toEqual({ type: 'review', target: 'app.ts' })
+  })
+
+  it('continues discovering commands when a plugin root disappears', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'deepseek-custom-'))
+    temporaryDirectories.push(directory)
+    const pluginsDir = join(directory, 'plugins')
+    const old = process.env.DEEPSEEK_PLUGINS_DIR
+    process.env.DEEPSEEK_PLUGINS_DIR = pluginsDir
+    try {
+      await mkdir(join(directory, '.deepseek', 'commands'), { recursive: true })
+      await writeFile(join(directory, '.deepseek', 'commands', 'local.md'), 'Local command')
+      for (const name of ['missing', 'working']) {
+        await mkdir(join(pluginsDir, name, 'commands'), { recursive: true })
+        await writeFile(join(pluginsDir, name, 'plugin.json'), JSON.stringify({ name }))
+        await writeFile(join(pluginsDir, name, 'commands', 'audit.md'), 'Audit command')
+      }
+      await writeFile(join(pluginsDir, 'registry.json'), JSON.stringify({ version: 1, plugins: { missing: { name: 'missing' }, working: { name: 'working' } } }))
+      const realpath = fs.realpath
+      const spy = spyOn(fs, 'realpath').mockImplementation(((path: Parameters<typeof realpath>[0]) => {
+        if (path === join(pluginsDir, 'missing')) return Promise.reject(new Error('plugin removed'))
+        return realpath(path)
+      }) as typeof realpath)
+      try {
+        expect((await discoverCustomCommands(directory)).map(command => command.name)).toEqual(expect.arrayContaining(['local', 'working-audit']))
+        expect(spy).toHaveBeenCalledWith(join(pluginsDir, 'missing'))
+      } finally { spy.mockRestore() }
+    } finally {
+      if (old === undefined) delete process.env.DEEPSEEK_PLUGINS_DIR
+      else process.env.DEEPSEEK_PLUGINS_DIR = old
+    }
+  })
+
+  it('resolves installed plugin commands under a plugin-qualified name', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'deepseek-custom-'))
+    temporaryDirectories.push(directory)
+    const pluginsDir = join(directory, 'plugins')
+    const old = process.env.DEEPSEEK_PLUGINS_DIR
+    process.env.DEEPSEEK_PLUGINS_DIR = pluginsDir
+    try {
+      await mkdir(join(pluginsDir, 'review-pack', 'commands'), { recursive: true })
+      await writeFile(join(pluginsDir, 'review-pack', 'plugin.json'), '{"name":"review-pack"}')
+      await writeFile(join(pluginsDir, 'review-pack', 'commands', 'audit.md'), 'Audit $1 carefully.')
+      await writeFile(join(pluginsDir, 'registry.json'), JSON.stringify({ version: 1, plugins: { 'review-pack': { name: 'review-pack' } } }))
+      expect(await resolveCommand('/review-pack-audit src', directory)).toEqual({ type: 'custom', name: 'review-pack-audit', prompt: 'Audit src carefully.' })
+      await writeFile(join(pluginsDir, 'review-pack', 'plugin.json'), '{"name":"review-pack","commands":{"invalid":"type"}}')
+      expect(await resolveCustomCommand('/review-pack-audit src', directory)).toBeNull()
+    } finally {
+      if (old === undefined) delete process.env.DEEPSEEK_PLUGINS_DIR
+      else process.env.DEEPSEEK_PLUGINS_DIR = old
+    }
   })
 })
