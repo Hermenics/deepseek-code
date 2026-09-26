@@ -1,7 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
-import { readFile } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'path'
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
@@ -237,7 +237,7 @@ async function loadMcpSources(cwd: string): Promise<{ sources: McpSource[]; erro
       if (typeof spec === 'string') {
         const path = resolve(plugin.path, spec)
         try {
-          const canonical = await canonicalPath(path)
+          const canonical = await realpath(path)
           if (!contained(await canonicalPath(plugin.path), canonical)) throw new Error('path leaves plugin root')
           if (seen.has(canonical)) continue
           seen.add(canonical)
