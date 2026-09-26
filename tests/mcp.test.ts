@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test'
-import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'fs/promises'
 import { Agent } from '../src/agent/agent.js'
 import * as mcp from '../src/agent/mcp.js'
 import { tmpdir } from 'os'
@@ -81,14 +81,14 @@ describe('MCP config', () => {
       const { approveMcpConfig, loadMcpTools } = await import('../src/agent/mcp.js')
       const options = { enabled: true, trustFile: join(cwd, 'trust.json') }
       const project = await loadMcpTools(cwd, options)
-      expect(project.approval?.canonicalPath).toBe(join(cwd, '.deepseek', 'mcp.json'))
+      expect(project.approval?.canonicalPath).toBe(await realpath(join(cwd, '.deepseek', 'mcp.json')))
       await approveMcpConfig(cwd, project.approval!, options.trustFile)
       const pluginPending = await loadMcpTools(cwd, options)
-      expect(pluginPending.approval?.canonicalPath).toBe(join(plugin, 'mcp.json'))
+      expect(pluginPending.approval?.canonicalPath).toBe(await realpath(join(plugin, 'mcp.json')))
       await approveMcpConfig(cwd, pluginPending.approval!, options.trustFile)
       expect((await loadMcpTools(cwd, options)).approval).toBeUndefined()
       await writeFile(join(plugins, 'registry.json'), JSON.stringify({ version: 1, plugins: { sample: { name: 'sample', commitHash: 'two' } } }))
-      expect((await loadMcpTools(cwd, options)).approval?.canonicalPath).toBe(join(plugin, 'mcp.json'))
+      expect((await loadMcpTools(cwd, options)).approval?.canonicalPath).toBe(await realpath(join(plugin, 'mcp.json')))
     } finally {
       if (previous === undefined) delete process.env.DEEPSEEK_PLUGINS_DIR
       else process.env.DEEPSEEK_PLUGINS_DIR = previous
@@ -144,7 +144,7 @@ process.stdin.on('data', chunk => {
       const { loadMcpTools, approveMcpConfig } = await import('../src/agent/mcp.js')
       const trustFile = join(root, 'trust.json')
       const pending = await loadMcpTools(root, { enabled: true, trustFile })
-      expect(pending.approval?.canonicalPath).toBe(join(pluginDir, 'mcp.json'))
+      expect(pending.approval?.canonicalPath).toBe(await realpath(join(pluginDir, 'mcp.json')))
       expect(pending.tools).toHaveLength(0)
       await approveMcpConfig(root, pending.approval!, trustFile)
       const loaded = await loadMcpTools(root, { enabled: true, trustFile, initialTimeoutMs: 5000 })
