@@ -101,7 +101,8 @@ export default function Security() {
             <li><b>Untrusted guidance</b> — agent prompts and referenced files cannot change policy, permissions or user intent.</li>
           </ul>
           <Note>
-            MCP needs both User-scope <code className="inline">mcp.enabled</code> consent and workspace approval.
+            Project and plugin MCP need User-scope <code className="inline">mcp.enabled</code> consent and
+            workspace approval for each source. Plugin approval includes the installed commit and config hash.
             Trust records live outside the repository in <code className="inline">~/.deepseek/workspace-trust.json</code>.
           </Note>
         </section>
@@ -231,7 +232,7 @@ export default function Security() {
             <li><b>Command validation</b> — <code className="inline">validateMcpCommand</code> rejects empty commands, path traversal (<code className="inline">../</code>), and shell injection characters (<code className="inline">;`&lt;&gt;&&||$(&gt;&gt;&lt;&lt;</code>) before any process is spawned.</li>
             <li><b>Timeouts</b> — connection attempts default to 10s and tool calls are raced against a 30s timeout.</li>
             <li><b>Lifecycle cleanup</b> — loaded clients are closed when the agent reinitializes, changes workspace or shuts down.</li>
-            <li><b>Workspace approval</b> — project MCP starts only after User consent and approval of the current path/content hash.</li>
+            <li><b>Workspace approval</b> — project and plugin MCP configs start only after User consent and approval of each config; plugin approvals also bind the installed commit.</li>
             <li><b>Audit trail</b> — every successful server load is recorded as an <code className="inline">mcp_server_load</code> event in the session audit log.</li>
           </ul>
         </section>
@@ -351,8 +352,9 @@ export default function Security() {
           <p>
             Anything that executes code on your machine is honored <b>only at User scope</b>:
             executable hooks, LSP server commands, and MCP servers configured in project or local
-            settings are ignored (the settings validator flags them as warnings). Project MCP servers
-            are off by default — enabling them is an explicit User-scope choice.
+            settings are ignored (the settings validator flags them as warnings). Project and plugin MCP
+            servers are off by default — enabling them is an explicit User-scope choice, followed by
+            workspace approval for each config.
           </p>
           <p>
             Project settings may express shareable preferences and denials, but cannot select the provider
@@ -361,7 +363,8 @@ export default function Security() {
           </p>
           <Note>
             If a project's <code className="inline">settings.json</code> declares hooks or MCP servers
-            and they are not running, that is the security model working as designed.
+            and they are not running, that is the security model working as designed. Plugin MCP configs
+            use the same User consent and workspace approval boundary.
           </Note>
         </section>
       </main>

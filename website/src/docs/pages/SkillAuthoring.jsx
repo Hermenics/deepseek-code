@@ -83,9 +83,10 @@ export default function SkillAuthoring() {
           </p>
           <Note>
             The current CLI implements skill installation, validation, listing, update, removal, and
-            migration. Valid native and project <code className="inline">SKILL.md</code> files are loaded into
-            the agent prompt, and their descriptions are the metadata the model uses to select applicable
-            instructions. They remain separate from the install registry.
+            migration. The prompt receives names and descriptions from native, project, user and plugin skill
+            roots. When a description matches the task, the read-only <code className="inline">skill</code> tool
+            loads that skill's full <code className="inline">SKILL.md</code> body. The registry remains separate
+            from this live catalog.
           </Note>
         </section>
 
@@ -114,6 +115,12 @@ If there is no tag, say so and stop — do not invent a range.`}</CodeBlock>
             That is the entire format. Frontmatter between <code className="inline">---</code> delimiters, then
             markdown.
           </p>
+          <Note>
+            Keep <code className="inline">SKILL.md</code> at or below 128 KiB. The{" "}
+            <code className="inline">skill</code> tool can also read a companion text file using a path relative
+            to the skill directory; companion files are limited to 128 KiB and paths that escape the skill
+            directory or point to sensitive workspace files are rejected.
+          </Note>
         </section>
 
         <section id="frontmatter">

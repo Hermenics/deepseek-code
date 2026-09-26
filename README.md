@@ -66,7 +66,7 @@ cat src/index.tsx | deepseek --pipe --json "summarize"
 | **Google Vertex AI** | GCP service account JSON key | `GCP_PROJECT`, `GCP_LOCATION`, `GCP_CREDENTIALS` |
 | **Local (Ollama / LM Studio)** | No auth — point to your local endpoint | `LOCAL_BASE_URL`, `LOCAL_MODEL` |
 
-Secrets are saved only to `~/.deepseek/config.json`. Non-secret preferences use `settings.json` with `User < Project < Local` precedence; legacy values remain readable for compatibility. Project MCP servers are off by default and require the User-scoped **Enable project MCP servers** setting; restart DeepSeek Code after changing it. See [docs/settings.md](docs/settings.md).
+Secrets are saved only to `~/.deepseek/config.json`. Non-secret preferences use `settings.json` with `User < Project < Local` precedence; legacy values remain readable for compatibility. Project and plugin MCP servers are off by default and require the User-scoped **Enable project MCP servers** setting plus workspace approval; restart DeepSeek Code after changing the setting. Plugin changes refresh their integrations live. See [docs/settings.md](docs/settings.md).
 
 ## Models
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.2
+
+- Added: Skills from native, project, user and installed-plugin locations; the prompt carries their descriptions, and the read-only `skill` tool loads matching instructions and bounded companion text only when needed
+- Added: Installed plugins can contribute live slash commands, skills and MCP servers; plugin commands use `/plugin-name-command`, and MCP settings can resolve `${PLUGIN_ROOT}` to the plugin directory
+- Enhanced: Plugin MCP servers follow User-scoped MCP enablement and require workspace approval tied to their config and installed plugin revision; plugin install, update and removal refresh skill and MCP contributions in the active session
+- Fixed: Extension loading rejects paths that escape their declared roots, including symlink escapes, and refreshes the live command suggestions after plugin changes
+- Docs: README and extension research now describe the skills, plugin and MCP runtime; the landing page and guides reflect the shipped behavior
+- Tests: Cover on-demand skill loading, plugin command discovery and refresh, workspace approval for plugin MCP configs, and extension cleanup
+
 ## 0.8.1
 
 - Enhanced: After installing an update, the CLI clears the terminal and asks you to restart manually, avoiding an automatic process relaunch

@@ -117,7 +117,7 @@ export default function SettingsCenter() {
           </p>
           <Note>
             Scope restrictions still apply. Auto mode, executable hooks, LSP server commands and consent to
-            load project MCP servers are User-scoped controls. Project or Local entries for those capabilities
+            load project and plugin MCP servers are User-scoped controls. Project or Local entries for those capabilities
             are diagnosed and ignored rather than made executable.
           </Note>
         </section>

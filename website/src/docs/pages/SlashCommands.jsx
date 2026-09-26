@@ -405,9 +405,9 @@ Inspect the current diff and focus on $ARGUMENTS.`}</CodeBlock>
           <h2><span className="anchor">#</span>Everything else</h2>
           <CmdTable rows={MISC} />
           <p>
-            That is the full built-in set. Saved workflows and custom project/user commands may add more suggestions;
-            plugin command definitions can still be inventoried, but the current runtime does not register them into
-            this command palette.
+            That is the full built-in set. Saved workflows and custom project/user commands may add more
+            suggestions. Installed plugins also register commands as <code className="inline">/plugin-name-command-name</code>;
+            installing, updating or removing a plugin refreshes command suggestions in the current session.
           </p>
         </section>
       </main>

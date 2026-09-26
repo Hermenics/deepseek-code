@@ -156,7 +156,7 @@ export default function InteractionModes() {
           </p>
           <ul className="capabilities">
             <li><b>Auto</b> can only be selected at <b>User</b> scope — Project and Local scopes reject <code className="inline">interaction.defaultMode = "auto"</code>.</li>
-            <li><b>Project MCP servers</b> (<code className="inline">settings.mcp</code>) can also only be enabled at User scope.</li>
+            <li><b>Project and plugin MCP servers</b> (<code className="inline">settings.mcp</code>) can only be enabled at User scope.</li>
           </ul>
           <p>
             <code className="inline">Shift+Tab</code> flips the mode live for the current session; the setting

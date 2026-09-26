@@ -332,7 +332,11 @@ export default function DeepSeekDirectory() {
             <code className="inline">.deepseek/skills/</code>. Its <code className="inline">.registry.json</code>
             records the source repository and exact installed commit. A legacy{" "}
             <code className="inline">.claude/skills/</code> install can still be listed and migrated on update.
-            See <a href="/docs/skill-authoring">Skills</a>.
+            The available catalog also scans native skills, plugin skills, and user roots:
+            <code className="inline">~/.deepseek-code/skills</code>, <code className="inline">~/.deepseek/skills</code>,{" "}
+            <code className="inline">~/.agents/skills</code> and <code className="inline">~/.claude/skills</code>.
+            Only names and descriptions enter the prompt; the read-only <code className="inline">skill</code>{" "}
+            tool loads a matching skill body on demand. See <a href="/docs/skill-authoring">Skills</a>.
           </p>
           <p>
             Workflows are project-scoped in <code className="inline">.deepseek/workflows/</code> because a

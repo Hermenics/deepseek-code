@@ -161,7 +161,7 @@ LANG=en_US.UTF-8        # only when the parent process has LANG`}</CodeBlock>
           <Note>
             Because HOME, USER and SHELL are neither inherited nor injectable, a server that relies on implicit
             home-directory credential discovery may fail. Prefer the server's explicit argument or a dedicated
-            non-critical environment variable. Do not commit literal secrets in project mcp.json.
+            non-critical environment variable. Do not commit literal secrets in project or plugin MCP configs.
           </Note>
         </section>
 

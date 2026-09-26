@@ -58,7 +58,7 @@ const PERMS = [
 
 const EXT = [
   ["Skill", "One packaged procedure: a SKILL.md with frontmatter, installed from git and commit-pinned.", "/docs/skill-authoring"],
-  ["Plugin", "A bundle of commands, agents, skills and hooks installed as one unit.", "/docs/plugin-authoring"],
+  ["Plugin", "A bundle of commands, agents, skills, hooks and MCP definitions installed as one unit.", "/docs/plugin-authoring"],
   ["Hook", "A shell command run at PreToolUse, PostToolUse or SessionStart. Can approve or block.", "/docs/hooks"],
   ["Workflow", "A declarative script coordinating steps deterministically, which may spawn tasks.", "/docs/workflows"],
   ["Agent definition", "A JSON file describing a named agent: role, model, tools, profile, limits.", "/docs/agents"],
@@ -84,7 +84,7 @@ const CONFUSED = [
   ["Steering vs DEEPSEEK.md", "Both are yours. Only DEEPSEEK.md is re-injected after compaction."],
   ["Verification vs verifier", "Verification runs your test command. A verifier independently checks an agent's claim."],
   ["Compaction vs micro-compaction", "Compaction summarizes with a model call. Micro-compaction blanks old tool results with none."],
-  ["Skill vs plugin", "A skill is one capability. A plugin bundles many — and only a plugin can ship hooks."],
+  ["Skill vs plugin", "A skill is one on-demand procedure. A plugin bundles commands, skills and MCP definitions; agent and hook runtime wiring remains limited."],
   ["Checkpoint vs file checkpoint", "One restores the conversation. The other restores files. Neither does both."],
   ["Profile vs role", "A profile is the runtime capability envelope. A role is the task-level intent that gets narrowed by it."],
 ];

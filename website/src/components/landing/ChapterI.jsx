@@ -4,7 +4,7 @@ import {
   FileText, FileEdit, FileDiff, FolderOpen, Terminal as TerminalIcon,
   Search, Regex, GitBranch, Globe, Users, MessageCircleQuestion,
   Brain, ListChecks, Compass, BookOpen, Sparkles, ClipboardCheck,
-  PencilRuler, FileCode, Waypoints, ListTree, Flag, Plus, RefreshCw, MessagesSquare,
+  PencilRuler, FileCode, Waypoints, ListTree, Flag, Plus, RefreshCw, MessagesSquare, ArrowRight,
 } from "lucide-react";
 import Chapter from "./Chapter";
 
@@ -19,6 +19,8 @@ const TOOLS = [
   { name: "glob", icon: Search, note: "filename patterns" },
   { name: "git", icon: GitBranch, note: "status · diff · commit" },
   { name: "web_fetch", icon: Globe, note: "http get / post" },
+  { name: "step", icon: ArrowRight, note: "label work in progress" },
+  { name: "skill", icon: BookOpen, note: "load instructions on demand" },
   { name: "subagent", icon: Users, note: "spawn isolated task" },
   { name: "ask_agent", icon: MessageCircleQuestion, note: "consult · no tools" },
   { name: "memory", icon: Brain, note: "persistent knowledge" },
@@ -49,12 +51,12 @@ export default function ChapterI() {
       kicker="the toolset"
       title={
         <>
-          Twenty-five tools.
+          Twenty-seven tools.
           <br />
           <span className="text-white/50">Zero friction.</span>
         </>
       }
-      lead="Every tool is a surgical instrument: read-only ones fan out in parallel, mutations run under permissioned checkpoints, and every call is auditable in the TUI as it happens."
+      lead="Read-only tools fan out in parallel, mutations run under permissioned checkpoints, and every call is auditable. Load skill instructions only when needed, then extend the toolset with plugin commands and workspace-approved MCP servers."
     >
       <div
         data-testid="tools-grid"
@@ -107,7 +109,7 @@ export default function ChapterI() {
 
       <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
         {[
-          { k: "25", v: "core tools" },
+          { k: "27", v: "core tools" },
           { k: "44", v: "slash commands" },
           { k: "8", v: "run in parallel" },
           { k: "42k+", v: "lines of source" },

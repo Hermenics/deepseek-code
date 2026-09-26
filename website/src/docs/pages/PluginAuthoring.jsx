@@ -19,10 +19,11 @@ const MANIFEST = [
   ["version", "string, optional", "Your version string. Recorded in the registry entry."],
   ["description", "string, optional", "Shown in listings. Write it for someone deciding whether to install."],
   ["author", "{ name, email?, url? }", "Attribution."],
-  ["commands", "string | string[]", "Component directory; current discovery uses only the first array item."],
-  ["agents", "string | string[]", "Component directory; .md files are inventoried non-recursively."],
-  ["skills", "string | string[]", "Component directory; child folders containing SKILL.md are inventoried."],
-  ["hooks", "string", "Path whose existence marks the plugin as containing hooks."],
+  ["commands", "string | string[]", "Directories of direct .md slash-command files; each becomes /plugin-name-command-name."],
+  ["agents", "string | string[]", "Directories of direct .md files; listed as metadata, not loaded into the agent registry."],
+  ["skills", "string | string[]", "Directories of skill folders; descriptions enter the catalog and bodies load on demand."],
+  ["hooks", "string", "Path whose existence marks the plugin as containing hooks; handlers are not executed."],
+  ["mcpServers", "string | object | array", "Plugin MCP config path(s) or inline server configuration; workspace approval is required."],
 ];
 
 const ENTRY = [
@@ -36,16 +37,17 @@ const ENTRY = [
 ];
 
 const COMPONENTS = [
-  ["commands", "Detected .md names", "Listed as metadata; not added to the live slash-command registry."],
+  ["commands", "Namespaced slash commands", "Registered live as /plugin-name-command-name; refreshed after plugin install, update or removal."],
   ["agents", "Detected .md names", "Listed as metadata; not added to the live agent registry."],
-  ["skills", "Detected skill folders", "Listed as metadata; their SKILL.md bodies are not loaded."],
+  ["skills", "Skill catalog entries", "Descriptions enter project context; the read-only skill tool loads SKILL.md and companion text on demand."],
   ["hooks", "Path-presence flag", "Reported by /plugin list; handlers are not executed."],
+  ["mcpServers", "MCP server tools", "Loaded after User-scoped MCP enablement and workspace approval of each config."],
 ];
 
 const CHECKLIST = [
   ["Name is kebab-case", "Anything else is rejected at install time, not at runtime."],
   ["Description says what, not how", "It is the only thing a user reads before installing."],
-  ["No absolute paths", "Keep paths relative to the plugin root; runtime substitution is not wired yet."],
+  ["Keep paths inside the plugin", "Plugin component and MCP config paths cannot escape the installed plugin root."],
   ["Declare only what exists", "A manifest pointing at a missing file produces a plugin that half-loads."],
   ["Hooks are conservative", "They are not executed yet, but should be safe before runtime wiring lands."],
   ["Tag your releases", "Installs record the cloned HEAD commit; tags make releases easier to audit."],
@@ -62,8 +64,8 @@ export default function PluginAuthoring() {
         <div className="hero">
           <h1>Plugin authoring</h1>
           <p className="tagline">
-            Package commands, agents, skills and hooks into one installable unit — pinned to an exact commit
-            so an install is reproducible.
+            Package commands, skills and MCP configs into one installable unit, pinned to an exact commit for
+            reproducible installs.
           </p>
         </div>
 
@@ -71,20 +73,20 @@ export default function PluginAuthoring() {
           <h2><span className="anchor">#</span>What a plugin is</h2>
           <p>
             A plugin is a git repository containing a manifest and one or more <b>components</b>: slash
-            commands, agent definitions, skills, or hook configuration. Installing it validates and records
-            the package and lets <code className="inline">/plugin list</code> inventory those components.
+            commands, agent definitions, skills, hooks, or MCP servers. Commands, skills and approved MCP
+            servers are wired into the active session; <code className="inline">/plugin list</code> also reports
+            the full component inventory.
           </p>
           <p>
             The distinction from a skill is worth getting right early. A <a href="/docs/skill-authoring">skill</a>{" "}
             is one packaged capability. A plugin is a <b>bundle</b> — it can ship several commands, a couple
-            of agents, and hooks that tie them together. If you are shipping one thing, ship a skill; if you
-            are shipping a coherent set, ship a plugin.
+            of agents, skills and MCP servers. Agent definitions and hooks are inventory-only today. If you are
+            shipping one reusable procedure, ship a skill; if you are shipping a coherent set, ship a plugin.
           </p>
           <p>
             Installs are pinned to a <code className="inline">commitHash</code>. A plugin installed today
-            behaves the same next month regardless of what the upstream repository does — updating is an
-            explicit action, not something that happens to you. Component execution is a separate concern:
-            the current runtime does not register installed plugin components into live sessions.
+            stays on that revision until you explicitly update it. Installing, updating or removing a plugin
+            refreshes its active slash commands, skills and MCP connections without restarting the session.
           </p>
         </section>
 
@@ -138,9 +140,15 @@ export default function PluginAuthoring() {
   "hooks": "hooks/hooks.json"
 }`}</CodeBlock>
           <p>
-            The manifest type accepts a string or array for commands, agents, and skills. Current discovery
-            treats the value as a <b>directory</b> and only considers the first array item, so use one directory
-            per component kind today. Files inside that directory are what determine the reported inventory.
+            The manifest accepts a string or array of directories for commands, agents and skills. Each
+            directory is scanned for direct <code className="inline">.md</code> command/agent files or direct
+            skill folders containing <code className="inline">SKILL.md</code>. Component paths are resolved inside
+            the installed plugin, including symlink checks.
+          </p>
+          <p>
+            <code className="inline">mcpServers</code> accepts one or more config paths or inline server objects.
+            A plugin may also include a root <code className="inline">.mcp.json</code>, which is discovered
+            automatically. Plugin server names are prefixed with the plugin name to avoid collisions.
           </p>
           <p>
             Only <code className="inline">name</code> is genuinely required. A plugin that declares nothing else
@@ -174,26 +182,25 @@ export default function PluginAuthoring() {
         </section>
 
         <section id="variables">
-          <h2><span className="anchor">#</span>PLUGIN_ROOT substitution status</h2>
+          <h2><span className="anchor">#</span>PLUGIN_ROOT substitution</h2>
           <p>
-            The codebase defines a resolver for <code className="inline">{"$"}{"{PLUGIN_ROOT}"}</code>, intended to
-            replace that token with the plugin's installation directory. No current runtime call site invokes
-            the resolver, because installed components are not registered yet.
+            MCP values for <code className="inline">command</code>, <code className="inline">args</code>,
+            <code className="inline">env</code> and <code className="inline">url</code> expand
+            <code className="inline">{"$"}{"{PLUGIN_ROOT}"}</code> to the installed plugin directory. Use it for
+            files shipped with the plugin rather than a machine-specific absolute path.
           </p>
           <CodeBlock lang="json">{`{
-  "hooks": {
-    "PostToolUse": [
-      { "matcher": { "tools": ["edit_file"] },
-        "command": "node /absolute/path/to/plugin/scripts/format.js" }
-    ]
+  "servers": {
+    "plugin-docs": {
+      "command": "\${PLUGIN_ROOT}/bin/docs-server",
+      "args": ["--data", "\${PLUGIN_ROOT}/data"]
+    }
   }
 }`}</CodeBlock>
           <p>
-            Treat the token as reserved for future component wiring, not as a working expansion today.
-          </p>
-          <p>
-            Keep distributable paths relative. An absolute path may work on the author's machine and fail on
-            every other one, while the reserved token is not yet a runtime escape hatch.
+            Paths listed in the plugin manifest still need to resolve inside the plugin directory. MCP
+            configuration changes or plugin revisions require a fresh workspace approval before those servers
+            connect.
           </p>
         </section>
 
@@ -273,9 +280,9 @@ export default function PluginAuthoring() {
             </table>
           </div>
           <p>
-            <code className="inline">hooks</code> is a single string while the other manifest fields accept
-            arrays. Detection only checks whether the resolved hooks path exists; it does not parse or register
-            that file.
+            <code className="inline">hooks</code> is a single string; its presence is listed but the handlers
+            are not executed. MCP definitions are loaded through <code className="inline">mcpServers</code> or
+            the plugin's root <code className="inline">.mcp.json</code>, subject to workspace approval.
           </p>
           <p>
             Agent files bundled by a plugin are currently identified by filename only. They do not enter the
@@ -287,36 +294,25 @@ export default function PluginAuthoring() {
         <section id="tutorial">
           <h2><span className="anchor">#</span>Your first plugin</h2>
           <p>
-            A plugin that packages one command definition and one hook file for discovery:
+            A plugin that packages a slash command:
           </p>
-          <CodeBlock lang="bash">{`mkdir -p my-plugin/commands my-plugin/hooks
+          <CodeBlock lang="bash">{`mkdir -p my-plugin/commands
 cd my-plugin
 git init`}</CodeBlock>
           <CodeBlock lang="json">{`// plugin.json
 {
   "name": "typecheck-tools",
   "version": "0.1.0",
-  "description": "Typecheck command plus an automatic check after every edit",
-  "commands": "commands/typecheck.md",
-  "hooks": "hooks/hooks.json"
+  "description": "A TypeScript typecheck slash command",
+  "commands": "commands"
 }`}</CodeBlock>
           <CodeBlock lang="text">{`<!-- commands/typecheck.md -->
 ---
-name: typecheck
 description: Run the TypeScript compiler with no emit
 ---
 
 Run \`bunx tsc --noEmit\` and report every error with its file and line.
 If there are no errors, say so in one line.`}</CodeBlock>
-          <CodeBlock lang="json">{`// hooks/hooks.json
-{
-  "PostToolUse": [
-    {
-      "matcher": { "tools": ["edit_file", "write_file"] },
-      "command": "bunx tsc --noEmit"
-    }
-  ]
-}`}</CodeBlock>
           <CodeBlock lang="bash">{`git add -A && git commit -m "typecheck-tools 0.1.0"
 git push -u origin main
 
@@ -324,14 +320,14 @@ git push -u origin main
 /plugin install youruser/typecheck-tools
 /plugin list`}</CodeBlock>
           <p>
-            Test locally before publishing by installing from your own repository and running{" "}
-            <code className="inline">/plugin list</code> — the <code className="inline">components</code> it
-            reports are computed from what actually resolved, so a typo in a manifest path shows up as a
-            missing component rather than as silence.
+            Test locally before publishing by installing from your own repository and checking that{" "}
+            <code className="inline">/typecheck-tools-typecheck</code> appears in command suggestions and runs
+            the prompt in the command file. Then use <code className="inline">/plugin list</code> to inspect the
+            installed revision and its components.
           </p>
           <Note>
-            This verifies packaging and discovery, not execution. The sample command and hook will not be
-            added to the running CLI in the current release.
+            Plugin commands and skills become live after install. Agent files and hook handlers remain
+            inventory-only; plugin MCP servers also need User-scoped MCP enablement and workspace approval.
           </Note>
         </section>
 
@@ -346,11 +342,11 @@ git push -u origin main
             bundles many components of different kinds.
           </p>
           <p>
-            <b>Declared capability.</b> Only a plugin can package hook configuration. The current installer
-            records its presence but does not attach it to the live hook executor.
+            <b>Declared capability.</b> Plugins bundle live commands, skills and approved MCP servers. They
+            can also inventory agent files and hook configuration, whose runtimes are not wired yet.
           </p>
           <p>
-            <b>Containment.</b> A plugin can contain skills. The reverse is not true.
+            <b>Containment.</b> A plugin can contain skills and additional components. The reverse is not true.
           </p>
           <p>
             If you are unsure, start with a skill. Promoting a skill into a plugin later is easy; the

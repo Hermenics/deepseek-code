@@ -129,15 +129,16 @@ export default function SystemInspection() {
             without the MCP separator appear under Built-in tools; connected MCP tool names appear in a
             separate MCP section.
           </p>
-          <CodeBlock lang="text">{"> /tools\nBuilt-in tools (24):\n  read_file\n  write_file\n  shell\n  …\n\nMCP tools (3):\n  github__search_repositories\n  …"}</CodeBlock>
+          <CodeBlock lang="text">{"> /tools\nBuilt-in tools (27):\n  read_file\n  write_file\n  shell\n  skill\n  …\n\nMCP tools (3):\n  github__search_repositories\n  …"}</CodeBlock>
           <p>
             Registration is not authorization. A tool can appear here and still be unavailable in the current
             mode, excluded by an agent allowlist, denied by settings, blocked by path safety or subject to confirmation.
             Pair <code className="inline">/tools</code> with <code className="inline">/permissions</code>.
           </p>
           <p>
-            The list is rebuilt when the agent initializes or the working directory changes. MCP tools appear
-            only when MCP is enabled and their servers connected successfully; use the startup error message and
+            The list is rebuilt when the agent initializes, the working directory changes, or plugin management
+            refreshes extensions. MCP tools appear only when User-scoped MCP is enabled, each source is approved
+            for the workspace, and its server connects successfully; use the connection error message and
             <code className="inline">/doctor</code> for configuration problems.
           </p>
         </section>

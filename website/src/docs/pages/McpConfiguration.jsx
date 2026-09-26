@@ -47,21 +47,24 @@ export default function McpConfiguration() {
         <section id="two-controls">
           <h2><span className="anchor">#</span>Definition, consent and trust are separate</h2>
           <p>
-            MCP has three separate controls. The project defines servers in
-            <code className="inline"> &lt;project&gt;/.deepseek/mcp.json</code>. Your User settings decide whether
-            any project definition may load through <code className="inline">mcp.enabled</code> in
-            <code className="inline"> ~/.deepseek/settings.json</code>, and a workspace approval authorizes
-            the exact canonical path and content hash of the current configuration.
+            MCP has three separate controls. A project defines servers in
+            <code className="inline"> &lt;project&gt;/.deepseek/mcp.json</code>; installed plugins can also
+            contribute a root <code className="inline">.mcp.json</code> or a manifest{" "}
+            <code className="inline">mcpServers</code> entry. User settings decide whether these sources may
+            load through <code className="inline">mcp.enabled</code> in
+            <code className="inline"> ~/.deepseek/settings.json</code>, and workspace approval authorizes each
+            configuration's canonical path and hash. Plugin approvals also include the installed commit.
           </p>
           <CodeBlock lang="text">{`project declaration   .deepseek/mcp.json
+plugin declaration    plugin .mcp.json or plugin.json → mcpServers
 user consent          ~/.deepseek/settings.json → mcp.enabled
-workspace trust       ~/.deepseek/workspace-trust.json → path + SHA-256 hash
+workspace trust       ~/.deepseek/workspace-trust.json → each config path + hash
 defaults              disabled and unapproved
-activation            next agent initialization after both approvals`}</CodeBlock>
+activation            initialization or approved plugin refresh after consent + trust`}</CodeBlock>
           <Note>
             Project and Local settings cannot grant MCP consent. Their <code className="inline">mcp</code> blocks
             are reported as ignored so a cloned repository cannot turn on its own executable integrations.
-            Editing <code className="inline">mcp.json</code> invalidates its previous trust decision.
+            Editing a config or changing the installed plugin revision invalidates that source's trust decision.
           </Note>
         </section>
 
@@ -120,10 +123,10 @@ activation            next agent initialization after both approvals`}</CodeBloc
         <section id="startup">
           <h2><span className="anchor">#</span>Discovery at startup</h2>
           <p>
-            During agent initialization, the CLI reads effective settings, then reads the active workspace's
-            <code className="inline"> .deepseek/mcp.json</code>. With consent disabled, it does neither server
-            connection nor error reporting. With consent enabled but trust missing, it requests approval and
-            registers no MCP tools. With both controls approved, it processes server entries in file order.
+            During agent initialization, the CLI reads the active project's config and installed plugin configs.
+            With consent disabled, it starts no MCP servers. With consent enabled but trust missing, it requests
+            approval for each unapproved source and connects only sources already approved. After plugin install,
+            update or removal, plugin skills and MCP connections refresh without restarting the session.
           </p>
           <p>
             For each entry it creates a client, connects the selected transport, records a successful-load audit
@@ -131,8 +134,9 @@ activation            next agent initialization after both approvals`}</CodeBloc
             added to the error list while remaining entries continue.
           </p>
           <Note>
-            Changing the working directory through the CLI reinitializes the agent for the new project and
-            repeats MCP discovery. Ordinary settings reload does not.
+            Changing the working directory reinitializes the agent for the new project and repeats MCP
+            discovery. Editing the project config still needs agent reinitialization; ordinary settings reload
+            does not rebuild the MCP registry.
           </Note>
         </section>
 
@@ -145,9 +149,10 @@ activation            next agent initialization after both approvals`}</CodeBloc
             inspect the current registry:
           </p>
           <CodeBlock lang="text">{`> /tools
-Built-in tools (24):
+Built-in tools (27):
   read_file
   shell
+  skill
   …
 
 MCP tools (2):
@@ -238,12 +243,12 @@ Everything looks ready.`}</CodeBlock>
         <section id="limits">
           <h2><span className="anchor">#</span>Current limits</h2>
           <ul className="capabilities">
-            <li>Configuration is project-only; there is no global server-definition file in the active loader.</li>
-            <li>There is no MCP add/remove/reload slash command; edit JSON and reinitialize the agent.</li>
+            <li>Project definitions use <code className="inline">.deepseek/mcp.json</code>; plugins can carry <code className="inline">.mcp.json</code> or manifest <code className="inline">mcpServers</code>. There is no separate user-level server-definition file.</li>
+            <li>There is no MCP-specific reload command for edited project JSON; reinitialize the agent. Plugin install, update and removal refresh plugin MCP sources live.</li>
             <li>Supported transports are stdio and Streamable HTTP only.</li>
             <li>There is no complete mcp.json schema validator; /doctor checks JSON syntax and server count only.</li>
             <li>HTTP configuration accepts a URL only—no headers, OAuth settings or per-server timeout fields.</li>
-            <li>Connection has a bounded 10-second default timeout; listTools has no separate startup timeout.</li>
+            <li>Connection and tool enumeration use a bounded 10-second default startup timeout.</li>
             <li>The fixed 30-second timeout applies to tool calls and does not cancel the underlying SDK request.</li>
             <li>The loader does not expose MCP prompts or resources as native capabilities.</li>
             <li>Loaded MCP clients are explicitly closed during agent reinitialization, workspace changes and shutdown.</li>

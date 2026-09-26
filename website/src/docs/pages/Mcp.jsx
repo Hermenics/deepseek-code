@@ -16,7 +16,7 @@ const TRANSPORTS = [
 ];
 
 const GUARDS = [
-  ["Workspace trust", "Project MCP requires User-scope enablement plus approval of the canonical config path and exact SHA-256 content hash"],
+  ["Workspace trust", "Project and plugin MCP require User-scope enablement plus per-config approval; plugin trust also includes the installed commit"],
   ["validateMcpCommand", "Rejects empty commands, ../ path traversal, and shell-injection characters (;, `, <, >, &&, ||, $(, >>, <<)"],
   ["sanitizeMcpEnv", "Strips server-supplied overrides of critical env vars (PATH, HOME, SHELL, LD_*, PYTHONPATH, NODE_OPTIONS, …)"],
   ["Connection timeout", "Bounds the initial transport connection to 10 seconds by default"],
@@ -51,8 +51,9 @@ export default function Mcp() {
           <p>
             DeepSeek Code is a full MCP client. Wire external tools and data sources — filesystem
             access, browser automation, current library documentation — into the agent as native
-            tools. Servers are configured in <code className="inline">.deepseek/mcp.json</code> and
-            stay off until you explicitly enable them.
+            tools. Project servers are configured in <code className="inline">.deepseek/mcp.json</code>;
+            installed plugins can contribute MCP definitions too. Both stay off until you explicitly enable
+            MCP and approve each configuration for the workspace.
           </p>
           <p>
             MCP connects your agent to external tools through the official{" "}
@@ -73,7 +74,9 @@ export default function Mcp() {
         <section id="config">
           <h2><span className="anchor">#</span>Configuring servers</h2>
           <p>
-            Servers live in <code className="inline">.deepseek/mcp.json</code> at the project root:
+            Project servers live in <code className="inline">.deepseek/mcp.json</code> at the project root.
+            Installed plugins can provide <code className="inline">.mcp.json</code> or a manifest{" "}
+            <code className="inline">mcpServers</code> entry:
           </p>
           <CodeBlock lang="text">{`{
   "servers": {
@@ -101,7 +104,7 @@ export default function Mcp() {
         <section id="enabling">
           <h2><span className="anchor">#</span>Enabling MCP</h2>
           <p>
-            Project MCP servers are <b>off by default</b> — loading <code className="inline">mcp.json</code>{" "}
+            Project and plugin MCP servers are <b>off by default</b> — loading their config{" "}
             requires an explicit opt-in:
           </p>
           <ol style={{ margin: "0 0 14px 20px" }}>
@@ -110,8 +113,10 @@ export default function Mcp() {
             <li>Restart DeepSeek Code</li>
           </ol>
           <Note>
-            Project and Local scope cannot enable project MCP. The setting is intentionally
-            User-scoped consent, so a cloned repo can't silently activate its servers for you.
+            Project and Local scope cannot enable project or plugin MCP. The setting is intentionally
+            User-scoped consent, so a cloned repo or installed plugin cannot silently activate its servers
+            for you. Each project or plugin config also needs workspace approval; plugin MCP tools use names
+            prefixed with the plugin name.
           </Note>
         </section>
 

@@ -15,14 +15,14 @@ const TOC = [
 
 const DIRECTORIES = [
   ["src/agent/", "Agent loop, LLM client, providers, session, memory, goals, plan mode, verification, worktree"],
-  ["src/tools/", "24 agent tools — file, shell, git, grep, web, SubAgent, MoA, Workflow, Lsp, goals, todo, memory"],
+  ["src/tools/", "27 agent tools — file, shell, git, grep, web, Skill, SubAgent, MoA, Workflow, Lsp, goals, todo, memory"],
   ["src/commands/", "40+ slash commands with parse-only contracts; side effects live in src/ui/App.tsx"],
   ["src/ui/", "TUI app layer (~9.5k lines): input, messages, setup wizard, monitors, plan view, design system"],
   ["src/ink/", "Vendored terminal renderer (~19.5k lines): reconciler, layout, cell-diff renderer, termio parser, events, selection, hyperlinks"],
   ["src/orchestration/", "Multi-agent runtime: TaskRegistry DAG, mailbox, git-worktree workspaces, file leases, snapshot persistence, events, review"],
   ["src/workflows/", "Dynamic workflow JS programs: discovery, parser, runtime sandbox, manager (journal + replay), storage, approvals"],
   ["src/kernel/", "Dormant reference subsystem — SQLite event sourcing, GoalEngine, HookRuntime, TaskBoard, ThreadRuntime, WorkflowEngine, PathOwnership"],
-  ["src/plugins/ + src/skills/", "Plugin installer / registry remains metadata-only; native and project skills are loaded into the prompt and selected by description"],
+  ["src/plugins/ + src/skills/", "Plugins contribute slash commands, on-demand skills and trusted MCP servers; agent definitions and hooks remain inventory-only"],
   ["src/hooks/", "Pre/post tool hooks: matcher + executor, permission-based tool gating"],
   ["src/permissions/", "Permission rule matcher, risk scoring, explain"],
   ["src/settings/", "User / Project / Local scopes, loader, repository, writer"],
@@ -317,7 +317,7 @@ export default function Architecture() {
         <section id="future-wiring">
           <h2><span className="anchor">#</span>Not yet wired</h2>
           <p>
-            Two subsystems exist in the tree but are <b>not part of the running app</b>:
+            The kernel subsystem exists in the tree but is <b>not part of the running app</b>:
           </p>
           <ul className="capabilities">
             <li>
@@ -325,16 +325,11 @@ export default function Architecture() {
               HookRuntime, TaskBoard, ThreadRuntime, WorkflowEngine, PathOwnership). A grep of the source
               confirms <b>nothing imports it</b>. It is a design reference, not a feature.
             </li>
-            <li>
-              <b>src/plugins/ and src/skills/</b> — plugin components remain <b>metadata-only</b> in their
-              registries, while native and project skills are loaded into the prompt and selected by their
-              descriptions.
-            </li>
           </ul>
           <Note>
-            Treat the registries and standalone/plugin components as <i>future wiring</i>. If you are contributing, the live path is{" "}
-            <code className="inline">entrypoints → ui → agent → tools</code> — the kernel and plugin
-            registries will not execute your code.
+            Plugin commands, skill catalogs and approved MCP servers use the live runtime. Plugin agent
+            definitions and hook handlers remain inventory-only. If you are contributing, the active path is{" "}
+            <code className="inline">entrypoints → ui → agent → tools</code>; the kernel remains a design reference.
           </Note>
         </section>
       </main>

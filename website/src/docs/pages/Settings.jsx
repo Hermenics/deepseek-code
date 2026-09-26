@@ -109,7 +109,7 @@ const REST = [
   ["sessions.autoResume", "'off' | 'project-last'", "Resume the last session for this project on launch."],
   ["lsp.servers", "LspServerSettings[]", "name, command, args, extensions, languageId."],
   ["lsp.timeoutMs", "number", "Language-server request timeout."],
-  ["mcp.enabled", "boolean", "User-scoped permission to load project MCP servers."],
+  ["mcp.enabled", "boolean", "User-scoped permission to load project and installed-plugin MCP servers."],
   ["goal.maxContinuations", "number", "Cap on automatic goal continuations. Default 10."],
   ["workflows.enabled", "boolean", "false disables dynamic workflows."],
 ];
@@ -400,11 +400,11 @@ export default function Settings() {
           <p>
             Two of these carry comments in the source marking them <b>user-scoped</b> on purpose.{" "}
             <code className="inline">lsp.servers</code> defines executable commands, and{" "}
-            <code className="inline">mcp.enabled</code> governs whether project MCP servers load at all.
+            <code className="inline">mcp.enabled</code> governs whether project and installed-plugin MCP servers load.
           </p>
           <p>
             Both are capabilities a cloned repository should not be able to grant itself: a project file that
-            could register an executable language server, or auto-load an MCP server, would be remote code
+            could register an executable language server, or auto-load a project/plugin MCP server, would be remote code
             execution by <code className="inline">git clone</code>. Keeping them at the user level means the
             decision is always yours.
           </p>

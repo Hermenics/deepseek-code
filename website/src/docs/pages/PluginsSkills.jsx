@@ -9,7 +9,7 @@ const TOC = [
 
 const SKILL_SUBCOMMANDS = [
   ["install <owner/repo>", "Clone a skill repo into .deepseek/skills"],
-  ["list", "Show installed skills (.deepseek/skills + legacy .claude/skills)"],
+  ["list", "Show available skills from native, project, user and plugin sources"],
   ["remove <name>", "Remove from .deepseek/skills or .claude/skills"],
   ["update <name>", "Update to latest; auto-migrates legacy .claude/skills"],
 ];
@@ -25,7 +25,7 @@ export default function PluginsSkills() {
         <div className="hero">
           <h1>Plugins & skills</h1>
           <p className="tagline">
-            Extend DeepSeek Code from GitHub repositories — with an honest wiring status.
+            Add reusable instructions, live slash commands and MCP tools from reviewed extensions.
           </p>
         </div>
 
@@ -37,9 +37,10 @@ export default function PluginsSkills() {
           <CodeBlock lang="bash">/skill <span className="k">install</span> <span className="s">openai/openai-docs</span></CodeBlock>
           <p>
             The repo is cloned into <code className="inline">&lt;project&gt;/.deepseek/skills</code>.{" "}
-            <code className="inline">/skill list</code> reads its registry and also scans the legacy{" "}
-            <code className="inline">.claude/skills</code> registry for
-            compatibility. Remove and update operate against either location; when you update a skill
+            <code className="inline">/skill list</code> shows the available catalog from native, project,
+            user and installed-plugin roots, including legacy <code className="inline">.claude/skills</code>.
+            Remove and update operate on project installs in <code className="inline">.deepseek/skills</code> or
+            the legacy project location; when you update a skill
             that still lives in <code className="inline">.claude/skills</code>, it is migrated to{" "}
             <code className="inline">.deepseek/skills</code> first, then updated.
           </p>
@@ -77,10 +78,11 @@ export default function PluginsSkills() {
             <code className="inline">&lt;cwd&gt;/.deepseek/skills/&lt;name&gt;</code> — project scope.
           </p>
           <Note>
-            Installation does not execute a standalone skill immediately. On the next agent initialization,
-            valid project skill descriptions and instructions are loaded into the prompt, and the model uses
-            the descriptions to select applicable skills. Built-in native skills are loaded the same way
-            without appearing in the install registry. DeepSeek Code also ships a native{" "}
+            The prompt contains skill names and descriptions so the model can choose a match. Full{" "}
+            <code className="inline">SKILL.md</code> instructions are loaded on demand through the read-only{" "}
+            <code className="inline">skill</code> tool; it can also read bounded companion text files inside the
+            skill directory. The catalog refreshes after skill and plugin management without restarting.
+            DeepSeek Code ships a native{" "}
             <code className="inline">skill-creator</code> skill for creating portable skills and validating them
             with the bundled <code className="inline">scripts/validate_skill.py</code> check.
           </Note>
@@ -98,37 +100,41 @@ export default function PluginsSkills() {
             <code className="inline">plugin.json</code> at the repo root — or{" "}
             <code className="inline">.claude-plugin/plugin.json</code> (plus <code className="inline">plugins/&lt;subdir&gt;/plugin.json</code>{" "}
             for monorepo layouts). The manifest may declare <code className="inline">commands</code>,{" "}
-            <code className="inline">agents</code>, and <code className="inline">skills</code> as a single path or an
-            array of directories, plus <code className="inline">hooks</code> pointing at a{" "}
-            <code className="inline">hooks.json</code> file:
+            <code className="inline">agents</code>, and <code className="inline">skills</code> as a path or an
+            array of directories, plus <code className="inline">hooks</code> metadata and{" "}
+            <code className="inline">mcpServers</code> config paths or inline server definitions:
           </p>
           <CodeBlock lang="json">{`{ "name": "my-plugin", "version": "0.1.0",
-  "commands": "commands", "hooks": "hooks/hooks.json" }`}</CodeBlock>
+  "commands": "commands", "skills": "skills", "mcpServers": ".mcp.json" }`}</CodeBlock>
           <p>
-            <code className="inline">/plugin list</code> reports what each plugin contributes (for example,{" "}
-            <code className="inline">3 cmd, 1 agent, hooks</code>). Install is a shallow{" "}
+            Plugin commands register as slash commands prefixed with the plugin name, and plugin skills enter
+            the on-demand catalog. <code className="inline">/plugin list</code> reports the component inventory
+            (for example, <code className="inline">3 cmd, 1 agent, hooks</code>). Install is a shallow{" "}
             <code className="inline">git clone --depth 1</code> with a 60-second timeout that kills the process on
             expiry; the plugin name must be kebab-case and the resolved target must stay inside the
             plugins directory, and <code className="inline">.git</code> is stripped from the clone. Update is safer
             than a blind reinstall: it clones the new version, backs up the existing install, swaps it
             into place, and restores the backup if anything fails.
           </p>
+          <p>
+            Agent definitions and hooks are currently inventory-only. Plugin MCP configs load only after
+            User-scoped MCP enablement and separate workspace approval for each config. Install, update and
+            removal refresh commands, skills and MCP connections in the current session.
+          </p>
           <Note>
-            Path fields may use <code className="inline">${'{PLUGIN_ROOT}'}</code>, intended to resolve to the
-            plugin's install directory — but the resolver has no call-sites yet, so the variable is
-            not expanded anywhere today.
+            Plugin MCP values for <code className="inline">command</code>, <code className="inline">args</code>,{" "}
+            <code className="inline">env</code> and <code className="inline">url</code> expand{" "}
+            <code className="inline">${'{PLUGIN_ROOT}'}</code> to the plugin's install directory.
           </Note>
         </section>
 
         <section id="wiring">
           <h2><span className="anchor">#</span>Component wiring status</h2>
           <p>
-            The package-management surfaces are implemented. Valid project skills are loaded into the prompt
-            during the next agent initialization and selected by their descriptions. Installed commands, agents,
-            and hooks are not yet registered into live runtimes. Plugin components are discovered and reported by{" "}
-            <code className="inline">/plugin list</code>, but plugin commands, agents, and hooks are not
-            registered into their live runtimes. Do not assume installing a command, agent, or hook changes live
-            runtime behavior.
+            The prompt carries available skill descriptions; the read-only <code className="inline">skill</code>{" "}
+            tool loads a matching skill body when needed. Project and plugin slash commands are registered live.
+            Plugin MCP servers are loaded only after User-scoped enablement and workspace approval. Agent
+            definitions and hooks remain inventory-only.
           </p>
           <Note>
             Plugin hooks are detected (<code className="inline">hooks</code> shows in{" "}
@@ -146,11 +152,12 @@ export default function PluginsSkills() {
 /catalog plugin
 /catalog skill`}</CodeBlock>
           <p>
-            It is a recommendation list, not an installer — nothing is fetched automatically. Today the
-            curated list is mostly MCP servers plus one research skill. MCP entries belong in{" "}
-            <code className="inline">.deepseek/mcp.json</code>; see the{" "}
-            <a href="/docs/mcp">MCP page</a> for server configuration. Skills and plugins from the catalog
-            install with <code className="inline">/skill</code> and <code className="inline">/plugin</code>.
+            It is a recommendation list, not an installer — nothing is fetched automatically. Project MCP
+            entries belong in <code className="inline">.deepseek/mcp.json</code>; plugin MCP definitions can
+            live in <code className="inline">.mcp.json</code> or a manifest's{" "}
+            <code className="inline">mcpServers</code>. See the <a href="/docs/mcp">MCP page</a> for details.
+            Skills and plugins from the catalog install with <code className="inline">/skill</code> and{" "}
+            <code className="inline">/plugin</code>.
           </p>
         </section>
       </main>
