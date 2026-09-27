@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Fixed: Direct invocation of the installed `deepseek` command no longer loads a project's `.env` or `bunfig.toml` into its own Bun runtime, preventing project-supplied environment and preload code from affecting startup and Git subprocesses
+- Changed: The installed command now requires Node.js 18+ to start Bun with project configuration loading disabled
+- Tests: Cover project `.env` and `bunfig.toml` injection while preserving variables exported by the user
+
 ## 0.9.0
 
 - Added: Press Left on an empty prompt to open the command center and switch between saved sessions across projects, or start a fresh session without leaving the CLI

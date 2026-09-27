@@ -45,6 +45,7 @@ bun add -g @hermenics/deepseek-code
 ```
 
 Then run `deepseek` inside any project. On first run you'll pick a **provider** and configure authentication.
+Run the installed command directly: invoking its script through `bun run` starts Bun first, which can load the project's `bunfig.toml` before the CLI launcher runs.
 
 For automation, use headless pipe mode:
 
@@ -56,6 +57,7 @@ cat src/index.tsx | deepseek --pipe --json "summarize"
 ### Requirements
 
 - [Bun](https://bun.sh) 1.1+
+- Node.js 18+ (starts Bun without loading the current project's `.env` or `bunfig.toml`)
 - A supported LLM provider (see below)
 
 ## Providers & authentication
@@ -123,7 +125,7 @@ Skills are listed by origin and loaded on demand through the read-only `skill` t
 ### Prerequisites
 
 - [Bun](https://bun.sh) >= 1.1
-- Node.js >= 18 (for npm publishing)
+- Node.js >= 18
 
 ### Setup
 

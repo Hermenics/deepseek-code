@@ -1,10 +1,23 @@
-/**
- * Source of dist/deepseek.mjs, the cross-platform launcher. `bin` must point at a JS entry with a `bun`
- * shebang: npm reads that shebang to generate working .cmd/.ps1 shims on
- * Windows, which a `#!/bin/bash` wrapper could never produce.
- */
-export const LAUNCHER_SOURCE = `#!/usr/bin/env bun
-// DeepSeek Code launcher — runs on Linux, macOS and Windows.
+/** Node starts without reading the project's .env or bunfig.toml. npm uses this shebang for Windows shims. */
+export const LAUNCHER_SOURCE = `#!/usr/bin/env node
+import { spawn } from 'node:child_process'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { constants } from 'node:os'
+
+const dir = dirname(fileURLToPath(import.meta.url))
+const config = join(dir, 'runtime.bunfig.toml')
+const child = spawn('bun', ['--env-file=' + config, '--config=' + config, join(dir, 'runtime.mjs'), ...process.argv.slice(2)], { stdio: 'inherit' })
+for (const signal of ['SIGINT', 'SIGTERM', ...(process.platform === 'win32' ? [] : ['SIGHUP'])]) {
+  process.on(signal, () => { if (!child.killed) child.kill(signal) })
+}
+child.on('error', error => { console.error(error.message); process.exitCode = 1 })
+child.on('exit', (code, signal) => { process.exitCode = code ?? (signal ? 128 + constants.signals[signal] : 1) })
+`
+
+/** Bun starts only after the safe flags above have taken effect. */
+export const BUN_RUNNER_SOURCE = `#!/usr/bin/env bun
+// DeepSeek Code runtime — runs on Linux, macOS and Windows.
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 

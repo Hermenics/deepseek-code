@@ -32,7 +32,8 @@
     "access": "public"
   },
   "engines": {
-    "bun": ">=1.1"
+    "bun": ">=1.1",
+    "node": ">=18"
   },
   "scripts": {
     "start": "NODE_ENV=development bun src/index.tsx",

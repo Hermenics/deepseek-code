@@ -1,6 +1,6 @@
 import { resolve } from 'path'
 import { chmodSync, writeFileSync } from 'fs'
-import { LAUNCHER_SOURCE } from './scripts/launcher.js'
+import { BUN_RUNNER_SOURCE, LAUNCHER_SOURCE } from './scripts/launcher.js'
 
 const result = await Bun.build({
   entrypoints: ['src/index.tsx'],
@@ -29,5 +29,7 @@ chmodSync('dist/cli.mjs', 0o755)
 
 writeFileSync('dist/deepseek.mjs', LAUNCHER_SOURCE)
 chmodSync('dist/deepseek.mjs', 0o755)
+writeFileSync('dist/runtime.mjs', BUN_RUNNER_SOURCE)
+writeFileSync('dist/runtime.bunfig.toml', '# Empty Bun config and env file for the published CLI.\n')
 
 console.log('Build concluído com sucesso!')
