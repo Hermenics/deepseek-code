@@ -226,7 +226,8 @@ async function spawnAgentTask(
     try {
       const { allTools } = await import('../index.js')
       const allowDelegation = selected?.allowDelegation === true
-      const available = allTools.filter(tool => allowDelegation || !['subagent', 'ask_agent'].includes(tool.name))
+      // The browser is main-agent only for now: subagents have no approval channel or image input.
+      const available = allTools.filter(tool => !['browser', 'dev_server'].includes(tool.name) && (allowDelegation || !['subagent', 'ask_agent'].includes(tool.name)))
       let filteredTools = getToolsForRole(role, available)
       if (Array.isArray(selected?.tools)) filteredTools = filteredTools.filter(tool => selected.tools!.includes(tool.name))
       const specialization: AgentConfig = selected ?? {

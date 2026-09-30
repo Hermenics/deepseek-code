@@ -30,6 +30,7 @@ function validateProfiles(value: unknown): ProviderProfile[] {
     for (const field of ['model', 'apiKey', 'baseURL', 'awsRegion', 'awsProfile', 'gcpProject', 'gcpLocation', 'gcpCredentials', 'localBaseUrl', 'localModel']) {
       if (profile[field] !== undefined && typeof profile[field] !== 'string') throw new Error(`${profile.name}.${field} must be text`)
     }
+    if (profile.vision !== undefined && typeof profile.vision !== 'boolean') throw new Error(`${profile.name}.vision must be true or false`)
     return profile as unknown as ProviderProfile
   })
   return profiles

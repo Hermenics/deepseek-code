@@ -9,7 +9,7 @@ import { SettingsRepository } from '../../settings/repository.js'
 import { createProviderProfile, loadProviderProfiles, saveProviderProfiles, type ProviderProfile } from '../../utils/providerProfiles.js'
 
 const PROVIDERS: ProviderName[] = ['deepseek', 'bedrock', 'vertex', 'local']
-type Field = { key: keyof ProviderProfile; label: string; secret?: boolean; kind?: 'provider' }
+type Field = { key: keyof ProviderProfile; label: string; secret?: boolean; kind?: 'provider' | 'vision' }
 const PROVIDER_LABELS: Record<ProviderName, string> = {
   deepseek: 'DeepSeek API', bedrock: 'AWS Bedrock', vertex: 'Google Vertex AI', local: 'Local model (no API key)',
 }
@@ -32,6 +32,7 @@ function hintFor(field?: Field): string {
   switch (field?.key) {
     case 'name': return 'Use a short name you will recognize, such as Work or Local.'
     case 'provider': return 'Enter cycles through supported provider types.'
+    case 'vision': return 'Enter cycles Auto (built-in catalog) → On → Off. Use On only if this endpoint accepts images.'
     case 'model': return 'Optional. Leave empty to use this provider’s default model.'
     case 'apiKey': return 'API key from your DeepSeek account, or the key your OpenAI-compatible proxy expects.'
     case 'baseURL': return 'Optional. Point at an OpenAI-compatible proxy; a host with no path is treated as /v1.'
@@ -52,6 +53,7 @@ function fieldsFor(profile: ProviderProfile): Field[] {
     { key: 'name', label: 'Profile name' },
     { key: 'provider', label: 'Provider', kind: 'provider' },
     { key: 'model', label: 'Preferred model' },
+    { key: 'vision', label: 'Image input', kind: 'vision' },
   ]
   if (profile.provider === 'deepseek') return [...common, { key: 'apiKey', label: 'API key', secret: true }, { key: 'baseURL', label: 'Base URL' }]
   if (profile.provider === 'bedrock') return [...common, { key: 'awsRegion', label: 'AWS region' }, { key: 'awsProfile', label: 'AWS profile' }]
@@ -187,6 +189,8 @@ export default function ProviderProfiles({ theme, activeProfileId, onBack, onAct
             return next
           })
           setFieldIndex(0)
+        } else if (draftField.kind === 'vision') {
+          setDraft(current => current && { ...current, vision: current.vision === undefined ? true : current.vision ? false : undefined })
         } else {
           setInput(String(draft[draftField.key] ?? ''))
           setEditing(true)
@@ -232,7 +236,9 @@ export default function ProviderProfiles({ theme, activeProfileId, onBack, onAct
   const visible = profiles.slice(start, start + max)
   const valueFor = (profile: ProviderProfile, field: Field) => field.secret
     ? profile[field.key] ? '••••••••' : 'not set'
-    : field.kind === 'provider' ? PROVIDER_LABELS[profile.provider] : String(profile[field.key] ?? '—')
+    : field.kind === 'provider' ? PROVIDER_LABELS[profile.provider]
+    : field.kind === 'vision' ? profile.vision === undefined ? 'Auto' : profile.vision ? 'On' : 'Off'
+    : String(profile[field.key] ?? '—')
 
   return (
     <Box flexDirection="column" width={process.stdout.columns || 80} height={process.stdout.rows || 24} paddingX={1}>

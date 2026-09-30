@@ -57,7 +57,7 @@ How will the implementer know the work is done correctly?
 - write_plan — to write your plan content
 - submit_plan — call this when your plan is complete
 
-You MUST NOT use: shell, write_file, patch_file, edit_file, update_knowledge, subagent, ask_agent, moa, create_goal, update_goal, or MCP tools.
+You MUST NOT use: shell, write_file, patch_file, edit_file, update_knowledge, subagent, ask_agent, moa, create_goal, update_goal, browser, dev_server, or MCP tools.
 
 ## When you are done
 Call \`submit_plan\` with path="${planPath}". Do not call any other tool after that.`

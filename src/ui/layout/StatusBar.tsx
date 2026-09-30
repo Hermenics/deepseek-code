@@ -18,6 +18,19 @@ async function getGitBranch(): Promise<string> {
   }
 }
 
+/** What the status bar shows about the agent's browser: the active page's host, tab count, visibility. */
+export interface BrowserIndicator { host: string; tabs: number; visible: boolean }
+
+/** The browser indicator for one agent's context, or null when it has no open tabs. */
+export function browserIndicator(status: { visible: boolean; contexts: Array<{ key: string; active: number; tabs: Array<{ url: string }> }> }, key: string): BrowserIndicator | null {
+  const context = status.contexts.find(item => item.key === key)
+  if (!context || context.tabs.length === 0) return null
+  const url = context.tabs[context.active]?.url ?? 'about:blank'
+  let host = url
+  try { host = new URL(url).host || url } catch { /* keep the raw URL */ }
+  return { host, tabs: context.tabs.length, visible: status.visible }
+}
+
 /** Context-usage bar drawn with eighth-block glyphs for sub-cell precision, turning warning at 70% and error at 90%. */
 function ProgressBar({ percent, width = 20, theme = 'dark' }: { percent: number; width?: number; theme?: ThemeName }) {
   const colors = getThemeColors(theme)
@@ -37,7 +50,7 @@ function ProgressBar({ percent, width = 20, theme = 'dark' }: { percent: number;
 }
 
 /** Bottom status line showing the configured items (mode, model, tokens, git branch refreshed every 30s, context %), a transient compaction badge and the background activity count; narrow terminals keep only the highest-priority items, and it renders nothing when there is nothing to show. */
-export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provider: _provider, contextPct = 0, interactionMode = 'build', theme = 'dark', items, narrowPriority, compactBadge, activityCount = 0, agentsHint = false }: {
+export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provider: _provider, contextPct = 0, interactionMode = 'build', theme = 'dark', items, narrowPriority, compactBadge, activityCount = 0, agentsHint = false, browser = null }: {
   tokenCount: number
   model: Model
   activeAgent: string | null
@@ -51,6 +64,8 @@ export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provid
   activityCount?: number
   /** Shows `← agents`, the command center shortcut (Codex's `← for agents`). */
   agentsHint?: boolean
+  /** The agent's browser, when it has open tabs. */
+  browser?: BrowserIndicator | null
 }) {
   const colors = getThemeColors(theme)
   const [branch, setBranch] = useState('')
@@ -76,7 +91,7 @@ export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provid
     ? (narrowPriority ?? ['mode', 'context', 'model', 'branch', 'tokens']).filter(item => configured.includes(item))
     : configured
   const visible = new Set(prioritized.slice(0, isVeryNarrow ? 2 : isNarrow ? 3 : configured.length))
-  if (![...visible].some(item => item === 'mode' || item === 'model' || item === 'tokens' && tokenCount > 0 || item === 'branch' && branch || item === 'context' && contextPct > 0) && activityCount === 0) return null
+  if (![...visible].some(item => item === 'mode' || item === 'model' || item === 'tokens' && tokenCount > 0 || item === 'branch' && branch || item === 'context' && contextPct > 0) && activityCount === 0 && !browser) return null
 
   const showBadge = compactBadge != null && (Date.now() - compactBadge.triggeredAt) < 4000
 
@@ -107,6 +122,9 @@ export function StatusBar({ tokenCount, model, activeAgent: _activeAgent, provid
           <Text color={colors.warning}>
             {'⚡ ' + (compactBadge!.type === 'micro' ? 'micro' : 'compact')}
           </Text>
+        )}
+        {browser && (
+          <Text color={colors.textDim}>{isVeryNarrow ? `web ${browser.tabs}` : `web ${browser.host}${browser.tabs > 1 ? ` · ${browser.tabs} tabs` : ''}${browser.visible ? ' · visible' : ''}`}</Text>
         )}
         {activityCount > 0 && (
           <Text color={colors.textDim}>{isVeryNarrow ? `↓${activityCount}` : `↓ ${activityCount} ${activityCount === 1 ? 'activity' : 'activities'}`}</Text>

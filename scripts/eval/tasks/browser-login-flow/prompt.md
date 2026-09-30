@@ -1,0 +1,1 @@
+Logging in at {{URL}} with the team code {{team}} fails. Reproduce it in the browser, fix the bug in the code, then log in with that team code. Finish by telling me the dashboard token the page shows after logging in.

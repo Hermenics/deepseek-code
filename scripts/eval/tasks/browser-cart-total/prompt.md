@@ -1,0 +1,1 @@
+The shop at {{URL}} shows the wrong cart total. Open it in the browser, find and fix the bug in the code, then reload the page to confirm the total is right. Finish by telling me the exact total the page shows after your fix.

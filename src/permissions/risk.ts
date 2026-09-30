@@ -1,5 +1,6 @@
 import { globMatch } from './matcher.js'
 import type { RiskRule, RiskContext, RiskAssessment } from './types.js'
+import { browserActionKind, browserTarget, isLoopbackOrigin, originOf } from './browser.js'
 
 /**
  * Detect network capability, rather than relying on a blacklist of command
@@ -8,6 +9,11 @@ import type { RiskRule, RiskContext, RiskAssessment } from './types.js'
 export function hasNetworkCapability(toolName: string, args: Record<string, unknown>): boolean {
   const normalizedTool = toolName.toLowerCase()
   if (normalizedTool === 'web_fetch') return true
+  if (normalizedTool === 'browser') {
+    // Navigating to anything but this machine reaches the network; loopback is gated per origin by permissions.
+    const navigations = args.action === 'batch' && Array.isArray(args.steps) ? args.steps as Array<Record<string, unknown>> : [args]
+    return navigations.some(step => step?.action === 'navigate' && !isLoopbackOrigin(originOf(step.url) ?? 'about:blank'))
+  }
   if (normalizedTool !== 'shell' || typeof args.command !== 'string') return false
 
   const command = args.command
@@ -124,6 +130,19 @@ export function assessRisk(
     // Same length: high before medium
     return a.level === 'high' ? -1 : 1
   })
+
+  // Typing into a third-party page transmits that text to the site: always a fresh confirmation.
+  if (toolName === 'browser' && browserActionKind(args) === 'type') {
+    const origin = originOf(browserTarget(args))
+    if (origin && !isLoopbackOrigin(origin)) {
+      return { level: 'high', matchedRule: 'browser:transmit', description: `${args.action === 'upload' ? 'Uploading sends these files' : 'Typing sends this text'} to ${origin}.`, requiresConfirmation: true }
+    }
+  }
+
+  // A dev server is a project-defined command run on the host, outside the shell sandbox and with network.
+  if (toolName === 'dev_server' && args.action === 'start') {
+    return { level: 'high', matchedRule: 'dev_server:host', description: 'Runs a project command on this machine, outside the sandbox, with network access.', requiresConfirmation: true }
+  }
 
   const content = getToolContent(toolName, args)
   const networkCapability = hasNetworkCapability(toolName, args)

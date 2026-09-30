@@ -13,12 +13,14 @@ interface Props {
   descriptions?: Record<string, string>
   columns?: number
   getContextLimit?: (model: string) => number | undefined
+  /** Whether the model receives screenshots and pasted images on the current provider. */
+  acceptsImages?: (model: string) => boolean
   onSelect(model: Model): void
   onCancel(): void
 }
 
 /** Vertical model picker showing each model's description and context limit (supplied descriptions win over built-in ones); arrows or j/k move, Enter selects, Esc cancels. */
-export function ModelSelector({ currentModel, models, onSelect, onCancel, descriptions, columns = process.stdout.columns ?? 80, getContextLimit }: Props) {
+export function ModelSelector({ currentModel, models, onSelect, onCancel, descriptions, columns = process.stdout.columns ?? 80, getContextLimit, acceptsImages }: Props) {
   const [idx, setIdx] = useState(() => {
     const i = models.indexOf(currentModel)
     return i >= 0 ? i : 0
@@ -55,9 +57,10 @@ export function ModelSelector({ currentModel, models, onSelect, onCancel, descri
         {models.map((m, i) => {
           const contextLimit = getContextLimit?.(m)
           const supplied = descriptions?.[m]
-          const desc = supplied && !isGenericModelDescription(supplied)
+          const baseDesc = supplied && !isGenericModelDescription(supplied)
             ? contextLimit && !/\bcontext\b/i.test(supplied) ? `${supplied} · ${formatContextLimit(contextLimit)}` : supplied
             : getModelDescription(m, contextLimit) || `No verified description · ${contextLimit ? formatContextLimit(contextLimit) : 'context unknown'}`
+          const desc = acceptsImages?.(m) ? `${baseDesc} · images` : baseDesc
           const rowWidth = Math.max(1, columns >= 42 ? Math.min(columns, Math.max(40, columns - 2)) : columns)
           const activeWidth = rowWidth >= 42 ? 9 : 0
           const prefixWidth = Math.min(2, rowWidth)

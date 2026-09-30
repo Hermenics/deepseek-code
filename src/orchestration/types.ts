@@ -1,5 +1,6 @@
 import type { ProviderConfig } from '../types/provider.js'
 import type { AskUserHandler } from '../tools/AskUserQuestions/types.js'
+import type { PromptImage } from '../types/input.js'
 
 export const TASK_STATES = ['queued', 'running', 'blocked', 'done', 'failed', 'cancelled', 'timed_out'] as const
 export type TaskState = typeof TASK_STATES[number]
@@ -231,6 +232,11 @@ export interface ToolExecutionContext {
   askUser?: AskUserHandler
   /** Separate model review required before an agent can mark its goal complete. */
   verifyGoalCompletion?: (completionSummary: string) => Promise<string>
+  /**
+   * Present only when the model accepts images: queues an image for the next model request.
+   * It travels once, labeled as untrusted, and is never stored in the conversation history.
+   */
+  attachImage?: (image: PromptImage, label: string) => void
   emit?(type: TaskEventType, payload: Record<string, unknown>): void
 }
 

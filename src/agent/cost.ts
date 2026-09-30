@@ -21,6 +21,15 @@ const OTHER_MODEL_CONTEXT: Record<string, number> = {
   'gpt-5.4-mini': 400_000,
 }
 
+/**
+ * Whether requests may carry images: an explicit profile/provider setting wins; otherwise only
+ * DeepSeek models the catalog marks as vision-capable, on the DeepSeek provider.
+ */
+export function supportsVision(config: { provider: string; vision?: boolean }, model: string): boolean {
+  if (config.vision !== undefined) return config.vision
+  return config.provider === 'deepseek' && deepseekModel(model.split('/').pop() ?? model)?.vision === true
+}
+
 /** Returns the model's context window, defaulting to 128k tokens when unknown. */
 export function getContextLimit(provider: string, model: string): number {
   return getKnownContextLimit(provider, model) ?? 128_000

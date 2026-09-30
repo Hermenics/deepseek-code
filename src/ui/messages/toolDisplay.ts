@@ -9,6 +9,8 @@ export const TOOL_DISPLAY: Record<string, string> = {
   grep:             'Grep',
   glob:             'Glob',
   web_fetch:        'WebFetch',
+  browser:          'Browser',
+  dev_server:       'Dev server',
   subagent:         'Agent',
   git:              'Git',
   introspect:       'Introspect',
@@ -93,6 +95,7 @@ export function summarizeToolPayload(toolName: string, payload: string): string 
 /** Builds the active tool preview without leaking AskUserQuestions JSON. */
 export function previewToolCallArgs(toolName: string, args: Record<string, unknown>): string {
   if (toolName === 'ask_user_questions') return summarizeAskUserPayload(JSON.stringify(args))
+  if (toolName === 'browser') return previewBrowserArgs(args)
   const serialized = JSON.stringify(args)
   const fieldPreview = previewStreamingArgs(serialized)
   if (fieldPreview) return fieldPreview
@@ -100,6 +103,15 @@ export function previewToolCallArgs(toolName: string, args: Record<string, unkno
   if (stringValue) return truncatePreview(stringValue)
   const argumentCount = Object.keys(args).length
   return argumentCount > 0 ? `${argumentCount} argument${argumentCount === 1 ? '' : 's'}` : ''
+}
+
+/** `navigate localhost:3000/login`, `click e12`, `type e4`, `batch 5 steps`: the action and its target, never typed text. */
+function previewBrowserArgs(args: Record<string, unknown>): string {
+  const action = typeof args.action === 'string' ? args.action : ''
+  if (action === 'batch') return `batch ${Array.isArray(args.steps) ? args.steps.length : 0} steps`
+  const target = typeof args.url === 'string' ? args.url.replace(/^https?:\/\//, '')
+    : [args.ref, args.key, args.query, args.op].find((value): value is string => typeof value === 'string')
+  return truncatePreview(target ? `${action} ${target}` : action)
 }
 
 /** Compact one-line summary of a finished tool's result for the tool line. */

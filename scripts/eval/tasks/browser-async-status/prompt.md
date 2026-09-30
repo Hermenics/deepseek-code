@@ -1,0 +1,1 @@
+The job monitor at {{URL}} keeps reporting that a finished job is still running. Fix the status handling, refresh the job in the browser, wait for completion, and tell me the job reference shown on the page.

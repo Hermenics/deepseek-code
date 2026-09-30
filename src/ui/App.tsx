@@ -4,6 +4,7 @@ import useInput from '../ink/hooks/use-input.js'
 import { execa } from 'execa'
 import type { Key } from '../ink/events/input-event.js'
 import { Agent, type ToolPermissionRequest, type ToolPermissionResult } from '../agent/agent.js'
+import { approvalOrigin } from '../permissions/matcher.js'
 import { FullModeBar, Header, MessageList, getDiffPayload } from './messages/MessageList.js'
 import { DiffDialog, type DiffLine } from './messages/DiffDialog.js'
 import { TodoPanel } from './messages/TodoPanel.js'
@@ -20,14 +21,16 @@ import { InputBox, LoadingSpinner } from './input/InputBox.js'
 import { QueuedMessagesList } from './input/QueuedMessagesList.js'
 import { enqueue, getImmediateBtwQuestion } from './queueLogic.js'
 import { BtwSideQuestion, type BtwState } from './btw/BtwSideQuestion.js'
-import { StatusBar } from './layout/StatusBar.js'
+import { browserIndicator, StatusBar, type BrowserIndicator } from './layout/StatusBar.js'
 import { ModelSelector } from './setup/ModelSelector.js'
 import { EffortSelector } from './setup/EffortSelector.js'
 import ConfigMenu from './setup/ConfigMenu.js'
 import type { ProviderProfile } from '../utils/providerProfiles.js'
 import MobileQRCode from './MobileQRCode.js'
 import { resolveCommand, HELP_TEXT, REVIEW_PROMPT } from '../commands.js'
-import { FEATURES, loadFeatures, saveFeatures, type FeatureName } from '../features.js'
+import { FEATURES, isEnabled, loadFeatures, saveFeatures, type FeatureName } from '../features.js'
+import { browserService } from '../browser/service.js'
+import { formatBrowserStatus } from '../commands/browser/index.js'
 import { approveAgent, loadAgentConfig, listAgents, type LoadedAgent } from '../agent/config.js'
 import { appendInputHistory, describeWritingStyle, loadWritingStyle } from '../agent/inputHistory.js'
 import type { ThemeName, ProviderConfig } from '../types/provider.js'
@@ -604,6 +607,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [compactBadge, setCompactBadge] = useState<{ type: 'micro' | 'full'; triggeredAt: number } | null>(null)
   const [diffDialog, setDiffDialog] = useState<{ path: string; lines: DiffLine[] } | null>(null)
   const [activityOpen, setActivityOpen] = useState(false)
+  const [browserStatus, setBrowserStatus] = useState<BrowserIndicator | null>(null)
   const [agentsOpen, setAgentsOpen] = useState(false)
   const [workflowMonitor, setWorkflowMonitor] = useState<{ runId?: string } | null>(null)
   const [focusedSubagent, setFocusedSubagent] = useState<{ id: string; agentName: string | null } | null>(null)
@@ -768,6 +772,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       setAgentReady(true)
       setMessages((m) => [...m, { role: 'assistant', content: `⚠ Initialization failed: ${error.message}` }])
     })
+  }, [agent])
+
+  useEffect(() => {
+    const update = () => setBrowserStatus(browserIndicator(browserService.status(), agent.browserContextKey))
+    update()
+    return browserService.subscribe(update)
   }, [agent])
 
   useEffect(() => () => {
@@ -1642,7 +1652,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     }
 
     const cmd = await resolveCommand(text, agent.getWorkingDirectory())
-    const liveWorkflowControl = cmd?.type === 'config' || cmd?.type === 'workflows' || cmd?.type === 'background' || (cmd?.type === 'workflow' && ['pause', 'resume', 'stop'].includes(cmd.action))
+    const liveWorkflowControl = cmd?.type === 'config' || cmd?.type === 'workflows' || cmd?.type === 'background' || cmd?.type === 'browser' || (cmd?.type === 'workflow' && ['pause', 'resume', 'stop'].includes(cmd.action))
     if (isLoading && !liveWorkflowControl) {
       if (images.length > 0) handleQueue(text, images)
       return
@@ -2273,6 +2283,23 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setMessages(m => [...m, { role: 'assistant', content: `Feature ${flag} ${value ? 'enabled' : 'disabled'}.` }])
           return
         }
+        case 'browser': {
+          if (cmd.action === 'error') {
+            setMessages(m => [...m, { role: 'assistant', content: `Error: ${cmd.message}` }])
+            return
+          }
+          try {
+            if (cmd.action === 'show' || cmd.action === 'hide') await browserService.setVisible(cmd.action === 'show')
+            if (cmd.action === 'close') browserService.closeByUser()
+            const note = cmd.action === 'show' ? 'The browser window is open: watch the agent or take over, then keep chatting.\n'
+              : cmd.action === 'hide' ? 'The browser is running headless again.\n'
+                : cmd.action === 'close' ? 'Browser closed. The agent cannot reopen it until your next message.\n' : ''
+            setMessages(m => [...m, { role: 'assistant', content: note + formatBrowserStatus(browserService.status(), agent.browserContextKey, isEnabled('browser', loadFeatures())) }])
+          } catch (error) {
+            setMessages(m => [...m, { role: 'assistant', content: `Error: ${(error as Error).message}` }])
+          }
+          return
+        }
         case 'goal': {
           const { getGoal, createGoal, setGoal, resumeGoal, updateGoal, buildContinuationPrompt, GOAL_MAX_CONTINUATIONS } = await import('../agent/goal.js')
           const goal = getGoal()
@@ -2828,6 +2855,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             descriptions={modelDescriptions}
             columns={process.stdout.columns ?? 80}
             getContextLimit={(model) => agent.getKnownModelContextLimit(model)}
+            acceptsImages={(model) => agent.modelAcceptsImages(model)}
             onSelect={(m) => {
               agent.setModel(m)
               setMessages((prev) => [...prev, { role: 'assistant', content: `Model switched to ${m}` }])
@@ -2907,7 +2935,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           />
         )}
         {fullMode && <FullModeBar theme={theme} />}
-        <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} theme={theme} items={interfaceSettings.statusBar} narrowPriority={interfaceSettings.narrowPriority} compactBadge={compactBadge} activityCount={activityCount} agentsHint={Boolean(onSwitchSession) && !focusedSubagent} />
+        <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} theme={theme} items={interfaceSettings.statusBar} narrowPriority={interfaceSettings.narrowPriority} compactBadge={compactBadge} activityCount={activityCount} agentsHint={Boolean(onSwitchSession) && !focusedSubagent} browser={browserStatus} />
         {!btw && !showModelSelector && !showEffortSelector && !askUserState && !toolPermissionState && !planApprovalState && !confirmState && (
           <ActivityFooter
             agents={subagentsRef.current.agents}
@@ -2953,8 +2981,8 @@ function ConfirmPrompt({ message, onConfirm }: { message: string; onConfirm: (ye
   )
 }
 
-/** Numbered choices for a permission request: workflow requests get run once / view code / always allow script / deny; others get allow once, a session- or directory-scoped allow, deny, and (for plain permission requests) always allow. */
-function permissionOptions(request: ToolPermissionRequest) {
+/** Numbered choices for a permission request: workflow requests get run once / view code / always allow script / deny; others get allow once, a session- or directory-scoped allow, deny, and (for plain permission requests) always allow. Origin-scoped tools name the origin they apply to. */
+export function permissionOptions(request: ToolPermissionRequest) {
   if (request.reason === 'workflow') {
     return [
       { key: '1', label: 'Execute this workflow once', result: 'once' as ToolPermissionResult },
@@ -2964,30 +2992,44 @@ function permissionOptions(request: ToolPermissionRequest) {
     ]
   }
   const externalDirectory = request.reason === 'outside_workspace' ? request.externalDirectory : undefined
+  const origin = approvalOrigin(request.toolName, request.args as Record<string, unknown>)
   const sessionLabel = externalDirectory
     ? `Allow file actions in ${externalDirectory} this session`
-    : request.reason === 'risk'
-      ? 'Do not ask again for this action this session'
-      : `Allow ${request.toolName} in this project this session`
+    : origin
+      ? `Allow ${request.toolName} on ${origin} this session`
+      : request.toolName === 'dev_server'
+        ? 'Allow starting this server this session (asks again if its launch.json entry changes)'
+        : request.reason === 'risk'
+          ? 'Do not ask again for this action this session'
+        : `Allow ${request.toolName} in this project this session`
   const options = [
     { key: '1', label: 'Allow this action', result: 'once' as ToolPermissionResult },
     { key: '2', label: sessionLabel, result: (externalDirectory ? 'directory' : 'session') as ToolPermissionResult },
     { key: '3', label: 'Deny (tell DeepSeek what to do instead)', result: 'deny' as ToolPermissionResult },
   ]
   if (request.reason === 'permission') {
-    options.push({ key: '4', label: `Always allow ${request.toolName}`, result: 'always' as ToolPermissionResult })
+    options.push({ key: '4', label: origin ? `Always allow ${request.toolName} on ${origin}` : `Always allow ${request.toolName}`, result: 'always' as ToolPermissionResult })
   }
   return options
 }
 
-/** One-line description of the action awaiting permission: the workflow name, `$ command`, or the tool with its path, cwd or action. */
-function toolPermissionSummary({ toolName, args }: ToolPermissionRequest): string {
+/** One-line description of the action awaiting permission: the workflow name, `$ command`, or the tool with its URL, path, cwd or action. */
+export function toolPermissionSummary({ toolName, args }: ToolPermissionRequest): string {
   const input = args as Record<string, unknown>
   if (toolName === 'workflow' && typeof input.script === 'string') {
     const name = /"name"\s*:\s*"([^"]+)"/.exec(input.script)?.[1]
     return name ? `Dynamic Workflow → ${name}` : 'Dynamic Workflow'
   }
   if (typeof input.command === 'string') return `$ ${input.command}`
+  if (typeof input.url === 'string') return `${toolName} → ${typeof input.action === 'string' ? `${input.action} ` : ''}${input.url}`
+  if (toolName === 'browser' && typeof input.action === 'string') {
+    // Show what would be typed: on a public page that text leaves the machine.
+    const typed = typeof input.text === 'string' ? ` "${input.text.length > 60 ? `${input.text.slice(0, 59)}…` : input.text}"` : ''
+    const steps = input.action === 'batch' && Array.isArray(input.steps) ? ` (${input.steps.length} steps)`
+      : Array.isArray(input.paths) ? ` ${input.paths.join(', ')}` : ''
+    return `browser → ${input.action}${steps}${typed}${typeof input.__origin === 'string' ? ` on ${input.__origin}` : ''}`
+  }
+  if (toolName === 'dev_server' && typeof input.__command === 'string') return `dev_server → start $ ${input.__command}`
   if (typeof input.path === 'string') return `${toolName} → ${input.path}`
   if (typeof input.cwd === 'string') return `${toolName} → ${input.cwd}`
   if (typeof input.action === 'string') return `${toolName} → ${input.action}`

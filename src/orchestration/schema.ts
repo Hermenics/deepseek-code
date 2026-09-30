@@ -31,10 +31,12 @@ export function validateToolArguments(schema: object | undefined, value: unknown
   if (!schema) return value && typeof value === 'object' && !Array.isArray(value)
     ? { valid: true, value: value as Record<string, unknown>, errors: [] }
     : { valid: false, errors: ['/ must be an object'] }
-  const source = schema as { type?: string; properties?: Record<string, unknown> }
-  let closed: object = source
-  if (source.type === 'object' && source.properties !== undefined) {
-    closed = closedSchemas.get(schema) ?? { ...source, additionalProperties: false }
+  let closed = closedSchemas.get(schema)
+  if (!closed) {
+    // MCP servers (zod v4, e.g. Playwright MCP) declare `$schema` draft 2020-12, which this Ajv does not
+    // register and would throw on; the declaration is metadata, so drop it and validate the keywords.
+    const { $schema: _draft, ...source } = schema as { $schema?: string; type?: string; properties?: Record<string, unknown> }
+    closed = source.type === 'object' && source.properties !== undefined ? { ...source, additionalProperties: false } : source
     closedSchemas.set(schema, closed)
   }
   return validateSchema<Record<string, unknown>>(closed, value)

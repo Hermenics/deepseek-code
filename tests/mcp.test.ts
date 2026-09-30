@@ -135,7 +135,8 @@ process.stdin.on('data', chunk => {
     if (request.id === undefined) continue;
     let result;
     if (request.method === 'initialize') result = { protocolVersion: '2025-06-18', capabilities: { tools: {} }, serverInfo: { name: 'fixture', version: '1.0' } };
-    else if (request.method === 'tools/list') result = { tools: [{ name: 'echo', inputSchema: { type: 'object', properties: { text: { type: 'string' } } } }] };
+    else if (request.method === 'tools/list') result = { tools: [{ name: 'echo', inputSchema: { type: 'object', properties: { text: { type: 'string' } } } }, { name: 'hang', inputSchema: { type: 'object', properties: {} } }] };
+    else if (request.method === 'tools/call' && request.params.name === 'hang') continue;
     else if (request.method === 'tools/call') result = { content: [{ type: 'text', text: request.params.arguments.text }] };
     else result = {};
     process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: request.id, result }) + '\\n');
@@ -150,8 +151,15 @@ process.stdin.on('data', chunk => {
       const loaded = await loadMcpTools(root, { enabled: true, trustFile, initialTimeoutMs: 5000 })
       cleanup = loaded.cleanup
       expect(loaded.errors).toEqual([])
-      expect(loaded.tools.map(tool => tool.name)).toEqual(['echo-pack__echo__echo'])
+      expect(loaded.tools.map(tool => tool.name)).toEqual(['echo-pack__echo__echo', 'echo-pack__echo__hang'])
       expect(await loaded.tools[0]!.execute({ text: 'hello' })).toBe('hello')
+      // Esc aborts the turn's signal: a hung MCP call must stop now, not after its 30s timeout.
+      const controller = new AbortController()
+      const started = Date.now()
+      const hung = loaded.tools[1]!.execute({}, { signal: controller.signal } as never)
+      setTimeout(() => controller.abort(new Error('user pressed Esc')), 50)
+      await expect(hung).rejects.toThrow()
+      expect(Date.now() - started).toBeLessThan(5_000)
     } finally {
       await cleanup?.()
       if (previous === undefined) delete process.env.DEEPSEEK_PLUGINS_DIR
@@ -490,5 +498,15 @@ describe('MCP security', () => {
       const event = buildMcpLoadEvent('remote-server', 'http')
       expect((event as { serverName: string }).serverName).toBe('remote-server')
     })
+  })
+})
+
+describe('MCP tool schemas', () => {
+  it('validates arguments against draft 2020-12 schemas (zod v4 servers such as Playwright MCP)', async () => {
+    const { validateToolArguments } = await import('../src/orchestration/schema.js')
+    const schema = { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object', properties: { url: { type: 'string' } }, required: ['url'] }
+    expect(validateToolArguments(schema, { url: 'http://localhost:3000' }).valid).toBe(true)
+    expect(validateToolArguments(schema, {}).valid).toBe(false)
+    expect(validateToolArguments(schema, { url: 'x', extra: 1 }).valid).toBe(false)
   })
 })

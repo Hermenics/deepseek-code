@@ -1,8 +1,10 @@
 import { existsSync } from 'fs'
 import { access, readFile } from 'fs/promises'
-import { join } from 'path'
+import { basename, join } from 'path'
 import { execa } from 'execa'
 import { getCredentialsPath, getSettingsPath, loadMergedSettings } from './settings/index.js'
+import { isEnabled, loadFeatures } from './features.js'
+import { findChromium, isLinux } from './utils/platform.js'
 
 export interface DoctorCheck {
   name: string
@@ -34,13 +36,32 @@ async function inspectMcpConfig(cwd: string): Promise<DoctorCheck> {
   }
 }
 
+/** Checks the optional browser runtime without starting it. */
+async function inspectBrowser(): Promise<DoctorCheck> {
+  const executable = process.env.DEEPSEEK_CHROME_PATH || findChromium()
+  if (!executable) return { name: 'Browser', ok: false, detail: 'Chrome, Chromium, Edge or Brave not found' }
+  try {
+    const result = await execa(executable, ['--version'], { reject: false, timeout: 2_000 })
+    const version = (result.stdout || result.stderr).trim()
+    if (result.exitCode !== 0 || !version) return { name: 'Browser', ok: false, detail: `${basename(executable)} found, but its version could not be read` }
+    const display = !isLinux || process.env.DISPLAY || process.env.WAYLAND_DISPLAY
+      ? 'visible window: display available'
+      : 'visible window: no DISPLAY or WAYLAND_DISPLAY (headless still works)'
+    return { name: 'Browser', ok: true, detail: `${basename(executable)} · ${version}; ${display}` }
+  } catch {
+    return { name: 'Browser', ok: false, detail: `${basename(executable)} found, but it could not run --version` }
+  }
+}
+
 /** Runs the `doctor` environment checks (runtime, workspace, git, ripgrep, credentials, settings, MCP config) for a workspace. */
 export async function runDoctor(cwd = process.cwd()): Promise<DoctorReport> {
   const settings = await loadMergedSettings(cwd)
-  const [git, rg, mcp] = await Promise.all([
+  const browserCheck = isEnabled('browser', loadFeatures()) ? inspectBrowser() : Promise.resolve(null)
+  const [git, rg, mcp, browser] = await Promise.all([
     commandAvailable('git'),
     commandAvailable('rg'),
     inspectMcpConfig(cwd),
+    browserCheck,
   ])
   const checks: DoctorCheck[] = [
     { name: 'Runtime', ok: Boolean(Bun.version), detail: `Bun ${Bun.version ?? process.version}` },
@@ -50,6 +71,7 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorReport> {
     { name: 'Credentials', ok: existsSync(getCredentialsPath()), detail: existsSync(getCredentialsPath()) ? 'configured' : 'not found; configure a provider before starting a session' },
     { name: 'Settings', ok: existsSync(getSettingsPath('user', cwd)) || Object.keys(settings).length > 0, detail: `provider: ${settings.provider?.name ?? 'deepseek'}` },
     mcp,
+    ...(browser ? [browser] : []),
   ]
 
   try {

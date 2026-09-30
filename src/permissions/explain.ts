@@ -63,7 +63,8 @@ export function formatPermissionsReport(input: PermissionsReportInput): string {
   lines.push(`**Risk checks:** ${riskStatus(input.risk)}`)
   lines.push(`**Approved this session:** ${formatList(input.sessionApproved)}`)
   lines.push('')
-  lines.push('Decision order: mode gate -> risk rules in Build mode -> settings allow/deny rules outside Build mode -> agent allowlist -> hooks -> tool execution.')
+  lines.push('Decision order: mode gate -> PreToolUse hooks -> risk checks (high risk always asks) -> settings deny/allow rules -> agent allowlist -> tool execution. Every gate applies in every mode.')
+  lines.push('Session approvals for web_fetch are remembered per origin (for example `web_fetch@https://example.com`).')
 
   return lines.join('\n')
 }

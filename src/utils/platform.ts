@@ -1,5 +1,5 @@
 import { execFileSync, execSync } from 'node:child_process'
-import { readFileSync, mkdtempSync, rmSync } from 'node:fs'
+import { readFileSync, mkdtempSync, rmSync, statSync } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import type { PromptImage, PromptImageMediaType } from '../types/input.js'
@@ -37,6 +37,29 @@ export function hasBinary(name: string): boolean {
 export function clearBinaryCache(): void {
   binaryCache.clear()
   sandboxCapability = undefined
+  chromiumPath = undefined
+}
+
+let chromiumPath: string | null | undefined
+
+/**
+ * Absolute path of an installed Chromium-family browser (Chrome, Chromium, Edge, Brave), found on
+ * PATH or in the standard install locations; null when none is installed. Cached like hasBinary.
+ */
+export function findChromium(): string | null {
+  if (chromiumPath !== undefined) return chromiumPath
+  const onPath = ['google-chrome-stable', 'google-chrome', 'chromium', 'chromium-browser', 'microsoft-edge', 'brave-browser']
+    .map(name => { try { return Bun.which(name) } catch { return null } })
+    .find((found): found is string => Boolean(found))
+  const programFiles = [process.env.ProgramFiles, process.env['ProgramFiles(x86)'], process.env.LOCALAPPDATA].filter((dir): dir is string => Boolean(dir))
+  const fixed = isMac
+    ? ['Google Chrome.app/Contents/MacOS/Google Chrome', 'Chromium.app/Contents/MacOS/Chromium', 'Microsoft Edge.app/Contents/MacOS/Microsoft Edge', 'Brave Browser.app/Contents/MacOS/Brave Browser']
+      .flatMap(app => [path.join('/Applications', app), path.join(os.homedir(), 'Applications', app)])
+    : isWindows
+      ? programFiles.flatMap(dir => [path.join(dir, 'Google', 'Chrome', 'Application', 'chrome.exe'), path.join(dir, 'Microsoft', 'Edge', 'Application', 'msedge.exe')])
+      : []
+  chromiumPath = onPath ?? fixed.find(candidate => { try { return statSync(candidate).isFile() } catch { return false } }) ?? null
+  return chromiumPath
 }
 
 /**

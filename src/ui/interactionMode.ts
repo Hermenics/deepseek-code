@@ -34,7 +34,7 @@ const READ_ONLY_TOOLS = new Set([
 const BUILD_TOOLS = new Set([
   ...READ_ONLY_TOOLS,
   'shell', 'write_file', 'edit_file', 'patch_file', 'update_knowledge',
-  'subagent', 'ask_agent', 'moa', 'update_goal',
+  'subagent', 'ask_agent', 'moa', 'update_goal', 'browser', 'dev_server',
 ])
 
 // Permissões por modo. Auto names every native tool so /permissions remains

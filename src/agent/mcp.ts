@@ -6,6 +6,7 @@ import { isAbsolute, join, relative, resolve, sep } from 'path'
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import type { Tool } from '../tools/types.js'
+import type { PromptImage } from '../types/input.js'
 import { auditLog, type AuditEvent } from './auditLog.js'
 import { canonicalPath, hashTrustedContent, hashTrustedFile, WorkspaceTrustStore, type TrustedArtifact } from '../settings/trust.js'
 import pkg from '../../package.json' with { type: 'json' }
@@ -50,13 +51,28 @@ export function mcpToolName(serverName: string, rawName: string): string {
   return `${normalized.slice(0, 51)}_${hash}`
 }
 
-/** Preserves structured output and turns MCP isError into a failed agent tool call. */
-export function formatMcpToolResult(result: { content?: unknown; structuredContent?: unknown; isError?: boolean }): string {
+const MCP_IMAGE_TYPES = new Set<string>(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
+
+/**
+ * Preserves structured output and turns MCP isError into a failed agent tool call. Image blocks
+ * go to `attachImage` (when the model accepts images) instead of into the text as base64.
+ */
+export function formatMcpToolResult(
+  result: { content?: unknown; structuredContent?: unknown; isError?: boolean },
+  attachImage?: (image: PromptImage, label: string) => void,
+  toolName = 'MCP tool',
+): string {
   const blocks = Array.isArray(result.content) ? result.content : []
   const text = blocks.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('\n')
   if (result.isError) throw new Error(text || 'MCP tool returned an error')
-  if (result.structuredContent !== undefined) return JSON.stringify(result.structuredContent)
-  if (text) return text
+  const images = blocks.filter(block => block?.type === 'image' && typeof block.data === 'string' && MCP_IMAGE_TYPES.has(block.mimeType))
+  for (const block of images) attachImage?.({ mediaType: block.mimeType, data: block.data }, `image returned by ${toolName}`)
+  const imageNote = images.length === 0 ? ''
+    : attachImage ? `[${images.length} image${images.length === 1 ? '' : 's'} attached for the model]`
+      : `[${images.length} image${images.length === 1 ? '' : 's'} omitted: the current model does not accept images]`
+  const others = blocks.filter(block => block?.type !== 'text' && !images.includes(block))
+  if (result.structuredContent !== undefined) return [JSON.stringify(result.structuredContent), imageNote].filter(Boolean).join('\n')
+  if (text || imageNote) return [text, others.length ? JSON.stringify(others) : '', imageNote].filter(Boolean).join('\n')
   return blocks.length ? JSON.stringify(blocks) : '(empty MCP result)'
 }
 
@@ -358,16 +374,17 @@ export async function loadMcpTools(cwd = process.cwd(), options: McpLoadOptions 
           name,
           description: `[MCP:${serverName}] ${mcpTool.description ?? ''}`,
           parameters: mcpTool.inputSchema as object,
-          async execute(args) {
-            // Add timeout to prevent hanging on unresponsive MCP servers
+          async execute(args, context) {
+            // The SDK enforces the timeout and, on Esc, sends notifications/cancelled to the server.
             const timeoutMs = 30_000
-            const result = await withTimeout(
-              connectedClient.callTool({ name: mcpTool.name, arguments: args }),
-              timeoutMs,
-              `MCP tool '${mcpTool.name}' timed out after ${timeoutMs / 1000}s`,
-            ) as Awaited<ReturnType<typeof connectedClient.callTool>>
+            const result = await connectedClient.callTool({ name: mcpTool.name, arguments: args }, undefined, { signal: context?.signal, timeout: timeoutMs })
+              .catch((error: Error) => {
+                if (context?.signal?.aborted) throw error
+                if (/timed out|timeout/i.test(error.message)) throw new Error(`MCP tool '${mcpTool.name}' timed out after ${timeoutMs / 1000}s`)
+                throw error
+              }) as Awaited<ReturnType<typeof connectedClient.callTool>>
             if ('toolResult' in result) throw new Error(`MCP tool '${mcpTool.name}' returned an unsupported task result`)
-            return formatMcpToolResult(result)
+            return formatMcpToolResult(result, context?.attachImage, mcpTool.name)
           },
         })
       }

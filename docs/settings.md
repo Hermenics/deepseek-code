@@ -12,7 +12,7 @@ Settings merge in this order:
 
 The UI shows the effective value, its origin, the override chain and whether the selected scope inherits it. Writes are atomic and preserve unknown JSON keys. Invalid JSON is reported and blocks field writes until the file is corrected. Executable hooks, language servers, and project/plugin MCP consent are accepted only at User scope.
 
-Credentials and other secrets remain exclusively in `~/.deepseek/config.json`. Theme, language, provider metadata and other non-secret preferences belong in settings. Legacy keys remain readable during this compatibility cycle.
+Legacy credentials remain in `~/.deepseek/config.json`. Saved provider profiles, including their credentials, are stored separately in `~/.deepseek/provider-profiles.json` with owner-only permissions. Theme, language and other non-secret preferences belong in settings. Legacy keys remain readable during this compatibility cycle.
 
 ## Top-level schema
 
@@ -35,6 +35,14 @@ hooks          PreToolUse, PostToolUse and SessionStart
 ```
 
 Arrays of permission and risk rules inherit. `permissions.suppress` can suppress an inherited allow rule by exact text; deny rules and high-risk rules cannot be suppressed. A Project or Local setting cannot silently choose Auto as the default mode or enable project/plugin MCP servers.
+
+`permissions.autoApproveLowRisk` is honored only at User scope. Project and Local values are ignored and reported as a settings warning.
+
+## Provider profiles and feature flags
+
+Provider profiles are saved in `~/.deepseek/provider-profiles.json`. Their **Image input** field has three states: **Auto** follows the built-in model catalog, **On** forces image sending (use it only with an endpoint that accepts images), and **Off** disables image input for that profile.
+
+Experimental feature flags are separate from settings and stored in `~/.deepseek/features.json`. The browser is off by default; enable it with `/features browser on`. This exposes the agent browser and `dev_server` tools in supported modes. See the browser and `launch.json` guide in the [README](../README.md#experimental-browser).
 
 ## Agents
 

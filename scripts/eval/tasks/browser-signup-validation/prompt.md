@@ -1,0 +1,1 @@
+Signing up at {{URL}} with the email {{email}} fails. Reproduce it in the browser, fix the bug in the code, then sign up with that exact email. Finish by telling me the confirmation code the page shows.

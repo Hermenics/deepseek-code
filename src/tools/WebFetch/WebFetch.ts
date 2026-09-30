@@ -59,7 +59,7 @@ const blockedIpv4 = createBlockList(BLOCKED_IPV4_SUBNETS, 'ipv4')
 const blockedIpv6 = createBlockList(BLOCKED_IPV6_SUBNETS, 'ipv6')
 
 /** True for any address in a special-purpose (non-globally-routable) range. Anything that isn't a valid IP literal also counts as blocked (fail closed). */
-function isBlockedIp(ip: string): boolean {
+export function isBlockedIp(ip: string): boolean {
   const family = isIP(ip)
   if (family === 4) return blockedIpv4.check(ip, 'ipv4')
   // Bun on Windows 1.3.x can crash inside BlockList.check for the canonical

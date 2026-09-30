@@ -2,9 +2,15 @@
 
 ## Unreleased
 
-- Fixed: Direct invocation of the installed `deepseek` command no longer loads a project's `.env` or `bunfig.toml` into its own Bun runtime, preventing project-supplied environment and preload code from affecting startup and Git subprocesses
-- Changed: The installed command now requires Node.js 18+ to start Bun with project configuration loading disabled
-- Tests: Cover project `.env` and `bunfig.toml` injection while preserving variables exported by the user
+- Fixed: The installed `deepseek` command starts Bun through Node.js 18+ without loading a project's `.env` or `bunfig.toml`; tests cover both injection paths while preserving user-exported variables.
+- Fixed: `web_fetch` session approvals are scoped to one origin, and Project or Local settings can no longer enable `permissions.autoApproveLowRisk`. Permission prompts show the URL and approval scope; `/permissions` explains the decision order.
+- Added: Images can reach vision models once through a transient, untrusted channel and never enter history. Provider profiles have an Image input setting (Auto/On/Off), and `/model` marks models that accept images. MCP image delivery and cancellation work, and draft 2020-12 schemas no longer break MCP calls.
+- Added: The opt-in `browser` tool drives an installed Chromium-family browser over a debugging pipe, using a temporary profile and clean environment. It provides accessibility snapshots, native input, navigation, tabs, dialogs, screenshots, console and network inspection, `expect`, batches and Playwright test export.
+- Added: Browser navigation and interaction are origin-gated; typing on a public page asks every time, sensitive fields and private-network targets are blocked, and redirects/popups cannot bypass approval. Page-derived text stays inside the untrusted-content envelope.
+- Added: `/browser` status/show/hide/close controls and a status-bar page indicator. `dev_server` reads `.deepseek/launch.json` or `.claude/launch.json`, requires approval for each start or changed entry, waits for readiness, keeps bounded logs, prevents port conflicts and stops its process tree at session or project end.
+- Added: Browser handoff, device/color emulation, workspace-only uploads, quarantined downloads (50 MB maximum, deleted on close) and screenshot ref marks.
+- Enhanced: Browser actions surface new console/network errors and sent request bodies; missing favicons are ignored and errors between turns reach the agent on its next turn.
+- Tests: Browser evals support isolated worker processes, parallel runs and saved transcripts; the comparison reports pass-rate uncertainty, paired differences and cost per pass.
 
 ## 0.9.0
 

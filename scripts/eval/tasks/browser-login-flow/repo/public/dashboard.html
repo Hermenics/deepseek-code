@@ -1,0 +1,11 @@
+<!doctype html>
+<title>Team portal · Dashboard</title>
+<main>
+  <h1>Dashboard</h1>
+  <p id="token">Loading…</p>
+</main>
+<script type="module">
+  const response = await fetch('/api/dashboard')
+  const body = await response.json()
+  document.getElementById('token').textContent = response.ok ? `Your token: ${body.token}` : `Error: ${body.error}`
+</script>

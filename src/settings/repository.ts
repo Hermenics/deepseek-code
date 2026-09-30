@@ -416,6 +416,7 @@ export function validateSettings(settings: DeepSeekSettings, level?: SettingsLev
   if (level !== 'user' && settings.hooks && Object.keys(settings.hooks).length > 0) add('hooks', 'Executable hooks are ignored outside User scope', 'warning')
   if (level !== 'user' && settings.lsp && Object.keys(settings.lsp).length > 0) add('lsp', 'Language-server commands are ignored outside User scope', 'warning')
   if (level !== 'user' && settings.mcp && Object.keys(settings.mcp).length > 0) add('mcp', 'Project MCP servers can only be enabled at User scope', 'warning')
+  if (level !== 'user' && settings.permissions?.autoApproveLowRisk !== undefined) add('permissions.autoApproveLowRisk', 'Automatic low-risk approval is ignored outside User scope', 'warning')
   if (level !== 'user' && isObject(interfaceSettings) && interfaceSettings.subagentStatusLine !== undefined) {
     add('interface.subagentStatusLine', 'Executable status-line commands are ignored outside User scope', 'warning')
   }
@@ -456,9 +457,11 @@ export async function loadSettingsSnapshot(cwd?: string): Promise<SettingsSnapsh
       delete safe.provider.activeProfileId
       if (Object.keys(safe.provider).length === 0) delete safe.provider
     }
-    if (level === 'project' && safe.permissions) {
-      // A checked-out project may deny capabilities, but cannot grant them.
-      delete safe.permissions.allow
+    if (safe.permissions) {
+      // A checked-out project may deny capabilities, but cannot grant them:
+      // both .deepseek/settings.json and settings.local.json live in the repo.
+      if (level === 'project') delete safe.permissions.allow
+      delete safe.permissions.autoApproveLowRisk
       if (Object.keys(safe.permissions).length === 0) delete safe.permissions
     }
     if (safe.interaction?.defaultMode === 'auto') delete safe.interaction.defaultMode
@@ -564,6 +567,7 @@ export function resolveSetting(snapshot: SettingsSnapshot, path: string): Settin
     if ((level === 'project' && /^provider\.(name|endpoint|region|profile|projectId|location)$/.test(path)) ||
       (level !== 'user' && path === 'provider.activeProfileId')) return []
     if (level === 'project' && path === 'permissions.allow') return []
+    if (level !== 'user' && path === 'permissions.autoApproveLowRisk') return []
     if (level !== 'user' && (path.startsWith('hooks.') || path === 'lsp' || path.startsWith('lsp.') || path === 'mcp' || path.startsWith('mcp.'))) return []
     if (level !== 'user' && (path === 'interface.subagentStatusLine' || path.startsWith('interface.subagentStatusLine.'))) return []
     return value === undefined ? [] : [{ level, value }]

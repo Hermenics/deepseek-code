@@ -69,7 +69,7 @@ cat src/index.tsx | deepseek --pipe --json "summarize"
 | **Google Vertex AI** | GCP service account JSON key | `GCP_PROJECT`, `GCP_LOCATION`, `GCP_CREDENTIALS` |
 | **Local (Ollama / LM Studio)** | No auth — point to your local endpoint | `LOCAL_BASE_URL`, `LOCAL_MODEL` |
 
-Secrets are saved only to `~/.deepseek/config.json`. Non-secret preferences use `settings.json` with `User < Project < Local` precedence; legacy values remain readable for compatibility. Project and plugin MCP servers are off by default and require the User-scoped **Enable project MCP servers** setting plus workspace approval; restart DeepSeek Code after changing the setting. Plugin changes refresh their integrations live. See [docs/settings.md](docs/settings.md).
+Legacy credentials remain in `~/.deepseek/config.json`; saved provider profiles, including their credentials, live in `~/.deepseek/provider-profiles.json` with owner-only permissions. Non-secret preferences use `settings.json` with `User < Project < Local` precedence; legacy values remain readable for compatibility. Project and plugin MCP servers are off by default and require the User-scoped **Enable project MCP servers** setting plus workspace approval; restart DeepSeek Code after changing the setting. Plugin changes refresh their integrations live. See [docs/settings.md](docs/settings.md).
 
 ## Models
 
@@ -110,6 +110,29 @@ The agent has access to these tools out of the box:
 `ReadFile` · `WriteFile` · `EditFile` · `PatchFile` · `Shell` · `Glob` · `Grep` · `Lsp` · `Git` · `ReadFolder` · `WebFetch` · `Skill` · `SubAgent` · `AskAgent` · `Workflow` · `Memory` · `Todo` · `Introspect` · `MoA` · `AskUserQuestions`
 
 Skills are listed by origin and loaded on demand through the read-only `skill` tool. Plugins can contribute skills, slash commands, and MCP servers. Plugin MCP configs require workspace approval before their servers start. See [the extension architecture study](docs/skills-plugins-mcp-research.md).
+
+### Experimental browser
+
+The agent browser is off by default. Enable it with `/features browser on`; this exposes both `browser` and `dev_server` in Build and Auto modes. The browser runs an installed Chrome, Chromium, Edge or Brave over a debugging pipe, with a temporary profile and a clean environment. It uses accessibility snapshots and native browser input for navigation, inspection, interaction, screenshots, downloads and test export.
+
+Each new origin needs approval. Public-page interaction has a separate approval, and typing or uploading on a public page asks every time. Private-network and metadata addresses are blocked, as are sensitive password, payment and one-time-code fields. Downloads stay in a private temporary directory and are removed when the browser closes. Use `/browser status`, `/browser show`, `/browser hide` or `/browser close` to inspect and control its window; on Linux, a visible window needs `DISPLAY` or `WAYLAND_DISPLAY`.
+
+`dev_server` starts only a server declared in `.deepseek/launch.json` or `.claude/launch.json`. Starting it runs a host process outside the shell sandbox, so each start requires approval, as does a changed launch entry. The server stops when the session ends or the project changes. Example:
+
+```json
+{
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "dev", "--host", "127.0.0.1"],
+      "port": 3000
+    }
+  ]
+}
+```
+
+The same `configurations` format works in either launch file. `.deepseek/launch.json` takes precedence when both exist. Each entry needs `name`, `runtimeExecutable`, `port`, and optional `runtimeArgs`, project-relative `cwd`, and string-valued `env`.
 
 ## TUI behavior
 

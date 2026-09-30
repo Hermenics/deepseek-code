@@ -28,6 +28,11 @@ export const FEATURES = {
     description: 'Reject edits to files the agent has not read or that changed on disk since it read them',
     default: true,
   },
+  browser: {
+    label: 'Browser',
+    description: 'Let the agent drive a local Chrome to open, inspect and test web pages (asks before each new site)',
+    default: false,
+  },
 } as const
 
 export type FeatureName = keyof typeof FEATURES
@@ -45,7 +50,20 @@ export function filterFeatureFlags(parsed: unknown): Partial<Record<FeatureName,
   ) as Partial<Record<FeatureName, boolean>>
 }
 
-/** Reads `~/.deepseek/features.json` synchronously and overlays it on the defaults; falls back to defaults on any read or parse error. */
+/**
+ * `DEEPSEEK_FEATURES=browser,-microCompact` turns flags on or off for this process only (evals, CI),
+ * without touching `~/.deepseek/features.json`. Unknown names are ignored.
+ */
+export function envFeatureOverrides(value = process.env.DEEPSEEK_FEATURES): Partial<Record<FeatureName, boolean>> {
+  const overrides: Partial<Record<FeatureName, boolean>> = {}
+  for (const item of (value ?? '').split(',').map(part => part.trim()).filter(Boolean)) {
+    const name = item.replace(/^-/, '') as FeatureName
+    if (name in FEATURES) overrides[name] = !item.startsWith('-')
+  }
+  return overrides
+}
+
+/** Reads `~/.deepseek/features.json` synchronously and overlays it on the defaults (then the environment override); falls back to defaults on any read or parse error. */
 export function loadFeatures(): Record<FeatureName, boolean> {
   const defaults = Object.fromEntries(
     Object.entries(FEATURES).map(([k, v]) => [k, v.default])
@@ -54,9 +72,9 @@ export function loadFeatures(): Record<FeatureName, boolean> {
   try {
     const raw = readFileSync(FEATURES_PATH, 'utf8')
     const parsed: unknown = JSON.parse(raw)
-    return { ...defaults, ...filterFeatureFlags(parsed) }
+    return { ...defaults, ...filterFeatureFlags(parsed), ...envFeatureOverrides() }
   } catch {
-    return defaults
+    return { ...defaults, ...envFeatureOverrides() }
   }
 }
 

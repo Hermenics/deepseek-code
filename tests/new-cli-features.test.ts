@@ -8,7 +8,7 @@ import { exportSession, formatSessionExport, type SessionData } from '../src/age
 import { parseSessionsCommand } from '../src/commands/sessions/index.js'
 import { parseCatalogCommand } from '../src/commands/catalog/index.js'
 import { parseCommand } from '../src/commands.js'
-import { formatDoctorReport } from '../src/doctor.js'
+import { formatDoctorReport, runDoctor } from '../src/doctor.js'
 import { formatCatalog } from '../src/catalog.js'
 import { findLspServer, frameLspMessage } from '../src/lsp.js'
 import { validateSettings } from '../src/settings/repository.js'
@@ -62,6 +62,26 @@ describe('new CLI features', () => {
     expect(formatDoctorReport({ cwd: '/work', checks: [{ name: 'Git', ok: true, detail: 'available' }] })).toContain('✓ Git')
     expect(formatCatalog('MCP')).toContain('GitHub')
     expect(formatCatalog('MCP')).not.toContain('OpenAI docs')
+  })
+
+  it('includes the browser doctor check only while the feature is enabled', async () => {
+    const cwd = await directory()
+    const previous = process.env.DEEPSEEK_FEATURES
+    try {
+      process.env.DEEPSEEK_FEATURES = '-browser'
+      expect((await runDoctor(cwd)).checks.some(check => check.name === 'Browser')).toBe(false)
+      process.env.DEEPSEEK_FEATURES = 'browser'
+      const browser = (await runDoctor(cwd)).checks.find(check => check.name === 'Browser')
+      expect(browser).toBeDefined()
+      expect(browser?.detail).toBeTruthy()
+      if (browser?.ok) {
+        expect(browser.detail).toMatch(/\d/)
+        expect(browser.detail).toContain('visible window:')
+      }
+    } finally {
+      if (previous === undefined) delete process.env.DEEPSEEK_FEATURES
+      else process.env.DEEPSEEK_FEATURES = previous
+    }
   })
 
   it('selects only a configured language server matching a file extension', () => {

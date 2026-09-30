@@ -23,4 +23,6 @@ export interface ProviderConfig {
   gcpCredentials?: string
   localBaseUrl?: string
   localModel?: string
+  /** Whether the endpoint accepts image input; undefined means use the built-in model catalog. */
+  vision?: boolean
 }

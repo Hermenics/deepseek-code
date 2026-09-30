@@ -36,6 +36,9 @@ export interface EvalRecord {
   promptTokens?: number
   completionTokens?: number
   cachedTokens?: number
+  tokenCount?: number
+  /** Assistant turns in the run: one per model request. */
+  modelCalls?: number
 }
 
 /** Why a run ended the way it did. `pass` keeps run.ts's definition; the rest splits failures by cause. */
@@ -88,7 +91,7 @@ const costOf = (r: EvalRecord) => r.fixedCostUsd ?? (r.promptTokens !== undefine
 export interface TaskRow { task: string; a?: { pass: number; n: number }; b?: { pass: number; n: number }; diff?: number }
 
 export interface Comparison {
-  labels: Array<{ pass: number; n: number; ci: [number, number]; outcomes: Record<string, number>; costPerPass: number | null }>
+  labels: Array<{ pass: number; n: number; ci: [number, number]; outcomes: Record<string, number>; costPerPass: number | null; avgTokens: number | null; avgModelCalls: number | null }>
   tasks: TaskRow[]
   paired: { tasks: number; diff: number; ci90: [number, number] } | null
   costRatio: number | null
@@ -149,7 +152,12 @@ export function compare(a: EvalRecord[], b: EvalRecord[], options: { iterations?
       outcomes[outcome] = (outcomes[outcome] ?? 0) + 1
     }
     const cost = records.reduce((sum, r) => sum + costOf(r), 0)
-    return { pass, n: records.length, ci: wilson(pass, records.length), outcomes, costPerPass: pass > 0 ? cost / pass : null }
+    /** Mean of a per-run number over the runs that recorded it. */
+    const mean = (pick: (r: EvalRecord) => number | undefined) => {
+      const values = records.map(pick).filter((value): value is number => typeof value === 'number')
+      return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null
+    }
+    return { pass, n: records.length, ci: wilson(pass, records.length), outcomes, costPerPass: pass > 0 ? cost / pass : null, avgTokens: mean(r => r.tokenCount), avgModelCalls: mean(r => r.modelCalls) }
   }
   const labels = [summarize(a), summarize(b)]
   const costRatio = labels[0]!.costPerPass && labels[1]!.costPerPass ? labels[1]!.costPerPass / labels[0]!.costPerPass : null
@@ -192,6 +200,8 @@ if (import.meta.main) {
     return [label, {
       pass: `${s.pass}/${s.n}`, rate: pct(s.pass / Math.max(1, s.n)), wilson95: `${pct(s.ci[0])}–${pct(s.ci[1])}`,
       costPerPass: s.costPerPass === null ? '—' : `$${s.costPerPass.toFixed(4)}`,
+      avgTokens: s.avgTokens === null ? '—' : Math.round(s.avgTokens),
+      avgModelCalls: s.avgModelCalls === null ? '—' : Number(s.avgModelCalls.toFixed(1)),
       outcomes: Object.entries(s.outcomes).map(([k, v]) => `${k}:${v}`).join(' '),
     }]
   })))
@@ -213,5 +223,8 @@ if (import.meta.main) {
     console.log('No task is present in both labels; nothing to pair.')
   }
   if (result.costRatio !== null) console.log(`Cost per pass (fixed price): ×${result.costRatio.toFixed(2)}`)
+  const [first, second] = result.labels
+  if (first?.avgTokens && second?.avgTokens) console.log(`Tokens per run: ${labelB} uses ${pct(second.avgTokens / first.avgTokens)} of ${labelA}`)
+  if (first?.avgModelCalls && second?.avgModelCalls) console.log(`Model calls per run: ${labelB} uses ${pct(second.avgModelCalls / first.avgModelCalls)} of ${labelA}`)
   console.log(`Promotion rule (≥ +10pp, 90% CI excludes 0, cost per pass ≤ ×1.20): ${result.promoted ? 'PROMOTE' : 'do not promote'}`)
 }

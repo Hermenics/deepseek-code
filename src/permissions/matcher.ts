@@ -1,4 +1,5 @@
 import type { PermissionRule, PermissionDecision } from './types.js'
+import { browserActionKind, browserApprovalKey, browserTarget, originOf } from './browser.js'
 
 /**
  * Parse a rule string like "Shell(git *)" or "ReadFile" into a PermissionRule.
@@ -65,11 +66,53 @@ function getMatchContent(toolName: string, args: Record<string, unknown>): strin
     case 'patch_file':
       return typeof args.path === 'string' ? args.path : undefined
     case 'web_fetch':
-      return typeof args.url === 'string' ? args.url : undefined
+      return typeof args.url === 'string' ? normalizeUrl(args.url) : undefined
+    case 'browser': {
+      // `browser(navigate http://localhost:3000/*)`, `browser(click https://example.com/*)`, `browser(* http://localhost:*)`
+      const target = browserTarget(args)
+      return typeof args.action === 'string' ? `${args.action} ${target ? normalizeUrl(target) : ''}`.trim() : undefined
+    }
     case 'grep':
       return typeof args.pattern === 'string' ? args.pattern : undefined
     default:
       return undefined
+  }
+}
+
+/** Canonical form of a URL (`https://host/` rather than `https://HOST`), so origin-scoped rules match consistently; the raw text when it does not parse. */
+function normalizeUrl(url: string): string {
+  try {
+    return new URL(url).href
+  } catch {
+    return url
+  }
+}
+
+/** Tools whose session approvals are scoped to the origin of their target URL. */
+const ORIGIN_SCOPED_TOOLS = new Set(['web_fetch'])
+
+/**
+ * Key a session approval is stored under: `web_fetch@https://host` for
+ * origin-scoped tools, so approving one site never approves another; the
+ * tool name otherwise.
+ */
+export function approvalKey(toolName: string, args: Record<string, unknown>): string {
+  if (toolName.toLowerCase() === 'browser') return browserApprovalKey(args)
+  // A dev server approval covers one exact launch.json entry (its hash, injected by the agent).
+  if (toolName.toLowerCase() === 'dev_server' && typeof args.__launch === 'string') return `dev_server@${args.__launch}`
+  const origin = approvalOrigin(toolName, args)
+  return origin ? `${toolName.toLowerCase()}@${origin}` : toolName
+}
+
+/** Origin an origin-scoped tool call targets, or undefined when the tool is not origin-scoped or has no parsable URL. */
+export function approvalOrigin(toolName: string, args: Record<string, unknown>): string | undefined {
+  if (toolName.toLowerCase() === 'browser') return originOf(browserTarget(args))
+  if (!ORIGIN_SCOPED_TOOLS.has(toolName.toLowerCase()) || typeof args.url !== 'string') return undefined
+  try {
+    const origin = new URL(args.url).origin
+    return origin === 'null' ? undefined : origin
+  } catch {
+    return undefined
   }
 }
 
@@ -103,13 +146,20 @@ export function resolvePermission(
     const decisions = args.paths.map(path => resolvePermission(permissions, toolName, { path }))
     return decisions.includes('deny') ? 'deny' : decisions.includes('ask') ? 'ask' : 'allow'
   }
+  if (toolName.toLowerCase() === 'browser' && args.action === 'batch' && Array.isArray(args.steps)) {
+    // Each step is judged on its own, on the page the batch acts on.
+    const decisions = args.steps.map(step => resolvePermission(permissions, 'browser', { ...(step as Record<string, unknown>), __origin: args.__origin }))
+    return decisions.includes('deny') ? 'deny' : decisions.includes('ask') ? 'ask' : 'allow'
+  }
   if (toolName.toLowerCase() === 'grep' && Array.isArray(args.patterns)) {
     const decisions = args.patterns.map(pattern => resolvePermission(permissions, 'grep', { pattern }))
     return decisions.includes('deny') ? 'deny' : decisions.includes('ask') ? 'ask' : 'allow'
   }
   const normalizedToolName = toolName.toLowerCase()
+  // Reading a browser page the user already approved needs no prompt; navigating and acting do.
   const defaultDecision = (): PermissionDecision =>
-    normalizedToolName === 'shell' || normalizedToolName === 'web_fetch' ? 'ask' : 'allow'
+    normalizedToolName === 'shell' || normalizedToolName === 'web_fetch' || (normalizedToolName === 'browser' && browserActionKind(args) !== 'read') ||
+    (normalizedToolName === 'dev_server' && args.action === 'start') ? 'ask' : 'allow'
 
   if (!permissions) return defaultDecision()
 
@@ -132,6 +182,6 @@ export function resolvePermission(
   // If allow rules exist but nothing matched, ask. Deny-only policies retain
   // their historical allow fallback for ordinary tools, but shell/network
   // capabilities remain approval-gated by default.
-  if (allowRules.length > 0) return 'ask'
+  if (allowRules.length > 0 && !(normalizedToolName === 'browser' && browserActionKind(args) === 'read')) return 'ask'
   return defaultDecision()
 }

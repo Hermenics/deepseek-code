@@ -459,7 +459,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
 
   const activate = async (definition: SettingDefinition) => {
     if (!snapshot || busy) return
-    if (definition.path === 'interface.subagentStatusLine' && scope !== 'user') {
+    if ((definition.path === 'interface.subagentStatusLine' || definition.path === 'permissions.autoApproveLowRisk') && scope !== 'user') {
       setStatus('Ignored outside User scope · switch to User to edit')
       return
     }
@@ -576,7 +576,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
       void repository.unset(scope, item.path).then(async next => {
         setSnapshot(next)
         await props.onSettingsChanged?.(next.effective, next)
-        setStatus(item.path === 'interface.subagentStatusLine' && scope !== 'user'
+        setStatus((item.path === 'interface.subagentStatusLine' || item.path === 'permissions.autoApproveLowRisk') && scope !== 'user'
           ? 'Ignored override removed · User scope controls this setting'
           : 'Override removed · inherited value active')
       }).catch(error => setStatus(`Error: ${error.message}`))
@@ -591,7 +591,7 @@ export default function ConfigMenu(props: ConfigMenuProps) {
   const scopeValue = item && snapshot && !item.path.startsWith('$') ? valueAt(snapshot.levels[scope].data, item.path) : undefined
   const defaultValue = item && !item.path.startsWith('$') ? valueAt(DEFAULT_SETTINGS, item.path) : undefined
   const invalidScope = snapshot?.levels[scope].error
-  const statusLineRestricted = item?.path === 'interface.subagentStatusLine' && scope !== 'user'
+  const statusLineRestricted = (item?.path === 'interface.subagentStatusLine' || item?.path === 'permissions.autoApproveLowRisk') && scope !== 'user'
 
   const Header = () => (
     <Box flexDirection="column" flexShrink={0}>

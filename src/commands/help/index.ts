@@ -16,6 +16,7 @@ export const HELP_TEXT = `Commands:
   /model [name]          choose a model
   /config (or /settings) open settings
   /features [flag] [on|off]  manage experimental features
+  /browser [show|hide|close]  agent browser status, watch it in a window, or close it
   /clear                  clear this chat
   /compact                summarize history
   /plan <task>           plan a task

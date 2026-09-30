@@ -301,7 +301,7 @@ export function InputBox({
   const submitOrQueueWhileLoading = (value: string, images: PromptImage[] = []) => {
     const text = value.trim()
     if (!text) return
-    if (/^\/workflows(?:\s|$)|^\/workflow\s+(?:pause|resume|stop)\b/.test(text)) submitPrompt(text, images)
+    if (/^\/workflows(?:\s|$)|^\/workflow\s+(?:pause|resume|stop)\b|^\/browser(?:\s|$)/.test(text)) submitPrompt(text, images)
     else if (images.length > 0) onQueue?.(text, images)
     else onQueue?.(text)
   }

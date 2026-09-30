@@ -71,6 +71,8 @@ export type CommandResult =
   | { type: 'features'; action: 'toggle'; flag: string }
   | { type: 'features'; action: 'set'; flag: string; value: boolean }
   | { type: 'features'; action: 'error'; message: string }
+  | { type: 'browser'; action: 'status' | 'show' | 'hide' | 'close' }
+  | { type: 'browser'; action: 'error'; message: string }
   | { type: 'logout' }
   | { type: 'cwd'; path?: string }
   | { type: 'mobile' }

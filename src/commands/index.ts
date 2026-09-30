@@ -37,6 +37,7 @@ import worktree from './worktree/index.js'
 import mobile from './mobile/index.js'
 import logout from './logout/index.js'
 import features from './features/index.js'
+import browser from './browser/index.js'
 import { resolveCustomCommand } from './custom.js'
 import { resolveWorkflowCommand } from '../workflows/commands.js'
 import goal from './goal/index.js'
@@ -92,6 +93,7 @@ const commands: Command[] = [
   background,
   addDir,
   features,
+  browser,
 ]
 
 /** Matches input against built-in commands by name or alias. Returns null for non-slash input and an `unknown` result for unrecognised commands. */
