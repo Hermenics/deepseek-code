@@ -3,7 +3,6 @@ import React from 'react'
 import { PassThrough } from 'node:stream'
 import { renderSync } from '../../../src/ink/root.js'
 import { InputBox } from '../../../src/ui/input/InputBox.js'
-import { setFullscreenActive } from '../../../src/utils/fullscreen.js'
 
 class FakeTerminal extends PassThrough {
   isTTY = true
@@ -83,8 +82,7 @@ test('Left also opens the activity footer from an empty input for Claude-compati
   }
 })
 
-test('hides the fullscreen hint after the first input character', async () => {
-  setFullscreenActive(true)
+test('does not render the fullscreen configuration hint', async () => {
   const stdin = new FakeTerminal()
   const stdout = new FakeTerminal()
   const chunks: string[] = []
@@ -95,7 +93,6 @@ test('hides the fullscreen hint after the first input character', async () => {
       isLoading={false}
       toolCallCount={0}
       workingDirectory={process.cwd()}
-      showFullscreenHint
     />,
     {
       stdin: stdin as unknown as NodeJS.ReadStream,
@@ -111,14 +108,8 @@ test('hides the fullscreen hint after the first input character', async () => {
     const normalize = (raw: string) => raw
       .replace(/\x1b\[\d*C/g, ' ')
       .replace(/\x1b\[[?0-9;]*[a-zA-Z]/g, '')
-    expect(normalize(chunks.join(''))).toContain("Don't like this screen? Change it in /config")
-    chunks.length = 0
-
-    stdin.write('a')
-    await Bun.sleep(100)
     expect(normalize(chunks.join(''))).not.toContain("Don't like this screen? Change it in /config")
   } finally {
-    setFullscreenActive(false)
     stdout.isTTY = false
     instance.unmount()
     instance.cleanup()

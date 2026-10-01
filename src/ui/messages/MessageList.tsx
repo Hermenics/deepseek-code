@@ -12,6 +12,7 @@ import type { ThemeName } from '../theme.js'
 import pkg from '../../../package.json' with { type: 'json' }
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
+import { DeepSeekMascot } from '../layout/WelcomeScreen.js'
 import { useClock } from '../clock.js'
 import { isFullscreenActive } from '../../utils/fullscreen.js'
 import { stepToolFlags } from './steps.js'
@@ -332,56 +333,50 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = t
   )
 }
 
-/** Transcript header with mascot, version, provider, active agent and cwd; collapses to a text-only header under 60 columns. */
-export function Header({ provider, agentName, theme = 'dark' }: { provider: string; agentName: string | null; theme?: ThemeName }) {
+/** Transcript context; the welcome animation replaces the static mascot only when it can fit. */
+export function Header({ provider, agentName, theme = 'dark', showMascot = false, reducedMotion = false }: { provider: string; agentName: string | null; theme?: ThemeName; showMascot?: boolean; reducedMotion?: boolean }) {
   const colors = getThemeColors(theme)
   const cols = process.stdout.columns ?? 80
   const isNarrow = cols < 60
 
-  if (isNarrow) {
+  if (showMascot) {
     return (
-      <Box flexDirection="column" marginLeft={1} marginTop={1}>
-        <Box flexDirection="row" gap={1}>
-          <Text color={colors.primary}>{STATUS_ICONS.agent + ' DeepSeek Code'}</Text>
-          <Text color={colors.textDim}>{'v' + pkg.version}</Text>
+      <Box flexDirection="row" gap={2} marginLeft={1} marginTop={1}>
+        <DeepSeekMascot theme={theme} blink={!reducedMotion} />
+        <Box flexDirection="column" flexShrink={1}>
+          <Text color={colors.primary} wrap="truncate">{STATUS_ICONS.agent + ' DeepSeek Code'}</Text>
+          {!isNarrow && <Text color={colors.textDim} wrap="truncate">{`v${pkg.version} · ${provider}`}</Text>}
+          {agentName && <Text color={colors.h3} wrap="truncate">{`[${agentName}]`}</Text>}
+          {!isNarrow && <Box flexDirection="row" gap={1}>
+            <Text color={colors.textDim}>cwd:</Text>
+            <Text color={colors.info} wrap="truncate-middle">{process.cwd()}</Text>
+          </Box>}
+          <Text color={colors.textDim}>{isNarrow ? '/help · /quit' : '@ files · / commands · /help'}</Text>
         </Box>
-        {agentName && <Text color={colors.h3}>{'[' + agentName + ']'}</Text>}
-        <Text color={colors.textDim}>{'/help  ·  /quit to exit'}</Text>
       </Box>
     )
   }
 
   return (
-    <Box flexDirection="row" gap={2} marginLeft={1} marginTop={1}>
-      <Box flexDirection="column" flexShrink={0}>
-        <Text color={colors.primary}>{'  ▄▄███▄▄'}</Text>
-        <Text color={colors.h2}>{' ▄█ ◉    ██▄'}</Text>
-        <Text color={colors.primary}>{'█          ~~█'}</Text>
-        <Text color={colors.h2}>{' ▀▄▄█▄▄▄▄█▀'}</Text>
+    <Box flexDirection="column" marginLeft={1} marginTop={1}>
+      <Box flexDirection="row" gap={1}>
+        <Text color={colors.primary}>{STATUS_ICONS.agent + ' DeepSeek Code'}</Text>
+        <Text color={colors.textDim}>{`v${pkg.version} · ${provider}`}</Text>
+        {agentName && <Text color={colors.h3}>{`[${agentName}]`}</Text>}
       </Box>
-      <Box flexDirection="column" flexShrink={1}>
-        <Box flexDirection="row" gap={1}>
-          <Text color={colors.primary}>{STATUS_ICONS.agent + ' DeepSeek Code'}</Text>
-          <Text color={colors.textDim}>{'v' + pkg.version}</Text>
-          <Text color={colors.textDim}>{'·'}</Text>
-          <Text color={colors.textDim}>{provider}</Text>
-          {agentName && <>
-            <Text color={colors.textDim}>{'·'}</Text>
-            <Text color={colors.h3}>{'[' + agentName + ']'}</Text>
-          </>}
-        </Box>
+      {!isNarrow && (
         <Box flexDirection="row" gap={1}>
           <Text color={colors.textDim}>cwd:</Text>
-          <Text color={colors.info}>{process.cwd()}</Text>
+          <Text color={colors.info} wrap="truncate-middle">{process.cwd()}</Text>
         </Box>
-        <Text color={colors.textDim}>{'/help for commands  ·  /quit to exit'}</Text>
-      </Box>
+      )}
+      {cols < 70 && <Text color={colors.textDim}>{isNarrow ? '/help · /quit' : '@ files · / commands · /help'}</Text>}
     </Box>
   )
 }
 
 /** Renders the conversation: header, messages (collapsing each turn's tool work to a "Work truncated" divider unless fullMode), a changed-files summary, live thinking and the currently streaming reply. */
-export function MessageList({ messages, streamText, thinkingText, streamRole = 'assistant', liveTool = null, theme, activeAgent, headerProvider, headerAgent, showHeader = true, showToolCalls = true, showDiffs = true, showWordDiff = true, density = 'comfortable', fullMode = false, reducedMotion = false, thinkingStartedAt = null, onOpenDiff }: {
+export function MessageList({ messages, streamText, thinkingText, streamRole = 'assistant', liveTool = null, theme, activeAgent, headerProvider, headerAgent, showHeaderMascot = false, showToolCalls = true, showDiffs = true, showWordDiff = true, density = 'comfortable', fullMode = false, reducedMotion = false, thinkingStartedAt = null, onOpenDiff }: {
   messages: Message[]
   streamText: string
   thinkingText?: string
@@ -391,8 +386,7 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
   theme: ThemeName
   activeAgent?: string | null
   headerProvider?: string
-  /** False when the caller pins the header outside the scrolling transcript. */
-  showHeader?: boolean
+  showHeaderMascot?: boolean
   headerAgent?: string | null
   showToolCalls?: boolean
   showDiffs?: boolean
@@ -423,7 +417,7 @@ export function MessageList({ messages, streamText, thinkingText, streamRole = '
 
   return (
     <Box flexDirection="column" marginBottom={density === 'compact' ? 0 : 1}>
-      {showHeader && <Header provider={headerProvider ?? 'deepseek'} agentName={headerAgent ?? null} theme={theme} />}
+      <Header provider={headerProvider ?? 'deepseek'} agentName={headerAgent ?? null} theme={theme} showMascot={showHeaderMascot} reducedMotion={reducedMotion} />
       {displayMessages.map((item) => {
         if (item.kind === 'truncated') {
           return <Box key={`truncated-${item.index}`} marginTop={1}><Text color={colors.textSubtle}>{dividerLine(WORK_TRUNCATED_LABEL)}</Text></Box>

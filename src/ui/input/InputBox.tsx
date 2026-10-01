@@ -1,4 +1,4 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import useInput from '../../ink/hooks/use-input.js'
 import type { Key } from '../../ink/events/input-event.js'
 import { loadInputHistory } from '../../agent/inputHistory.js'
@@ -21,8 +21,6 @@ import { CommandDropdown } from './render/CommandDropdown.js'
 import { FileDropdown } from './render/FileDropdown.js'
 import { InputChrome } from './render/InputChrome.js'
 import Box from '../../ink/components/Box.js'
-import measureElement from '../../ink/measure-element.js'
-import type { DOMElement } from '../../ink/dom.js'
 import Text from '../../ink/components/Text.js'
 import { getAtMention, searchFiles } from './fileMatcher.js'
 import { isFullscreenActive } from '../../utils/fullscreen.js'
@@ -106,11 +104,10 @@ export function InputBox({
   onAgentsOpen,
   isActive = true,
   placeholderOverride,
-  showFullscreenHint = false,
   keybindings,
   suggestedReply,
   onSuggestedReplyDismiss,
-  onHeightChange,
+  onDraftChange,
 }: {
   onSubmit: (text: string, images?: PromptImage[]) => void
   isLoading: boolean
@@ -134,13 +131,11 @@ export function InputBox({
   /** ← on an empty prompt opens the command center (Codex's agents shortcut); ↓ keeps opening activity. */
   onAgentsOpen?: () => void
   isActive?: boolean
-  /** Show the "switch it in /config" hint. Caller hides it once the conversation starts. */
-  showFullscreenHint?: boolean
   /** Optional resolved settings; omitted values retain the built-in defaults. */
   keybindings?: KeybindingsSettings
   suggestedReply?: string
   onSuggestedReplyDismiss?: () => void
-  onHeightChange?: (height: number) => void
+  onDraftChange?: (active: boolean) => void
 }) {
   const theme = useTheme()
   const colors = useThemeColors()
@@ -149,7 +144,6 @@ export function InputBox({
   // Same wrap as InputLine draws (+1: Cursor.fromText reserves a cell), so ↑/↓ reach history only from the first/last drawn line.
   const cursorCols = inputWrapWidth(inputCols) + 1
   const [cursor, setCursor] = useState(() => Cursor.fromText('', cursorCols))
-  const [fullscreenHintVisible, setFullscreenHintVisible] = useState(showFullscreenHint)
   const [pastedTexts, setPastedTexts] = useState<string[]>([])
   const [pastedImages, setPastedImages] = useState<PromptImage[]>([])
   const [imageNotice, setImageNotice] = useState<string | null>(null)
@@ -166,22 +160,15 @@ export function InputBox({
   }
   const bufferRef = useRef(new InputBuffer())
   const fileSearchRequestRef = useRef(0)
-  const inputRef = useRef<DOMElement>(null)
-
-  useLayoutEffect(() => {
-    if (inputRef.current) onHeightChange?.(measureElement(inputRef.current).height)
-  })
-
   useEffect(() => {
-    if (!showFullscreenHint) setFullscreenHintVisible(false)
-  }, [showFullscreenHint])
+    onDraftChange?.(cursor.text.length > 0)
+  }, [cursor.text, onDraftChange])
 
   const updateCursor = (next: Cursor) => {
     fileSearchRequestRef.current++
     setFileMatches([])
     setFileSelectedIdx(0)
     setImageNotice(null)
-    if (next.text.length > 0) setFullscreenHintVisible(false)
     if (next.text.length > 0) onSuggestedReplyDismiss?.()
     setCursor(next)
   }
@@ -555,12 +542,7 @@ export function InputBox({
       : null
 
   return (
-    <Box ref={inputRef} flexDirection="column">
-      {fullscreenHintVisible && showFullscreenHint && isFullscreenActive() && (
-        <Box justifyContent="flex-end">
-          <Text dimColor>{"Don't like this screen? Change it in /config"}</Text>
-        </Box>
-      )}
+    <Box flexDirection="column">
       <Box flexDirection="column" position="relative">
         <InputChrome
           columns={cols}

@@ -1,16 +1,22 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
 
-- Fixed: The installed `deepseek` command starts Bun through Node.js 18+ without loading a project's `.env` or `bunfig.toml`; tests cover both injection paths while preserving user-exported variables.
-- Fixed: `web_fetch` session approvals are scoped to one origin, and Project or Local settings can no longer enable `permissions.autoApproveLowRisk`. Permission prompts show the URL and approval scope; `/permissions` explains the decision order.
-- Added: Images can reach vision models once through a transient, untrusted channel and never enter history. Provider profiles have an Image input setting (Auto/On/Off), and `/model` marks models that accept images. MCP image delivery and cancellation work, and draft 2020-12 schemas no longer break MCP calls.
-- Added: The opt-in `browser` tool drives an installed Chromium-family browser over a debugging pipe, using a temporary profile and clean environment. It provides accessibility snapshots, native input, navigation, tabs, dialogs, screenshots, console and network inspection, `expect`, batches and Playwright test export.
-- Added: Browser navigation and interaction are origin-gated; typing on a public page asks every time, sensitive fields and private-network targets are blocked, and redirects/popups cannot bypass approval. Page-derived text stays inside the untrusted-content envelope.
-- Added: `/browser` status/show/hide/close controls and a status-bar page indicator. `dev_server` reads `.deepseek/launch.json` or `.claude/launch.json`, requires approval for each start or changed entry, waits for readiness, keeps bounded logs, prevents port conflicts and stops its process tree at session or project end.
-- Added: Browser handoff, device/color emulation, workspace-only uploads, quarantined downloads (50 MB maximum, deleted on close) and screenshot ref marks.
-- Enhanced: Browser actions surface new console/network errors and sent request bodies; missing favicons are ignored and errors between turns reach the agent on its next turn.
-- Tests: Browser evals support isolated worker processes, parallel runs and saved transcripts; the comparison reports pass-rate uncertainty, paired differences and cost per pass.
+- Added: The idle fullscreen home screen now reuses the star field and ocean-wave patterns from `WelcomeScreen`, animates the whale across the scene, and shows a short welcome message with useful input shortcuts. It appears only when the session is empty and the terminal has room for it.
+- Changed: The header now scrolls with the transcript instead of remaining pinned, so it no longer takes a permanently reserved strip above the conversation.
+- Enhanced: Inline sessions and terminals too small for the animation keep the whale in its original header position; the animated scene is limited to fullscreen terminals at least 70 columns by 24 rows.
+- Enhanced: The whale blinks by briefly changing its eye from `◉` to `─`, both in the animated scene and the header fallback; reduced-motion settings keep the eye static and stop the swimming animation.
+- Changed: Removed the “Don't like this screen? Change it in /config” hint from above the input.
+- Fixed: The installed `deepseek` launcher starts Bun through Node.js 18+ without importing the current project's `.env` or `bunfig.toml`, while preserving environment variables explicitly exported by the user.
+- Fixed: `web_fetch` approvals now apply only to the approved origin, and Project or Local settings cannot enable `permissions.autoApproveLowRisk`; prompts identify the URL and approval scope, which `/permissions` also explains.
+- Added: Vision-capable models can receive prompt images through a one-turn, untrusted payload that is not written to session history; provider profiles can set image input to Auto, On or Off, and `/model` identifies models that accept images.
+- Fixed: MCP image forwarding and cancellation now work with image-bearing requests, and draft 2020-12 JSON schemas no longer break MCP tool calls.
+- Added: The opt-in `browser` tool controls an installed Chromium-family browser through a debugging pipe and temporary profile, with accessibility snapshots, native input, navigation, tabs, dialogs, screenshots, console/network inspection, `expect`, batched actions and Playwright test export.
+- Added: Browser navigation and interaction require origin approval; public-page typing asks each time, sensitive fields and private-network targets are blocked, and redirects or popups cannot bypass the check. Page content remains marked as untrusted input.
+- Added: `/browser` exposes status, show, hide and close controls plus a status-bar page indicator; `dev_server` reads `.deepseek/launch.json` or `.claude/launch.json`, approves each new or changed launch configuration, waits for readiness, bounds logs, prevents port conflicts and stops the process tree at session or project end.
+- Added: Browser handoff supports device and color emulation, workspace-only uploads, quarantined downloads capped at 50 MB and deleted when the browser closes, and reference marks on screenshots.
+- Enhanced: Browser actions report newly observed console/network errors and request bodies; missing favicons are ignored, and errors found between turns are delivered to the agent on its next turn.
+- Tests: Browser evals can run in isolated workers and in parallel, save transcripts, and compare pass rates with uncertainty, paired differences and cost-per-pass metrics.
 
 ## 0.9.0
 
@@ -409,329 +415,330 @@
 
 ## 0.6.3
 
-- Fixed: Make update notifier cooldown deadline-based — failures now retry after 10 minutes instead of silencing update checks for an hour
-- Docs: Add comprehensive documentation site with release tracking and multi-page navigation
-- CI: Add CodeQL workflow with minimal permissions and simplified configuration
-- Docs: Revise SECURITY.md for clarity
+- Fixed: Update checks now use an explicit cooldown deadline, so a failed check can retry after ten minutes instead of suppressing notifications for an entire hour.
+- Docs: Added a navigable documentation site with separate topic pages and release tracking, making product guidance easier to find than a single long document.
+- CI: Added CodeQL analysis with only the workflow permissions it needs and a simpler configuration.
+- Docs: Clarified `SECURITY.md` so vulnerability-reporting guidance is easier for contributors to follow.
 
 ## 0.6.2
 
-- Docs: Add comprehensive JSDoc comments to public APIs
-- Added: Pass resolved agent config to subagent spawning to avoid duplicate registry lookups
-- Added: Enhance agent loading and generic subagent naming
+- Docs: Added JSDoc contracts across the agent, orchestration, tools and UI APIs, explaining their public inputs and intended use directly beside the code.
+- Enhanced: Subagent creation now receives the already-resolved agent configuration, avoiding a second registry lookup and keeping delegated work aligned with the parent session's configuration.
+- Added: Requests for an unregistered agent name now fall back to sequential generic subagents (`Agent1`, `Agent2`, and so on), while configured specialist names continue to resolve normally.
 
 ## 0.6.1
 
-- Added: Improve activity footer keyboard navigation and detail mode handling
-- Added: Integrate activity footer and workflow monitoring with enhanced subagent tracking
-- Docs: Create comprehensive project report with architecture and assessment
+- Enhanced: The activity footer has clearer keyboard navigation and detail-mode transitions, making it easier to move between active work and inspect a selected run.
+- Added: Connected the activity footer to workflow monitoring and subagent state, so delegated work is represented consistently instead of being detached from its parent activity.
+- Docs: Added an architecture and project assessment report covering the system's structure and current implementation.
 
 ## 0.6.0
 
-- Added: Enhance runtime stability, safety, and configuration
-- Added: Workflow management system with CLI commands and authorization
+- Enhanced: Workflow discovery, storage, execution and repository settings received stability and safety fixes, with regression coverage for malformed or changing workflow configuration.
+- Added: Workflow management commands for discovering and controlling saved workflows, with authorization checks governing their execution.
 
 ## 0.5.0
 
-- Refactored: Strengthen hook executor safety and expand test coverage
-- Refactored: Address CodeRabbit PR #12 findings across kernel modules
-- Added: Orchestration kernel with store, events, threads, and workspace management
-- Docs: Reorganize skill documentation and expand SDD architecture
+- Added: Introduced the orchestration kernel's persistent store, event bus, thread and task runtimes, workflow engine, and workspace ownership layer as shared foundations for coordinated agent work.
+- Refactored: Hardened hook execution and compatibility imports, and simplified kernel hook/workflow runtimes; expanded tests around lifecycle, persistence and workspace boundaries.
+- Refactored: Applied the remaining review findings across kernel modules, including event delivery, migrations, task state and workspace path ownership.
+- Docs: Reorganized skill guidance and expanded the SDD architecture material to explain how the new orchestration pieces fit together.
 
 ## 0.4.15
 
-- Chore: Add pull request template with validation checklist
-- CI: Enhance workflow security and restrict checkout permissions
-- Tests: Refactor Bedrock MCP tool test and export helper
-- Chore: Improve artifact validation and add rollback on build failure
-- Chore: Add artifact rebuild step before publishing
-- Chore: Reorganize CI/CD pipeline and modernize testing infrastructure
+- Chore: Added a pull-request template with a validation checklist so proposed changes carry consistent review and verification details.
+- CI: Restricted checkout workflow permissions and tightened automation security.
+- Tests: Extracted reusable Bedrock MCP test helpers and updated coverage for the tool's exported behavior.
+- Chore: Release packaging now validates built artifacts and rolls back the release flow when validation fails, preventing a broken package from being published.
+- Chore: Rebuilds release artifacts after version changes so the published bundle reflects the version being released.
+- CI: Reorganized the CI/CD workflows and testing infrastructure to make build, validation and publication stages more explicit.
 
 ## 0.4.14
 
-- Tests: Add terminal and plugin regression coverage
+- Tests: Added regression coverage for terminal behavior and plugin integration, catching breakage in both interactive UI flows and extension loading.
 
 ## 0.4.13
 
-- Added: Make project MCP servers opt-in and require Bun 1.1+
-- Chore: Enhance craco configuration with health check and dev server improvements
+- Added: Project-configured MCP servers are opt-in instead of starting implicitly, and the project requires Bun 1.1 or newer for this support.
+- Chore: Improved the CRACO development-server configuration with health checks, making local startup failures easier to detect.
 
 ## 0.4.12
 
-- Added: Model descriptions and vim-style navigation
+- Added: Model descriptions make choices easier to distinguish in the selector, while Vim-style navigation adds familiar keyboard movement to the interface.
 
 ## 0.4.11
 
-- Added: Configurable max continuations setting
-- Style: Replace lucide Package icon with custom SVG and add provider documentation links
-- Chore: Add QR code support and upgrade dependencies
+- Added: A configurable maximum continuation count, letting users control how many times the agent may continue a response automatically.
+- Style: Replaced the generic package icon with a project-specific SVG and linked provider entries to their documentation.
+- Chore: Added QR-code support and upgraded project dependencies needed by the new UI and runtime behavior.
 
 ## 0.4.10
 
-- Added: Persistent goal management system with continuations
+- Added: Goals now persist between turns and can continue automatically, allowing multi-step objectives to survive individual response boundaries.
 
 ## 0.4.9
 
-- Added: Restructure session storage with project isolation and migration support
-- Added: Enhance quickstart section with decorative SVG and responsive labels
+- Changed: Session storage is isolated by project and migrated to the new layout, preventing sessions from different workspaces from colliding.
+- Enhanced: The website quickstart now uses a responsive layout and decorative SVG artwork so setup guidance remains legible across viewport sizes.
 
 ## 0.4.8
 
-- Refactored: Separate tool error handling from execution logic
+- Refactored: Separated tool error handling from tool execution, keeping failure reporting out of each tool's main execution path.
 
 ## 0.4.7
 
-- Added: Legacy .claude directory migration and duplicate detection
-- Chore: Update skills directory path from .claude to .deepseek
+- Added: Migration from legacy `.claude` skill directories into `.deepseek`, with duplicate detection to avoid silently overwriting existing skills.
+- Changed: Skill discovery now uses the `.deepseek` directory path, matching the project's own configuration namespace.
 
 ## 0.4.6
 
-- Added: Enhance terminal mock with animated scene playback and streaming effects
+- Enhanced: The landing-page terminal mock now plays its scene with timed animation and streamed output, making the demo feel like a live CLI session rather than a static transcript.
 
 ## 0.4.5
 
-- Added: Safety validation and structured auto-memory extraction
-- Added: Enhance landing page with npm downloads display and install script
-- Added: Landing page with React and Tailwind CSS
+- Added: Automatic memory extraction now validates and structures candidate facts before saving them, reducing malformed or unsafe entries in future context.
+- Added: The landing page shows npm download activity and provides an install script, giving visitors a direct path from product discovery to installation.
+- Added: Introduced the React and Tailwind CSS landing page as the public product entry point.
 
 ## 0.4.4
 
-- Added: Diagnostic tools, project guidance, LSP integration, and session export
+- Added: `/doctor`, `/verify` and `/catalog`, project-guidance loading, a language-server tool, and session export so users can inspect setup, validate work, query the model catalog and carry a session outside the CLI.
 
 ## 0.4.3
 
-- Added: Granular directory-level approval system for external paths
+- Added: External workspace access can now be approved per directory, allowing a task to use a specific trusted path without granting blanket access to every location outside the project.
 
 ## 0.4.2
 
-- Added: Experimental features system and enhanced micro-compaction
+- Added: A feature registry and `/features` command for discovering and controlling experimental capabilities without exposing them as unconditional defaults.
+- Enhanced: Micro-compaction now preserves more useful context while trimming redundant conversation content, reducing prompt growth during long sessions.
 
 ## 0.4.1
 
-- Added: Work divider to separate tool execution from replies
+- Added: A visible work divider between tool activity and the assistant's reply, making the transition from execution to response easier to scan.
 
 ## 0.4.0
 
-- Added: Side-question system and replace msg command
+- Added: A side-question flow for asking the agent a brief follow-up while its main task continues; `/btw` replaces the older `/msg` command and routes the answer without cancelling that work.
 
 ## 0.3.12
 
-- Refactored: Improve vim mode, compaction, and UI robustness
-- Added: Design system, enhanced vim mode, word-level diffs, and tiered compaction
+- Refactored: Hardened Vim-mode editing, compaction and terminal rendering so navigation and long-session UI state remain consistent under more input shapes.
+- Added: Introduced shared design tokens, word-level diff highlighting and tiered compaction, making visual styling consistent and letting context cleanup preserve more useful detail when possible.
 
 ## 0.3.11
 
-- Added: Enhance QR code UI with theme support and improved navigation
+- Enhanced: The mobile-authentication QR screen now follows the active theme and has clearer keyboard navigation through its available actions.
 
 ## 0.3.10
 
-- Docs: Add comprehensive project report and refactor worktree, border rendering, and UI
+- Docs: Added a project architecture and status report; refactored worktree handling, border rendering and shared UI components to make those areas easier to maintain.
 
 ## 0.3.9
 
-- Added: Error handling to QR code generation
-- Added: QR code generation for mobile authentication
+- Added: QR-code generation for mobile authentication so a phone can pair with the local CLI session.
+- Fixed: QR generation now reports failures through the application instead of leaving the pairing screen without a useful explanation.
 
 ## 0.3.8
 
-- Fixed: Improve text rendering and wrapping behavior in ConfigMenu narrow layout
+- Fixed: The Config menu now wraps and renders text correctly in narrow terminals, keeping labels and values readable instead of clipping or colliding.
 
 ## 0.3.7
 
-- Fixed: Restore focus state when navigating back in narrow layout
+- Fixed: Returning from a nested settings view now restores the previous focus in narrow layouts, so keyboard navigation does not jump to the wrong row.
 
 ## 0.3.6
 
-- Added: Multi-agent session orchestration system
+- Added: Introduced multi-agent session orchestration to coordinate delegated agents and their shared task state within one session.
 
 ## 0.3.5
 
-- Added: Cwd command and improve worktree session tracking
+- Added: `/cwd` for inspecting or changing the active working directory and improved session tracking for Git worktrees, keeping each workspace associated with the right conversation.
 
 ## 0.3.4
 
-- Added: Logout command and handler
+- Added: `/logout` to clear stored credentials and API keys, reset the active provider configuration and return the CLI to its unauthenticated setup state.
 
 ## 0.3.3
 
-- Fixed: Handle alternate screen buffer history on frame invalidation
+- Fixed: Frame invalidation now preserves the terminal's alternate-screen history, preventing a redraw from erasing or corrupting the visible session.
 
 ## 0.3.2
 
-- Style: Adjust effort selector track width calculation
-- Tests: Improve testability with version getter export
+- Fixed: Corrected the effort-selector track-width calculation so its indicator stays aligned with the available terminal width.
+- Tests: Exported a version getter to test update-notifier behavior without depending on package metadata side effects.
 
 ## 0.3.1
 
-- Added: Improve settings layout responsiveness and input handling
+- Enhanced: Settings panels now adapt their layout and input handling to the terminal dimensions, keeping controls usable as the viewport narrows.
 
 ## 0.3.0
 
-- Added: Comprehensive settings management and library UIs
+- Added: Introduced the settings-management framework and reusable library UIs that later configuration screens can share instead of implementing their own navigation and editing behavior.
 
 ## 0.2.17
 
-- Added: Replace silent auto-update with interactive update prompt
+- Changed: The update notifier now asks before installing instead of silently replacing the global CLI, letting users choose when the new version is applied.
 
 ## 0.2.16
 
-- Added: Replace write_file with dedicated write_plan tool in plan mode
+- Changed: Plan mode now writes plans through a dedicated `write_plan` tool instead of `write_file`, keeping planning artifacts separate from edits to project files.
 
 ## 0.2.15
 
-- Added: Enchant preference persistence and initialization
+- Fixed: The Enchant prompt-refinement preference is initialized from saved settings and persisted when changed, so the user's choice remains consistent across CLI launches.
 
 ## 0.2.14
 
-- Added: Plan mode interaction with approval workflow
-- Fixed: Correct comment grammar and clarity
+- Added: The Plan-mode approval flow: the agent can present a proposed approach for review and waits for approval before carrying out the planned work.
+- Docs: Corrected the Bedrock comment text so its explanation matches the behavior it describes.
 
 ## 0.2.13
 
-- Added: Consolidate settings into unified config command
+- Changed: Consolidated configuration entry points into `/config`, giving users one place to inspect and update settings instead of separate settings flows.
 
 ## 0.2.12
 
-- Added: Context breakdown tracking and worktree support
-- Chore: Update CEO model to Claude Opus 4.6
+- Added: Context-usage breakdowns and Git-worktree awareness, so users can see what consumes the model context and sessions can follow the workspace they are operating in.
+- Chore: Updated the built-in CEO agent's configured model to GPT 5.5.
 
 ## 0.2.11
 
-- Chore: Update reviewer model to gpt-5.6-luna
+- Chore: Updated the built-in reviewer agent's model configuration to `gpt-5.6-luna`.
 
 ## 0.2.10
 
-- Fixed: Correct footer height calculation and clarify component breakdown
+- Fixed: Corrected the footer-height calculation so terminal content reserves the right number of rows; clarified the component breakdown to make future layout changes safer.
 
 ## 0.2.9
 
-- Added: Remove enchant alias and add abort on escape key
-- Tests: Update /model and /models command parsing expectations
-- Chore: Upgrade AWS SDK, React, and testing dependencies
+- Changed: Removed the `/enchant` alias and made Escape abort the active operation, reducing command ambiguity and providing a direct cancellation key.
+- Tests: Updated `/model` and `/models` parsing coverage to reflect their distinct command behavior.
+- Chore: Upgraded AWS SDK, React and test dependencies to keep provider integrations and the terminal UI on supported versions.
 
 ## 0.2.8
 
-- Added: Consolidate model selection and add interactive effort selector
+- Added: Consolidated model selection and introduced an interactive effort selector, so users can change the active model and reasoning depth through the terminal UI.
 
 ## 0.2.7
 
-- Added: Fix concurrency and memory isolation in subagent loops
-- Docs: Update CEO agent git operation requirements with explicit permission rule
-- Added: 3 fixed specialist agents (coder, reviewer, tester) with async communication
-- Tests: Update timeout and iteration limit validation ranges
-- Chore: Increase timeout and iteration limits
+- Fixed: Isolated subagent memory by task and corrected loop concurrency, preventing parallel delegates from overwriting or reading one another's state.
+- Added: Fixed coder, reviewer and tester specialists with asynchronous communication, giving delegated work clearer roles and a way to report progress.
+- Changed: The CEO agent's Git guidance now requires explicit permission for repository changes.
+- Tests: Expanded valid timeout and iteration-limit ranges and updated their boundary tests.
+- Chore: Increased timeout and iteration ceilings to accommodate longer delegated tasks.
 
 ## 0.2.6
 
-- Added: Customizable agent color to input chrome
-- Added: Edit_file tool for surgical line-level edits
+- Added: A configurable agent color in the input chrome, making the active agent easier to distinguish at a glance.
+- Added: `edit_file` for targeted line-level modifications, avoiding whole-file rewrites when a small surgical change is enough.
 
 ## 0.2.4
 
-- Fixed: Harden plugin system reliability and correctness
-- Added: Plugin management system with install, list, remove, and update commands
+- Fixed: Hardened plugin discovery and lifecycle handling so malformed or changing plugin state is less likely to break the CLI.
+- Added: Plugin install, list, remove and update commands, allowing users to manage extensions from the CLI.
 
 ## 0.2.3
 
-- Fixed: Improve multiline input history navigation and text wrapping
+- Fixed: Multiline input history now restores and navigates wrapped entries consistently, keeping the cursor on the expected visual line when terminal width changes.
 
 ## 0.2.2
 
-- Chore: Add local settings file to gitignore
+- Chore: Added the local settings file to `.gitignore`, preventing machine-specific configuration from being accidentally committed.
 
 ## 0.2.1
 
-- Added: Installer command and registry for skill management
-- Added: JSON output mode and permissions UI
-- Chore: Remove THINKING.md file
+- Added: A skill registry and installer command so users can discover and install reusable agent skills through the CLI.
+- Added: JSON output mode for scripted use and a permissions UI for inspecting and managing tool access.
+- Chore: Removed the `THINKING.md` file from the project tree.
 
 ## 0.2.0
 
-- Added: Push input to bottom by calculating dynamic content height
+- Fixed: The input now stays at the bottom of the terminal by measuring content height dynamically, rather than relying on a fixed layout that drifted as the transcript grew.
 
 ## 0.1.16
 
-- Chore: Remove dead code — unused subsystems, deps and imports
+- Chore: Removed unused subsystems, dependencies and imports that were no longer part of the active CLI, reducing maintenance overhead and avoiding shipping dead code.
 
 ## 0.1.15
 
-- Fixed: Replace pastedBlock state with indexed pastedTexts array
-- Added: Support for bracketed paste with text placeholders
-- Fixed: Improve role prefix stripping and tool call parsing
-- Chore: Remove oauth system prompt file
-- Refactored: Remove proxy and oauth modules, simplify provider architecture
+- Fixed: Replaced the single pasted-block state with indexed pasted-text entries, keeping multiple paste payloads separate while the prompt is edited.
+- Added: Bracketed-paste support with visible text placeholders, so large terminal pastes remain addressable as one input unit.
+- Fixed: Improved role-prefix stripping and tool-call parsing so provider-formatted responses are less likely to leak control text into the conversation.
+- Refactored: Removed the obsolete proxy and OAuth modules and simplified provider setup around the supported direct API flows.
+- Chore: Removed the OAuth-specific system prompt that was no longer used after the provider architecture change.
 
 ## 0.1.14
 
-- Chore: Simplify release script to minimal implementation
+- Chore: Simplified the release script to a minimal publish flow, making the steps performed during a version release easier to follow.
 
 ## 0.1.13
 
-- Fixed: Reduce default context limit to 128K for unknown models
-- Added: Update DeepSeek models to V4 with 1M context windows
+- Fixed: Unknown models now default to a conservative 128K context limit instead of assuming a larger window the provider may not support.
+- Added: Updated the DeepSeek model catalog for V4 and its one-million-token context windows, keeping model selection and context accounting aligned with the provider.
 
 ## 0.1.12
 
-- Added: Enchant-prompt command to toggle prompt refinement
-- Docs: Translate ADRs and architecture docs to English, reorganize proxy module
-- Chore: Remove .reversa configuration directory
+- Added: A command to turn Enchant prompt refinement on or off without editing configuration files.
+- Docs: Translated architecture decision records and reorganized the proxy documentation so contributors can follow the design in English.
+- Chore: Removed the obsolete `.reversa` configuration directory from the project.
 
 ## 0.1.11
 
-- Chore: Clean up Claude agent directories and update demo
-- Chore: Translate .claude agents to English, remove skills and task files
-- Chore: Remove CLAUDE.md from public repo
-- Docs: Add CONTRIBUTING.md for open-source contributors
-- Docs: Rewrite README for open-source release
+- Chore: Removed private Claude agent directories and refreshed the public demo so the repository presents the shipped DeepSeek Code product.
+- Chore: Translated retained agent definitions and removed project-specific skills and task files that were not part of the public distribution.
+- Chore: Removed `CLAUDE.md` from the public repository to avoid publishing machine- or workflow-specific instructions.
+- Docs: Added `CONTRIBUTING.md` with guidance for outside contributors.
+- Docs: Rewrote the README for the public release, covering installation and the project's user-facing capabilities.
 
 ## 0.1.10
 
-- Chore: Remove build skip logic and always rebuild on version bump
-- Chore: Update attribution and add npm auth verification
+- Chore: Version bumps now always rebuild the package instead of relying on skip logic, preventing a release from reusing stale generated artifacts.
+- Chore: Updated package attribution and added an npm-authentication check before publishing, so release failures are caught before the publish step.
 
 ## 0.1.9
 
-- Added: Enhance risk assessment with content-scoped approvals
-- Added: Risk assessment system with configurable rules
+- Added: Configurable risk rules for tool actions, allowing permission decisions to account for the operation being requested.
+- Enhanced: Approval requests now include the relevant action context, so consent applies to the specific risky operation rather than a vague, reusable permission.
 
 ## 0.1.8
 
-- Fixed: Guard memory sync against non-thenable return values
-- Added: Auto-learning memory sync after each turn
-- Chore: Add build step after version bump
+- Fixed: Memory synchronization now handles extraction results that are not promises, avoiding runtime errors when a sync implementation returns synchronously.
+- Added: An automatic memory-sync step after turns, allowing durable context to be extracted without a separate manual command.
+- Chore: Added a build after version changes so published artifacts contain the bumped package metadata.
 
 ## 0.1.7
 
-- Fixed: Handle failed package manager update gracefully
+- Fixed: A failed package-manager update no longer interrupts the current CLI session; the failure is handled and the user can continue working.
 
 ## 0.1.6
 
-- Fixed: Address CodeRabbit review findings
-- Fixed: Require both AWS credentials before using fromEnv()
-- Added: Fix credential resolution and update inference profile IDs
-- Refactored: Remove medium level — DeepSeek API maps it to high
-- Chore: Add agent protocols, skills library, and claude workspace config
-- Chore: Refactor untracked file detection and add phase-aware warnings
+- Fixed: Resolved review findings across the provider and agent paths, including safer AWS credential handling and more reliable Bedrock configuration.
+- Fixed: Bedrock now uses environment-based credentials only when both required AWS credentials are present, avoiding partially configured authentication.
+- Fixed: Corrected credential resolution and refreshed inference-profile identifiers so supported AWS models can be selected and called reliably.
+- Changed: Removed the `medium` effort level because the DeepSeek API maps it to `high`, avoiding a choice that did not produce a distinct provider setting.
+- Added: Reusable agent protocols and a skills library, plus the initial Claude-compatible workspace configuration.
+- Enhanced: Release preparation now detects untracked files more accurately and reports warnings for the phase that introduced them.
 
 ## 0.1.5
 
-- Tests: Disable prompt refiner after agent initialization
-- Added: Prompt refinement to optimize user messages
-- Fixed: Isolate sessionParent tests from mock.module contamination
-- Tests: Import session parent functions directly
-- Chore: Expand release script with options, safety checks, and improved error handling
+- Added: Prompt refinement to improve the wording sent to the model before an agent turn begins.
+- Fixed: Prompt-refiner tests now disable the feature after agent initialization, preventing test setup from changing the behavior being measured.
+- Fixed: Isolated session-parent tests from `mock.module` state so one test's provider mocks cannot contaminate another.
+- Tests: Import session-parent functions directly in focused tests, reducing reliance on broad module mocks.
+- Chore: Expanded the release script with explicit options, safety checks and clearer error handling before versioning or publishing.
 
 ## 0.1.4
 
-- Added: Effort command hint and improve type naming
-- Added: Browser observer, history formatting, and input handling
-- Chore: Update public directory path to external subdirectory
+- Added: An effort-command hint and clarified related type names, making the available reasoning-depth control easier to discover.
+- Added: A browser-page observer that detects when a DeepSeek response has stopped streaming, plus history formatting and input buffering for the browser proxy's tool-aware conversation flow.
+- Chore: Moved public-facing assets into the external public directory used by the project layout.
 
 ## 0.1.3
 
-- Changed: Automatic updates run as a silent background installation instead of showing an update notification or asking the user to install manually; the new version is available on the next launch
-- Changed: Global updates use npm directly, without detecting which package manager installed the CLI
-- Fixed: Update failures no longer interrupt the current session or display an update error in the TUI
+- Changed: Automatic updates install silently in the background; the new CLI version is picked up on the next launch instead of interrupting the current session with an install prompt.
+- Changed: Global updates use npm directly rather than trying to infer which package manager installed the CLI.
+- Fixed: Update failures are kept out of the active TUI flow, allowing the current session to continue when an update cannot be installed.
 
 ## 0.1.2
 
@@ -751,7 +758,7 @@
 
 ## 0.1.0
 
-- Added: Integrate Model Context Protocol (MCP) support and enhance UI components with theme selection and improved message rendering.
-- Added: Diff-based file updates and enhance system documentation with introspectable project docs
-- Added: Prepend current timestamp to user messages in agent loop
-- Added: Agentic tool-use framework with UI and core system capabilities
+- Added: Introduced the agentic tool-use loop and its initial terminal interface, providing the core runtime for asking the model to inspect and change a project.
+- Added: Integrated Model Context Protocol (MCP) tools and added theme selection with clearer message rendering in the UI.
+- Added: Diff-based file updates so project edits can be applied and reviewed as targeted changes instead of opaque full-file replacements.
+- Added: Made project documentation introspectable by the agent and attached the current timestamp to user messages for time-aware work.

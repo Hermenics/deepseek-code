@@ -5,7 +5,7 @@ import { execa } from 'execa'
 import type { Key } from '../ink/events/input-event.js'
 import { Agent, type ToolPermissionRequest, type ToolPermissionResult } from '../agent/agent.js'
 import { approvalOrigin } from '../permissions/matcher.js'
-import { FullModeBar, Header, MessageList, getDiffPayload } from './messages/MessageList.js'
+import { FullModeBar, MessageList, getDiffPayload } from './messages/MessageList.js'
 import { DiffDialog, type DiffLine } from './messages/DiffDialog.js'
 import { TodoPanel } from './messages/TodoPanel.js'
 import { isToolError, previewStreamingArgs, previewToolCallArgs, summarizeToolResult } from './messages/toolDisplay.js'
@@ -22,6 +22,7 @@ import { QueuedMessagesList } from './input/QueuedMessagesList.js'
 import { enqueue, getImmediateBtwQuestion } from './queueLogic.js'
 import { BtwSideQuestion, type BtwState } from './btw/BtwSideQuestion.js'
 import { browserIndicator, StatusBar, type BrowserIndicator } from './layout/StatusBar.js'
+import { canShowHomeAnimation, EmptySessionScreen } from './layout/EmptySessionScreen.js'
 import { ModelSelector } from './setup/ModelSelector.js'
 import { EffortSelector } from './setup/EffortSelector.js'
 import ConfigMenu from './setup/ConfigMenu.js'
@@ -63,12 +64,6 @@ import type { PromptImage, PromptInput } from '../types/input.js'
 export type AgentPhase = 'idle' | 'refining' | 'executing'
 
 /** Pin the header only when the transcript and TODO area retain more than 21 rows; otherwise it scrolls with the transcript. */
-export function shouldPinHeader(rows: number, columns: number, inputHeight: number, fullMode: boolean, largerPromptActive = false): boolean {
-  if (largerPromptActive) return false
-  const headerHeight = columns < 60 ? 4 : 5
-  return rows - headerHeight - inputHeight - 1 - (fullMode ? 1 : 0) > 21
-}
-
 const ACTIVE_SUBAGENT_STATES = new Set<SubagentState['status']>(['queued', 'running', 'blocked'])
 const ACTIVE_WORKFLOW_STATES = new Set<WorkflowRun['status']>(['queued', 'running', 'paused'])
 
@@ -539,7 +534,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const sessionTitleRef = useRef<string | null>(initialSession?.title ?? null)
   const titleRequestedRef = useRef(Boolean(initialSession?.title))
   const [messages, setMessages] = useState<Message[]>([])
-  const [inputHeight, setInputHeight] = useState(3)
+  const [inputHasDraft, setInputHasDraft] = useState(false)
   const [streamText, setStreamText] = useState('')
   const [thinkingText, setThinkingText] = useState('')
   const [streamRole, setStreamRole] = useState<'assistant' | 'terminal'>('assistant')
@@ -2778,11 +2773,13 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }
 
   const termRows = process.stdout.rows || 24
+  const termColumns = process.stdout.columns ?? 80
   const largerPromptActive = Boolean(showModelSelector || showEffortSelector || askUserState || toolPermissionState || planApprovalState || confirmState)
-  const pinHeader = shouldPinHeader(termRows, process.stdout.columns ?? 80, inputHeight, fullMode, largerPromptActive)
   const activityCount = countActiveActivities(subagentsRef.current.agents, activeWorkflowRuns)
   const activityAvailable = hasActivityToOpen(subagentsRef.current.agents, activeWorkflowRuns)
   const focusedAgent = focusedSubagent ? subagentsRef.current.agents.find(a => a.id === focusedSubagent.id) ?? null : null
+  const emptySessionActive = !focusedSubagent && !isLoading && !streamText && !thinkingText && !toolStatus && !btw && queuedMessages.length === 0 && !largerPromptActive
+  const showAnimatedHome = alternateScreen && messages.length === 0 && emptySessionActive && !inputHasDraft && canShowHomeAnimation(termColumns, termRows)
 
   // Fullscreen has no native scrollback: the root is pinned to exactly termRows
   // and the transcript lives in a ScrollBox that keeps itself pinned to the
@@ -2796,11 +2793,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   return (
     <ThemeProvider value={theme}>
     <Box flexDirection="column" width="100%" height={alternateScreen ? termRows : undefined}>
-      {/* Fullscreen pins the header when there is room; otherwise, and in inline mode, it lives in the scrolling transcript. */}
-      {alternateScreen && pinHeader && <Box flexShrink={0}><Header provider={agent.provider ?? headerProvider} agentName={focusedSubagent ? '@' + (focusedSubagent.agentName ?? 'subagent') : headerAgent ?? null} theme={theme} /></Box>}
       <Box flexDirection="row" flexGrow={1}>
       <TranscriptArea flexGrow={1} {...transcriptProps}>
-        <Box flexDirection="column">
+        <Box flexDirection="column" flexGrow={alternateScreen ? 1 : 0}>
           <MessageList
             messages={focusedSubagent
               ? (focusedAgent?.messages ?? [])
@@ -2814,7 +2809,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             activeAgent={focusedSubagent ? (focusedSubagent.agentName ?? 'subagent') : activeAgent}
             headerProvider={agent.provider ?? headerProvider}
             headerAgent={focusedSubagent ? '@' + (focusedSubagent.agentName ?? 'subagent') : headerAgent}
-            showHeader={!alternateScreen || !pinHeader}
+            showHeaderMascot={!showAnimatedHome}
             showToolCalls={interfaceSettings.showToolCalls}
             showDiffs={interfaceSettings.showDiffs}
             showWordDiff={featureFlags.wordDiff}
@@ -2823,6 +2818,16 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             fullMode={fullMode}
             thinkingStartedAt={thinkingStartedAtRef.current}
           />
+          {alternateScreen && messages.length === 0 && (
+            <EmptySessionScreen
+              active={emptySessionActive}
+              draftActive={inputHasDraft}
+              reducedMotion={interfaceSettings.reducedMotion === true}
+              columns={termColumns}
+              rows={termRows}
+              theme={theme}
+            />
+          )}
           {focusedSubagent && focusedAgent && (focusedAgent.status === 'running' || focusedAgent.status === 'queued' || focusedAgent.status === 'blocked') && (
             <Text color={colors.textDim}>
               {`  ◌ ${focusedAgent.lastToolInfo ? `⚙ ${focusedAgent.lastToolInfo} · ` : ''}${focusedAgent.toolCount} tools${focusedAgent.tokens != null ? ` · ↓ ${focusedAgent.tokens >= 1000 ? `${(focusedAgent.tokens / 1000).toFixed(1)}k` : focusedAgent.tokens} tok` : ''}`}
@@ -2903,7 +2908,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           />
         ) : (
           <InputBox
-            onHeightChange={setInputHeight}
             onSubmit={handleSubmit}
             isLoading={isLoading}
             toolCallCount={toolCallCount}
@@ -2923,7 +2927,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             onActivityOpen={() => setActivityOpen(true)}
             onAgentsOpen={focusedSubagent || !onSwitchSession ? undefined : () => setAgentsOpen(true)}
             isActive={!activityOpen}
-            showFullscreenHint={messages.length === 0}
             onExit={onExit}
             placeholderOverride={focusedSubagent ? `Message @${focusedSubagent.agentName ?? 'subagent'}…` : undefined}
             keybindings={interfaceSettings.keybindings ?? initialSettings?.keybindings}
@@ -2932,6 +2935,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               suggestedReplyGenerationRef.current++
               setSuggestedReply(undefined)
             }}
+            onDraftChange={setInputHasDraft}
           />
         )}
         {fullMode && <FullModeBar theme={theme} />}
