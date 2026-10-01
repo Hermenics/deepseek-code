@@ -63,7 +63,8 @@ describe('CdpConnection', () => {
 })
 
 describe('pipeTransport', () => {
-  it('frames messages on NUL across a real pipe, keeping multi-byte text intact', async () => {
+  // Chrome's fd 3/4 debugging pipe is POSIX; Windows uses a different handle-based protocol.
+  it.skipIf(process.platform === 'win32')('frames messages on NUL across a real pipe, keeping multi-byte text intact', async () => {
     const proc = Bun.spawn(['sh', '-c', 'cat <&3 >&4'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] })
     const received: string[] = []
     const transport = pipeTransport(proc.stdio[3] as number, proc.stdio[4] as number)
@@ -82,6 +83,10 @@ describe('launcher', () => {
     expect(chromeArgs('/tmp/p', false)).toContain('--headless')
     expect(chromeArgs('/tmp/p', true)).not.toContain('--headless')
     expect(chromeArgs('/tmp/p', false).some(arg => arg.startsWith('--remote-debugging-port'))).toBe(false)
+  })
+
+  it.skipIf(process.platform !== 'win32')('explains that browser automation is not supported on Windows', () => {
+    expect(() => launchBrowser()).toThrow('The browser tool is not supported on Windows yet.')
   })
 
   it.skipIf(!findChromium() || process.platform === 'win32')('starts a real browser over the pipe and leaves nothing behind when killed', async () => {

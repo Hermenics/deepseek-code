@@ -70,11 +70,14 @@ describe('dev_server permissions', () => {
 })
 
 describe('dev_server lifecycle', () => {
-  it('starts, waits for the port, keeps logs, and stops the whole process group', async () => {
+  it('starts, waits for the port, keeps logs, and stops the server', async () => {
     const port = freePort()
-    // The server is a grandchild behind `sh -c`: stopping must reach it through the process group.
     const script = `Bun.serve({ port: ${port}, fetch: () => new Response('ok') }); console.log('listening on ${port}')`
-    await writeLaunch('.deepseek', [{ name: 'web', runtimeExecutable: 'sh', runtimeArgs: ['-c', `${process.execPath} -e "${script}" & wait`], port }])
+    // POSIX exercises process-group cleanup; Windows checks the direct-child lifecycle.
+    const config = process.platform === 'win32'
+      ? { runtimeExecutable: process.execPath, runtimeArgs: ['-e', script] }
+      : { runtimeExecutable: 'sh', runtimeArgs: ['-c', `${process.execPath} -e "${script}" & wait`] }
+    await writeLaunch('.deepseek', [{ name: 'web', ...config, port }])
     const context = { sessionId: 'test', projectRoot: root, workspacePath: root } as never
     const started = await runDevServer(await withLaunchApproval(root, { action: 'start' }), context)
     expect(started).toContain(`ready at http://localhost:${port}`)

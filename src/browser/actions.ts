@@ -353,6 +353,10 @@ async function emulate(env: ActionEnv, args: Args): Promise<ActionResult> {
     said.push(`${scheme} color scheme`)
   }
   await tab.settle(env.signal)
+  await tab.cdp.send('Runtime.evaluate', {
+    expression: 'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+    awaitPromise: true,
+  }, tab.sessionId)
   return { ok: true, summary: `Emulating ${said.join(' and ')} on this tab` }
 }
 

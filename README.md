@@ -113,7 +113,7 @@ Skills are listed by origin and loaded on demand through the read-only `skill` t
 
 ### Experimental browser
 
-The agent browser is off by default. Enable it with `/features browser on`; this exposes both `browser` and `dev_server` in Build and Auto modes. The browser runs an installed Chrome, Chromium, Edge or Brave over a debugging pipe, with a temporary profile and a clean environment. It uses accessibility snapshots and native browser input for navigation, inspection, interaction, screenshots, downloads and test export.
+The agent browser is off by default. Enable it with `/features browser on`; this exposes both `browser` and `dev_server` in Build and Auto modes. The browser runs an installed Chrome, Chromium, Edge or Brave over a debugging pipe, with a temporary profile and a clean environment. It uses accessibility snapshots and native browser input for navigation, inspection, interaction, screenshots, downloads and test export. Browser automation currently supports Linux and macOS; Windows needs a handle-based DevTools pipe implementation.
 
 Each new origin needs approval. Public-page interaction has a separate approval, and typing or uploading on a public page asks every time. Private-network and metadata addresses are blocked, as are sensitive password, payment and one-time-code fields. Downloads stay in a private temporary directory and are removed when the browser closes. Use `/browser status`, `/browser show`, `/browser hide` or `/browser close` to inspect and control its window; on Linux, a visible window needs `DISPLAY` or `WAYLAND_DISPLAY`.
 

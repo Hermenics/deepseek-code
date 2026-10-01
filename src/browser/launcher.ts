@@ -51,6 +51,7 @@ export function chromeArgs(profileDir: string, visible: boolean): string[] {
  * process exits — closing the pipe alone does not stop Chrome.
  */
 export function launchBrowser(options: LaunchOptions = {}): LaunchedBrowser {
+  if (process.platform === 'win32') throw new Error('The browser tool is not supported on Windows yet.')
   const executable = options.executablePath ?? findChromium()
   if (!executable) throw new Error('No Chrome, Chromium, Edge or Brave found. Install one to use the browser tool.')
   const visible = options.visible === true
