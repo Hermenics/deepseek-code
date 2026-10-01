@@ -112,7 +112,7 @@ export default function ChapterI() {
           { k: "27", v: "core tools" },
           { k: "44", v: "slash commands" },
           { k: "8", v: "run in parallel" },
-          { k: "42k+", v: "lines of source" },
+          { k: "130k+", v: "lines of source" },
         ].map((s) => (
           <div
             key={s.v}
