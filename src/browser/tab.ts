@@ -79,9 +79,8 @@ export class Tab {
   ) {}
 
   /**
-   * Installs the listeners and the request gate. Runs while the target is still paused, so no
-   * request can escape the policy; `enableDomains` must wait until the target resumes, because
-   * Page.enable on a popup paused mid-navigation never answers.
+   * Installs the listeners and request gate while the target is paused, so no request can escape
+   * the policy. `enableDomains` runs after resume because Page.enable on a paused popup can hang.
    */
   async setup(): Promise<void> {
     const on = (method: string, handler: (params: any) => void) => {
@@ -136,12 +135,12 @@ export class Tab {
     })
     on('Fetch.requestPaused', params => { void this.decide(params) })
     await this.cdp.send('Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] }, this.sessionId)
-    // Out-of-process iframes attach through this session too, so the gate sees their documents.
-    await this.cdp.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, this.sessionId)
   }
 
   /** Enables the event domains once the target runs; then reads the URL it may already have loaded. */
   async enableDomains(): Promise<void> {
+    // Out-of-process iframes attach through this session too, so the gate sees their documents.
+    await this.cdp.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, this.sessionId)
     for (const domain of ['Page', 'Runtime', 'Network', 'DOM', 'Accessibility']) await this.cdp.send(`${domain}.enable`, {}, this.sessionId)
     await this.refreshInfo()
   }

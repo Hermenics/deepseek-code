@@ -54,7 +54,11 @@ describe.skipIf(!canRun)('BrowserService with a real browser', () => {
         const point = await tab.pointFor(popupLink.ref!)
         await tab.click(point.x, point.y)
       })
-      await Bun.sleep(500)
+      const popupDeadline = Date.now() + 10_000
+      while ((service.status().contexts.find(context => context.key === key)?.tabs.length ?? 0) < 2 && Date.now() < popupDeadline) {
+        await Bun.sleep(50)
+      }
+      expect(service.status().contexts.find(context => context.key === key)?.tabs).toHaveLength(2)
       expect(service.takeNotes(key).join(' ')).toContain('opened a new tab (1)')
       expect(await service.withTab(key, async tab => { await tab.settle(); await tab.refreshInfo(); return tab.url })).toBe(`${base}/popup`)
 
