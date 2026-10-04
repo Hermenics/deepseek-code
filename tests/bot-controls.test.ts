@@ -8,6 +8,7 @@ import { BotStore, isSqliteBusy } from '../src/bots/store.js'
 import { botControl } from '../src/bots/control.js'
 import { procedureGuard } from '../src/bots/procedures.js'
 import { removeTempDirectory } from './helpers/removeTempDirectory.js'
+import { waitForChildFile } from './helpers/waitForChildFile.js'
 
 function demonstration(store: BotStore, botId: string) {
   const source = store.enqueue(botId, 'Observe the demonstrated procedure')
@@ -125,21 +126,20 @@ it('cannot re-enable a procedure routine using a readiness check from before inv
     const source = demonstration(store, bot.id), procedure = store.learnProcedure(bot.id, source.id, 'observed-method')
     const routine = store.addRoutine(bot.id, { name: 'Observed', prompt: 'Use the observed method', schedule: { kind: 'event', topic: 'fixture' }, procedureId: procedure.id, procedureInputs: { expectedText2: 'Done' } })
     store.setRoutineEnabled(routine.id, false)
-    let checked!: () => void
-    const barrier = new Promise<void>(done => { checked = done }), release = join(directory, 'release')
+    const ready = join(directory, 'ready'), release = join(directory, 'release')
     const sourcePath = fileURLToPath(new URL('../src/bots/store.ts', import.meta.url))
-    const code = `import { existsSync } from 'node:fs';import { BotStore } from ${JSON.stringify(sourcePath)};
+    const code = `import { existsSync, writeFileSync } from 'node:fs';import { BotStore } from ${JSON.stringify(sourcePath)};
       const store=new BotStore({path:process.env.DEEPSEEK_CONTROL_PATH}), original=store.getProcedure.bind(store);
-      store.getProcedure=(...args)=>{const value=original(...args);process.send('checked');const end=Date.now()+10000;
+      store.getProcedure=(...args)=>{const value=original(...args);writeFileSync(process.env.DEEPSEEK_CONTROL_READY,'');const end=Date.now()+10000;
         while(!existsSync(process.env.DEEPSEEK_CONTROL_RELEASE)){if(Date.now()>end)throw Error('Routine barrier timed out');Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10)}return value};
       try{store.setRoutineEnabled(process.env.DEEPSEEK_CONTROL_ROUTINE,true)}finally{store.close()}`
     const started = Bun.spawn([process.execPath, '-e', code], {
-      env: { ...process.env, DEEPSEEK_CONTROL_PATH: path, DEEPSEEK_CONTROL_RELEASE: release, DEEPSEEK_CONTROL_ROUTINE: routine.id },
-      stdin: 'ignore', stdout: 'ignore', stderr: 'pipe', ipc(message) { if (message === 'checked') checked() },
+      env: { ...process.env, DEEPSEEK_CONTROL_PATH: path, DEEPSEEK_CONTROL_RELEASE: release, DEEPSEEK_CONTROL_READY: ready, DEEPSEEK_CONTROL_ROUTINE: routine.id },
+      stdin: 'ignore', stdout: 'ignore', stderr: 'pipe',
     })
     child = started
     const errors = new Response(started.stderr).text()
-    await Promise.race([barrier, child.exited.then(async () => { throw Error(await errors) })])
+    await waitForChildFile(ready, child, errors, 10000)
     let invalidated = false
     try { store.invalidateProcedure(bot.id, procedure.id, 'Observed page changed'); invalidated = true }
     catch (error) { if (!isSqliteBusy(error)) throw error }

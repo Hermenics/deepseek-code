@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { BotStore, isSqliteBusy } from '../src/bots/store.js'
+import { waitForChildFile } from './helpers/waitForChildFile.js'
 
 const stores: BotStore[] = []
 const fixture = () => {
@@ -117,28 +118,27 @@ it('upgrades existing runs and preserves accepted guidance after reopening', () 
 
 for (const first of ['seal', 'guide']) it(`serializes ${first} against the competing process without dropping accepted input`, async () => {
   const directory = mkdtempSync(join(tmpdir(), 'deepseek-guidance-race-')), path = join(directory, 'state.db'), release = join(directory, 'release')
+  const ready = join(directory, 'ready')
   const store = new BotStore({ path, busyTimeoutMs: 0 })
   let child: ReturnType<typeof Bun.spawn> | undefined
   try {
     const bot = store.createBot({ name: 'race', projectRoot: directory, instructions: 'Current guidance.' })
     const run = store.enqueue(bot.id, 'Existing work'); store.claim(bot.id, 'worker')
-    let announce!: () => void
-    const ready = new Promise<void>(done => { announce = done })
     const source = fileURLToPath(new URL('../src/bots/store.ts', import.meta.url))
-    const spawned = Bun.spawn([process.execPath, '-e', `import { existsSync } from 'node:fs';import { BotStore } from ${JSON.stringify(source)};
+    const spawned = Bun.spawn([process.execPath, '-e', `import { existsSync, writeFileSync } from 'node:fs';import { BotStore } from ${JSON.stringify(source)};
       const store=new BotStore({path:process.env.GUIDANCE_DB,busyTimeoutMs:0}), get=store.getRun.bind(store);
       // Hold the real immediate writer after reading state. The competing
       // mutation must not enter while this read/commit boundary is held.
-      store.getRun=(id)=>{const result=get(id);process.send('writer');const end=Date.now()+15000;
+      store.getRun=(id)=>{const result=get(id);writeFileSync(process.env.GUIDANCE_READY,'');const end=Date.now()+15000;
         while(!existsSync(process.env.GUIDANCE_RELEASE)){if(Date.now()>end)throw Error('Guidance race barrier timed out');Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10)}
         store.getRun=get;return result};
       try{const result=process.env.GUIDANCE_FIRST==='seal'?store.sealRun(process.env.GUIDANCE_RUN,'worker'):store.steer(process.env.GUIDANCE_RUN,'Competing correction','race-message');console.log(JSON.stringify(result))}finally{store.close()}`], {
-      env: { ...process.env, GUIDANCE_DB: path, GUIDANCE_RUN: run.id, GUIDANCE_RELEASE: release, GUIDANCE_FIRST: first },
-      stdin: 'ignore', stdout: 'pipe', stderr: 'pipe', ipc(message) { if (message === 'writer') announce() },
+      env: { ...process.env, GUIDANCE_DB: path, GUIDANCE_RUN: run.id, GUIDANCE_RELEASE: release, GUIDANCE_READY: ready, GUIDANCE_FIRST: first },
+      stdin: 'ignore', stdout: 'pipe', stderr: 'pipe',
     })
     child = spawned
     const output = new Response(spawned.stdout).text(), errors = new Response(spawned.stderr).text()
-    await Promise.race([ready, child.exited.then(async () => { throw Error(await errors) })])
+    await waitForChildFile(ready, child, errors, 15000)
     expect(child.exitCode).toBeNull(); expect(existsSync(release)).toBe(false)
     let rejection: unknown
     try { if (first === 'seal') store.steer(run.id, 'Competing correction', 'race-message'); else store.sealRun(run.id, 'worker') }

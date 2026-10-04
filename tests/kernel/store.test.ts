@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { Store } from '../../src/kernel/store/store.js'
 import { MIGRATIONS } from '../../src/kernel/store/migrations.js'
 import { EventBus } from '../../src/kernel/events/eventBus.js'
+import { waitForChildFile } from '../helpers/waitForChildFile.js'
 
 describe('Store', () => {
   let store!: Store
@@ -53,26 +54,25 @@ describe('Store', () => {
     const source = fileURLToPath(new URL('../../src/kernel/store/store.ts', import.meta.url))
     const release = join(dir, 'release'), processes: ReturnType<typeof Bun.spawn>[] = [], diagnostics: Promise<string>[] = []
     let probe: Store | undefined
-    const code = `import { existsSync } from 'node:fs';import { Store } from ${JSON.stringify(source)};
+    const code = `import { existsSync, writeFileSync } from 'node:fs';import { Store } from ${JSON.stringify(source)};
       const store=new Store({path:process.env.DEEPSEEK_MIGRATION_PATH}), query=store.db.query.bind(store.db);
       store.db.query=(sql,...args)=>{const statement=query(sql,...args);
         if(sql==='SELECT version FROM _schema_version'){const all=statement.all.bind(statement);
-          statement.all=(...args)=>{const rows=all(...args);process.send('read');const end=Date.now()+15000;
+          statement.all=(...args)=>{const rows=all(...args);writeFileSync(process.env.DEEPSEEK_MIGRATION_READY,'');const end=Date.now()+15000;
             while(!existsSync(process.env.DEEPSEEK_MIGRATION_RELEASE)){if(Date.now()>end)throw Error('Migration barrier timed out');Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10)}return rows}}
         return statement};
       try{store.migrate([{version:1,name:'concurrent-upgrade',up:'CREATE TABLE migrated_once (id INTEGER)'}])}
       finally{store.close()}`
     try {
-      const waiting = [0, 1].map(() => {
-        let announce!: () => void
-        const ready = new Promise<void>(done => { announce = done })
+      const waiting = [0, 1].map(index => {
+        const ready = join(dir, `ready-${index}`)
         const child = Bun.spawn([process.execPath, '-e', code], {
-          env: { ...process.env, DEEPSEEK_MIGRATION_PATH: path, DEEPSEEK_MIGRATION_RELEASE: release },
-          stdin: 'ignore', stdout: 'ignore', stderr: 'pipe', ipc(message) { if (message === 'read') announce() },
+          env: { ...process.env, DEEPSEEK_MIGRATION_PATH: path, DEEPSEEK_MIGRATION_RELEASE: release, DEEPSEEK_MIGRATION_READY: ready },
+          stdin: 'ignore', stdout: 'ignore', stderr: 'pipe',
         })
         processes.push(child)
         const stderr = new Response(child.stderr).text(); diagnostics.push(stderr)
-        return Promise.race([ready, child.exited.then(async () => { throw Error(await stderr) })])
+        return waitForChildFile(ready, child, stderr, 15000)
       })
       await Promise.all(waiting)
       writeFileSync(release, '')
