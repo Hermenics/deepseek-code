@@ -193,9 +193,9 @@ test('subagent status line executor does not run an untrusted workspace command'
 })
 
 test('subagent status line executor accepts JSONL from a trusted command', async () => {
-  // The command runs through cmd.exe on Windows, which has no printf and treats quotes literally.
+  // The command runs through cmd.exe on Windows, so use Node to consume stdin and emit JSON.
   const command = process.platform === 'win32'
-    ? 'echo {"id":"agent-1","content":"ready"}'
+    ? `node -e "let input='';process.stdin.on('data',chunk=>input+=chunk);process.stdin.on('end',()=>console.log(JSON.stringify({id:'agent-1',content:'ready'})))"`
     : "printf '%s\\n' '{\"id\":\"agent-1\",\"content\":\"ready\"}'"
   const result = await runSubagentStatusLine(
     { type: 'command', command },

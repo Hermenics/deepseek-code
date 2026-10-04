@@ -324,14 +324,26 @@ export async function runSubagentStatusLine(
     const stdin = child.stdin
     const stdout = child.stdout
     if (!stdin || typeof stdin === 'number' || !stdout || typeof stdout === 'number') return new Map()
-    stdin.write(`${JSON.stringify(input)}\n`)
-    stdin.end()
+    const writeInput = async () => {
+      try {
+        await stdin.write(`${JSON.stringify(input)}\n`)
+        await stdin.end()
+      } catch (error) {
+        // A configured command may exit without reading stdin; on Windows the
+        // closed pipe reports EPIPE instead of accepting the unused input.
+        if ((error as NodeJS.ErrnoException).code !== 'EPIPE') throw error
+      }
+    }
     timer = setTimeout(() => {
       timedOut = true
       timeoutController.abort()
       if (child) killStatusLineProcess(child, processGroup)
     }, timeoutMs)
-    const [limited, exitCode] = await Promise.all([readLimitedStatusLineOutput(stdout, SUBAGENT_STATUS_LINE_MAX_OUTPUT_BYTES, timeoutController.signal), child.exited])
+    const [limited, exitCode] = await Promise.all([
+      readLimitedStatusLineOutput(stdout, SUBAGENT_STATUS_LINE_MAX_OUTPUT_BYTES, timeoutController.signal),
+      child.exited,
+      writeInput(),
+    ])
     // A truncated response could contain an apparently valid prefix while
     // silently dropping later JSONL rows. Treat the whole extension output as
     // invalid so a partial decoration never reaches the footer.

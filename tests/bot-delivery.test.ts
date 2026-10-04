@@ -50,7 +50,7 @@ describe('signed outbound webhook delivery', () => {
     expect(first.target.id).toBe(target.id)
     expect(JSON.parse(first.record.body).payload.output).not.toContain('sk_live_not-for-delivery')
     const key = await store.deliveryPrivateKey(target.id)
-    expect((lstatSync(join(directory, 'actors', bot.id, 'deliveries', `${target.id}.key`)).mode & 0o077)).toBe(0)
+    if (process.platform !== 'win32') expect((lstatSync(join(directory, 'actors', bot.id, 'deliveries', `${target.id}.key`)).mode & 0o077)).toBe(0)
     expect(store.store.query('SELECT * FROM bot_delivery_targets').map(row => JSON.stringify(row)).join('\n')).not.toContain(key)
     expect(claimedRun.id).toBe(run.id)
 

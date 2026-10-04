@@ -1655,7 +1655,9 @@ export class BotStore {
     if (!row) throw new Error('Delivery target was removed')
     const path = this.deliveryKeyPath(String(row.bot_id), targetId)
     const info = lstatSync(path)
-    if (!info.isFile() || info.isSymbolicLink() || (info.mode & 0o077) !== 0) throw new Error('Delivery signing key permissions are unsafe')
+    // Windows does not expose POSIX group/other permission bits through Stats.mode.
+    const unsafePosixPermissions = process.platform !== 'win32' && (info.mode & 0o077) !== 0
+    if (!info.isFile() || info.isSymbolicLink() || unsafePosixPermissions) throw new Error('Delivery signing key permissions are unsafe')
     return readFile(path, 'utf8')
   }
   completeDelivery(id: string, owner: string, result: { status?: number; error?: string }, time = Date.now()): BotDeliveryRecord {

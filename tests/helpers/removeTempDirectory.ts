@@ -9,7 +9,7 @@ export async function removeTempDirectory(directory: string): Promise<void> {
       return
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
-      if (process.platform !== 'win32' || !['EBUSY', 'EPERM', 'ENOTEMPTY'].includes(code ?? '') || attempt >= 30) throw error
+      if (process.platform !== 'win32' || !['EBUSY', 'EPERM', 'ENOTEMPTY'].includes(code ?? '') || attempt >= 120) throw error
       await delay(100)
     }
   }

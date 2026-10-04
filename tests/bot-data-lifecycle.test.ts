@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, unlinkSync, symlinkSync, writeFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { BotStore } from '../src/bots/store.js'
@@ -109,7 +109,7 @@ describe('persistent bot data lifecycle', () => {
     expect(store.listBots()).toEqual([])
     expect(store.store.query<{ enabled: number; deleting: number }>('SELECT enabled,deleting FROM bot_instances WHERE id=?', selected.id)[0]).toEqual({ enabled: 0, deleting: 1 })
     expect(existsSync(join(external, 'keep.txt'))).toBe(true)
-    rmSync(actorRoot)
+    unlinkSync(actorRoot)
     expect(await store.deleteBot(selected.id, selected.name)).toMatchObject({ deleted: true })
     expect(existsSync(join(external, 'keep.txt'))).toBe(true)
   })
