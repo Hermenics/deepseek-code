@@ -62,8 +62,8 @@ function proxyTls(gate: BrowserEgress, target: string, socketOrigin?: string, ov
   })
 }
 
-describe('Codimium egress transport', () => {
-  it.skipIf(!findChromium() || process.platform === 'win32')('keeps real Chrome ws/wss working and rejects blocked destinations and opaque creators', async () => {
+describe.skipIf(process.platform === 'win32')('Codimium egress transport', () => {
+  it.skipIf(!findChromium())('keeps real Chrome ws/wss working and rejects blocked destinations and opaque creators', async () => {
     let secureBase = ''
     const socketCode = `function openSocket(address) { return new Promise(resolve => {
       const socket = new WebSocket(address), timer = setTimeout(() => { socket.close(); resolve('timeout'); }, 4000);

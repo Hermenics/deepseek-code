@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { Store } from '../../src/kernel/store/store.js'
 import { MIGRATIONS } from '../../src/kernel/store/migrations.js'
@@ -49,7 +50,7 @@ describe('Store', () => {
   it('rechecks pending migrations after another process applies the same version', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsk-migrate-race-')), path = join(dir, 'kernel.db')
     const seed = new Store({ path }); seed.migrate([]); seed.close()
-    const source = new URL('../../src/kernel/store/store.ts', import.meta.url).pathname
+    const source = fileURLToPath(new URL('../../src/kernel/store/store.ts', import.meta.url))
     const release = join(dir, 'release'), processes: ReturnType<typeof Bun.spawn>[] = [], diagnostics: Promise<string>[] = []
     let probe: Store | undefined
     const code = `import { existsSync } from 'node:fs';import { Store } from ${JSON.stringify(source)};

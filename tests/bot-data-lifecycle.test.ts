@@ -3,12 +3,13 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync, existsSync 
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { BotStore } from '../src/bots/store.js'
+import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 
 const stores: BotStore[] = [], directories: string[] = []
 function open(path: string) { const store = new BotStore({ path }); stores.push(store); return store }
 function temporary() { const directory = mkdtempSync(join(tmpdir(), 'deepseek-bot-data-')); directories.push(directory); return directory }
 function bot(store: BotStore, name = 'engineer') { return store.createBot({ name, projectRoot: process.cwd(), instructions: 'Maintain this project and report observed results.' }) }
-afterEach(() => { for (const store of stores.splice(0)) store.close(); for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }) })
+afterEach(async () => { for (const store of stores.splice(0)) store.close(); for (const directory of directories.splice(0)) await removeTempDirectory(directory) })
 
 describe('persistent bot data lifecycle', () => {
   it('exports durable bot and Agent session data without webhook verifiers', () => {

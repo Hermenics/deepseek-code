@@ -1,10 +1,11 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BotStore } from '../src/bots/store.js'
 import { testModeAllowsReadOnlyTool } from '../src/bots/worker.js'
 import { OrchestratorSession } from '../src/orchestration/OrchestratorSession.js'
+import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 
 const stores: BotStore[] = [], directories: string[] = []
 function fixture() {
@@ -14,7 +15,7 @@ function fixture() {
   const bot = store.createBot({ name: 'researcher', projectRoot: directory, instructions: 'Research and report.' })
   return { directory, store, bot }
 }
-afterEach(() => { for (const store of stores.splice(0)) store.close(); for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }) })
+afterEach(async () => { for (const store of stores.splice(0)) store.close(); for (const directory of directories.splice(0)) await removeTempDirectory(directory) })
 
 describe('safe routine tests', () => {
   it('queues an idempotent preview without changing schedule or creating webhook receipts', () => {

@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { mkdtempSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BotStore } from '../src/bots/store.js'
 import { botControl } from '../src/bots/control.js'
+import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 
 const stores: BotStore[] = [], directories: string[] = []
 function database() {
@@ -12,7 +13,7 @@ function database() {
   return { store, directory }
 }
 function create(store: BotStore, name: string) { return store.createBot({ name, projectRoot: process.cwd(), instructions: 'Coordinate on the assigned project work.' }) }
-afterEach(() => { for (const store of stores.splice(0)) store.close(); for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true }) })
+afterEach(async () => { for (const store of stores.splice(0)) store.close(); for (const directory of directories.splice(0)) await removeTempDirectory(directory) })
 
 describe('persistent bot collaboration groups', () => {
   it('serializes a shared Codimium browser, routes group results and resumes staged deletion', async () => {

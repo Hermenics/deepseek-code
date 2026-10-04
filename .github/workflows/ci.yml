@@ -34,7 +34,7 @@ jobs:
 
       - name: Test
         if: matrix.os != 'ubuntu-latest'
-        run: bun test tests --timeout 15000
+        run: bun test tests --timeout 15000 --parallel=1
 
       - name: Test with coverage
         if: matrix.os == 'ubuntu-latest'

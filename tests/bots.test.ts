@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import { createHash, createPrivateKey, sign } from 'node:crypto'
-import { mkdtempSync, rmSync, readFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BotStore } from '../src/bots/store.js'
@@ -9,6 +9,7 @@ import { botControl } from '../src/bots/control.js'
 import { procedureGuard, procedureSkill, procedureStep } from '../src/bots/procedures.js'
 import { parseSkillManifest } from '../src/skills/validate.js'
 import { redactSecrets } from '../src/orchestration/events.js'
+import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 
 const stores: BotStore[] = [], dirs: string[] = []
 function database(path?: string) {
@@ -16,7 +17,7 @@ function database(path?: string) {
   return s
 }
 function create(s: BotStore, name = 'engineer') { return s.createBot({ name, projectRoot: process.cwd(), instructions: 'Maintain this project and bring results for review.' }) }
-afterEach(() => { for (const s of stores.splice(0)) s.close(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }) })
+afterEach(async () => { for (const s of stores.splice(0)) s.close(); for (const dir of dirs.splice(0)) await removeTempDirectory(dir) })
 
 describe('persistent bots', () => {
   it('learns immutable scoped browser skills from observed completion and binds fresh occurrences', async () => {

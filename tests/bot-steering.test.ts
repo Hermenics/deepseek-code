@@ -2,6 +2,7 @@ import { afterEach, expect, it } from 'bun:test'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { BotStore, isSqliteBusy } from '../src/bots/store.js'
 
 const stores: BotStore[] = []
@@ -123,7 +124,7 @@ for (const first of ['seal', 'guide']) it(`serializes ${first} against the compe
     const run = store.enqueue(bot.id, 'Existing work'); store.claim(bot.id, 'worker')
     let announce!: () => void
     const ready = new Promise<void>(done => { announce = done })
-    const source = new URL('../src/bots/store.ts', import.meta.url).pathname
+    const source = fileURLToPath(new URL('../src/bots/store.ts', import.meta.url))
     const spawned = Bun.spawn([process.execPath, '-e', `import { existsSync } from 'node:fs';import { BotStore } from ${JSON.stringify(source)};
       const store=new BotStore({path:process.env.GUIDANCE_DB,busyTimeoutMs:0}), get=store.getRun.bind(store);
       // Hold the real immediate writer after reading state. The competing

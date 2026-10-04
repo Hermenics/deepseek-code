@@ -1,11 +1,13 @@
 import { expect, it } from 'bun:test'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { BotStore, isSqliteBusy } from '../src/bots/store.js'
 import { botControl } from '../src/bots/control.js'
 import { procedureGuard } from '../src/bots/procedures.js'
+import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 
 function demonstration(store: BotStore, botId: string) {
   const source = store.enqueue(botId, 'Observe the demonstrated procedure')
@@ -38,7 +40,7 @@ for (const action of ['remember', 'update_note', 'forget', 'send', 'schedule', '
     expect(store.listRuns(recipient.id)).toHaveLength(0)
     expect(store.procedures(bot.id)).toHaveLength(0)
     expect(existsSync(join(store.skillDirectory(bot.id), 'new-method', 'SKILL.md'))).toBe(false)
-  } finally { store.close(); await rm(directory, { recursive: true, force: true }) }
+  } finally { store.close(); await removeTempDirectory(directory) }
 })
 
 for (const action of ['remember', 'update_note', 'forget', 'send', 'schedule', 'disable_routine', 'learn']) it(`commits ${action} once after a real SQLite writer releases`, async () => {
@@ -78,7 +80,7 @@ for (const action of ['remember', 'update_note', 'forget', 'send', 'schedule', '
   } finally {
     if (writer?.exitCode === null) writer.kill()
     if (writer) await writer.exited
-    await attempt?.catch(() => undefined); store.close(); await rm(directory, { recursive: true, force: true })
+    await attempt?.catch(() => undefined); store.close(); await removeTempDirectory(directory)
   }
 }, 5000)
 
@@ -110,7 +112,7 @@ for (const reason of ['cancel', 'context-cancel', 'expire']) it(`stops a contend
     controller.abort()
     if (writer?.exitCode === null) writer.kill()
     if (writer) await writer.exited
-    await attempt?.catch(() => undefined); store.close(); await rm(directory, { recursive: true, force: true })
+    await attempt?.catch(() => undefined); store.close(); await removeTempDirectory(directory)
   }
 }, 5000)
 
@@ -125,7 +127,7 @@ it('cannot re-enable a procedure routine using a readiness check from before inv
     store.setRoutineEnabled(routine.id, false)
     let checked!: () => void
     const barrier = new Promise<void>(done => { checked = done }), release = join(directory, 'release')
-    const sourcePath = new URL('../src/bots/store.ts', import.meta.url).pathname
+    const sourcePath = fileURLToPath(new URL('../src/bots/store.ts', import.meta.url))
     const code = `import { existsSync } from 'node:fs';import { BotStore } from ${JSON.stringify(sourcePath)};
       const store=new BotStore({path:process.env.DEEPSEEK_CONTROL_PATH}), original=store.getProcedure.bind(store);
       store.getProcedure=(...args)=>{const value=original(...args);process.send('checked');const end=Date.now()+10000;
@@ -151,7 +153,7 @@ it('cannot re-enable a procedure routine using a readiness check from before inv
   } finally {
     if (child?.exitCode === null) child.kill()
     if (child) await child.exited
-    store.close(); await rm(directory, { recursive: true, force: true })
+    store.close(); await removeTempDirectory(directory)
   }
 }, 15000)
 
@@ -188,6 +190,6 @@ for (const phase of ['before', 'completion']) it(`persists ${phase} procedure re
   } finally {
     if (writer?.exitCode === null) writer.kill()
     if (writer) await writer.exited
-    await attempt; store.close(); await rm(directory, { recursive: true, force: true })
+    await attempt; store.close(); await removeTempDirectory(directory)
   }
 }, 5000)

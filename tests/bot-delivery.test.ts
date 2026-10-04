@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import { generateKeyPairSync, verify } from 'node:crypto'
-import { lstatSync, mkdtempSync, rmSync } from 'node:fs'
+import { lstatSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BotStore } from '../src/bots/store.js'
 import { deliverSignedWebhook, validateWebhookTarget, type WebhookPost } from '../src/bots/delivery.js'
+import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 
 const stores: BotStore[] = [], directories: string[] = []
-afterEach(() => { for (const store of stores.splice(0)) store.close(); for (const path of directories.splice(0)) rmSync(path, { recursive: true, force: true }) })
+afterEach(async () => { for (const store of stores.splice(0)) store.close(); for (const path of directories.splice(0)) await removeTempDirectory(path) })
 const resolver = async () => ['93.184.216.34']
 
 describe('signed outbound webhook delivery', () => {
