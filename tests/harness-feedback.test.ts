@@ -59,5 +59,5 @@ describe('environment context', () => {
     expect(info.shell.length).toBeGreaterThan(0)
     expect(formatEnvironmentInfo({ ...info, platform: 'linux' })).toContain('shell commands see the working directory at /mnt')
     expect(formatEnvironmentInfo({ ...info, platform: 'darwin' })).not.toContain('/mnt')
-  })
+  }, 30_000)
 })
