@@ -77,7 +77,7 @@ function clip(value: string, max: number): string {
 }
 
 function quote(value: string, max: number): string {
-  return `"${clip(value, max).replace(/"/g, '\\"')}"`
+  return JSON.stringify(clip(value, max))
 }
 
 function describe(node: AXNode, role: string, ref: string | undefined): string {
@@ -185,7 +185,7 @@ export function findLines(snapshot: Snapshot, query: string, role?: string): Sna
  */
 export function wrapUntrusted(meta: { url: string; title?: string; tab?: number }, body: string): string {
   const attr = (value: string) => value.replace(/["<>]/g, '')
-  const safeBody = body.replace(/<\/?untrusted-web/gi, match => match.replace('<', '‹'))
+  const safeBody = body.replace(/<\/?untrusted-web/gi, match => match.replaceAll('<', '‹'))
   const title = meta.title ? ` title="${attr(clip(meta.title, 120))}"` : ''
   const tab = meta.tab !== undefined ? ` tab=${meta.tab}` : ''
   return `<untrusted-web url="${attr(meta.url)}"${title}${tab}>\n${safeBody}\n</untrusted-web>`
