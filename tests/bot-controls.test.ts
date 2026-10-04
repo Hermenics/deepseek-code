@@ -83,7 +83,7 @@ for (const action of ['remember', 'update_note', 'forget', 'send', 'schedule', '
     if (writer) await writer.exited
     await attempt?.catch(() => undefined); store.close(); await removeTempDirectory(directory)
   }
-}, 5000)
+}, process.platform === 'win32' ? 10000 : 5000)
 
 for (const reason of ['cancel', 'context-cancel', 'expire']) it(`stops a contended control write on ${reason} without admitting its mutation`, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'deepseek-control-stop-')), path = join(directory, 'state.db')

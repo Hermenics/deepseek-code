@@ -9,7 +9,10 @@ export async function removeTempDirectory(directory: string): Promise<void> {
       return
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code
-      if (process.platform !== 'win32' || !['EBUSY', 'EPERM', 'ENOTEMPTY'].includes(code ?? '') || attempt >= 120) throw error
+      if (process.platform !== 'win32' || !['EBUSY', 'EPERM', 'ENOTEMPTY'].includes(code ?? '')) throw error
+      // Hosted Windows runners can hold a closed SQLite temp directory until process exit.
+      if (code === 'EBUSY' && attempt >= 4) return
+      if (attempt >= 4) throw error
       await delay(100)
     }
   }
