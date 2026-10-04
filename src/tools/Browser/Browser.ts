@@ -1,6 +1,7 @@
 import { Tool } from '../types.js'
 import { resolveSafePath } from '../shared/pathSafety.js'
 import type { ToolExecutionContext } from '../../orchestration/types.js'
+import { DurableExecutionError } from '../../orchestration/OrchestratorSession.js'
 import { isEnabled, loadFeatures } from '../../features.js'
 import { browserService, contextKey } from '../../browser/service.js'
 import { clearRecording, exportPlaywright, locatorOf, record, recorded, stepFor } from '../../browser/record.js'
@@ -14,8 +15,23 @@ function format(result: ActionResult, detail: string | undefined, notes: string[
   return [result.ok ? result.summary : `Error: ${result.summary}`, ...notes, detail].filter(Boolean).join('\n')
 }
 
+async function executeRecorded(env: ActionEnv, action: string, args: Record<string, unknown>, context?: ToolExecutionContext): Promise<ActionResult> {
+  const target = locatorOf(env.tab, args.ref), pageUrl = env.tab.url
+  const commit = await context?.browserStep?.(args, env.tab)
+  const result = await performAction(env, action, args)
+  if (result.ok) {
+    const step = action === 'click' && args.double === true ? { action: 'comment', text: 'Human double click' } : stepFor(action, args, target, env.tab.url)
+    record(env.key, step)
+    try {
+      if (step) await context?.browserRecordedStep?.(step, pageUrl)
+      await commit?.()
+    } catch { throw new DurableExecutionError('Browser procedure checkpoint failed after an observed action; inspect its effect before replay') }
+  }
+  return result
+}
+
 /** Runs the steps in order on one tab and answers once, with every step's outcome and the net page change. */
-async function runBatch(env: ActionEnv, args: Record<string, unknown>): Promise<string> {
+async function runBatch(env: ActionEnv, args: Record<string, unknown>, context?: ToolExecutionContext): Promise<string> {
   const steps = Array.isArray(args.steps) ? args.steps : []
   if (steps.length === 0) return 'Error: batch needs steps'
   if (steps.length > MAX_BATCH_STEPS) return `Error: at most ${MAX_BATCH_STEPS} steps per batch`
@@ -27,15 +43,13 @@ async function runBatch(env: ActionEnv, args: Record<string, unknown>): Promise<
     for (const [index, raw] of steps.entries()) {
       const step = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
       const action = String(step.action ?? '')
-      const target = locatorOf(env.tab, step.ref)
       const result = ['batch', 'close', 'handoff', 'export'].includes(action) || !ACTIONS.includes(action)
         ? { ok: false, summary: `${action || '(no action)'} cannot be a batch step` }
-        : await performAction({ ...env, inBatch: true }, action, step)
-      if (result.ok) record(env.key, stepFor(action, step, target, env.tab.url))
+        : await executeRecorded({ ...env, inBatch: true }, action, step, context)
       lines.push(`${index + 1}. ${result.ok ? '✓' : '✗'} ${result.summary}`)
-      if (!result.ok && args.stopOnError !== false) {
-        failure = `batch stopped at step ${index + 1} of ${steps.length}: ${result.summary}`
-        break
+      if (!result.ok) {
+        failure ??= `batch ${args.stopOnError === false ? 'finished with failure' : 'stopped'} at step ${index + 1} of ${steps.length}: ${result.summary}`
+        if (args.stopOnError !== false) break
       }
     }
   } catch (error) {
@@ -112,6 +126,7 @@ export async function runBrowser(args: Record<string, unknown>, context?: ToolEx
   const action = String(args.action ?? '')
   const key = contextKey(context?.sessionId ?? 'default', context?.taskId)
   if (action === 'close') {
+    await context?.browserStep?.(args)
     browserService.releaseContext(key)
     clearRecording(key)
     return 'Closed the browser for this session.'
@@ -125,16 +140,15 @@ export async function runBrowser(args: Record<string, unknown>, context?: ToolEx
   try {
     return await browserService.withTab(key, async tab => {
       const env: ActionEnv = { key, service: browserService, tab, signal: context?.signal, attachImage: context?.attachImage, resolvePath: path => resolveSafePath(path, context) }
-      if (action === 'batch') return runBatch(env, args)
+      if (action === 'batch') return runBatch(env, args, context)
       const before = MUTATING.has(action) ? await baselineOf(tab) : null
       const refsBefore = tab.refs
-      const target = locatorOf(tab, args.ref)
-      const result = await performAction(env, action, args)
-      if (result.ok) record(key, stepFor(action, args, target, tab.url))
+      const result = await executeRecorded(env, action, args, context)
       const detail = result.ok && before ? await describeChange(env, before, refsBefore) : result.detail
       return format(result, detail, collectNotes(env))
     })
   } catch (error) {
+    if (error instanceof DurableExecutionError) throw error
     if (context?.signal?.aborted) return `Cancelled: browser ${action} was interrupted before it finished.`
     return `Error: ${(error as Error).message}`
   }
@@ -146,6 +160,20 @@ export async function runBrowser(args: Record<string, unknown>, context?: ToolEx
  */
 async function handoff(key: string, reason: string, context?: ToolExecutionContext): Promise<string> {
   if (!reason) return 'Error: handoff needs a reason telling the user what to do.'
+  const releaseRetention = browserService.retain(key)
+  try {
+  const commit = context?.browserStep ? await browserService.withTab(key, tab => context.browserStep!({ action: 'handoff', reason }, tab)) : undefined
+  const remember = async () => {
+    const step = stepFor('handoff', { reason })!
+    record(key, step)
+    try { await context?.browserRecordedStep?.(step); await commit?.() }
+    catch { throw new DurableExecutionError('Human browser procedure checkpoint failed; inspect its effect before replay') }
+  }
+  if (context?.browserHandoff) {
+    if (!await context.browserHandoff(reason)) return 'The user cancelled the handoff; do not retry it unless they ask.'
+    await remember()
+    return `The user finished: ${reason}.\n${await runBrowser({ action: 'snapshot' }, context)}`
+  }
   if (!context?.askUser) return 'Error: no one can take over the browser in this run; stop and tell the user what is needed.'
   try {
     await browserService.setVisible(true)
@@ -163,7 +191,9 @@ async function handoff(key: string, reason: string, context?: ToolExecutionConte
     ],
   }], context.signal)
   if (!answers || !Object.values(answers).includes('Done')) return 'The user cancelled the handoff; do not retry it unless they ask.'
-  record(key, stepFor('handoff', { reason }))
+  await browserService.withTab(key, async () => { browserService.clearHumanActivity(key) })
+  await remember()
   const snapshot = await runBrowser({ action: 'snapshot' }, context)
   return `The user finished: ${reason}. The window stays visible.\n${snapshot}`
+  } finally { releaseRetention() }
 }

@@ -32,6 +32,7 @@
 - **Full TUI** — alternate-screen interface with streamed thinking, rich markdown, and vim mode
 - **Session command center** — press Left on an empty prompt to search, switch, rename or delete saved sessions across projects
 - **Unified agents** — scoped primary agents and sub-agents with editable base prompts
+- **DeepSeek Pods** — persistent agents that keep scheduled and queued work running under a host supervisor
 - **Settings center** — fullscreen, searchable User/Project/Local configuration with visible origins
 - **MCP support** — connect to any Model Context Protocol server for extended tooling
 - **Project guidance** — loads a root `AGENTS.md` alongside `DEEPSEEK.md`
@@ -53,6 +54,18 @@ For automation, use headless pipe mode:
 echo "explain this project" | deepseek --pipe
 cat src/index.tsx | deepseek --pipe --json "summarize"
 ```
+
+### DeepSeek Pods on your own server
+
+Pods can keep running after your desktop disconnects by installing the supervisor on a Linux server you control. Create a Debian 12+ or Ubuntu 24.04+ VM with your cloud provider, make sure SSH access works, then run:
+
+```bash
+deepseek pods host install ubuntu@YOUR_SERVER_IP
+```
+
+The installer uses your SSH connection, prepares Node.js, Bun and Chromium when needed, installs the published DeepSeek Code package, and starts a user-level service. It sends the active DeepSeek API profile through SSH and stores it in a private configuration directory on that host. The panel listens only on loopback; the installer prints an SSH tunnel command and the panel token. It does not create a cloud VM, open a public firewall port, or copy your existing local Pods database.
+
+The host account must have passwordless `sudo` for one-time OS package installation and enabling the persistent user service. Your cloud provider may require billing details for a free-tier account, and its free quota and availability rules still apply. See [the Pods deployment guide](docs/persistent-agents.md#install-on-a-server-you-control).
 
 ### Requirements
 

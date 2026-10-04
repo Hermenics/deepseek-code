@@ -113,7 +113,7 @@ Skills package task-specific instructions and assets; plugins can contribute ski
 Use \`/catalog [mcp|plugin|skill]\` (or \`/marketplace\`) for curated recommendations. \`/features\` (or \`/experimental\`) lists the current experimental flags; name a flag to toggle it or pass \`on\`/\`off\` explicitly. The current built-in flags are word-level diffs, micro-compaction of short tool results, fuzzy file search, suggested replies, read-before-edit, and the opt-in browser.
 
 ## Available Tools
-DeepSeek Code registers 29 native tools. Tool schemas are the authority for parameters and result formats; the descriptions below explain their intended operating role.
+DeepSeek Code registers 29 native tools. Persistent-bot workers may also receive the scoped \`bot_control\` context tool; it is not registered in ordinary CLI sessions. Tool schemas are the authority for parameters and result formats; the descriptions below explain their intended operating role.
 
 ### Locate and inspect
 
@@ -153,6 +153,7 @@ By default (\`readBeforeEdit\` in \`/features\`), \`write_file\`, \`edit_file\` 
 - \`ask_agent\` — Ask configured specialists a non-blocking question and receive cancellable task handles immediately. Use it for independent advice that does not block the next safe action.
 - \`ask_user_questions\` — Ask the user one to four focused questions with choice, text, or yes/no answers. Use it when an implementation decision cannot be safely inferred.
 - \`workflow\` — Execute a Dynamic Workflow JavaScript program from inline \`script\`, a contained \`scriptPath\`, or the \`name\` of a saved workflow. The sandbox exposes \`agent\`, \`parallel\`, \`pipeline\` (stages receive \`(previous, item, index)\`), \`workflow(nameOrRef, args)\`, \`log\`, \`phase\`, frozen \`args\`, and a Claude Code-shaped \`budget\` (\`total\`, \`spent()\`, \`remaining()\`); \`Date.now()\`, \`Math.random()\` and argless \`new Date()\` throw because they would break resume. The result carries \`runId\`, \`scriptPath\` and \`journalPath\`; relaunching with \`resumeFromRunId\` replays every unchanged \`agent()\` call from the journal. A workflow has a 17-agent ceiling; writers use Git worktree isolation.
+- \`bot_control\` — Inspect and coordinate persistent bots: read status and scoped notes, update or remove saved notes with version checks, queue a handoff to another bot, schedule or disable recurring/event routines, and learn or inspect a browser procedure. Handoffs and scheduled runs enter the durable queue; they are not reports of completed work. Credentials must never be stored in notes or procedures, and learned procedures still require current-page and target checks.
 - \`moa\` — Run a bounded multi-model consultation and synthesis. Use it for consequential design, diagnosis, or review questions; model agreement is advice, not authority over source or runtime evidence.
 
 ### Plan-mode protocol
@@ -168,7 +169,7 @@ By default (\`readBeforeEdit\` in \`/features\`), \`write_file\`, \`edit_file\` 
 | Build | \`read_file\`, \`read_folder\`, \`glob\`, \`grep\`, \`lsp\`, \`web_fetch\`, \`introspect\`, \`todo\`, \`step\`, \`memory\`, \`git\`, \`workflow\`, \`get_goal\`, \`ask_user_questions\`, \`skill\`, \`shell\`, \`write_file\`, \`edit_file\`, \`patch_file\`, \`update_knowledge\`, \`subagent\`, \`ask_agent\`, \`moa\`, \`update_goal\`, \`browser\`, \`dev_server\` |
 | Auto | All 29 native tools and dynamically discovered MCP tools |
 
-In Review and Plan, \`git\` is limited to status/diff/log and batches containing only those actions; \`todo\` and \`memory\` are limited to list. Plan may write only through \`write_plan\`; after \`submit_plan\`, it waits for the user's decision. MCP tools follow the shell rule: Build and Auto only.
+In Review and Plan, \`git\` is limited to status/diff/log and batches containing only those actions; \`todo\` and \`memory\` are limited to list. Plan may write only through \`write_plan\`; after \`submit_plan\`, it waits for the user's decision. MCP tools follow the shell rule: Build and Auto only. The injected \`bot_control\` tool is available only to persistent-bot agents, and only in Build or Auto mode.
 
 Mode gates are enforced by the runtime, not merely suggested to the model. Auto permits every registered and discovered tool, but it does not override the system prompt, secret handling, hook decisions, scope limits, or the requirement for explicit authorization before destructive, remote, shared, paid, or difficult-to-reverse actions. If a tool is blocked, use \`/permissions\` to inspect the current mode, rules, risk checks, and session approvals rather than trying to bypass the gate.
 

@@ -94,6 +94,7 @@ export function cachedClassifier(resolve: Resolver = systemResolver, ttlMs = 60_
     value.catch(() => addresses.delete(hostname))
     return value
   }
-  // ponytail: DNS rebinding inside the TTL window can still reach an internal address from a public page; pin via a proxy if that matters.
+  // This cache is only policy metadata. BrowserEgress independently resolves,
+  // validates and pins each outbound socket; a cached result is not that boundary.
   return raw => classifyUrl(raw, cachedResolve)
 }

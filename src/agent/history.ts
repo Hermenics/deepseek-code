@@ -3,6 +3,7 @@ import { homedir } from 'os'
 import { mkdir } from 'fs/promises'
 import type { MessageOrBoundary } from './compactBoundary.js'
 import { writeRaw } from '../utils/fs.js'
+import { redactSecrets } from '../orchestration/events.js'
 
 const MAX_HISTORY_MESSAGES = 500
 
@@ -19,5 +20,5 @@ export async function saveHistory(messages: MessageOrBoundary[]): Promise<void> 
   const truncated = messages.length > MAX_HISTORY_MESSAGES
     ? [messages[0]!, ...messages.slice(-(MAX_HISTORY_MESSAGES - 1))]
     : messages
-  await writeRaw(path, JSON.stringify(truncated, null, 2))
+  await writeRaw(path, JSON.stringify(redactSecrets(truncated), null, 2))
 }

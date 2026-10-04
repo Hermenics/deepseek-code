@@ -83,6 +83,17 @@ describe('launcher', () => {
     expect(chromeArgs('/tmp/p', false)).toContain('--headless')
     expect(chromeArgs('/tmp/p', true)).not.toContain('--headless')
     expect(chromeArgs('/tmp/p', false).some(arg => arg.startsWith('--remote-debugging-port'))).toBe(false)
+    expect(chromeArgs('/tmp/p', false)).toContain('--disable-extensions')
+    expect(chromeArgs('/tmp/p', false)).toContain('--disable-component-extensions-with-background-pages')
+    const protectedArgs = chromeArgs('/tmp/p', false, { proxyServer: 'http://127.0.0.1:12345', proxyBypassList: '<-loopback>', certificateSPKI: 'private-public-key-hash' })
+    expect(protectedArgs).toContain('--enable-automation')
+    expect(protectedArgs).toContain('--proxy-server=http://127.0.0.1:12345')
+    expect(protectedArgs).toContain('--proxy-bypass-list=<-loopback>')
+    expect(protectedArgs).toContain('--ignore-certificate-errors-spki-list=private-public-key-hash')
+    expect(protectedArgs).not.toContain('--ignore-certificate-errors')
+    expect(protectedArgs.some(arg => arg.includes('direct://'))).toBe(false)
+    expect(protectedArgs).toContain('--disable-quic')
+    expect(protectedArgs).toContain('--force-webrtc-ip-handling-policy=disable_non_proxied_udp')
   })
 
   it.skipIf(process.platform !== 'win32')('explains that browser automation is not supported on Windows', () => {

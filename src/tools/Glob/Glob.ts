@@ -3,7 +3,7 @@ import fg from 'fast-glob'
 import { realpath } from 'node:fs/promises'
 import * as path from 'node:path'
 import { GLOB_MAX_FILES } from '../../constants.js'
-import { assertSafeDir } from '../shared/pathSafety.js'
+import { assertSafeDir, isProtectedPath } from '../shared/pathSafety.js'
 import { ignoreDirNames, isPathIgnored } from '../shared/deepseekignore.js'
 
 /** True when `target` is `root` itself or lies inside it. */
@@ -62,6 +62,7 @@ export const Glob: Tool = {
     const files = (await Promise.all(matches.map(async (file) => {
       const absolute = path.resolve(cwd, file)
       try {
+        if (await isProtectedPath(absolute, context)) return null
         const canonical = await realpath(absolute)
         if (!isContained(canonicalWorkspaceRoot, canonical)) return null
         return isPathIgnored(absolute, workspaceRoot) ? null : file

@@ -59,9 +59,9 @@ import {
   runUserPromptSubmitHooks,
 } from '../hooks/index.js'
 import type { HooksConfig } from '../hooks/types.js'
-import { OrchestratorSession, taskSnapshotFile, type OrchestratorCallbacks } from '../orchestration/OrchestratorSession.js'
+import { OrchestratorSession, DurableExecutionError, taskSnapshotFile, type DurableToolExecution, type OrchestratorCallbacks } from '../orchestration/OrchestratorSession.js'
 import { validateToolArguments as validateToolSchema } from '../orchestration/schema.js'
-import type { TaskLimits } from '../orchestration/types.js'
+import type { TaskLimits, ToolExecutionContext } from '../orchestration/types.js'
 import { resolveExternalApprovalDirectory, resolvePathForContext, resolveSafePath } from '../tools/shared/pathSafety.js'
 import { isSafeMemoryEntry, normalizeMemoryEntry } from './memory.js'
 import { WorkflowManager, type StartWorkflowInput, type WorkflowHandle } from '../workflows/manager.js'
@@ -478,10 +478,26 @@ function isPathContained(root: string, target: string): boolean {
 }
 
 export interface AgentOptions {
+  protectedPaths?: readonly string[]
   sessionId?: string
   projectRoot?: string
   logFile?: string | null
   snapshotFile?: string | null
+  memoryDirectory?: string
+  workflowDirectory?: string
+  extraTools?: Tool[]
+  toolExecution?: DurableToolExecution
+  checkpointHistory?: (messages: MessageOrBoundary[]) => void | Promise<void>
+  browserHandoff?: (reason: string) => Promise<boolean>
+  /** Stable browser identity for a profile shared across per-run conversations. */
+  browserSessionId?: string
+  skillDirectory?: string
+  browserStep?: ToolExecutionContext['browserStep']
+  browserRecordedStep?: ToolExecutionContext['browserRecordedStep']
+  /** Disables hooks, MCP, workflows and write snapshots for isolated preview runs. */
+  simulationMode?: boolean
+  /** Optional model for the mandatory goal-completion review; must be supported by the active provider. */
+  goalReviewerModel?: string
 }
 
 /** Task limits configured under `agents`, leaving out the ones that are not set. */
@@ -664,7 +680,9 @@ export class Agent {
 
   /** Replaces the tool set with the built-ins plus the given MCP tools and rebuilds the name lookup. */
   private installMcpTools(mcpTools: Tool[]): void {
-    this.tools = mcpTools.length ? [...allTools, ...mcpTools] : allTools
+    const extras = this.options.extraTools ?? []
+    if (extras.some(tool => [...allTools, ...mcpTools].some(existing => existing.name === tool.name))) throw new Error('Extra tool cannot replace an installed tool')
+    this.tools = [...allTools, ...mcpTools, ...extras]
     this.toolMap = new Map(this.tools.map(tool => [tool.name, tool]))
   }
 
@@ -697,7 +715,7 @@ export class Agent {
   /** Refreshes the skill catalog after a TUI install, update, or removal without discarding the conversation. */
   async refreshSkillCatalog(): Promise<void> {
     await this.readyPromise
-    const skills = await loadSkillPrompt(this.workspacePath)
+    const skills = await loadSkillPrompt(this.workspacePath, this.options.skillDirectory)
     const section = `<skills>\n${skills}\n</skills>`
     this.projectContext = this.projectContext.replace(/<skills>[\s\S]*?<\/skills>/, section)
     this.messages = this.messages.filter(message => !isProjectContextMessage(message))
@@ -830,7 +848,7 @@ export class Agent {
     this.planSubmitHandler = handler
   }
 
-  constructor(providerConfig?: ProviderConfig, options: AgentOptions = {}) {
+  constructor(providerConfig?: ProviderConfig, private readonly options: AgentOptions = {}) {
     const resolvedProvider = providerConfig ?? { provider: 'deepseek' }
     this.provider = resolvedProvider.provider
     this.providerConfig = resolvedProvider
@@ -842,18 +860,25 @@ export class Agent {
     this.additionalDirectories = new AdditionalDirectories(this.workspacePath)
     const orchestrationSessionId = options.sessionId ?? randomUUID()
     this.orchestrator = new OrchestratorSession({
+      protectedPaths: options.protectedPaths,
       sessionId: orchestrationSessionId,
       projectRoot: this.workspacePath,
       providerConfig: resolvedProvider,
       model: this.model,
       logFile: options.logFile,
       snapshotFile: options.snapshotFile !== undefined ? options.snapshotFile : options.sessionId ? taskSnapshotFile(orchestrationSessionId) : null,
+      toolExecution: options.toolExecution,
     })
+    if (options.memoryDirectory) this.orchestrator.memory.setDirectory(options.memoryDirectory)
     this.orchestrator.subscribe((event) => {
       const cost = (event.payload.metrics as { costUsd?: unknown } | undefined)?.costUsd
       if (event.type === 'metrics_updated' && event.taskId && typeof cost === 'number') this.subagentCostUsd.set(event.taskId, cost)
     })
     this.workflows = new WorkflowManager({
+      protectedPaths: options.protectedPaths,
+      baseDirectory: options.workflowDirectory,
+      toolExecution: options.toolExecution,
+      memoryDirectory: options.memoryDirectory,
       sessionId: orchestrationSessionId,
       projectRoot: this.workspacePath,
       providerConfig: resolvedProvider,
@@ -878,13 +903,19 @@ export class Agent {
       await this.mcpCleanup?.()
       this.mcpCleanup = null
       this.mcpApprovalRequired = null
-      const [steering, deepseekMd, agentsMd, settings, skills] = await Promise.all([
+      const [steering, deepseekMd, agentsMd, loadedSettings, skills] = await Promise.all([
         loadSteering(this.workspacePath),
         loadDeepSeekMd(this.workspacePath),
         loadAgentsMd(this.workspacePath),
         loadMergedSettings(this.workspacePath),
-        loadSkillPrompt(this.workspacePath),
+        loadSkillPrompt(this.workspacePath, this.options.skillDirectory),
       ])
+      const settings = loadedSettings
+      if (this.options.simulationMode) {
+        settings.hooks = undefined
+        settings.mcp = { ...settings.mcp, enabled: false }
+        settings.workflows = { ...settings.workflows, enabled: false }
+      }
       const mcp = await loadMcpTools(this.workspacePath, { enabled: settings.mcp?.enabled === true })
       this.mcpErrors = mcp.errors
       this.mcpApprovalRequired = mcp.approval ?? null
@@ -1087,7 +1118,7 @@ export class Agent {
     if (this.workflows.hasActiveRuns()) throw new Error('Cannot change directory while a workflow is active')
     await this.orchestrator.changeProjectRoot(target)
     // Only once the move is certain: pages opened for the old project close with it.
-    browserService.releaseSession(this.orchestrator.sessionId)
+    browserService.releaseSession(this.options.browserSessionId ?? this.orchestrator.sessionId)
     void devServers.stopOwnedBy(this.orchestrator.sessionId)
     this.workflows.changeProjectRoot(target)
     this.workspacePath = target
@@ -1109,7 +1140,7 @@ export class Agent {
   /** Closes this session's browser pages first (synchronously), aborts the turn, closes MCP servers, runs SessionEnd hooks once (ignoring hook errors), then shuts down workflows and the orchestrator. */
   async shutdown(): Promise<void> {
     // Synchronous and first: the App does not await shutdown, and process.exit may follow at once.
-    browserService.releaseSession(this.orchestrator.sessionId)
+    browserService.releaseSession(this.options.browserSessionId ?? this.orchestrator.sessionId)
     // stop() signals synchronously before its first await, so servers get SIGTERM even if exit follows.
     void devServers.stopOwnedBy(this.orchestrator.sessionId)
     this.abortController?.abort(new Error('Agent shutdown'))
@@ -1534,7 +1565,7 @@ export class Agent {
   /** Like getModelContextLimit, but undefined when neither discovery nor the built-in table knows the model. */
   /** Key of this session's main browser context (the status bar and /browser read it). */
   get browserContextKey(): string {
-    return contextKey(this.orchestrator.sessionId)
+    return contextKey(this.options.browserSessionId ?? this.orchestrator.sessionId)
   }
 
   /** Whether requests to `model` on the current provider may carry images (profile setting, else the DeepSeek catalog). */
@@ -1882,7 +1913,7 @@ export class Agent {
   }
 
   /** Restores a saved session: drops stale project-context messages, swaps a saved built-in system prompt for the current one, and re-inserts the current project context after the last compact boundary. */
-  loadSessionMessages(messages: MessageOrBoundary[]): void {
+  loadSessionMessages(messages: MessageOrBoundary[], repairInterruptedToolCalls = false): void {
     const withoutProjectContext = messages.filter((message) => !isProjectContextMessage(message))
     const first = withoutProjectContext[0]
 
@@ -1899,6 +1930,7 @@ export class Agent {
       const lastBoundary = this.messages.reduce((index, message, current) => isBoundaryMarker(message) ? current : index, -1)
       this.messages.splice(lastBoundary >= 0 ? lastBoundary + 1 : 1, 0, this.createProjectContextMessage())
     }
+    if (repairInterruptedToolCalls) this.messages = this.getBtwSnapshot()
   }
 
   /** Switches to a custom agent: appends its prompt and files to the base prompt as untrusted guidance, applies its model and tool allowlist, resets session approvals and clears history. */
@@ -1916,9 +1948,7 @@ export class Agent {
     this.setLanguage(this.currentLanguage)
     this.rebuildSystemPromptEffort()
     if (config.model) {
-      this.model = config.model
-      this.contextLimit = this.getModelContextLimit(config.model)
-      this.orchestrator.configure({ model: config.model })
+      this.setModel(config.model)
     }
     this.activeAgent = config.name
     this.allowedTools = config.tools ?? config.allowedTools ?? null
@@ -1931,7 +1961,7 @@ export class Agent {
   resetAgent() {
     this.systemPrompt = DEFAULT_SYSTEM_PROMPT
     this.baseSystemPrompt = DEFAULT_SYSTEM_PROMPT
-    this.model = defaultModel(this.provider) as Model
+    this.setModel(defaultModel(this.provider) as Model)
     this.activeAgent = null
     this.allowedTools = null
     this.sessionApprovedTools = new Set()
@@ -2024,7 +2054,7 @@ export class Agent {
     // Inject asynchronous agent responses into the next foreground turn.
     let messageContent = `[${now}]\n${effectiveMessage}${hookContext}`
     // The page may have broken while the user edited code (HMR): say so before they have to.
-    const pageErrors = browserService.takeIdleErrors(contextKey(this.orchestrator.sessionId))
+    const pageErrors = browserService.takeIdleErrors(this.browserContextKey)
     if (pageErrors) this.addAgentNote('browser', pageErrors)
     if (this.pendingAgentNotes.length > 0) {
       messageContent += `\n\n[Async agent responses — informational, not a new task]\n${this.pendingAgentNotes.map(n => `• @${n.agentName}: ${n.text}`).join('\n')}`
@@ -2149,6 +2179,7 @@ export class Agent {
       await this.runLoop(cb)
     } catch (e) {
       if (e instanceof DenyAbortError) {
+        await this.options.checkpointHistory?.(this.messages)
         await saveHistory(this.messages)
         cb.onDenyAbort?.()
         cb.onDone()
@@ -2169,9 +2200,13 @@ export class Agent {
   /** Model and tool loop for one turn: streams a response, runs its tool calls, and repeats until the model answers. */
   private async runLoop(cb: AgentCallbacks) {
     while (true) {
+      for (const content of await this.orchestrator.beforeModelRequest()) this.messages.push({ role: 'user', content })
+      await this.options.checkpointHistory?.(this.messages)
       // Sanitize messages for the API: reasoning_content must be preserved for all models
       const rawMessages = getMessagesAfterBoundary(this.messages)
       const apiMessages = this.withToolImages(this.getApiMessages(rawMessages))
+      const reference = await this.orchestrator.modelReference()
+      if (reference !== undefined) apiMessages.push({ role: 'user', content: reference })
 
       // ── Non-streaming path for Bedrock/Vertex ──────────────────────────────
       if (!this.useStreaming) {
@@ -2213,6 +2248,12 @@ export class Agent {
           this.recordUsage(usage.prompt_tokens ?? 0, usage.completion_tokens ?? 0, usage.prompt_cache_hit_tokens ?? 0)
           this.contextUsage = usage.prompt_tokens ?? 0
           this.contextStale = false
+        }
+
+        const guidance = await this.orchestrator.beforeModelRequest()
+        if (guidance.length) {
+          for (const content of guidance) this.messages.push({ role: 'user', content })
+          continue
         }
 
         // ── Bedrock R1: prompt-based tool calling ────────────────────────────
@@ -2410,6 +2451,12 @@ export class Agent {
 
       r1Filter?.flush()
 
+      const guidance = await this.orchestrator.beforeModelRequest()
+      if (guidance.length) {
+        for (const content of guidance) this.messages.push({ role: 'user', content })
+        continue
+      }
+
       // Post-response compact check: trigger immediately when threshold crossed mid-turn
       if (this.contextUsage > 0 && this.contextLimit > 0) {
         const usageRatio = this.contextUsage / this.contextLimit
@@ -2534,6 +2581,13 @@ export class Agent {
   private async completeTurn(cb: AgentCallbacks): Promise<void> {
     let completionHandled = false
     try {
+      const guidance = await this.orchestrator.beforeModelRequest()
+      if (guidance.length) {
+        for (const content of guidance) this.messages.push({ role: 'user', content })
+        await this.runLoop(cb)
+        completionHandled = true
+        return
+      }
       if (this.settings.hooks && !this.stopHookActive) {
         const lastMessage = this.messages.at(-1)
         const lastAssistantMessage = lastMessage?.role === 'assistant' && typeof lastMessage.content === 'string'
@@ -2618,6 +2672,7 @@ export class Agent {
       }
       // Extract memory once the turn is really over, not on every gate re-entry.
       this.syncTurn()
+      await this.options.checkpointHistory?.(this.messages)
     } finally {
       if (!completionHandled) cb.onDone()
     }
@@ -2666,6 +2721,7 @@ export class Agent {
     try {
       return await this.executeToolWithChecks(tc, parsedArgs, guardedCallbacks, lifecycle)
     } catch (error: unknown) {
+      if (error instanceof DurableExecutionError) throw error
       if (error instanceof DenyAbortError) {
         // A denied call never reached the execute step, so callers would not see it at all.
         if (!emittedCall) cb.onToolCall(tc.function.name, calledArgs)
@@ -2802,7 +2858,7 @@ export class Agent {
     // Browser actions without a URL act on the active tab: authorize them against its origin.
     if (tc.function.name === 'browser') {
       const { __origin: _ignored, ...rest } = effectiveArgs
-      const origin = originOf(browserService.currentUrl(contextKey(this.orchestrator.sessionId)))
+      const origin = originOf(browserService.currentUrl(this.browserContextKey))
       effectiveArgs = origin ? { ...rest, __origin: origin } : rest
     }
     // Starting a dev server is approved per exact launch.json entry: resolve it now, before the gates.
@@ -3071,7 +3127,7 @@ export class Agent {
     }
 
     // ── Undo snapshot (only for file-writing tools that passed all checks) ──
-    if (['write_file', 'patch_file', 'edit_file'].includes(tc.function.name) && effectiveArgs.path) {
+    if (!this.options.simulationMode && ['write_file', 'patch_file', 'edit_file'].includes(tc.function.name) && effectiveArgs.path) {
       const filePath = effectiveArgs.path as string
       const generated = (this.settings.git?.generatedPatterns ?? []).some(pattern => globMatch(pattern, filePath))
       if (!generated) {
@@ -3100,7 +3156,8 @@ export class Agent {
     auditLog({ type: 'tool_call', tool: tc.function.name, args: effectiveArgs })
     this.toolCallTotal++
     this.turnToolCalls++
-    let result = await this.executeTool(tc.function.name, effectiveArgs, riskResult?.requiresConfirmation === true, executionExternalPaths, cb)
+    let result = await this.orchestrator.executeJournaled(tc.function.name, effectiveArgs,
+      () => this.executeTool(tc.function.name, effectiveArgs, riskResult?.requiresConfirmation === true, executionExternalPaths, cb))
     await this.recordFileSeen(tc.function.name, effectiveArgs, result)
     result = this.noteRepeatedFailure(tc.function.name, effectiveArgs, result)
     auditLog({ type: 'tool_result', tool: tc.function.name, result: result.slice(0, 200), durationMs: Date.now() - t0 })
@@ -3227,10 +3284,16 @@ export class Agent {
         workspacePath: this.workspacePath, signal: this.abortController?.signal, dangerousOperationApproved, approvedExternalPaths,
         workflowManager: this.workflows, interactionMode: this.interactionMode, askUser: this.askUserHandler ?? undefined,
       })
+      if (name === 'browser' && this.options.browserSessionId) context.sessionId = this.options.browserSessionId
+      context.browserHandoff = this.options.browserHandoff
+      context.skillDirectory = this.options.skillDirectory
+      context.browserStep = this.options.browserStep
+      context.browserRecordedStep = this.options.browserRecordedStep
       if (name === 'update_goal') context.verifyGoalCompletion = (summary) => this.verifyGoalCompletion(summary)
       if (supportsVision(this.providerConfig, this.model)) context.attachImage = (image, label) => { this.pendingToolImages.push({ image, label }) }
       return await tool.execute(args, context, callbacks)
     } catch (e: unknown) {
+      if (e instanceof DurableExecutionError) throw e
       return `Error: ${(e as Error).message}`
     }
   }
@@ -3266,7 +3329,7 @@ export class Agent {
 
     try {
       const response = await this.withRetry(() => this.client.chat.completions.create({
-        model: this.model,
+        model: this.options.goalReviewerModel ?? this.model,
         messages: [
           {
             role: 'system',
@@ -3335,6 +3398,7 @@ export class Agent {
 
   // ponytail: auto-learn 0-1 facts per turn, fire-and-forget
   private syncTurn(): void {
+    if (this.settings.memory?.enabled === false || process.env.DEEPSEEK_DISABLE_MEMORY === '1') return
     const msgs = this.messages.filter(m => typeof m === 'object' && 'role' in m && m.role === 'assistant')
     if (msgs.length < 2) return // nothing to learn from a short turn
 

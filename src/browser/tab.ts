@@ -4,6 +4,9 @@ import { buildSnapshot, RefTable, type AXNode, type Snapshot } from './snapshot.
 export interface ConsoleEntry { level: string; text: string }
 export interface NetworkEntry { id: string; method: string; url: string; type?: string; status?: number; failed?: string; mime?: string; postData?: string }
 export interface DialogInfo { type: string; message: string }
+interface NativeFrame { id: string; parentId?: string }
+interface NativeFrameTree { frame: NativeFrame; childFrames?: NativeFrameTree[] }
+interface NativeExecutionContext { id: number; origin: string; auxData?: { isDefault?: boolean; frameId?: string } }
 
 /** Decides whether a paused request may proceed; the browser service applies the origin policy. */
 export type RequestGate = (tab: Tab, request: { url: string; resourceType: string; frameId?: string }) => Promise<boolean>
@@ -70,6 +73,7 @@ export class Tab {
   private unsubscribe: Array<() => void> = []
   private loadWaiters: Array<() => void> = []
   private dialogWaiters: Array<() => void> = []
+  private frameContexts = new Map<string, { sessionId: string; contextId: number; origin: string | undefined }>()
 
   constructor(
     readonly cdp: CdpConnection,
@@ -113,6 +117,9 @@ export class Tab {
     on('Runtime.exceptionThrown', ({ exceptionDetails }) => {
       this.log('error', `Uncaught ${exceptionDetails?.exception?.description ?? exceptionDetails?.text ?? 'exception'}`)
     })
+    on('Runtime.executionContextCreated', ({ context }) => this.recordFrameContext(context))
+    on('Runtime.executionContextDestroyed', ({ executionContextId }) => this.forgetFrameContext(executionContextId))
+    on('Runtime.executionContextsCleared', () => this.forgetFrameSession(this.sessionId))
     on('Network.requestWillBeSent', ({ requestId, request, type }) => {
       this.inflight.add(requestId)
       this.lastNetworkActivity = Date.now()
@@ -134,7 +141,9 @@ export class Tab {
       if (!canceled && entry) this.log('network', `${errorText} ${entry.method} ${entry.url}`)
     })
     on('Fetch.requestPaused', params => { void this.decide(params) })
-    await this.cdp.send('Fetch.enable', { patterns: [{ resourceType: 'Document', requestStage: 'Request' }] }, this.sessionId)
+    // Gate subresources too until the service applies the current origin's policy.
+    // A popup can load scripts/images immediately after resume, before Page.enable finishes.
+    await this.cdp.send('Fetch.enable', { handleAuthRequests: true, patterns: [{ urlPattern: '*', requestStage: 'Request' }] }, this.sessionId)
   }
 
   /** Enables the event domains once the target runs; then reads the URL it may already have loaded. */
@@ -153,6 +162,53 @@ export class Tab {
     } catch { allow = false }
     const method = allow ? 'Fetch.continueRequest' : 'Fetch.failRequest'
     await this.cdp.send(method, allow ? { requestId: params.requestId } : { requestId: params.requestId, errorReason: 'BlockedByClient' }, this.sessionId).catch(() => {})
+  }
+
+  recordFrameContext(context: NativeExecutionContext, sessionId = this.sessionId): void {
+    const frameId = context.auxData?.frameId
+    if (!context.auxData?.isDefault || typeof frameId !== 'string' || typeof context.id !== 'number') return
+    let origin: string | undefined
+    try { const url = new URL(context.origin); if (['http:', 'https:'].includes(url.protocol)) origin = url.origin } catch { /* opaque native context */ }
+    this.frameContexts.set(frameId, { sessionId, contextId: context.id, origin })
+  }
+
+  forgetFrameContext(contextId: number, sessionId = this.sessionId): void {
+    for (const [frame, value] of this.frameContexts) if (value.sessionId === sessionId && value.contextId === contextId) this.frameContexts.delete(frame)
+  }
+
+  forgetFrameSession(sessionId: string): void {
+    for (const [frame, value] of this.frameContexts) if (value.sessionId === sessionId) this.frameContexts.delete(frame)
+  }
+
+  /** Default execution contexts distinguish inherited srcdoc from opaque frames. */
+  async requestOrigin(frameId: string | undefined, document: boolean, sessionId = this.sessionId): Promise<string | undefined> {
+    if (!frameId) return undefined
+    const find = (tree: NativeFrameTree, id: string): NativeFrame | undefined => {
+      if (tree.frame.id === id) return tree.frame
+      for (const child of tree.childFrames ?? []) { const frame = find(child, id); if (frame) return frame }
+      return undefined
+    }
+    let sourceId = frameId
+    if (document) {
+      const { frameTree } = await this.cdp.send<{ frameTree: NativeFrameTree }>('Page.getFrameTree', {}, sessionId)
+      const frame = find(frameTree, frameId)
+      if (!frame?.parentId) return undefined
+      // An iframe navigation belongs to its parent; subsequent resources belong
+      // to the committed child. OOP parent metadata lives in the owning tab.
+      const parentId = frame.parentId
+      let parent = find(frameTree, parentId)
+      if (!parent && sessionId !== this.sessionId) {
+        const owner = await this.cdp.send<{ frameTree: NativeFrameTree }>('Page.getFrameTree', {}, this.sessionId)
+        parent = find(owner.frameTree, parentId)
+      }
+      if (!parent) return undefined
+      sourceId = parent.id
+    }
+    // The initial request gate precedes Runtime.enable. Let the resumed target's
+    // native context event arrive; an unknown or detached frame stays denied.
+    const deadline = Date.now() + 1000
+    while (!this.frameContexts.has(sourceId) && !this.cdp.closed && Date.now() < deadline) await Bun.sleep(10)
+    return this.frameContexts.get(sourceId)?.origin
   }
 
   /** Runs `operation` after every earlier operation on this tab has finished. */
@@ -327,7 +383,13 @@ export class Tab {
     return data
   }
 
+  /** A human may have entered credentials; do not expose their console or request bodies to the agent. */
+  clearHumanActivity(): void {
+    this.console = []; this.network.clear(); this.unreadErrors = 0
+  }
+
   dispose(): void {
+    this.frameContexts.clear()
     for (const off of this.unsubscribe.splice(0)) off()
     for (const resolve of this.loadWaiters.splice(0)) resolve()
     for (const resolve of this.dialogWaiters.splice(0)) resolve()

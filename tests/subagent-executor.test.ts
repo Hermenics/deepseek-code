@@ -197,6 +197,28 @@ describe('subagent terminal protocol', () => {
     task.cancel()
   })
 
+  it('keeps a current policy denial mandatory despite an earlier coordinator grant', async () => {
+    let denied = false, reads = 0
+    const readTool: Tool = { name: 'read_file', description: 'read', parameters: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] }, async execute() { reads++; return 'content' } }
+    const readCall = { content: null, tool_calls: [{ id: 'read', type: 'function', function: { name: 'read_file', arguments: '{"path":"README.md"}' } }] }
+    const session = new OrchestratorSession({ projectRoot: process.cwd(), logFile: null, snapshotFile: null })
+    const task = session.spawn({ taskId: 'revoked-grant', maxRetries: 0 }, async runContext => runSubAgentLoop('system', 'task', runContext.taskId, [readTool], provider, 'fake', {
+      client: fakeClient([readCall, terminalArgs(valid)]), terminal,
+      callbacks: { permissionPolicy: 'isolated', permissions: denied ? { deny: ['read_file'] } : { allow: ['write_file'] } },
+      context: session.toolContext({ taskId: runContext.taskId, signal: runContext.signal, permissionProfile: 'researcher-readonly' }),
+    }))
+    const completion = task.awaitResult()
+    for (let index = 0; index < 100 && task.status().state !== 'blocked'; index++) await Bun.sleep(1)
+    expect(task.status().state).toBe('blocked')
+    const request = session.registry.mailbox.list('coordinator', 'pending')[0]!
+    session.registry.sendMessage(task.taskId, 'permission', { decision: 'allow', tool: 'read_file', requestId: request.messageId })
+    denied = true
+    expect(task.resume()).toBe(true)
+    expect((await completion).status).toBe('done')
+    expect(reads).toBe(0)
+    await session.shutdown()
+  })
+
   it('closes tool schemas even when properties is empty', async () => {
     let executions = 0
     const tool: Tool = {

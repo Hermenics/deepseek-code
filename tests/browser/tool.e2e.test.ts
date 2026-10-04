@@ -50,6 +50,27 @@ const ctx = (extra: Partial<ToolExecutionContext> = {}) => ({ sessionId: SESSION
 const run = (args: Record<string, unknown>, extra?: Partial<ToolExecutionContext>) => runBrowser(args, ctx(extra))
 
 describe.skipIf(!canRun)('browser tool end to end', () => {
+  it('awaits durable recording before advancing native and human procedure steps', async () => {
+    for (const action of ['navigate', 'handoff']) {
+      let enter!: () => void, release!: () => void, committed = false
+      const entered = new Promise<void>(done => { enter = done })
+      const recording = new Promise<void>(done => { release = done })
+      const operation = run(action === 'navigate' ? { action, url: `${base}/` } : { action, reason: 'Review the current page' }, {
+        browserHandoff: async () => true,
+        browserStep: async () => () => { committed = true },
+        browserRecordedStep() { enter(); return recording },
+      })
+      try {
+        await entered
+        expect(committed).toBe(false)
+      } finally { release(); await operation }
+      expect(committed).toBe(true)
+    }
+  }, 60_000)
+  it('propagates a durable recording failure after an actual browser action', async () => {
+    await expect(run({ action: 'navigate', url: `${base}/` }, { browserRecordedStep() { throw new Error('Injected storage failure') } })).rejects.toThrow('checkpoint failed')
+    expect(browserService.currentUrl(contextKey(SESSION))).toBe(`${base}/`)
+  }, 60_000)
   it('opens a page, acts on it, reports changes and errors, and refuses sensitive fields', async () => {
     const opened = await run({ action: 'navigate', url: `${base}/` })
     expect(opened).toStartWith(`Opened ${base}/ — "Shop"`)
@@ -86,6 +107,28 @@ describe.skipIf(!canRun)('browser tool end to end', () => {
     const failed = await run({ action: 'batch', steps: [{ action: 'expect', text: 'Never shown', timeoutMs: 300 }, { action: 'click', ref: 'e3' }] })
     expect(failed).toStartWith('Error: batch stopped at step 1 of 2')
     expect(failed).not.toContain('2. ')
+  }, 60_000)
+
+  it('rejects ambiguous expectations without learning a different predicate', async () => {
+    await run({ action: 'navigate', url: `${base}/` })
+    const steps: unknown[] = []
+    const result = await run({ action: 'expect', text: 'Never shown', url: base, timeoutMs: 0 }, {
+      browserRecordedStep(step) { steps.push(step) },
+    })
+    expect(result).toStartWith('Error: Give exactly one of text, ref or url')
+    expect(steps).toHaveLength(0)
+    expect(await run({ action: 'expect', url: base, noErrors: true })).toStartWith('Error: Check noErrors separately')
+  }, 60_000)
+
+  it('reports failed batches even when instructed to continue after failures', async () => {
+    await run({ action: 'navigate', url: `${base}/` })
+    const result = await run({ action: 'batch', stopOnError: false, steps: [
+      { action: 'expect', text: 'Never shown', timeoutMs: 0 },
+      { action: 'expect', text: 'Cart', timeoutMs: 0 },
+    ] })
+    expect(result).toStartWith('Error: batch finished with failure at step 1 of 2')
+    expect(result).toContain('2. ✓ PASS: text "Cart" present')
+    expect(result).not.toContain('2 steps done')
   }, 60_000)
 
   it('handles dialogs, blocked schemes, screenshots, tabs, interruption and close', async () => {

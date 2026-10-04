@@ -27,6 +27,9 @@ if (!result.success) {
 
 chmodSync('dist/cli.mjs', 0o755)
 
+const egress = await Bun.build({ entrypoints: ['src/browser/egressWorker.ts'], outdir: 'dist', naming: 'browser-egress-worker.mjs', target: 'node', minify: true })
+if (!egress.success) { for (const log of egress.logs) console.error(log); process.exit(1) }
+
 writeFileSync('dist/deepseek.mjs', LAUNCHER_SOURCE)
 chmodSync('dist/deepseek.mjs', 0o755)
 writeFileSync('dist/runtime.mjs', BUN_RUNNER_SOURCE)

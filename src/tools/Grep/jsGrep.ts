@@ -68,6 +68,7 @@ export async function jsGrep(options: {
   ignoreDirs: string[]
   limit: number
   signal?: AbortSignal | undefined
+  exclude?: (file: string) => Promise<boolean>
 }): Promise<{ lines: string[]; totalMatches?: number; error?: string }> {
   const { dir, pattern, include, workspaceRoot, ignoreDirs, limit, signal } = options
 
@@ -97,6 +98,7 @@ export async function jsGrep(options: {
   for (const file of files) {
     if (signal?.aborted) break
     if (isPathIgnored(file, workspaceRoot)) continue
+    if (await options.exclude?.(file)) continue
 
     let content: Buffer
     try {

@@ -7,6 +7,7 @@ import { runMigrations, type Migration } from './migrations.js'
 export interface StoreOptions {
   path?: string
   memory?: boolean
+  busyTimeoutMs?: number
 }
 
 /** Thin wrapper over a bun:sqlite database (default `~/.deepseek/kernel.db`) opened with WAL, a 5s busy timeout, foreign keys and secure delete enabled. */
@@ -15,6 +16,8 @@ export class Store {
   readonly path: string
 
   constructor(options: StoreOptions = {}) {
+    const timeout = options.busyTimeoutMs ?? 5000
+    if (!Number.isSafeInteger(timeout) || timeout < 0 || timeout > 2147483647) throw new Error('Invalid SQLite busy timeout')
     if (options.memory) {
       this.path = ':memory:'
     } else {
@@ -27,10 +30,12 @@ export class Store {
     }
 
     this.db = new Database(this.path, { create: true })
-    this.db.exec('PRAGMA journal_mode = WAL')
-    this.db.exec('PRAGMA busy_timeout = 5000')
-    this.db.exec('PRAGMA foreign_keys = ON')
-    this.db.exec('PRAGMA secure_delete = ON')
+    try {
+      this.db.exec(`PRAGMA busy_timeout = ${timeout}`)
+      this.db.exec('PRAGMA journal_mode = WAL')
+      this.db.exec('PRAGMA foreign_keys = ON')
+      this.db.exec('PRAGMA secure_delete = ON')
+    } catch (error) { this.db.close(); throw error }
   }
 
   /** Applies any migrations not yet recorded in `_schema_version`. */

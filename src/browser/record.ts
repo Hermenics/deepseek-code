@@ -37,7 +37,7 @@ export function stepFor(action: string, args: Record<string, unknown>, target?: 
     case 'press': return { action, key: str(args.key) }
     case 'wait': case 'expect':
       if (str(args.text)) return { action: 'expect', text: str(args.text), gone: args.gone === true }
-      if (str(args.url)) return { action: 'expect', url: str(args.url) }
+      if (str(args.url)) return { action: 'expect', url: str(args.url), gone: args.gone === true }
       return target ? { action: 'expect', ...target, gone: args.gone === true } : null
     case 'handoff': return { action: 'comment', text: `the user acted here: ${str(args.reason) ?? ''}` }
     default: return null
@@ -93,7 +93,7 @@ export function exportPlaywright(steps: RecordedStep[], title = 'recorded browse
       case 'upload': body.push(`  await ${target}.setInputFiles([${(step.value ?? '').split('\n').map(quote).join(', ')}])`); break
       case 'press': body.push(`  await page.keyboard.press(${quote(step.key ?? '')})`); break
       case 'expect':
-        if (step.url) body.push(`  await expect(page).toHaveURL(new RegExp(${quote(step.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))}))`)
+        if (step.url) body.push(`  await expect(page).${step.gone ? 'not.' : ''}toHaveURL(new RegExp(${quote(step.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))}))`)
         else {
           const what = step.text ? `page.getByText(${quote(step.text)})` : target
           if (what) body.push(`  await expect(${what}${step.text ? '.first()' : ''}).${step.gone ? 'toBeHidden' : 'toBeVisible'}()`)

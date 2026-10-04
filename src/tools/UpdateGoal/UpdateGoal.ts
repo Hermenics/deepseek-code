@@ -5,7 +5,7 @@ import { getGoal, updateGoal, markGoalBlocked, resumeGoal } from '../../agent/go
 export const UpdateGoal: Tool = {
   name: 'update_goal',
   description:
-    'Update the goal status. Use status=complete only when the goal is achieved, and include completion_summary with concise evidence that every part is finished; a separate current-model reviewer checks it. ' +
+    'Update the goal status. Use status=complete only when the goal is achieved, and include completion_summary with concise evidence that every part is finished; an independent, tool-free review request checks it using the configured reviewer model. ' +
     'Use status=blocked when stuck (requires blocker field, and only after 3+ consecutive occurrences of the same blocker). ' +
     'Use status=paused to temporarily stop. Use status=active to resume.',
   parameters: {

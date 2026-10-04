@@ -2,7 +2,7 @@ import { Tool } from '../types.js'
 import { execa } from 'execa'
 import * as path from 'node:path'
 import { GREP_MAX_LINES } from '../../constants.js'
-import { assertSafeDir } from '../shared/pathSafety.js'
+import { assertSafeDir, isProtectedPath } from '../shared/pathSafety.js'
 import { ignoreDirNames, isPathIgnored } from '../shared/deepseekignore.js'
 import { hasBinary } from '../../utils/platform.js'
 import { jsGrep } from './jsGrep.js'
@@ -91,13 +91,15 @@ export const Grep: Tool = {
         ignoreDirs: [...ignoreDirNames(workspaceRoot), '.DS_Store'],
         limit: GREP_MAX_LINES,
         signal: context?.signal,
+        exclude: file => isProtectedPath(file, context),
       })
       return error ? `Error: ${error}` : render(lines, totalMatches)
     }
 
     // Native grep is used only when the exact NUL-separator options are known
     // to work; Windows and BSD grep commonly lack -z or -Z.
-    if (!(await supportsNativeGrep())) return runJsFallback()
+    // Filter before reading, not after a native subprocess has consumed private state.
+    if (context?.protectedPaths?.length || !(await supportsNativeGrep())) return runJsFallback()
 
     try {
       const { stdout } = await execa('grep', grepArgs, { timeout: 15000, cancelSignal: context?.signal })

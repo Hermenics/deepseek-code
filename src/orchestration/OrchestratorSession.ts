@@ -31,6 +31,7 @@ export interface OrchestratorCallbacks {
 }
 
 export interface OrchestratorSessionOptions {
+  protectedPaths?: readonly string[]
   sessionId?: string
   projectRoot?: string
   providerConfig?: ProviderConfig
@@ -39,7 +40,21 @@ export interface OrchestratorSessionOptions {
   limits?: Partial<TaskLimits>
   logFile?: string | null
   snapshotFile?: string | null
+  toolExecution?: DurableToolExecution
 }
+
+/** Optional outer journal for a persistent actor; failures stop execution instead of becoming tool output. */
+export interface DurableToolExecution {
+  before(tool: string, args: Record<string, unknown>, taskId?: string): DurableToolExecutionDecision | Promise<DurableToolExecutionDecision>
+  after(actionId: string, result: string): void | Promise<void>
+  requestPermission?(tool: string, args: Record<string, unknown>, taskId?: string): Promise<'allow' | 'deny'>
+  /** User input at model boundaries, including native delegated/workflow executors. */
+  beforeModel?(taskId?: string): string[] | Promise<string[]>
+  /** Current reference data for this request only; never added to durable history. */
+  modelReference?(taskId?: string): string | undefined | Promise<string | undefined>
+}
+export type DurableToolExecutionDecision = string | null | { kind: 'simulate'; result: string }
+export class DurableExecutionError extends Error {}
 
 /** Default snapshot path for a session: ~/.deepseek/task-snapshots/<hashed session ID>.json. */
 export function taskSnapshotFile(sessionId: string): string {
@@ -69,8 +84,12 @@ export class OrchestratorSession {
   private readonly snapshotStore?: TaskSnapshotStore
   private restored = false
   private genericAgentCounter = 0
+  private readonly toolExecution?: DurableToolExecution
+  private readonly protectedPaths: readonly string[]
 
   constructor(options: OrchestratorSessionOptions = {}) {
+    this.toolExecution = options.toolExecution
+    this.protectedPaths = [...(options.protectedPaths ?? [])]
     this.sessionId = options.sessionId ?? randomUUID()
     this.projectRoot = resolve(options.projectRoot ?? process.cwd())
     this.providerConfig = options.providerConfig ?? { provider: 'deepseek' }
@@ -89,6 +108,30 @@ export class OrchestratorSession {
       this.routeCompatibilityEvent(event.type, event.taskId, event.payload)
       this.queueSnapshot()
     })
+  }
+
+  /** Called after the executor's permission gates, around the actual effect. */
+  async executeJournaled(tool: string, args: Record<string, unknown>, execute: () => Promise<string>, taskId?: string): Promise<string> {
+    if (!this.toolExecution) return execute()
+    let decision: DurableToolExecutionDecision
+    try { decision = await this.toolExecution.before(tool, args, taskId) }
+    catch (error) { throw new DurableExecutionError(`Durable action guard failed: ${error instanceof Error ? error.message : String(error)}`) }
+    if (decision === null) return 'Action superseded by new task input or saved memory. Read the current context and reconsider this action with current approvals.'
+    if (typeof decision === 'object') return decision.result
+    const id = decision
+    const result = await execute()
+    try { await this.toolExecution.after(id, result) }
+    catch (error) { throw new DurableExecutionError(`Durable action checkpoint failed: ${error instanceof Error ? error.message : String(error)}`) }
+    return result
+  }
+  async beforeModelRequest(taskId?: string): Promise<string[]> {
+    return await this.toolExecution?.beforeModel?.(taskId) ?? []
+  }
+  async modelReference(taskId?: string): Promise<string | undefined> {
+    return this.toolExecution?.modelReference?.(taskId)
+  }
+  requestToolPermission(tool: string, args: Record<string, unknown>, taskId?: string): Promise<'allow' | 'deny'> | undefined {
+    return this.toolExecution?.requestPermission?.(tool, args, taskId)
   }
 
   /** Rebuild a session from a snapshot file, marking interrupted tasks failed and re-deriving the generic agent counter. */
@@ -190,7 +233,8 @@ export class OrchestratorSession {
 
   /** Integrate the task's workspace into the project and record the updated workspace and integration result on the task. */
   async integrateTask(taskId: string): Promise<IntegrationResult> {
-    const result = await this.workspaces.integrate(taskId)
+    const result = JSON.parse(await this.executeJournaled('workspace_integrate', { taskId },
+      async () => JSON.stringify(await this.workspaces.integrate(taskId)), taskId)) as IntegrationResult
     const workspace = this.workspaces.get(taskId)
     if (workspace) this.registry.setWorkspace(taskId, workspace)
     this.registry.updateMetadata(taskId, { integration: result })
@@ -220,6 +264,7 @@ export class OrchestratorSession {
       maxCostUsd: input.maxCostUsd,
       dangerousOperationApproved: input.dangerousOperationApproved,
       approvedExternalPaths: input.approvedExternalPaths,
+      protectedPaths: this.protectedPaths,
       workflowManager: input.workflowManager,
       interactionMode: input.interactionMode,
       askUser: input.askUser,

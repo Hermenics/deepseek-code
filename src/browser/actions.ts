@@ -218,6 +218,8 @@ async function waitFor(env: ActionEnv, args: Args, defaultTimeout: number): Prom
   const ref = str(args.ref)
   const url = str(args.url)
   const gone = args.gone === true
+  if ([text, ref, url].filter(Boolean).length !== 1) throw new Error('Give exactly one of text, ref or url to wait for')
+  if (args.noErrors === true) throw new Error('Check noErrors separately from text, ref or url')
   const what = text ? `text ${JSON.stringify(text)}` : ref ? `element ${ref}` : url ? `URL containing ${JSON.stringify(url)}` : ''
   if (!what) throw new Error('Give text, ref or url to wait for')
   const started = Date.now()

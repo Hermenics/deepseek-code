@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "@aethelics/deepseek-code",
+      "name": "@hermenics/deepseek-code",
       "dependencies": {
         "@alcalzone/ansi-tokenize": "^0.3.0",
         "@aws-crypto/sha256-js": "^5.2.0",

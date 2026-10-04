@@ -12,6 +12,13 @@ let todos: TodoItem[] = []
 const listeners = new Set<() => void>()
 
 export function getTodos(): TodoItem[] { return todos }
+/** Restores an actor's durable todo snapshot; copies so later mutations cannot alter it. */
+export function restoreTodos(items: TodoItem[]): void {
+  if (items.some(item => !item || typeof item.id !== 'string' || typeof item.title !== 'string' || !['pending', 'in_progress', 'done'].includes(item.status))
+    || new Set(items.map(item => item.id)).size !== items.length) throw new Error('Invalid todo snapshot')
+  todos = structuredClone(items)
+  notify()
+}
 
 /** Registers a listener called after every todo change; returns an unsubscribe function. */
 export function subscribe(fn: () => void): () => void {

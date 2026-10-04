@@ -1,7 +1,8 @@
 import { Tool } from '../types.js'
 import * as fs from 'fs/promises'
 import * as path from 'path'
-import { assertSafeDir } from '../shared/pathSafety.js'
+import { assertSafeDir, isProtectedPath } from '../shared/pathSafety.js'
+import type { ToolExecutionContext } from '../../orchestration/types.js'
 import { isPathIgnored } from '../shared/deepseekignore.js'
 
 const MAX_ENTRIES = 1000
@@ -12,6 +13,7 @@ interface ListDirState {
   truncated: boolean
   /** Workspace root whose .deepseekignore governs this listing. */
   ignoreRoot: string
+  context?: ToolExecutionContext
 }
 
 /** Depth-limited walk that appends entries to `state.results`, skipping .deepseekignore matches and recording unreadable directories inline. Stops once MAX_ENTRIES is reached. */
@@ -40,6 +42,7 @@ async function listDir(
   for (const e of entries) {
     if (state.truncated) return
     if (isPathIgnored(path.join(dir, e.name), state.ignoreRoot)) continue
+    if (await isProtectedPath(path.join(dir, e.name), state.context)) continue
 
     const rel = prefix ? `${prefix}/${e.name}` : e.name
     state.results.push(e.isDirectory() ? `${rel}/` : rel)
@@ -81,7 +84,7 @@ export const ReadFolder: Tool = {
     const dirPath = await assertSafeDir(args.path as string, context)
     const ignoreRoot = path.resolve(context?.workspacePath ?? process.cwd())
 
-    const state: ListDirState = { results: [], truncated: false, ignoreRoot }
+    const state: ListDirState = { results: [], truncated: false, ignoreRoot, context }
     await listDir(dirPath, !!args.recursive, '', DEFAULT_MAX_DEPTH, state)
 
     if (state.truncated) {

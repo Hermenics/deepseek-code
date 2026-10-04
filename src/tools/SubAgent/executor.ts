@@ -14,6 +14,7 @@ import { isToolAllowedForProfile } from './permissions.js'
 import { TaskRuntimeError } from '../../orchestration/lifecycle.js'
 import { isDeepStrictEqual } from 'node:util'
 import { runPermissionRequestHooks } from '../../hooks/lifecycle.js'
+import { DurableExecutionError } from '../../orchestration/OrchestratorSession.js'
 
 const CONTEXTLESS_TIMEOUT_MS = 120_000
 
@@ -139,13 +140,18 @@ export async function runSubAgentLoop<T = never>(
       throw new TaskRuntimeError('TIMED_OUT', `Subagent exceeded the default ${CONTEXTLESS_TIMEOUT_MS}ms time limit without a task context`)
     }
     drainQuestions()
+    if (!agentId.endsWith('-v')) {
+      for (const content of await options.context?.session?.beforeModelRequest(options.context.taskId) ?? []) messages.push({ role: 'user', content })
+    }
     const effortParams = (provider.provider === 'deepseek' || provider.provider === 'bedrock') && options.effort
       ? options.effort === 'low'
         ? { thinking: { type: 'disabled' } }
         : { reasoning_effort: options.effort, thinking: { type: 'enabled' } }
       : {}
+    const reference = await options.context?.session?.modelReference(options.context.taskId)
+    const apiMessages = reference === undefined ? messages : [...messages, { role: 'user' as const, content: reference }]
     const response = await client.chat.completions.create({
-      model: modelName, messages, tools: tools.length > 0 ? tools : undefined, ...effortParams, ...outputLimit(provider, options),
+      model: modelName, messages: apiMessages, tools: tools.length > 0 ? tools : undefined, ...effortParams, ...outputLimit(provider, options),
     } as any, { signal: options.context?.signal })
     const usage = response.usage as (typeof response.usage & { prompt_cache_hit_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } }) | undefined
     totalTokens += usage?.total_tokens ?? 0
@@ -183,6 +189,15 @@ export async function runSubAgentLoop<T = never>(
     if (overCost) throw new TaskRuntimeError('COST_BUDGET_EXCEEDED', `Subagent cost $${taskCostUsd.toFixed(4)}; limit is $${options.context!.maxCostUsd}`)
     const message = response.choices[0]?.message
     if (!message) throw new StructuredOutputError('INVALID_RESULT', 'Model returned no message', raw.join('\n'))
+    // A correction arriving during inference invalidates this proposed result
+    // and its tool calls before permission or effects are admitted.
+    if (!agentId.endsWith('-v')) {
+      const guidance = await options.context?.session?.beforeModelRequest(options.context.taskId) ?? []
+      if (guidance.length) {
+        for (const content of guidance) messages.push({ role: 'user', content })
+        continue
+      }
+    }
     if (message.content) raw.push(message.content)
     // Emit transcript deltas only — the full `messages` array holds the system
     // prompt and large tool results and must not be re-sent every iteration.
@@ -288,15 +303,20 @@ export async function runSubAgentLoop<T = never>(
         return Boolean(request && request.taskId === options.context!.taskId && request.senderId === options.context!.taskId &&
           request.type === 'permission' && request.payload.tool === call.function.name && isDeepStrictEqual(request.payload.args, args))
       })
-      const configuredDecision = permissionGrant ? String(permissionGrant.payload.decision) as 'allow' | 'deny' : resolvePermission(permissions, call.function.name, args)
+      const policyDecision = resolvePermission(permissions, call.function.name, args)
+      const configuredDecision = permissionGrant && policyDecision !== 'deny' ? String(permissionGrant.payload.decision) as 'allow' | 'deny' : policyDecision
       const hookDecision: Awaited<ReturnType<typeof runPermissionRequestHooks>> = configuredDecision === 'ask'
         ? await runPermissionRequestHooks(settings.hooks, call.function.name, args, options.context?.sessionId ?? '', { cwd: options.context?.workspacePath, model: modelName })
         : { decision: 'pass' as const }
-      const decision = hookDecision.decision === 'block'
+      let decision = hookDecision.decision === 'block'
         ? 'deny' as const
         : hookDecision.approved
           ? 'allow' as const
           : configuredDecision
+      if (decision === 'ask') {
+        const review = options.context?.session?.requestToolPermission(call.function.name, args, options.context.taskId)
+        if (review) decision = await review
+      }
       if (permissionGrant) {
         registry!.acknowledgeMessage(permissionGrant.messageId)
         registry!.acknowledgeMessage(String(permissionGrant.payload.requestId))
@@ -324,7 +344,15 @@ export async function runSubAgentLoop<T = never>(
       }
 
       let result: string
-      try { result = await tool.execute(args, options.context) } catch (error) { result = `Error: ${(error as Error).message}` }
+      try {
+        const execute = () => tool.execute(args, options.context)
+        result = options.context?.session
+          ? await options.context.session.executeJournaled(call.function.name, args, execute, options.context.taskId)
+          : await execute()
+      } catch (error) {
+        if (error instanceof DurableExecutionError) throw error
+        result = `Error: ${(error as Error).message}`
+      }
       options.context?.emit?.('tool_finished', { tool: call.function.name, result: result.slice(0, 200) })
       messages.push({ role: 'tool', tool_call_id: call.id, content: result })
     }

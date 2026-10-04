@@ -57,6 +57,18 @@ async function canonicalTargetPath(target: string): Promise<string> {
   }
 }
 
+/** Runtime exclusions outrank workspace and external-directory grants; aliases remain excluded. */
+export async function isProtectedPath(target: string, context?: ToolExecutionContext): Promise<boolean> {
+  if (!context?.protectedPaths?.length) return false
+  const absolute = path.resolve(target)
+  const canonical = await canonicalTargetPath(absolute)
+  for (const root of context.protectedPaths) {
+    const excluded = path.resolve(root)
+    if (isContained(excluded, absolute) || isContained(await canonicalTargetPath(excluded), canonical)) return true
+  }
+  return false
+}
+
 /** True when `target`, after resolving symlinks, is a saved workflow script inside this workspace's `.deepseek/workflows/`. */
 async function isWorkspaceWorkflowFile(workspaceRoot: string, target: string): Promise<boolean> {
   if (!isContained(workspaceRoot, target)) return false
@@ -93,6 +105,7 @@ async function nearestExisting(target: string): Promise<string> {
 export async function resolveSafePath(filePath: string, context?: ToolExecutionContext): Promise<string> {
   const workspaceRoot = path.resolve(context?.workspacePath ?? process.cwd())
   const target = resolvePathForContext(filePath, context)
+  if (await isProtectedPath(target, context)) throw new Error('Private runtime state cannot be accessed by general file tools')
   const roots = [workspaceRoot, ...(context?.approvedExternalPaths ?? []).map(root => path.resolve(root))]
   const realAncestor = await nearestExisting(target)
   const allowedRoot = await Promise.all(roots.map(async root => ({ root, realRoot: await fs.realpath(root) })))

@@ -3,7 +3,8 @@ import type { Database } from 'bun:sqlite'
 export interface Migration {
   version: number
   name: string
-  up: string
+  /** SQL or synchronous database work; both run inside the same migration transaction. */
+  up: string | ((db: Database) => undefined)
 }
 
 /** Ensures the schema_version meta table exists. */
@@ -36,9 +37,13 @@ export function runMigrations(db: Database, migrations: Migration[]): void {
     // instead of once per statement — ~50 fsyncs per fresh database, which
     // took over 5s on Windows CI runners.
     db.transaction(() => {
-      db.exec(migration.up)
+      // Another process can migrate after our initial snapshot. Acquire the
+      // writer first, then decide whether this version still needs applying.
+      if (db.query('SELECT version FROM _schema_version WHERE version = ?').get(migration.version)) return
+      if (typeof migration.up === 'string') db.exec(migration.up)
+      else migration.up(db)
       db.run('INSERT INTO _schema_version (version, name) VALUES (?, ?)', [migration.version, migration.name])
-    })()
+    }).immediate()
   }
 }
 

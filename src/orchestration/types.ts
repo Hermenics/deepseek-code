@@ -226,10 +226,18 @@ export interface ToolExecutionContext {
   dangerousOperationApproved?: boolean
   /** External filesystem roots explicitly approved for this agent session. */
   approvedExternalPaths?: string[]
+  /** Runtime-owned state excluded from general file tools, even inside approved roots. */
+  protectedPaths?: readonly string[]
   session?: import('./OrchestratorSession.js').OrchestratorSession
   workflowManager?: import('../workflows/manager.js').WorkflowManager
   interactionMode?: import('../ui/interactionMode.js').InteractionMode
   askUser?: AskUserHandler
+  /** Bot hosts can wait for authenticated remote takeover instead of opening a local window. */
+  browserHandoff?: (reason: string) => Promise<boolean>
+  skillDirectory?: string
+  /** A procedure host checks each native action, including each batch step. Commit only on success. */
+  browserStep?: (args: Record<string, unknown>, tab?: import('../browser/tab.js').Tab) => Promise<(() => void | Promise<void>) | undefined>
+  browserRecordedStep?: (step: import('../browser/record.js').RecordedStep, pageUrl?: string) => void | Promise<void>
   /** Separate model review required before an agent can mark its goal complete. */
   verifyGoalCompletion?: (completionSummary: string) => Promise<string>
   /**

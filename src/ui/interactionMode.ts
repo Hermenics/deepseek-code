@@ -37,6 +37,9 @@ const BUILD_TOOLS = new Set([
   'subagent', 'ask_agent', 'moa', 'update_goal', 'browser', 'dev_server',
 ])
 
+// Persistent workers inject this scoped tool at runtime; it is not registered in ordinary CLI sessions.
+const CONTEXT_TOOLS = new Set(['bot_control'])
+
 // Permissões por modo. Auto names every native tool so /permissions remains
 // accurate; canUseTool still permits dynamically discovered MCP tools there.
 const TOOL_PERMISSIONS: Record<InteractionMode, Set<string>> = {
@@ -50,6 +53,7 @@ const TOOL_PERMISSIONS: Record<InteractionMode, Set<string>> = {
 export function canUseTool(mode: InteractionMode, tool: string): boolean {
   // Auto mode: zero restrictions, everything is allowed
   if (mode === 'auto') return true
+  if (CONTEXT_TOOLS.has(tool)) return mode === 'build'
   // MCP tools (contain '__') follow the same rules as shell — allowed in modes that permit shell
   if (tool.includes('__')) {
     return TOOL_PERMISSIONS[mode].has('shell')

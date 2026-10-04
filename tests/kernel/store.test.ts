@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
-import { mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, rmSync, existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Store } from '../../src/kernel/store/store.js'
@@ -46,6 +46,48 @@ describe('Store', () => {
     expect(count1).toBe(count2)
   })
 
+  it('rechecks pending migrations after another process applies the same version', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsk-migrate-race-')), path = join(dir, 'kernel.db')
+    const seed = new Store({ path }); seed.migrate([]); seed.close()
+    const source = new URL('../../src/kernel/store/store.ts', import.meta.url).pathname
+    const release = join(dir, 'release'), processes: ReturnType<typeof Bun.spawn>[] = [], diagnostics: Promise<string>[] = []
+    let probe: Store | undefined
+    const code = `import { existsSync } from 'node:fs';import { Store } from ${JSON.stringify(source)};
+      const store=new Store({path:process.env.DEEPSEEK_MIGRATION_PATH}), query=store.db.query.bind(store.db);
+      store.db.query=(sql,...args)=>{const statement=query(sql,...args);
+        if(sql==='SELECT version FROM _schema_version'){const all=statement.all.bind(statement);
+          statement.all=(...args)=>{const rows=all(...args);process.send('read');const end=Date.now()+15000;
+            while(!existsSync(process.env.DEEPSEEK_MIGRATION_RELEASE)){if(Date.now()>end)throw Error('Migration barrier timed out');Atomics.wait(new Int32Array(new SharedArrayBuffer(4)),0,0,10)}return rows}}
+        return statement};
+      try{store.migrate([{version:1,name:'concurrent-upgrade',up:'CREATE TABLE migrated_once (id INTEGER)'}])}
+      finally{store.close()}`
+    try {
+      const waiting = [0, 1].map(() => {
+        let announce!: () => void
+        const ready = new Promise<void>(done => { announce = done })
+        const child = Bun.spawn([process.execPath, '-e', code], {
+          env: { ...process.env, DEEPSEEK_MIGRATION_PATH: path, DEEPSEEK_MIGRATION_RELEASE: release },
+          stdin: 'ignore', stdout: 'ignore', stderr: 'pipe', ipc(message) { if (message === 'read') announce() },
+        })
+        processes.push(child)
+        const stderr = new Response(child.stderr).text(); diagnostics.push(stderr)
+        return Promise.race([ready, child.exited.then(async () => { throw Error(await stderr) })])
+      })
+      await Promise.all(waiting)
+      writeFileSync(release, '')
+      const results = await Promise.all(processes.map(async (child, index) => ({ exit: await child.exited, error: await diagnostics[index] })))
+      expect(results).toEqual([{ exit: 0, error: '' }, { exit: 0, error: '' }])
+      probe = new Store({ path })
+      expect(probe.query('SELECT version FROM _schema_version')).toEqual([{ version: 1 }])
+      expect(probe.query("SELECT name FROM sqlite_master WHERE name='migrated_once'")).toHaveLength(1)
+    } finally {
+      for (const child of processes) if (child.exitCode === null) child.kill()
+      await Promise.all(processes.map(child => child.exited))
+      probe?.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 20000)
+
   it('should upgrade an existing database by applying only missing migrations', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsk-migrate-'))
     const dbPath = join(dir, 'kernel.db')
@@ -82,6 +124,20 @@ describe('Store', () => {
     expect(() => store.migrate([broken])).toThrow()
     expect(store.query('SELECT name FROM sqlite_master WHERE name = \'half_done\'').length).toBe(0)
     expect(store.query('SELECT version FROM _schema_version WHERE version = 99').length).toBe(0)
+  })
+
+  it('commits synchronous data migrations atomically and rolls back callback failures', () => {
+    store = new Store({ memory: true })
+    store.migrate([{ version: 1, name: 'fixture', up: 'CREATE TABLE data_migration (id INTEGER, value TEXT); INSERT INTO data_migration VALUES (1,\'legacy\')' }])
+    expect(() => store.migrate([{ version: 2, name: 'rejected-cleanup', up(db) {
+      db.run("UPDATE data_migration SET value='partial'")
+      throw new Error('Cleanup fixture failed')
+    } }])).toThrow('Cleanup fixture failed')
+    expect(store.query('SELECT value FROM data_migration')).toEqual([{ value: 'legacy' }])
+    expect(store.query('SELECT version FROM _schema_version WHERE version=2')).toHaveLength(0)
+    store.migrate([{ version: 2, name: 'cleanup', up(db) { db.run("UPDATE data_migration SET value='safe'") } }])
+    expect(store.query('SELECT value FROM data_migration')).toEqual([{ value: 'safe' }])
+    expect(store.query('SELECT version FROM _schema_version WHERE version=2')).toHaveLength(1)
   })
 
   it('should execute within a transaction', () => {

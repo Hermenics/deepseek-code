@@ -4,6 +4,15 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execa } from 'execa'
 import { OrchestratorSession } from '../src/orchestration/index.js'
+import { validateTaskResultEnvelope } from '../src/orchestration/schema.js'
+
+it('accepts native token breakdowns while rejecting invalid or unknown task metrics', () => {
+  const result = { schemaVersion: 1, taskId: 'task', sessionId: 'session', status: 'done', artifacts: [], completedAt: new Date().toISOString(),
+    metrics: { usageAvailable: true, tokens: 7, promptTokens: 4, completionTokens: 3, cachedTokens: 0 } }
+  expect(validateTaskResultEnvelope(result).valid).toBe(true)
+  expect(validateTaskResultEnvelope({ ...result, metrics: { ...result.metrics, promptTokens: -1 } }).valid).toBe(false)
+  expect(validateTaskResultEnvelope({ ...result, metrics: { ...result.metrics, unknown: 1 } }).valid).toBe(false)
+})
 
 const roots: string[] = []
 async function repository(): Promise<string> {

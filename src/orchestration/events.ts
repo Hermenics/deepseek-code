@@ -5,7 +5,7 @@ import type { TaskEventType, TaskEventV1 } from './types.js'
 
 const SECRET_KEY = /(api[_-]?key|authorization|cookie|credential|password|private[_-]?key|secret|(?:^|[_-])(?:access|auth|refresh|session)?token$)/i
 
-/** Deep-copy a value, replacing values under secret-looking keys and secret patterns inside strings (private keys, GitHub/AWS/`sk-` tokens, bearer headers, `key=value` credentials) with redaction markers. */
+/** Deep-copy a value, replacing secret-looking keys and string patterns (private keys, GitHub/AWS/`sk-` tokens, URL passwords, bearer headers, `key=value` credentials) with redaction markers. */
 export function redactSecrets(value: unknown, key = ''): unknown {
   if (SECRET_KEY.test(key)) return '[REDACTED]'
   if (Array.isArray(value)) return value.map(item => redactSecrets(item))
@@ -17,6 +17,7 @@ export function redactSecrets(value: unknown, key = ''): unknown {
       .replace(/-----BEGIN [^-\n]*PRIVATE KEY-----[\s\S]*?-----END [^-\n]*PRIVATE KEY-----/g, '[REDACTED PRIVATE KEY]')
       .replace(/\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[A-Z0-9]{16})\b/g, '[REDACTED]')
       .replace(/\b(sk-[A-Za-z0-9_-]{12,})\b/g, '[REDACTED]')
+      .replace(/(:\/\/)[^/\s?#@:]*:[^/\s?#]*@/g, '$1[REDACTED]@')
       .replace(/(bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, '$1[REDACTED]')
       .replace(/((?:api[_-]?key|password|secret|token|credential)\s*[=:]\s*)[^\s,;"']+/gi, '$1[REDACTED]')
   }

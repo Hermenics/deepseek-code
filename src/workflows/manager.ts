@@ -4,7 +4,7 @@ import { join, relative, resolve } from 'node:path'
 import type { ProviderConfig } from '../types/provider.js'
 import type { DeepSeekSettings } from '../settings/types.js'
 import type { InteractionMode } from '../ui/interactionMode.js'
-import { OrchestratorSession, type OrchestratorCallbacks } from '../orchestration/OrchestratorSession.js'
+import { OrchestratorSession, type DurableToolExecution, type OrchestratorCallbacks } from '../orchestration/OrchestratorSession.js'
 import type { TaskRecordV1 } from '../orchestration/types.js'
 import { discoverWorkflows } from './discovery.js'
 import { executeWorkflowScript, type WorkflowExecution } from './runtime.js'
@@ -50,6 +50,9 @@ export interface WorkflowAgentResponse extends WorkflowRpcResult {
 export type WorkflowAgentRunner = (request: WorkflowAgentRequest) => Promise<WorkflowAgentResponse>
 
 export interface WorkflowManagerOptions {
+  protectedPaths?: readonly string[]
+  toolExecution?: DurableToolExecution
+  memoryDirectory?: string
   sessionId: string
   projectRoot: string
   providerConfig: ProviderConfig
@@ -277,11 +280,14 @@ export class WorkflowManager {
     }
     const settings = this.options.settings ?? {}
     const session = new OrchestratorSession({
+      protectedPaths: this.options.protectedPaths,
+      toolExecution: this.options.toolExecution,
       sessionId: `${this.options.sessionId}:workflow:${runId}`, projectRoot: this.options.projectRoot,
       providerConfig: this.options.providerConfig, model: this.options.model, settings,
       limits: { concurrency: Math.min(settings.agents?.concurrency ?? 5, MAX_CONCURRENCY), maxTasks: MAX_AGENTS, maxFanOut: MAX_AGENTS },
       snapshotFile: null,
     })
+    if (this.options.memoryDirectory) session.memory.setDirectory(this.options.memoryDirectory)
     session.setCallbacks(this.callbacks)
     let resolveStartup!: () => void
     const startupCompletion = new Promise<void>(resolve => { resolveStartup = resolve })

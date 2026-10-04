@@ -100,6 +100,7 @@ export const TASK_RESULT_ENVELOPE_SCHEMA = {
       type: 'object', additionalProperties: false, required: ['usageAvailable'],
       properties: {
         model: { type: 'string' }, provider: { type: 'string' }, tokens: { type: 'number', minimum: 0 },
+        promptTokens: { type: 'number', minimum: 0 }, completionTokens: { type: 'number', minimum: 0 }, cachedTokens: { type: 'number', minimum: 0 },
         costUsd: { type: 'number', minimum: 0 }, latencyMs: { type: 'number', minimum: 0 }, usageAvailable: { type: 'boolean' },
       },
     },
