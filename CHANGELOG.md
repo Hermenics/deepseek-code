@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.11.0
+
+- Added: Persistent Pods run named agents from a supervised queue with saved conversations, routines, notes, signed event delivery, groups, an authenticated web panel, and optional deployment to an existing Debian or Ubuntu host.
+- Fixed: Browser frame capture waits for the selected page target to resume before attaching, avoiding a race during navigation.
+
 ## 0.10.0
 
 - Added: The idle fullscreen home screen now reuses the star field and ocean-wave patterns from `WelcomeScreen`, animates the whale across the scene, and shows a short welcome message with useful input shortcuts. It appears only when the session is empty and the terminal has room for it.

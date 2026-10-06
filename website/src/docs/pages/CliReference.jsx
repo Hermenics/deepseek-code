@@ -20,6 +20,7 @@ const FORMS = [
   ["deepseek \"fix the bug in app.ts\"", "Start with an initial message."],
   ["deepseek agent <name>", "Load a custom agent."],
   ["deepseek agent <name> \"message\"", "Load an agent with an initial message."],
+  ["deepseek pods <command>", "Create and manage persistent Pods; run deepseek pods help for the full command list."],
   ["deepseek --resume <session-id>", "Resume a specific session."],
   ["deepseek --resume", "Open the session picker."],
   ["deepseek doctor", "Diagnose local setup and exit."],
@@ -55,6 +56,7 @@ const ENV = [
   ["DEEPSEEK_API_KEY", "Provider key. Used when there is no saved configuration."],
   ["DEEPSEEK_BASE_URL", "Override the API base URL — gateways, proxies, local models."],
   ["DEEPSEEK_DISABLE_WORKFLOWS", "Set to 1 to disable dynamic workflows entirely."],
+  ["DEEPSEEK_BOTS_TOKEN", "Private panel token for deepseek pods serve --web; use at least 32 random characters."],
   ["NODE_ENV", "development enables the dev log described below."],
 ];
 

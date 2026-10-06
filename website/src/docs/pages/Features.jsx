@@ -20,6 +20,7 @@ const FLAGS = [
   ["fuzzyFileSearch", "Fuzzy File Search", "true", "Use fuzzy matching when searching for files"],
   ["ghostReplies", "Suggested Replies", "true", "Suggest a reply to the assistant's latest question"],
   ["readBeforeEdit", "Read Before Edit", "true", "Reject edits to files the agent has not read or that changed on disk since it read them"],
+  ["browser", "Browser", "false", "Let the agent use an installed Chromium-family browser for web-page inspection and testing; asks before visiting each new site"],
 ];
 
 const USAGE = [
@@ -47,29 +48,25 @@ export default function Features() {
         <div className="hero">
           <h1>Feature flags</h1>
           <p className="tagline">
-            Five experimental behaviors you can toggle per user — all on by default, each one opt-out,
-            all global across projects.
+            Six user-scoped behavior switches. Most are on by default; browser access is opt-in. Every flag
+            applies across your projects.
           </p>
         </div>
 
         <section id="what-they-are">
           <h2><span className="anchor">#</span>What feature flags are</h2>
           <p>
-            Feature flags gate <b>experimental behaviors</b> that are still maturing. They are{" "}
-            <b>opt-out</b>: every flag defaults to <b>on</b>, and you turn one off if it misbehaves for your
-            workflow.
+            Feature flags switch optional behavior on or off. Each flag has its own default: the browser is
+            <b> off by default</b> and must be enabled explicitly; the other current flags default to on.
           </p>
           <p>
-            That default direction is a deliberate choice. Opt-in experimental features are experimental
-            forever, because almost nobody discovers them; opt-out features get real usage and either mature
-            or get removed. The cost is that a bad flag affects everyone until they turn it off — which is
-            why there are only a handful, and why each one degrades to the previous behavior rather than failing.
+            Settings are per user and global across projects. Values are saved in
+            <code className="inline">~/.deepseek/features.json</code> after the first change; flags without an
+            explicit saved value use their default.
           </p>
           <p>
-            State is persisted in <code className="inline">~/.deepseek/features.json</code>, created on the
-            first change. Flags are <b>per user</b> — the file lives in your home directory — and{" "}
-            <b>global across projects</b>: flipping one affects every project you run, not just the current
-            one.
+            The command-line override <code className="inline">DEEPSEEK_FEATURES</code> can temporarily set
+            flags for one process. It does not edit the saved feature file.
           </p>
           <Note>
             There is no project-level override. If you need a setting a team can share and version, it is a{" "}
@@ -127,12 +124,13 @@ export default function Features() {
             </table>
           </div>
           <CodeBlock lang="text">{`> /features
-Experimental features:
+Features:
   ✓ wordDiff — Show word-level diffs instead of line-level
   ✓ microCompact — Aggressively compact short tool outputs
   ✓ fuzzyFileSearch — Use fuzzy matching when searching for files
   ✓ ghostReplies — Suggest a reply to the assistant's latest question
   ✓ readBeforeEdit — Reject edits to files the agent has not read or that changed on disk since it read them
+  ○ browser — Let the agent use an installed Chromium-family browser for web-page inspection and testing; asks before visiting each new site
 
 Use /features <flag> on|off.`}</CodeBlock>
           <p>
@@ -164,7 +162,7 @@ Use /features <flag> on|off.`}</CodeBlock>
 Invalid value: yes. Use on/off
 
 > /features wordDif
-Unknown flag: wordDif. Available: wordDiff, microCompact, fuzzyFileSearch, ghostReplies, readBeforeEdit`}</CodeBlock>
+Unknown flag: wordDif. Available: wordDiff, microCompact, fuzzyFileSearch, ghostReplies, readBeforeEdit, browser`}</CodeBlock>
           <p>
             The unknown-flag error lists every valid name. That is a small thing that removes a
             documentation lookup from the loop — you typo a flag, and the error tells you what you meant.
@@ -263,6 +261,7 @@ Unknown flag: wordDif. Available: wordDiff, microCompact, fuzzyFileSearch, ghost
   "wordDiff": true,
   "microCompact": true,
   "fuzzyFileSearch": false,
+  "browser": false,
   "readBeforeEdit": true
 }`}</CodeBlock>
           <p>

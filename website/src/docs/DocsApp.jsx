@@ -7,7 +7,9 @@ import Installation from "./pages/Installation";
 import Commands from "./pages/Commands";
 import SlashCommands from "./pages/SlashCommands";
 import Tools from "./pages/Tools";
+import BrowserAutomation from "./pages/BrowserAutomation";
 import Agents from "./pages/Agents";
+import Pods from "./pages/Pods";
 import Settings from "./pages/Settings";
 import Providers from "./pages/Providers";
 import CliReference from "./pages/CliReference";
@@ -136,7 +138,9 @@ export default function DocsApp() {
         <Route path="commands" element={<Commands />} />
         <Route path="slash-commands" element={<SlashCommands />} />
         <Route path="tools" element={<Tools />} />
+        <Route path="browser-automation" element={<BrowserAutomation />} />
         <Route path="agents" element={<Agents />} />
+        <Route path="pods" element={<Pods />} />
         <Route path="subagents" element={<SubAgents />} />
         <Route path="memory" element={<Memory />} />
         <Route path="sessions-context" element={<SessionsContext />} />

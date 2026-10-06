@@ -99,6 +99,7 @@ const NAV = [
     title: "Agents & orchestration",
     items: [
       { label: "Agents", href: "/docs/agents" },
+      { label: "Persistent Pods", href: "/docs/pods" },
       { label: "Agent library", href: "/docs/agent-library" },
       { label: "Sub-agents", href: "/docs/subagents" },
       { label: "Agent teams", href: "/docs/agent-teams" },
@@ -154,6 +155,7 @@ const NAV = [
       { label: ".deepseekignore", href: "/docs/deepseekignore" },
       { label: "Shell commands", href: "/docs/shell" },
       { label: "Web fetch", href: "/docs/web-fetch" },
+      { label: "Browser automation", href: "/docs/browser-automation" },
       { label: "Update project knowledge", href: "/docs/update-knowledge" },
       { label: "LSP navigation", href: "/docs/lsp" },
       { label: "MCP", href: "/docs/mcp" },

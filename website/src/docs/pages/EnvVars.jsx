@@ -7,6 +7,7 @@ const TOC = [
   { id: "gcp", label: "Google Vertex AI" },
   { id: "local", label: "Local models" },
   { id: "paths", label: "Paths" },
+  { id: "pods", label: "Persistent Pods" },
   { id: "features", label: "Feature toggles" },
   { id: "terminal", label: "Terminal & rendering" },
   { id: "editor", label: "Editor" },
@@ -29,6 +30,10 @@ const PATHS = [
   ["HOME", "System", "Used directly by session, checkpoint and input-history paths; other stores use the OS home lookup."],
   ["DEEPSEEK_PLUGINS_DIR", "~/.deepseek-code/plugins", "Where plugins are installed."],
   ["BUN_INSTALL", "System", "Used when detecting a Bun global installation for update checks."],
+];
+
+const PODS = [
+  ["DEEPSEEK_BOTS_TOKEN", "None", "Required when enabling the optional Pods web panel. Use a private random token at least 32 characters long; do not commit it."],
 ];
 
 const FEATURES = [
@@ -240,6 +245,23 @@ Service Account JSON path: /home/you/.config/gcloud/deepseek.json`}</CodeBlock>
           <p>
             <code className="inline">DEEPSEEK_PLUGINS_DIR</code> is the cleanest way to test a plugin without
             touching your installed set.
+          </p>
+        </section>
+
+        <section id="pods">
+          <h2><span className="anchor">#</span>Persistent Pods</h2>
+          <div className="doc-table-wrap">
+            <table className="doc-table">
+              <thead><tr><th style={{ width: "28%" }}>Variable</th><th style={{ width: "18%" }}>Default</th><th>Effect</th></tr></thead>
+              <tbody>{PODS.map(([name, value, effect]) => (
+                <tr key={name}><td><code className="inline">{name}</code></td><td>{value}</td><td>{effect}</td></tr>
+              ))}</tbody>
+            </table>
+          </div>
+          <p>
+            Set it in the service environment before running <code className="inline">deepseek pods serve --web</code>.
+            The panel listens on loopback by default. See <a href="/docs/pods#panel">Pods web panel</a> and
+            <a href="/docs/pods#data">where Pod state is stored</a>.
           </p>
         </section>
 

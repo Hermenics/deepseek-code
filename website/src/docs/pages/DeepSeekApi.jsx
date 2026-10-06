@@ -98,6 +98,14 @@ export default function DeepSeekApi() {
             as local estimates and use provider billing as the source of truth.
           </p>
           <p>
+            The saved provider profile&apos;s <b>Image input</b> setting in <code className="inline">/config</code>
+            marks image support in the model picker and controls MCP image attachments: <b>Auto</b> checks the built-in
+            DeepSeek model catalog, <b>On</b> declares support for a compatible endpoint, and <b>Off</b> marks images as
+            unsupported. Configure the value in <a href="/docs/providers#profiles">provider profiles</a>. Clipboard images are sent with the prompt, so use an endpoint that accepts them. MCP tools can
+            return PNG, JPEG, GIF or WebP images for vision-capable models. See
+            <a href="/docs/clipboard-pasting#images">Clipboard images</a> for input limits.
+          </p>
+          <p>
             Listed models use their published context window in local calculations. Unknown or custom
             model ids fall back to 128,000 tokens so auto-compaction triggers conservatively.
           </p>

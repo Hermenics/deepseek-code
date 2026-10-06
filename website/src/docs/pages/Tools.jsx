@@ -6,6 +6,7 @@ const TOC = [
   { id: "writing", label: "Writing" },
   { id: "shell", label: "Shell & git" },
   { id: "nav", label: "Code navigation" },
+  { id: "browser", label: "Browser & dev servers" },
   { id: "delegation", label: "Delegation" },
   { id: "interaction", label: "User interaction" },
   { id: "state", label: "Memory, goals & plans" },
@@ -36,6 +37,11 @@ const SHELL = [
 
 const NAV = [
   ["lsp", "operation", "path, line, character, query", "Language-server operations: definitions, references, symbols."],
+];
+
+const BROWSER = [
+  ["browser", "action", "action-specific", "Inspect and operate an isolated Chromium-family browser. The browser feature is off by default."],
+  ["dev_server", "action", "name, lines, filter", "Start, inspect and stop project servers declared in .deepseek/launch.json or .claude/launch.json."],
 ];
 
 const DELEGATION = [
@@ -73,6 +79,8 @@ const RISK_TOOLS = [
   ["write_file", "high / medium", "Anything under .deepseek/, plus large overwrites and edit bursts."],
   ["edit_file", "high / medium", "Same paths and burst conditions as write_file."],
   ["patch_file", "high / medium", "Same paths and burst conditions as write_file."],
+  ["browser", "origin-scoped / high", "A new origin and public-page interaction require approval; sending text or uploading files to a public site always asks."],
+  ["dev_server", "high", "Starting a configured project server requires approval, including again after its launch entry changes."],
 ];
 
 const COMPACTABLE = [
@@ -249,6 +257,17 @@ export default function Tools() {
           </p>
         </section>
 
+        <section id="browser">
+          <h2><span className="anchor">#</span>Browser & dev servers</h2>
+          <ToolTable rows={BROWSER} />
+          <p>
+            Browser access is opt-in with <code className="inline">/features browser on</code>. The browser uses an
+            isolated profile and asks before visiting a new origin. The paired <code className="inline">dev_server</code>
+            tool starts only configurations you add to the project launch file; it does not create that file for you.
+            See <a href="/docs/browser-automation">Browser automation</a> for supported actions and approval details.
+          </p>
+        </section>
+
         <section id="delegation">
           <h2><span className="anchor">#</span>Delegation</h2>
           <ToolTable rows={DELEGATION} />
@@ -351,7 +370,7 @@ export default function Tools() {
           <div className="doc-table-wrap">
             <table className="doc-table">
               <thead>
-                <tr><th style={{ width: "18%" }}>Tool</th><th style={{ width: "18%" }}>Levels</th><th>Triggers</th></tr>
+                <tr><th style={{ width: "18%" }}>Tool</th><th style={{ width: "18%" }}>Risk / approval</th><th>Triggers</th></tr>
               </thead>
               <tbody>
                 {RISK_TOOLS.map(([t, l, tr]) => (
@@ -365,7 +384,7 @@ export default function Tools() {
             </table>
           </div>
           <p>
-            Every other tool is <b>low risk by default</b> — reads, searches and navigation do not prompt
+            Other tools are <b>low risk by default</b> — reads, searches and navigation do not prompt
             unless a permission rule or workspace-containment check says otherwise.
           </p>
           <p>

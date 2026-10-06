@@ -18,6 +18,7 @@ const GROUPS = [
     title: "Agent & memory",
     items: [
       ["/agent <name>", "Load a custom agent (project or user directory)"],
+      ["/browser [status|show|hide|close]", "Inspect the agent browser, show or hide its window, or close it"],
       ["/agents", "List available custom agents"],
       ["/memory · /mem [clear [agent|user]]", "View or clear persistent memory — optionally clearing just the agent or user store"],
       ["/goal [<objective>|edit|pause|resume|clear] [--turns <n>]", "Set, view, or manage a persistent goal; --turns limits auto-continuations"],
@@ -139,7 +140,7 @@ export default function Commands() {
         <section id="reference">
           <h2><span className="anchor">#</span>Reference</h2>
           <p>
-            All 44 built-in commands, grouped by intent. Aliases are shown after the <code className="inline">·</code>.
+            All 45 built-in commands, grouped by intent. Aliases are shown after the <code className="inline">·</code>.
           </p>
           {GROUPS.map((g) => (
             <div key={g.title}>

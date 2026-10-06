@@ -2,6 +2,7 @@ import { CodeBlock, Note, Toc } from "../Layout";
 
 const TOC = [
   { id: "paths", label: "Paste paths" },
+  { id: "images", label: "Clipboard images" },
   { id: "normalization", label: "Normalization" },
   { id: "large", label: "Large-paste markers" },
   { id: "submit", label: "Submission & queueing" },
@@ -52,6 +53,23 @@ export default function ClipboardPasting() {
             editor. The editor&apos;s direct clipboard helper is platform-specific and fails silently if no supported
             command works or the platform clipboard is unavailable.
           </Note>
+        </section>
+
+        <section id="images">
+          <h2><span className="anchor">#</span>Clipboard images</h2>
+          <p>
+            Press <code className="inline">Ctrl+V</code> in the editor or paste an image from the terminal clipboard to
+            attach it to the current prompt. The draft shows a marker such as <code className="inline">[Image #1]</code>;
+            the image is sent only while its marker remains in the draft. Removing the marker removes that image from the
+            submitted prompt.
+          </p>
+          <p>
+            A message can contain up to 20 images and at most 100 MiB of combined base64 image data. The current provider
+            profile&apos;s <b>Image input</b> setting marks model support in the picker and controls whether MCP-returned
+            images are attached: <b>Auto</b> detects catalogued DeepSeek vision models, while <b>On</b> is for endpoints
+            known to accept images. Prompt images are sent with the message, so use an endpoint that supports them. See
+            <a href="/docs/deepseek-api#usage">DeepSeek API image input</a>.
+          </p>
         </section>
 
         <section id="normalization">

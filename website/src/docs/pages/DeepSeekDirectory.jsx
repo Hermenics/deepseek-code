@@ -32,6 +32,7 @@ const HOME_TREE = [
   ["workflow-approvals.json", "file", "Approved workflow-script hashes, partitioned by project."],
   ["projects/", "dir", "Per-project and per-session workflow run journals used for deterministic replay."],
   ["task-snapshots/", "dir", "Restorable orchestration snapshots for resumed sessions."],
+  ["bots/", "dir", "Persistent Pods database, actor data and private Codimium browser profiles."],
   ["last-update-check, update-cooldown", "file", "Update-notifier bookkeeping. Safe to delete."],
 ];
 
@@ -88,6 +89,7 @@ const CLEANUP = [
   ["~/.deepseek-code/plugins/", "Careful", "Installed plugins disappear until reinstalled."],
   ["~/.deepseek/sessions/", "Careful", "You lose /sessions and --resume for those projects."],
   ["~/.deepseek/memory/", "Careful", "You lose everything the memory tool learned."],
+  ["~/.deepseek/bots/", "Careful", "You lose Pod definitions, conversations, runs, notes, routines and their private browser state."],
   ["~/.deepseek/kernel.db", "Safe", "Normally absent. Belongs to the reference kernel subsystem, not the runtime."],
   ["~/.deepseek/config.json", "Destructive", "Deleting this file does not remove saved provider profiles or credentials, and does not reset the active provider."],
   ["~/.deepseek/provider-profiles.json", "Destructive", "You lose saved provider connections and their credentials."],
@@ -152,7 +154,8 @@ export default function DeepSeekDirectory() {
 ├── workflows/               user workflow definitions
 ├── workflow-approvals.json  approved workflow hashes
 ├── projects/                workflow run journals
-└── task-snapshots/          resumable orchestration state`}</CodeBlock>
+├── task-snapshots/          resumable orchestration state
+└── bots/                    persistent Pods and their private runtime data`}</CodeBlock>
           <div className="doc-table-wrap">
             <table className="doc-table">
               <thead>

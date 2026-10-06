@@ -12,7 +12,8 @@ const PROVIDERS = [
 
 const SLASH = [
   ["/model", "Switch model"],
-  ["/agent", "Spawn a sub-agent"],
+  ["/agent", "Load a custom agent"],
+  ["/browser", "Inspect, show, hide, or close the agent browser"],
   ["/memory", "Manage persistent memory"],
   ["/plan", "Enter plan mode"],
   ["/review", "Code review"],
@@ -60,7 +61,7 @@ const SLASH = [
 const TOOLS = [
   "ReadFile", "WriteFile", "PatchFile", "Shell", "Glob", "Grep", "Git",
   "ReadFolder", "WebFetch", "SubAgent", "Memory", "Todo", "Introspect", "MoA",
-  "EditFile", "Lsp", "AskAgent", "Workflow", "UpdateKnowledge", "SubmitPlan",
+  "EditFile", "Lsp", "AskAgent", "Workflow", "UpdateKnowledge", "SubmitPlan", "Browser", "DevServer",
   "WritePlan", "GetGoal", "CreateGoal", "UpdateGoal", "AskUserQuestions",
 ];
 

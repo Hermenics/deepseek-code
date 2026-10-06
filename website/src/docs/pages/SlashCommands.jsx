@@ -60,6 +60,7 @@ const FILES = [
 
 const AGENTS = [
   ["/agent", "<name>", "Load a custom agent."],
+  ["/browser", "[status|show|hide|close]", "Inspect, show, hide or close the agent browser."],
   ["/agents", "—", "List available agents."],
   ["/task", "<id> status|cancel|resume|result|message|integrate|cleanup", "Inspect or control one task."],
   ["/tasks", "—", "Render the session task DAG with live state."],
@@ -137,7 +138,7 @@ export default function SlashCommands() {
         <div className="hero">
           <h1>Slash commands</h1>
           <p className="tagline">
-            44 built-in commands that act on the session rather than prompting the model — plus saved workflows and
+            45 built-in commands that act on the session rather than prompting the model — plus saved workflows and
             custom prompt commands — with their arguments,
             subcommands and aliases.
           </p>

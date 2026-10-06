@@ -2,6 +2,7 @@ import { Note, Toc } from "../Layout";
 
 const TOC = [
   { id: "overview", label: "Overview" },
+  { id: "home-screen", label: "Empty-session home" },
   { id: "input", label: "Input editor" },
   { id: "ghost", label: "Ghost text" },
   { id: "dropdowns", label: "Dropdowns" },
@@ -113,6 +114,16 @@ export default function Interface() {
             <code className="inline">settings.interface.alternateScreen</code> to{" "}
             <code className="inline">true</code> to render on the alternate buffer (takes effect
             next session).
+          </p>
+        </section>
+
+        <section id="home-screen">
+          <h2><span className="anchor">#</span>Empty-session home</h2>
+          <p>
+            With the alternate screen enabled, an empty session can show an animated welcome screen with a whale and
+            input shortcuts. It appears only when the transcript is empty, the prompt has no draft, and the terminal is
+            at least 70 columns by 24 rows. Typing, starting a task, or using a smaller terminal returns to the regular
+            conversation layout. See <a href="/docs/session-lifecycle">Session lifecycle</a> for when a session is empty.
           </p>
         </section>
 

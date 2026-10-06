@@ -56,6 +56,11 @@ export default function StatusBar() {
             The status bar summarizes the main agent session. It does not currently expose a configurable provider or
             active-agent item; those identities are shown elsewhere in the interface.
           </Note>
+          <p>
+            When the agent browser has open tabs, a separate indicator shows the active site and tab count (only the
+            count on very narrow terminals); it can also mark that the browser window is visible. This indicator is supplied independently and is not a configurable
+            <code className="inline">statusBar</code> item.
+          </p>
         </section>
 
         <section id="items">

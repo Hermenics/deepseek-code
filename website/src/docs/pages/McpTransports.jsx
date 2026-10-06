@@ -224,12 +224,14 @@ LANG=en_US.UTF-8        # only when the parent process has LANG`}</CodeBlock>
           <CodeBlock lang="text">{`MCP tool 'search' timed out after 30s`}</CodeBlock>
           <p>
             The timer is fixed: there is no per-server or per-tool timeout field. It rejects the wrapper call,
-            but the current code does not cancel the underlying SDK request when the race is lost. Returned
-            content is filtered to non-empty text items and joined with newline characters.
+            but the current code does not cancel the underlying SDK request when the race is lost. Non-empty text
+            blocks are joined with newlines. When present, <code className="inline">structuredContent</code> is
+            serialized as JSON; otherwise, remaining non-text blocks are serialized alongside the text.
           </p>
           <Note>
-            Images, audio, embedded resources and structured non-text content are not forwarded by the current
-            wrapper. A server whose useful result is exclusively non-text appears to return an empty string.
+            PNG, JPEG, GIF and WebP image blocks are attached to the request when the selected provider and model
+            accept images; otherwise the result says they were omitted. Audio and embedded resources are not
+            attached as model media. See <a href="/docs/deepseek-api#usage">image input</a> for the profile setting.
           </Note>
         </section>
 
