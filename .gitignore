@@ -15,6 +15,5 @@ CLAUDE.md
 .reversa
 .claude/settings.local.json
 AGENTS.md
-.agents/
 .vscode/
 scripts/eval/results/
