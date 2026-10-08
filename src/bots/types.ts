@@ -11,6 +11,18 @@ export interface BotProcedure {
 
 export interface BotRuntimeState { goal: Goal | null; todos: TodoItem[] }
 
+export const POD_APPEARANCE_OPTIONS = {
+  shape: ['cloud', 'circle', 'square', 'clover', 'star', 'heart', 'diamond', 'capsule', 'pear', 'bean', 'droplet', 'triangle', 'flower'],
+  tone: ['blue', 'violet', 'teal', 'amber', 'rose', 'coral', 'mint', 'cream', 'lilac', 'graphite', 'orange', 'red'],
+  eyes: ['round', 'curious', 'happy'],
+  accessory: ['none', 'glasses', 'headphones', 'cap', 'sunglasses', 'bowtie', 'scarf', 'bucket-hat', 'antenna', 'crown'],
+} as const
+export type PodAppearance = { [K in keyof typeof POD_APPEARANCE_OPTIONS]: typeof POD_APPEARANCE_OPTIONS[K][number] }
+export const POD_TONE_COLORS: Record<PodAppearance['tone'], string> = {
+  blue: '#70acec', violet: '#ab83dc', teal: '#73cbaa', amber: '#f0bd53', rose: '#e98ba9',
+  coral: '#ed927b', mint: '#b7d9b2', cream: '#e8d9b6', lilac: '#c6b7e3', graphite: '#737a88', orange: '#eaa15b', red: '#c96565',
+}
+
 export interface Bot {
   id: string
   name: string
@@ -19,6 +31,7 @@ export interface Bot {
   agentConfig?: string
   /** Optional model used for mandatory goal-completion review; absent means the pod's active model. */
   reviewerModel?: string
+  appearance?: PodAppearance
   enabled: boolean
   deleting: boolean
   retentionDays: number | null

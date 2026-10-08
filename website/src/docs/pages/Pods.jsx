@@ -132,10 +132,39 @@ deepseek pods test-routine release-watch ROUTINE_ID`}</CodeBlock>
           <h2><span className="anchor">#</span>Web panel and event delivery</h2>
           <p>
             The optional panel lets you inspect conversations and runs, respond to decisions, and control Pods
-            from a browser. Set a private random token of at least 32 characters before enabling it:
+            from a browser. This command opens your default browser already signed in:
           </p>
-          <CodeBlock lang="bash">{`export DEEPSEEK_BOTS_TOKEN='replace-with-a-private-random-token-of-32-or-more-characters'
-deepseek pods serve --web --host 127.0.0.1 --port 8787`}</CodeBlock>
+          <CodeBlock lang="bash">{`deepseek pods serve --web`}</CodeBlock>
+          <p>
+            The CLI uses <code className="inline">DEEPSEEK_BOTS_TOKEN</code> if set, or generates a random token for this service process.
+            Running <code className="inline">deepseek pods</code> shows a short quickstart; <code className="inline">deepseek pods help routines</code> and
+            <code className="inline">deepseek pods help group</code> show commands by topic. Use <code className="inline">deepseek pods help all</code> for the full reference.
+            Terminal results use readable labels and subtle colors. Use <code className="inline">--json</code> for structured output;
+            pipes and exports keep JSON automatically. <code className="inline">NO_COLOR</code> disables terminal colors.
+            Automatic login exchanges the URL fragment for an HttpOnly session cookie and immediately clears it
+            from the address bar. For headless hosts, use <code className="inline">--no-open</code> and set a private <code className="inline">DEEPSEEK_BOTS_TOKEN</code>
+            of at least 32 characters; open the printed URL and sign in manually.
+          </p>
+          <p>
+            Find Pods by name or responsibility in the sidebar. Conversation shows tasks in chronological order;
+            Activity contains approvals, history search and tool events; Scheduled contains routines and learned
+            browser skills and their next execution; Library collects completed results and source links with text downloads;
+            Profile contains appearance, memory, completion review, delivery and data controls.
+            New requests for approval open Activity automatically. New activity is marked in the roster until you open
+            that Pod; read markers stay in this browser without storing credentials or result content.
+          </p>
+          <p>
+            Choose from 13 body shapes, 12 colors and 10 accessory options when creating a Pod, or use Profile → Customize Pod later.
+            Visual thumbnails and color swatches update the live 3D preview; keyboard navigation works through each choice group.
+            The creation editor stays open while the dashboard refreshes, preserving your draft until you create or cancel.
+            The same plush character appears in the roster, conversation and welcome screen. Its body, eyes and accessories
+            are real 3D geometry, rendered locally with soft lighting. Drag with a mouse or touch, or use arrow keys,
+            to inspect it from different angles in the editor. Home and Reset view restore the front view.
+            Outside the editor, movement and blinks follow task states. Reduced-motion preferences stop automatic animation.
+            WebGL 2 is needed for the preview; appearance controls remain usable without it. Appearance is saved in the
+            Pod database and included in exports. The Light/Dark button changes the theme for the current page.
+            Enter sends a task; Shift + Enter inserts a new line.
+          </p>
           <p>
             The default listener is loopback-only. For remote access, put it behind an HTTPS reverse proxy and
             pass its origin with <code className="inline">--public-url</code>; do not expose the panel over plain
@@ -148,7 +177,8 @@ deepseek pods serve --web --host 127.0.0.1 --port 8787`}</CodeBlock>
             add, disable, retry and inspect delivery targets.
           </p>
           <p>
-            Groups coordinate several Pods and collect their artifacts. Browser sharing is disabled unless you
+            Groups open in the main conversation with individual Pod avatars and recipient controls. Their Library
+            lets you read and download shared text artifacts. Browser sharing is disabled unless you
             explicitly create a group with <code className="inline">--share-browser</code>.
           </p>
         </section>
@@ -172,6 +202,12 @@ deepseek pods serve --web --host 127.0.0.1 --port 8787`}</CodeBlock>
 
         <section id="browser">
           <h2><span className="anchor">#</span>Browser state</h2>
+          <p>
+            Open computer shows the selected Pod&apos;s Codimium browser beside its conversation. Expand gives
+            the preview more room. Take over pauses agent browser actions and enables the navigation and input
+            controls; Return to agent hands control back. Closing the preview does not return control. A running
+            supervisor and an active task are required for browser control.
+          </p>
           <p>
             Each Pod has a private Codimium browser profile for site cookies and session state. The profile is stored
             with that Pod&apos;s actor data and is excluded from <code className="inline">pods export</code>. After a cold

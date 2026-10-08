@@ -1,11 +1,13 @@
-import { randomUUID } from 'node:crypto'
+import { randomBytes, randomUUID } from 'node:crypto'
+import { execFile } from 'node:child_process'
 import { resolve } from 'node:path'
+import { cliStyle as ink } from '../utils/cli-style.js'
 import { BotStore } from './store.js'
 import { serveBots } from './service.js'
 import { procedureSkill } from './procedures.js'
 import { installPodsHost } from './host.js'
 
-const HELP = `DeepSeek Pods
+const COMMANDS = `DeepSeek Pods
 
 deepseek pods create NAME --project PATH --instructions TEXT [--agent CONFIG --reviewer-model MODEL]
 deepseek pods list
@@ -43,7 +45,7 @@ deepseek pods test-routine POD ROUTINE [--occurrence ID]
 deepseek pods routine-runs POD ROUTINE
 deepseek pods delete-routine POD ROUTINE --version N
 deepseek pods event TOPIC EVENT_ID --payload JSON
-deepseek pods serve [--concurrency 2] [--web --host 127.0.0.1 --port 8787]
+deepseek pods serve [--concurrency 2] [--web --host 127.0.0.1 --port 8787 --no-open]
   [--public-url https://pods.example.com]
 deepseek pods host install USER@HOST [--identity SSH_KEY] [--ssh-port 22]
 deepseek pods history POD QUERY [--limit 1-20]
@@ -58,14 +60,65 @@ deepseek pods group delete GROUP_ID --confirm NAME_OR_ID
 All commands accept --db PATH. Run serve under systemd for work that survives
 closing your terminal. Permission answers are "once" or "deny"; question answers
 are a JSON string map. Cancelling a run does not disable its routine.
-The panel requires DEEPSEEK_BOTS_TOKEN (at least 32 random characters).
+The panel opens your browser already signed in. Without DEEPSEEK_BOTS_TOKEN,
+a random token is generated for this process. --no-open disables browser launch
+and requires DEEPSEEK_BOTS_TOKEN (at least 32 random characters).
 Remote access requires an HTTPS reverse proxy and --public-url.
 host install deploys to a Debian/Ubuntu server you already own over SSH; it does not create a cloud VM.
 `
 
+const heading = (text: string) => ink.bold.cyan(text)
+
+export function podsHelp(topic?: string): string {
+  const title = heading('DeepSeek Pods') + ink.dim('  ·  Your persistent AI team')
+  if (!topic) return `${title}
+
+  ${ink.bold('Start here')}
+  ${ink.cyan('deepseek pods serve --web')}       Open your dashboard, already signed in
+  ${ink.cyan('deepseek pods list')}              See your Pods
+  ${ink.cyan('deepseek pods show NAME')}         See a Pod’s work
+  ${ink.cyan('deepseek pods send NAME "Task"')}  Give it something to do
+
+  ${ink.bold('Need more?')}
+  deepseek pods help create        Create a Pod from the terminal
+  deepseek pods help routines      Scheduled tasks
+  deepseek pods help group         Team conversations
+  deepseek pods help all           Complete command reference
+
+${ink.dim('Development: bun run start pods serve --web')}`
+  if (topic === 'all') return title + '\n' + COMMANDS.slice(COMMANDS.indexOf('\n'))
+  const topics: Record<string, string[]> = {
+    routines: ['routine', 'routines', 'disable-routine', 'run-routine', 'test-routine', 'routine-runs', 'delete-routine'],
+    notes: ['notes', 'remember', 'update-note', 'forget'],
+  }
+  const commands = topics[topic] || [topic]
+  const lines = COMMANDS.split('\n').filter(line => commands.some(command => line.startsWith('deepseek pods ' + command + ' ') || line === 'deepseek pods ' + command))
+  if (!lines.length) throw new Error(`No help for '${topic}'. Try deepseek pods help all.`)
+  return `${title}\n\n${ink.bold(topic[0]!.toUpperCase() + topic.slice(1))}\n${lines.map(line => '  ' + ink.cyan(line)).join('\n')}\n\n${ink.dim('All commands accept --db PATH. Use --json for the full structured result.')}` + (topic === 'serve' ? '\n\nOpens your browser already signed in. Ctrl+C stops the service.\nUse --no-open with DEEPSEEK_BOTS_TOKEN on a headless host.\nRemote access: --public-url https://pods.example.com and an HTTPS reverse proxy.' : '')
+}
+
+export function formatPodsOutput(value: unknown, depth = 0): string {
+  const indent = '  '.repeat(depth)
+  const clean = (text: string) => text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '')
+  if (Array.isArray(value)) return value.length ? value.map(item => {
+    if (item && typeof item === 'object' && 'name' in item && 'enabled' in item && 'projectRoot' in item) {
+      return indent + (item.enabled ? ink.green('●') : ink.dim('○')) + ' ' + ink.bold(clean(String(item.name))) + ink.dim('  ·  ' + (item.enabled ? 'Enabled' : 'Paused')) + '\n' + indent + ink.dim('  ID: ' + clean(String(item.id)))
+    }
+    return formatPodsOutput(item, depth)
+  }).join('\n\n') : indent + ink.dim('Nothing here yet.')
+  if (value !== null && typeof value === 'object') return Object.entries(value).filter(([, item]) => item !== undefined).map(([key, item]) => {
+    const label = clean(key.replace(/([a-z])([A-Z])/g, '$1 $2').replace(/_/g, ' '))
+    const title = label ? label[0]!.toUpperCase() + label.slice(1) : 'Value'
+    return typeof item === 'object' && item !== null
+      ? indent + heading(title) + '\n' + formatPodsOutput(item, depth + 1)
+      : indent + ink.dim(title + ': ') + formatPodsOutput(item).replace(/\n/g, '\n' + indent + '  ')
+  }).join('\n')
+  return clean(value === null ? '—' : value === true ? 'Yes' : value === false ? 'No' : String(value))
+}
+
 export async function runPodsCli(args: string[]): Promise<void> {
   const options = new Map<string, string>(), positionals: string[] = []
-  const flags = new Set(['reconciled', 'help', 'web', 'share-browser'])
+  const flags = new Set(['reconciled', 'help', 'web', 'share-browser', 'no-open', 'json'])
   const known = new Set(['db', 'project', 'instructions', 'agent', 'reviewer-model', 'model', 'occurrence', 'after', 'fingerprint', 'answer', 'name', 'prompt', 'schedule', 'payload', 'concurrency', 'evidence', 'host', 'port', 'public-url', 'run', 'procedure', 'inputs', 'source', 'expires-at', 'version', 'confirm', 'days', 'topics', 'members', 'recipients', 'limit', 'identity', 'ssh-port'])
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!
@@ -79,7 +132,7 @@ export async function runPodsCli(args: string[]): Promise<void> {
     options.set(name, value)
   }
   const [command, id, ...rest] = positionals
-  if (!command || command === 'help' || options.has('help')) { console.log(HELP); return }
+  if (!command || command === 'help' || options.has('help')) { console.log(podsHelp(command === 'help' ? id : command)); return }
   const path = options.has('db') ? resolve(options.get('db')!) : undefined
   const required = (name: string) => {
     const value = options.get(name)
@@ -98,13 +151,22 @@ export async function runPodsCli(args: string[]): Promise<void> {
     return
   }
   if (command === 'serve') {
-    if (!options.has('web') && ['host', 'port', 'public-url'].some(key => options.has(key))) throw new Error('Panel options require --web')
+    if (!options.has('web') && ['host', 'port', 'public-url', 'no-open'].some(key => options.has(key))) throw new Error('Panel options require --web')
+    const token = process.env.DEEPSEEK_BOTS_TOKEN ?? (options.has('web') && !options.has('no-open') ? randomBytes(32).toString('hex') : undefined)
     const controller = new AbortController(), stop = () => controller.abort()
     process.on('SIGINT', stop); process.on('SIGTERM', stop)
-    console.log('DeepSeek Pods service running. Queued work and routines are active. Ctrl+C stops the service.')
+    console.log('\n' + heading('DeepSeek Pods') + '\n' + ink.green('● Service running') + ink.dim('  ·  Queued tasks and routines are active.\n  Ctrl+C to stop.\n'))
     try { await serveBots({ path, concurrency: options.has('concurrency') ? Number(required('concurrency')) : undefined, signal: controller.signal,
-      web: options.has('web') ? { hostname: options.get('host'), port: options.has('port') ? Number(required('port')) : undefined, publicUrl: options.get('public-url') } : undefined,
-      onWebListening: url => console.log(`Pods panel: ${url}`),
+      web: options.has('web') ? { token, hostname: options.get('host'), port: options.has('port') ? Number(required('port')) : undefined, publicUrl: options.get('public-url') } : undefined,
+      onWebListening: url => {
+        console.log('  ' + ink.dim('Dashboard') + '  ' + ink.cyan(url) + '\n')
+        if (options.has('no-open')) return
+        const link = url + '/#token=' + encodeURIComponent(token!)
+        const command = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'rundll32' : 'xdg-open'
+        execFile(command, process.platform === 'win32' ? ['url.dll,FileProtocolHandler', link] : [link], { timeout: 10_000 }, error => {
+          if (error) console.error('Could not open the browser. Open the panel URL and sign in with DEEPSEEK_BOTS_TOKEN; use --no-open on a headless host.')
+        }).unref()
+      },
     }) }
     finally { process.off('SIGINT', stop); process.off('SIGTERM', stop) }
     return
@@ -221,6 +283,6 @@ export async function runPodsCli(args: string[]): Promise<void> {
       }
       default: throw new Error(`Unknown Pods command '${command}'. Use deepseek pods help.`)
     }
-    console.log(JSON.stringify(result, null, 2))
+    console.log(options.has('json') || !process.stdout.isTTY || command === 'export' ? JSON.stringify(result, null, 2) : '\n' + heading('DeepSeek Pods') + '\n\n' + formatPodsOutput(result) + '\n')
   } finally { store.close() }
 }

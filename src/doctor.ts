@@ -4,6 +4,7 @@ import { basename, join } from 'path'
 import { execa } from 'execa'
 import { getCredentialsPath, getSettingsPath, loadMergedSettings } from './settings/index.js'
 import { isEnabled, loadFeatures } from './features.js'
+import { cliStyle as ink } from './utils/cli-style.js'
 import { findChromium, isLinux } from './utils/platform.js'
 
 export interface DoctorCheck {
@@ -83,10 +84,10 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorReport> {
 }
 
 /** Formats a doctor report as a checklist with a one-line summary of failed checks. */
-export function formatDoctorReport(report: DoctorReport): string {
-  const lines = [`DeepSeek Code doctor · ${report.cwd}`, '']
-  for (const check of report.checks) lines.push(`${check.ok ? '✓' : '✗'} ${check.name}: ${check.detail}`)
+export function formatDoctorReport(report: DoctorReport, styled = false): string {
+  const lines = [styled ? `${ink.bold.cyan('DeepSeek Code')} ${ink.dim('· Setup check')}\n${ink.dim(report.cwd)}` : `DeepSeek Code doctor · ${report.cwd}`, '']
+  for (const check of report.checks) lines.push(styled ? `${check.ok ? ink.green('✓') : ink.red('!')} ${ink.bold(check.name)} ${ink.dim('·')} ${check.detail}` : `${check.ok ? '✓' : '✗'} ${check.name}: ${check.detail}`)
   const failed = report.checks.filter(check => !check.ok).length
-  lines.push('', failed ? `${failed} check${failed === 1 ? '' : 's'} need attention.` : 'Everything looks ready.')
+  lines.push('', styled ? failed ? ink.yellow(`${failed} item${failed === 1 ? '' : 's'} need attention.`) : ink.green('Everything looks ready.') : failed ? `${failed} check${failed === 1 ? '' : 's'} need attention.` : 'Everything looks ready.')
   return lines.join('\n')
 }

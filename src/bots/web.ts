@@ -2,6 +2,9 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { redactSecrets } from '../orchestration/events.js'
 import { BotEventQueueFullError, BotEventRateLimitError, BotStore, isSqliteBusy } from './store.js'
 import { BOT_PANEL_HTML } from './panel.js'
+import { POD_LOGO } from './pod-logo.js'
+import { POD_FONT } from './pod-font.js'
+import type { PodAppearance } from './types.js'
 import type { BotBrowserControl } from './browser.js'
 import { procedureSkill } from './procedures.js'
 
@@ -49,11 +52,13 @@ export function startBotWebServer(store: BotStore, options: BotWebOptions = {}, 
     // Host validation also prevents a malicious domain rebinding to this loopback listener.
     const host = new URL(`${origin!.protocol}//${request.headers.get('host') ?? url.host}`)
     if (host.host !== origin!.host || host.username || host.password || host.pathname !== '/' || host.search || host.hash) return json({ error: 'Unexpected panel host' }, 403)
+    if (method === 'GET' && url.pathname === '/geist.woff2') return new Response(POD_FONT, { headers: { 'content-type': 'font/woff2', 'cache-control': 'public, max-age=86400' } })
+    if (method === 'GET' && url.pathname === '/logo.png') return new Response(POD_LOGO, { headers: { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' } })
     if (method === 'GET' && url.pathname === '/') {
       const nonce = randomBytes(18).toString('base64')
       return new Response(BOT_PANEL_HTML.replaceAll('__NONCE__', nonce), { headers: {
         'content-type': 'text/html; charset=utf-8',
-        'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`,
+        'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'`,
       } })
     }
     if (!url.pathname.startsWith('/api/')) return json({ error: 'Not found' }, 404)
@@ -131,10 +136,10 @@ export function startBotWebServer(store: BotStore, options: BotWebOptions = {}, 
       }
     }
     if (url.pathname === '/api/bots') {
-      if (method === 'GET') return json({ bots: store.listBots().map(bot => ({ ...bot, latestRun: store.listRuns(bot.id, 1)[0] ?? null })), service: { running: true } })
+      if (method === 'GET') return json({ bots: store.listBots().map(bot => ({ ...bot, latestRun: store.listRuns(bot.id, 1)[0] ?? null, activeStatus: store.activeStatus(bot.id) })), service: { running: true } })
       if (method === 'POST') {
         const input = await body(request)
-        return json(store.createBot({ name: string(input, 'name'), projectRoot: string(input, 'projectRoot'), instructions: string(input, 'instructions'), agentConfig: input.agentConfig === undefined ? undefined : string(input, 'agentConfig'), reviewerModel: input.reviewerModel === undefined || input.reviewerModel === null || input.reviewerModel === '' ? undefined : string(input, 'reviewerModel') }), 201)
+        return json(store.createBot({ name: string(input, 'name'), projectRoot: string(input, 'projectRoot'), instructions: string(input, 'instructions'), appearance: input.appearance as PodAppearance | undefined, agentConfig: input.agentConfig === undefined ? undefined : string(input, 'agentConfig'), reviewerModel: input.reviewerModel === undefined || input.reviewerModel === null || input.reviewerModel === '' ? undefined : string(input, 'reviewerModel') }), 201)
       }
     }
     if (parts[1] === 'bots' && parts[2]) {
@@ -144,6 +149,11 @@ export function startBotWebServer(store: BotStore, options: BotWebOptions = {}, 
         return json(await store.deleteBot(parts[2], string(input, 'confirmation')))
       }
       const bot = store.getBot(parts[2])
+      if (parts[3] === 'appearance' && parts.length === 4 && method === 'POST') {
+        const input = await body(request)
+        if (Object.keys(input).length !== 1 || !Object.hasOwn(input, 'appearance')) throw new Error('Appearance accepts only the appearance field')
+        return json(store.setAppearance(bot.id, input.appearance))
+      }
       if (parts[3] === 'reviewer-model' && parts.length === 4 && method === 'POST') {
         const input = await body(request)
         if (Object.keys(input).length !== 1 || !(input.model === null || typeof input.model === 'string')) throw new Error('Reviewer model accepts only a model ID or null to use the pod model')

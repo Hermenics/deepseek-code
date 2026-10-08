@@ -18,7 +18,11 @@ const json = (...args: string[]) => {
 }
 let store: BotStore | undefined
 try {
-  const help = command('help')
+  const quickstart = command('help')
+  assert.equal(quickstart.exitCode, 0, quickstart.stderr.toString())
+  assert.match(quickstart.stdout.toString(), /Open your dashboard, already signed in/)
+  assert.ok(quickstart.stdout.toString().split('\n').length < 20)
+  const help = command('help', 'all')
   assert.equal(help.exitCode, 0, help.stderr.toString())
   assert.match(help.stdout.toString(), /deepseek pods group create/)
   assert.match(help.stdout.toString(), /deepseek pods history/)
@@ -40,7 +44,7 @@ try {
   // Inspect the shipped schema before a source Store can migrate anything.
   const database = new Database(path, { readonly: true })
   try {
-    assert.equal(database.query<{ version: number }, []>('SELECT max(version) AS version FROM _schema_version').get()!.version, 29)
+    assert.equal(database.query<{ version: number }, []>('SELECT max(version) AS version FROM _schema_version').get()!.version, 30)
     const tables = database.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='table'").all().map(row => row.name)
     assert.ok(tables.includes('bot_event_receipts'))
     assert.ok(tables.includes('bot_webhook_credentials'))
@@ -62,6 +66,7 @@ try {
     assert.ok(database.query<{ name: string }, []>('PRAGMA table_info(bot_instances)').all().some(column => column.name === 'deleting'))
     assert.ok(database.query<{ name: string }, []>('PRAGMA table_info(bot_instances)').all().some(column => column.name === 'retention_days'))
     assert.ok(database.query<{ name: string }, []>('PRAGMA table_info(bot_instances)').all().some(column => column.name === 'reviewer_model'))
+    assert.ok(database.query<{ name: string }, []>('PRAGMA table_info(bot_instances)').all().some(column => column.name === 'appearance'))
   }
   finally { database.close() }
   const note = json('remember', bot.id, 'Installed saved fact', '--source', 'user:fixture')
@@ -120,5 +125,5 @@ try {
   assert.deepEqual(json('delete', bot.id, '--confirm', bot.name), { deleted: true, filesRemoved: true })
   assert.deepEqual(json('delete', researcher.id, '--confirm', researcher.name), { deleted: true, filesRemoved: true })
   assert.deepEqual(json('list'), [])
-  console.log('Installed DeepSeek Pods check passed: schema 29 bounded history search and configurable completion reviewer, group collaboration, retention, handoff routing and signed delivery, safe routine tests, data lifecycle, JSON export and confirmed deletion, routine expiry, run transcripts, webhook/rate-limit migrations, note and guidance controls, idempotency and terminal fencing.')
+  console.log('Installed DeepSeek Pods check passed: schema 30 bounded history search and configurable completion reviewer, group collaboration, retention, handoff routing and signed delivery, safe routine tests, data lifecycle, JSON export and confirmed deletion, routine expiry, run transcripts, webhook/rate-limit migrations, note and guidance controls, idempotency and terminal fencing.')
 } finally { store?.close(); await rm(directory, { recursive: true, force: true }) }

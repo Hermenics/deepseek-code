@@ -17,6 +17,7 @@ import { validateWebhookTarget } from './delivery.js'
 import type { Resolver } from '../browser/policy.js'
 import type { Bot, BotConversation, BotDecision, BotDeliveryJob, BotDeliveryRecord, BotDeliveryTarget, BotDeliveryTopic, BotGroup, BotGroupArtifact, BotGroupMessage, BotNote, BotRoutine, BotRun, BotRunMessage, BotRuntimeState, BotProcedure, ProcedureStep, DecisionKind, RunStatus, Schedule } from './types.js'
 import type { MessageOrBoundary } from '../agent/compactBoundary.js'
+import { POD_APPEARANCE_OPTIONS, type PodAppearance } from './types.js'
 
 export function isSqliteBusy(error: unknown): boolean {
   const code = (error as { code?: unknown } | null)?.code
@@ -277,6 +278,19 @@ const BOT_RUN_HISTORY_INDEX_MIGRATION: Migration = {
 const BOT_REVIEWER_MODEL_MIGRATION: Migration = {
   version: 29, name: 'configurable-pod-completion-reviewer', up: `ALTER TABLE bot_instances ADD COLUMN reviewer_model TEXT;`,
 }
+const BOT_APPEARANCE_MIGRATION: Migration = {
+  version: 30, name: 'pod-appearance', up: `ALTER TABLE bot_instances ADD COLUMN appearance TEXT;`,
+}
+
+function validatePodAppearance(value: unknown): PodAppearance {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Appearance must be an object')
+  const fields = value as Record<string, unknown>
+  if (Object.keys(fields).length !== Object.keys(POD_APPEARANCE_OPTIONS).length) throw new Error('Appearance requires shape, tone, eyes and accessory')
+  for (const [key, choices] of Object.entries(POD_APPEARANCE_OPTIONS)) {
+    if (!choices.includes(fields[key] as never)) throw new Error(`Invalid appearance ${key}`)
+  }
+  return { shape: fields.shape, tone: fields.tone, eyes: fields.eyes, accessory: fields.accessory } as PodAppearance
+}
 
 const WEBHOOK_ED25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b657004220420', 'hex')
 function webhookPublicKey(secret: string): string {
@@ -298,7 +312,10 @@ function text(value: unknown, field: string, max = 100_000): string {
   return value.trim()
 }
 function bot(row: Row): Bot {
-  return { id: String(row.id), name: String(row.name), projectRoot: String(row.project_root), instructions: String(row.instructions), agentConfig: row.agent_config ? String(row.agent_config) : undefined, ...(typeof row.reviewer_model === 'string' ? { reviewerModel: row.reviewer_model } : {}), enabled: row.enabled === 1, deleting: row.deleting === 1, retentionDays: row.retention_days === null ? null : Number(row.retention_days), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }
+  let appearance: PodAppearance | undefined
+  try { if (typeof row.appearance === 'string') appearance = validatePodAppearance(JSON.parse(row.appearance)) }
+  catch { /* Aparências antigas ou inválidas usam o padrão do painel. */ }
+  return { id: String(row.id), name: String(row.name), projectRoot: String(row.project_root), instructions: String(row.instructions), agentConfig: row.agent_config ? String(row.agent_config) : undefined, ...(typeof row.reviewer_model === 'string' ? { reviewerModel: row.reviewer_model } : {}), ...(appearance ? { appearance } : {}), enabled: row.enabled === 1, deleting: row.deleting === 1, retentionDays: row.retention_days === null ? null : Number(row.retention_days), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }
 }
 function run(row: Row): BotRun {
   return { id: String(row.id), botId: String(row.bot_id), prompt: String(row.prompt), source: String(row.source), occurrenceId: String(row.occurrence_id), status: row.status as RunStatus, attempt: Number(row.attempt), owner: row.owner as string | null, leaseUntil: row.lease_until as number | null, output: String(row.output), error: row.error as string | null, createdAt: String(row.created_at), updatedAt: String(row.updated_at), procedureId: row.procedure_id as string | null, procedureInputs: JSON.parse(String(row.procedure_inputs)), procedureCursor: Number(row.procedure_cursor), browserStepCount: JSON.parse(String(row.browser_steps)).length, steeringCursor: Number(row.steering_cursor), acceptingMessages: row.accepting_messages === 1, testMode: row.test_mode === 1, retentionPending: row.retention_pending === 1, parentRunId: row.parent_run_id as string | null, handoffMessageId: row.handoff_message_id as string | null, groupId: row.group_id as string | null, groupMessageId: row.group_message_id as string | null }
@@ -412,7 +429,7 @@ export class BotStore {
     }
     this.store = new Store({ ...options, path })
     try {
-      this.store.migrate([...MIGRATIONS, BOT_MIGRATION, BOT_EXECUTION_MIGRATION, BOT_RUNTIME_MIGRATION, BOT_ROUTINE_MIGRATION, BOT_PROCEDURE_MIGRATION, BOT_RUN_RUNTIME_MIGRATION, BOT_HUMAN_RECORDING_MIGRATION, BOT_NOTE_SOURCE_MIGRATION, BOT_STEERING_MIGRATION, BOT_NOTE_VERSION_MIGRATION, BOT_DECISION_MEMORY_MIGRATION, BOT_EVENT_RECEIPT_MIGRATION, BOT_WEBHOOK_CREDENTIAL_MIGRATION, BOT_ROUTINE_VERSION_MIGRATION, BOT_WEBHOOK_RATE_MIGRATION, BOT_RUN_TRANSCRIPT_MIGRATION, BOT_DATA_LIFECYCLE_MIGRATION, BOT_ROUTINE_TEST_MIGRATION, BOT_RETENTION_MIGRATION, BOT_HANDOFF_ROUTING_MIGRATION, BOT_OUTBOUND_DELIVERY_MIGRATION, BOT_GROUP_COLLABORATION_MIGRATION, BOT_RUN_HISTORY_INDEX_MIGRATION, BOT_REVIEWER_MODEL_MIGRATION])
+      this.store.migrate([...MIGRATIONS, BOT_MIGRATION, BOT_EXECUTION_MIGRATION, BOT_RUNTIME_MIGRATION, BOT_ROUTINE_MIGRATION, BOT_PROCEDURE_MIGRATION, BOT_RUN_RUNTIME_MIGRATION, BOT_HUMAN_RECORDING_MIGRATION, BOT_NOTE_SOURCE_MIGRATION, BOT_STEERING_MIGRATION, BOT_NOTE_VERSION_MIGRATION, BOT_DECISION_MEMORY_MIGRATION, BOT_EVENT_RECEIPT_MIGRATION, BOT_WEBHOOK_CREDENTIAL_MIGRATION, BOT_ROUTINE_VERSION_MIGRATION, BOT_WEBHOOK_RATE_MIGRATION, BOT_RUN_TRANSCRIPT_MIGRATION, BOT_DATA_LIFECYCLE_MIGRATION, BOT_ROUTINE_TEST_MIGRATION, BOT_RETENTION_MIGRATION, BOT_HANDOFF_ROUTING_MIGRATION, BOT_OUTBOUND_DELIVERY_MIGRATION, BOT_GROUP_COLLABORATION_MIGRATION, BOT_RUN_HISTORY_INDEX_MIGRATION, BOT_REVIEWER_MODEL_MIGRATION, BOT_APPEARANCE_MIGRATION])
       if (!options.memory) {
         for (const file of [path, `${path}-wal`, `${path}-shm`]) {
           try { chmodSync(file, 0o600) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
@@ -874,7 +891,7 @@ export class BotStore {
     }
     await rm(runDirectory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
   }
-  createBot(input: { name: string; projectRoot: string; instructions: string; agentConfig?: string; reviewerModel?: string }): Bot {
+  createBot(input: { name: string; projectRoot: string; instructions: string; agentConfig?: string; reviewerModel?: string; appearance?: PodAppearance }): Bot {
     return this.transaction(() => {
       const name = text(input.name, 'name', 64)
       if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*$/.test(name)) throw new Error('Bot name must contain letters, numbers, underscores or hyphens')
@@ -883,10 +900,19 @@ export class BotStore {
       const id = randomUUID(), time = now(), instructions = text(input.instructions, 'instructions')
       if (input.agentConfig !== undefined && !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(text(input.agentConfig, 'agentConfig', 64))) throw new Error('Invalid agent configuration name')
       const reviewerModel = input.reviewerModel === undefined ? null : this.validateReviewerModel(input.reviewerModel)
+      const appearance = input.appearance === undefined ? null : JSON.stringify(validatePodAppearance(input.appearance))
       if (redactSecrets(instructions) !== instructions) throw new Error('Instructions cannot contain credentials')
-      this.store.run('INSERT INTO bot_instances (id,name,project_root,instructions,agent_config,reviewer_model,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)', id, name, root, instructions, input.agentConfig ?? null, reviewerModel, time, time)
+      this.store.run('INSERT INTO bot_instances (id,name,project_root,instructions,agent_config,reviewer_model,appearance,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)', id, name, root, instructions, input.agentConfig ?? null, reviewerModel, appearance, time, time)
       this.events(id).emit('BotCreated', { name, projectRoot: root, reviewerModel })
       return this.getBot(id)
+    })
+  }
+  setAppearance(id: string, value: unknown): Bot {
+    return this.transaction(() => {
+      const pod = this.getBot(id), appearance = validatePodAppearance(value)
+      this.store.run('UPDATE bot_instances SET appearance=?,updated_at=? WHERE id=?', JSON.stringify(appearance), now(), pod.id)
+      this.events(pod.id).emit('BotAppearanceChanged', { appearance })
+      return this.getBot(pod.id)
     })
   }
   private validateReviewerModel(value: unknown): string {
@@ -997,6 +1023,11 @@ export class BotStore {
   }
   listRuns(botId: string, limit = 100): BotRun[] {
     return this.store.query<Row>('SELECT * FROM bot_runs WHERE bot_id = ? ORDER BY created_at DESC,rowid DESC LIMIT ?', this.getBot(botId).id, limit).map(run)
+  }
+  activeStatus(botId: string): RunStatus | null {
+    const row = this.store.query<{ status: RunStatus }>(`SELECT status FROM bot_runs WHERE bot_id=? AND status IN ('waiting','blocked','running','queued')
+      ORDER BY CASE status WHEN 'waiting' THEN 0 WHEN 'blocked' THEN 1 WHEN 'running' THEN 2 ELSE 3 END LIMIT 1`, this.getBot(botId).id)[0]
+    return row?.status ?? null
   }
   searchHistory(botId: string, query: string, limit = 10): Array<{ runId: string; status: RunStatus; source: string; createdAt: string; promptExcerpt: string; resultExcerpt: string }> {
     const botIdSafe = this.getBot(botId).id, term = text(query, 'history query', 128)

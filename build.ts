@@ -2,6 +2,8 @@ import { resolve } from 'path'
 import { chmodSync, writeFileSync } from 'fs'
 import { BUN_RUNNER_SOURCE, LAUNCHER_SOURCE } from './scripts/launcher.js'
 
+await import('./scripts/build-pod-avatar.js')
+
 const result = await Bun.build({
   entrypoints: ['src/index.tsx'],
   outdir: 'dist',

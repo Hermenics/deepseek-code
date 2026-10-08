@@ -156,3 +156,14 @@ The TUI is flat. Depth is expressed through full-width dividers, surface tone wh
 - **Don't** depend on fixed terminal dimensions or mouse input.
 - **Don't** expose credentials or silently execute repository hooks.
 - **Don't** use color as the only indicator of selection, origin, or risk.
+
+
+## Pods web surface
+
+The Pods dashboard uses a dark, compact workspace with color concentrated in real 3D characters (user-selected direction). The terminal rules above remain specific to the TUI. The web surface uses locally bundled Geist sans-serif, neutral charcoal backgrounds, quiet dividers and 6–14 px corners; reserve circles for avatar silhouettes and color swatches.
+
+Creation and appearance editing use a character inspection pane beside visual shape/accessory choices and color samples. Native radio groups expose keyboard selection, a visible selection border/check and focus. The same saved appearance identifies the Pod in the roster, header, replies and groups. On narrow screens, stack the preview and choices with vertical dialog scrolling.
+
+Use the existing locally bundled Three.js renderer and procedural felt geometry. Static choice thumbnails render on demand; visible roster characters animate task states at up to 24 fps. Hidden characters and reduced-motion mode do not animate. Keep the interface neutral: no decorative gradients, nested card layouts, marketing slogans or continuous camera motion.
+
+Keep workspace copy literal and task-oriented. Use a consistent neutral gray palette in both themes, a left-aligned empty state, an inspection surface for the character preview and readable 12–15 px operational text. No magnetic controls, decorative motion or promotional taglines.

@@ -1,7 +1,7 @@
 // Runnable real-HTTP check: bun tests/bot-web-check.ts
 import assert from 'node:assert/strict'
 import { createPrivateKey, sign } from 'node:crypto'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -16,10 +16,27 @@ const store = new BotStore({ path: join(directory, 'state.db') })
 const token = 'panel-check-only-' + 'x'.repeat(48)
 // TypeScript cannot parse JavaScript inside an HTML string.
 new Function(BOT_PANEL_HTML.match(/<script nonce="__NONCE__">([\s\S]*?)<\/script>/)![1]!)
+const startup = BOT_PANEL_HTML.slice(BOT_PANEL_HTML.indexOf('async function startPanel()'), BOT_PANEL_HTML.indexOf('void startPanel();'))
+const startPanel = new Function('location', 'history', 'api', 'refresh', '$', startup + ';return startPanel()')
+for (const [href, expectedToken] of [['http://localhost/?token=query', undefined], ['http://localhost/#token=fragment', 'fragment'], ['http://localhost/?token=query#token=fragment', 'fragment']] as const) {
+  const logins: unknown[] = [], replacements: string[] = []
+  let refreshed = false
+  await startPanel({ href }, { replaceState: (_state: unknown, _title: string, path: string) => replacements.push(path) }, async (path: string, payload: unknown) => { assert.equal(path, '/api/login'); logins.push(payload) }, async () => { refreshed = true }, () => { throw new Error('Unexpected login failure') })
+  assert.deepEqual(logins, expectedToken ? [{ token: expectedToken }] : [])
+  assert.deepEqual(replacements, expectedToken ? ['/'] : [])
+  assert.equal(refreshed, true)
+}
 assert.throws(() => startBotWebServer(store, { token: 'short' }), /32 characters/)
 assert.throws(() => startBotWebServer(store, { token, hostname: '0.0.0.0' }), /HTTPS/)
 assert.throws(() => startBotWebServer(store, { token, publicUrl: 'http://example.com' }), /HTTPS/)
-const { server, url } = startBotWebServer(store, { token, port: 0 })
+// Test double for the panel's ownership UI; real worker IPC is covered by bot-runtime-check.ts.
+let browserHeld = false
+const { server, url } = startBotWebServer(store, { token, port: 0 }, async (_botId, runId, command) => {
+  if (command === 'take') browserHeld = true
+  if (command === 'release') browserHeld = false
+  if (command === 'image') return { id: 'panel-view', runId, held: browserHeld, width: 1, height: 1, image: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jB1sAAAAASUVORK5CYII=' }
+  return { running: true, held: browserHeld, runId, contexts: [] }
+})
 const request = (path: string, data?: unknown, headers: Record<string, string> = {}) => fetch(url + path, {
   method: data === undefined ? 'GET' : 'POST',
   headers: { ...(data === undefined ? {} : { 'content-type': 'application/json', origin: url }), ...headers },
@@ -34,13 +51,22 @@ const authorized = async (path: string, data?: unknown) => {
 }
 try {
   if (process.argv.includes('--serve-fixture')) {
-    const bot = store.createBot({ name: 'engineer', projectRoot: directory, instructions: 'Maintain DeepSeek Code and report observed results for review.' })
-    store.createBot({ name: 'researcher', projectRoot: directory, instructions: 'Check current sources and save findings with their provenance.' })
+    const bot = store.createBot({ name: 'engineer', projectRoot: directory, instructions: 'Maintain DeepSeek Code and report observed results for review.', appearance: { shape: 'cloud', tone: 'amber', eyes: 'curious', accessory: 'glasses' } })
+    const researcher = store.createBot({ name: 'researcher', projectRoot: directory, instructions: 'Check current sources and save findings with their provenance.', appearance: { shape: 'heart', tone: 'rose', eyes: 'round', accessory: 'none' } })
+    // Demonstration content only, for visual review of conversation and activity layouts.
+    const finished = store.enqueue(bot.id, 'Review the Pods interface and suggest the next step.')
+    store.claim(bot.id, 'web-fixture')
+    store.finish(finished.id, 'web-fixture', 'completed', 'The conversation, routines and profile now have their own surfaces. Next, check avatar legibility in the sidebar and at mobile widths.')
     const job = store.enqueue(bot.id, 'Inspect the browser session persistence and prepare the change.')
     store.claim(bot.id, 'web-fixture')
     store.requestDecision(job.id, 'web-fixture', 'permission', { toolName: 'shell', args: { command: 'bun run typecheck' }, riskDescription: 'Run the project type checker.' })
     store.addRoutine(bot.id, { name: 'Documentation review', prompt: 'Check current documentation for the browser integration.', schedule: { kind: 'daily', hour: 8, minute: 0, timeZone: 'America/Fortaleza' } })
     store.addNote(bot.id, 'Codimium is the persistent browser profile used by this agent.', 'user')
+    const group = store.createGroup({ name: 'Product studio', botIds: [bot.id, researcher.id] })
+    const collaboration = store.sendGroupMessage(group.id, 'Review the design and save your findings.', 'visual-group-task', [researcher.id])
+    store.claim(researcher.id, 'visual-group-worker')
+    store.writeGroupArtifact(group.id, researcher.id, collaboration.runs[0]!.id, 'design-notes.md', '# Design notes\n\nKeep the conversation focused and make every Pod recognizable at small sizes.', 0)
+    store.finish(collaboration.runs[0]!.id, 'visual-group-worker', 'completed', 'I saved the design notes in our Library. Each Pod keeps its own appearance in this group.')
     console.log(url)
     const controller = new AbortController(), stop = () => controller.abort()
     process.on('SIGTERM', stop); process.on('SIGINT', stop)
@@ -48,6 +74,14 @@ try {
     process.off('SIGTERM', stop); process.off('SIGINT', stop)
   } else {
     assert.equal((await request('/api/bots')).status, 401)
+    const font = await request('/geist.woff2')
+    assert.equal(font.headers.get('content-type'), 'font/woff2')
+    assert.equal(Buffer.from(await font.arrayBuffer()).subarray(0, 4).toString(), 'wOF2')
+    const logo = await request('/logo.png')
+    assert.equal(logo.status, 200)
+    assert.equal(logo.headers.get('content-type'), 'image/png')
+    assert.deepEqual(Buffer.from(await logo.arrayBuffer()).subarray(0, 8), Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+    assert.equal(BOT_PANEL_HTML.includes('>P</span>'), false)
     const html = await request('/')
     assert.match(html.headers.get('content-security-policy')!, /frame-ancestors 'none'/)
     assert.match(html.headers.get('content-security-policy')!, /script-src 'nonce-/)
@@ -67,6 +101,12 @@ try {
     const reviewerUpdate = await authorized('/api/bots/' + bot.id + '/reviewer-model', { model: 'quality/reviewer-v2' })
     assert.equal(reviewerUpdate.reviewerModel, 'quality/reviewer-v2')
     assert.equal((await authorized('/api/bots/' + bot.id + '/reviewer-model', { model: null })).reviewerModel, undefined)
+    const appearance = { shape: 'cloud', tone: 'amber', eyes: 'curious', accessory: 'glasses' }
+    assert.equal((await request('/api/bots/' + bot.id + '/appearance', { appearance })).status, 401)
+    assert.equal((await request('/api/bots/' + bot.id + '/appearance', { appearance }, { cookie, origin: 'https://outside.example' })).status, 403)
+    assert.deepEqual((await authorized('/api/bots/' + bot.id + '/appearance', { appearance })).appearance, appearance)
+    assert.equal((await request('/api/bots/' + bot.id + '/appearance', { appearance: { ...appearance, tone: 'url(https://outside.example)' } }, { cookie })).status, 400)
+    assert.deepEqual((await authorized('/api/bots')).bots[0].appearance, appearance)
     const second = await authorized('/api/bots', { name: 'researcher', projectRoot: directory, instructions: 'Research current sources.' })
     assert.equal((await request('/api/groups')).status, 401)
     const group = await authorized('/api/groups', { name: 'HTTP room', botIds: [bot.id, second.id], shareBrowser: false })
@@ -295,7 +335,7 @@ try {
             return result.value
           }
           const until = async (expression: string) => {
-            for (let attempt = 0; attempt < 100; attempt++) { if (await evaluate(expression)) return; await delay(50) }
+            for (let attempt = 0; attempt < 100; attempt++) { if (await evaluate("document.getElementById('app') && (" + expression + ")")) return; await delay(50) }
             throw new Error('Panel UI did not reach: ' + expression + '; ' + await evaluate("JSON.stringify({notice:document.getElementById('notice').textContent,error:document.getElementById('login-error').textContent,agent:document.getElementById('bot-name').textContent})") + '; logs=' + JSON.stringify(tab.drainLogs(true)))
           }
           // Fixed, test-authored DOM operations exercise the bundled script and native form events.
@@ -303,6 +343,78 @@ try {
           await until("!document.getElementById('app').hidden && document.getElementById('bot-name').textContent === 'engineer'")
           assert.equal(await evaluate("document.querySelectorAll('#responsibility img').length"), 0)
           assert.equal(await evaluate("document.getElementById('token').value"), '')
+          assert.equal(await evaluate("document.querySelectorAll('#bots .pod-avatar > canvas').length"), store.listBots().length)
+          await until("document.getElementById('bot-avatar').dataset.renderer === 'webgl'")
+          const initialFrame = await evaluate<number>("Number(document.getElementById('bot-avatar').dataset.frame)")
+          await delay(200)
+          assert.ok(await evaluate<number>("Number(document.getElementById('bot-avatar').dataset.frame)") > initialFrame, 'Avatar animates outside the editor')
+          assert.equal(await evaluate("document.querySelector('#composer button').textContent"), '↑')
+          assert.equal(await evaluate("document.getElementById('message').placeholder.includes(String.fromCharCode(92)+'u')"), false)
+          await evaluate("document.getElementById('pod-search').value='researcher';document.getElementById('pod-search').dispatchEvent(new Event('input'));true")
+          assert.equal(await evaluate("document.querySelectorAll('#bots .bot').length"), 1)
+          assert.equal(await evaluate("document.querySelector('#bots .bot strong').textContent"), 'researcher')
+          await evaluate("document.getElementById('pod-search').value='';document.getElementById('pod-search').dispatchEvent(new Event('input'));document.querySelector('[data-workspace-view=profile]').click();true")
+          assert.equal(await evaluate("document.getElementById('review-panel').dataset.view"), 'profile')
+          assert.equal(await evaluate("document.getElementById('decisions').offsetParent === null"), true)
+          await evaluate("[...document.querySelectorAll('#review-panel button')].find(b=>b.textContent==='Customize Pod').click();true")
+          await until("document.querySelector('#appearance-preview .editor-avatar').dataset.renderer === 'webgl'")
+          const frontImage = await evaluate<string>("document.querySelector('#appearance-preview canvas').toDataURL()")
+          await evaluate("document.querySelector('#appearance-preview canvas').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}));true")
+          await until("Number(document.querySelector('#appearance-preview .editor-avatar').dataset.yaw) > .3")
+          assert.notEqual(await evaluate("document.querySelector('#appearance-preview canvas').toDataURL()"), frontImage, 'Orbit changes the rendered geometry')
+          const point = await evaluate<{ x: number; y: number }>("(()=>{const rect=document.querySelector('#appearance-preview canvas').getBoundingClientRect();return {x:rect.x+rect.width/2,y:rect.y+rect.height/2}})()")
+          await tab.cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: point.x, y: point.y, button: 'left', clickCount: 1 }, tab.sessionId)
+          await evaluate("document.querySelector('#appearance-preview canvas').dispatchEvent(new PointerEvent('pointerup',{pointerId:999,bubbles:true}));true")
+          await tab.cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: point.x + 45, y: point.y + 12, buttons: 1 }, tab.sessionId)
+          await tab.cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: point.x + 45, y: point.y + 12, button: 'left', clickCount: 1 }, tab.sessionId)
+          await until("Number(document.querySelector('#appearance-preview .editor-avatar').dataset.yaw) > .9")
+          await tab.cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] }, tab.sessionId)
+          await delay(100)
+          const stillFrame = await evaluate<string>("document.getElementById('bot-avatar').dataset.frame")
+          await delay(200)
+          assert.equal(await evaluate("document.getElementById('bot-avatar').dataset.frame"), stillFrame, 'Reduced motion stops automatic animation')
+          await tab.cdp.send('Emulation.setEmulatedMedia', { features: [] }, tab.sessionId)
+          await evaluate("document.getElementById('appearance-form').elements.shape.value='heart';document.getElementById('appearance-form').elements.tone.value='rose';document.getElementById('appearance-form').dispatchEvent(new Event('input'));true")
+          await until("document.querySelector('#appearance-preview .editor-avatar').dataset.tone === 'rose'")
+          assert.ok(await evaluate<number>("Number(document.querySelector('#appearance-preview .editor-avatar').dataset.yaw)") > .3, 'Changing appearance preserves the inspection angle')
+          await evaluate("[...document.querySelectorAll('#appearance-preview button')].find(b=>b.textContent==='Reset view').click();true")
+          await until("document.querySelector('#appearance-preview .editor-avatar').dataset.yaw === '0.150'")
+          await evaluate("document.querySelector('#appearance-form input[name=shape][value=pear]').click();document.querySelector('#appearance-form input[name=tone][value=mint]').click();document.querySelector('#appearance-form input[name=accessory][value=bucket-hat]').click();true")
+          await until("document.querySelector('#appearance-preview .editor-avatar').dataset.tone === 'mint'")
+          await evaluate("document.getElementById('appearance-form').requestSubmit();true")
+          await until("!document.getElementById('appearance-dialog').open && document.getElementById('bot-avatar').dataset.tone === 'mint'")
+          assert.deepEqual(store.getBot(bot.id).appearance, { shape: 'pear', tone: 'mint', eyes: 'curious', accessory: 'bucket-hat' })
+          await evaluate("document.querySelector('[data-workspace-view=scheduled]').click();true")
+          assert.equal(await evaluate("document.getElementById('routines').offsetParent !== null"), true)
+          assert.equal(await evaluate("document.getElementById('notes').offsetParent === null"), true)
+          await evaluate("document.getElementById('theme-toggle').click();true")
+          assert.equal(await evaluate("document.documentElement.dataset.theme"), 'light')
+          if (process.argv.includes('--screenshots')) {
+            await delay(200)
+            await writeFile(join(process.cwd(), 'output/playwright/pods-light.jpg'), Buffer.from(await tab.screenshot(), 'base64'))
+          }
+          await evaluate("document.getElementById('theme-toggle').click();document.querySelector('[data-workspace-view=conversation]').click();true")
+          if (process.argv.includes('--screenshots')) {
+            await delay(200)
+            await writeFile(join(process.cwd(), 'output/playwright/pods-dark.jpg'), Buffer.from(await tab.screenshot(), 'base64'))
+          }
+          assert.equal(await evaluate("document.querySelector('.rail').scrollWidth <= document.querySelector('.rail').clientWidth"), true)
+          assert.equal(await evaluate("document.getElementById('review-panel').hidden"), true)
+          // Empty-roster polling must preserve the first Pod's open form and draft.
+          await evaluate("window.rosterFetch=window.fetch;window.fetch=async(...args)=>{const response=await window.rosterFetch(...args);return args[0]==='/api/bots'&&!args[1]?.body?new Response(JSON.stringify({bots:[]}),{status:200,headers:{'content-type':'application/json'}}):response};refresh().then(()=>true)")
+          await until("!refreshing && selected === null")
+          await evaluate("document.getElementById('new-bot').click();document.getElementById('create-form').elements.name.value='first-pod-draft';true")
+          await delay(4500)
+          assert.equal(await evaluate("document.getElementById('create-dialog').open"), true)
+          assert.equal(await evaluate("document.getElementById('create-form').elements.name.value"), 'first-pod-draft')
+          await evaluate("window.fetch=window.rosterFetch;delete window.rosterFetch;refresh().then(()=>true)")
+          await until("!refreshing && selected !== null")
+          await evaluate(`(()=>{document.getElementById('new-bot').click();const f=document.getElementById('create-form');f.elements.name.value='ui-created';f.elements.projectRoot.value=${JSON.stringify(directory)};f.elements.instructions.value='Keep this Pod distinctive.';f.elements['appearance:shape'].value='capsule';f.elements['appearance:tone'].value='coral';f.elements['appearance:accessory'].value='bowtie';f.requestSubmit();return true})()`)
+          await until("!document.getElementById('create-dialog').open && document.getElementById('bot-name').textContent === 'ui-created'")
+          assert.deepEqual(store.getBot('ui-created').appearance, { shape: 'capsule', tone: 'coral', eyes: 'round', accessory: 'bowtie' })
+          await evaluate("[...document.querySelectorAll('#bots .bot')].find(b=>b.querySelector('strong').textContent==='engineer').click();true")
+          await until("document.getElementById('bot-name').textContent === 'engineer'")
+
           await evaluate("(()=>{document.getElementById('new-note').click();const form=document.getElementById('note-form');form.elements.content.value='Memory from UI <img src=x onerror=alert(1)>';form.requestSubmit();return true})()")
           await until("!document.getElementById('note-dialog').open && document.getElementById('notes').textContent.includes('Memory from UI')")
           let panelNote = store.notes(bot.id).find(n => n.content.startsWith('Memory from UI'))!
@@ -329,6 +441,20 @@ try {
           assert.equal(active.prompt, 'Task from the real panel UI')
           await evaluate("refresh().then(()=>true)")
           await until("[...document.querySelectorAll('#feed button')].some(b=>b.textContent==='Guide task')")
+          await evaluate("document.querySelector('.browser-control').click();true")
+          await until("document.getElementById('browser-dialog').open")
+          assert.equal(await evaluate("document.getElementById('browser-url').disabled"), true)
+          assert.equal(await evaluate("document.getElementById('browser-release').disabled"), true)
+          await evaluate("document.getElementById('browser-take').click();true")
+          await until("document.getElementById('browser-dialog').dataset.held === 'true' && !document.getElementById('browser-url').disabled && document.getElementById('browser-take').disabled")
+          await evaluate("document.getElementById('computer-expand').click();true")
+          assert.equal(await evaluate("document.getElementById('browser-dialog').classList.contains('expanded')"), true)
+          await evaluate("document.getElementById('browser-release').click();true")
+          await until("document.getElementById('browser-dialog').dataset.held === 'false' && document.getElementById('browser-release').disabled")
+          assert.equal(await evaluate("document.getElementById('browser-url').disabled"), true)
+          await evaluate("document.querySelector('#browser-dialog [data-close]').click();true")
+          await until("!document.getElementById('app-layout').classList.contains('with-computer')")
+
           await evaluate("[...document.querySelectorAll('#feed button')].find(b=>b.textContent==='Guide task').click();document.getElementById('guide-form').elements.message.value='Current task guidance <img src=x onerror=alert(1)>';document.getElementById('guide-form').requestSubmit();true")
           await until("!document.getElementById('guide-dialog').open && document.getElementById('feed').textContent.includes('Current task guidance')")
           assert.equal(store.steeringMessages(active.id).length, 1)
@@ -347,6 +473,7 @@ try {
           await until("!document.getElementById('routine-dialog').open && document.getElementById('routines').textContent.includes('Learned routine from panel')")
           const panelRoutine = store.routines(bot.id).find(r => r.name === 'Learned routine from panel')!
           assert.equal(panelRoutine.procedureId, panelSkill.id)
+          assert.equal(await evaluate("[...document.querySelectorAll('#routines .routine')].find(el=>el.textContent.includes('Learned routine from panel')).querySelector('.routine-next').textContent"), await evaluate(`'Next: '+date(${panelRoutine.nextAt})`))
           assert.deepEqual(panelRoutine.procedureInputs, { input2: 'New message', expectedText3: 'Observed current outcome' })
           assert.equal('endsAt' in panelRoutine.schedule ? panelRoutine.schedule.endsAt : undefined, panelEndsAt)
           await evaluate("[...document.querySelectorAll('#routines .routine')].find(el=>el.textContent.includes('Learned routine from panel')).querySelector('button').click();true")
@@ -367,6 +494,43 @@ try {
           await until("!document.getElementById('routines').textContent.includes('Edited routine from panel')")
           assert.equal(store.getRun(uiManualRun.id).status, 'queued')
           store.cancel(uiManualRun.id)
+          await evaluate("document.querySelector('[data-workspace-view=library]').click();true")
+          assert.equal(await evaluate("document.getElementById('library-results').offsetParent !== null"), true)
+          assert.ok(await evaluate<number>("document.querySelectorAll('#library-results .result-card').length") > 0)
+          const unreadBot = store.createBot({ name: 'new-results', projectRoot: directory, instructions: 'Keep results available.' })
+          const unreadRun = store.enqueue(unreadBot.id, 'A newly completed result')
+          store.claim(unreadBot.id, 'unread-check')
+          store.finish(unreadRun.id, 'unread-check', 'completed', 'Actual saved result <img src=x onerror=alert(1)> https://example.com/report')
+          await evaluate("refresh().then(()=>true)")
+          await until("[...document.querySelectorAll('#bots .bot')].some(el=>el.textContent.includes('new-results')&&el.querySelector('.unread-dot'))")
+          await evaluate("[...document.querySelectorAll('#bots .bot')].find(el=>el.querySelector('strong').textContent==='new-results').click();true")
+          await until("document.getElementById('bot-name').textContent === 'new-results'")
+          assert.equal(await evaluate("document.querySelector('#bots .bot.selected .unread-dot') === null"), true)
+          assert.equal(await evaluate("document.querySelectorAll('#library-results img').length"), 0)
+          assert.equal(await evaluate("document.querySelector('#library-results a').getAttribute('href')"), 'https://example.com/report')
+          store.setEnabled(second.id, true)
+          const uiGroup = store.createGroup({ name: 'Panel team', botIds: [unreadBot.id, second.id] })
+          await evaluate("refresh().then(()=>true)")
+          await until("document.getElementById('group-list').textContent.includes('Panel team')")
+          await evaluate("[...document.querySelectorAll('#group-list button')].find(b=>b.textContent.includes('Panel team')).click();true")
+          await until("document.querySelector('.workspace').dataset.group === 'true' && document.getElementById('group-title').textContent === 'Panel team'")
+          assert.equal(await evaluate("document.getElementById('group-dialog').tagName"), 'SECTION')
+          assert.equal(await evaluate("document.querySelectorAll('#group-recipients .pod-avatar canvas').length"), 2)
+          await evaluate("document.getElementById('group-message-form').elements.message.value='Work together on this task';document.getElementById('group-message-form').requestSubmit();true")
+          await until("document.getElementById('group-transcript').textContent.includes('Work together on this task') && document.getElementById('group-message-form').elements.message.value === ''")
+          assert.equal(store.groupRuns(uiGroup.id).length, 2)
+          assert.equal(await evaluate("document.querySelectorAll('#group-recipients input:checked').length"), 2, 'Sending preserves recipients')
+          const groupJob = store.claim(unreadBot.id, 'group-check')!
+          store.writeGroupArtifact(uiGroup.id, unreadBot.id, groupJob.id, 'result.txt', 'Real shared text <img src=x onerror=alert(1)>', 0)
+          store.finish(groupJob.id, 'group-check', 'completed', 'Team result is ready.')
+          await evaluate("refresh().then(()=>true)")
+          await until("document.querySelector('#group-artifacts summary')?.textContent === 'result.txt · v1'")
+          await evaluate("document.getElementById('group-library').click();document.querySelector('#group-artifacts summary').click();true")
+          await until("document.getElementById('group-artifacts').textContent.includes('Real shared text')")
+          assert.equal(await evaluate("document.querySelectorAll('#group-artifacts img').length"), 0)
+          assert.equal(await evaluate("document.getElementById('group-artifacts').textContent.includes('Download file')"), true)
+          await evaluate("[...document.querySelectorAll('#bots .bot')].find(el=>el.querySelector('strong').textContent==='engineer').click();true")
+          await until("document.getElementById('bot-name').textContent === 'engineer' && document.getElementById('group-dialog').hidden")
           await tab.cdp.send('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true }, tab.sessionId)
           assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true)
           assert.equal(await evaluate("getComputedStyle(document.querySelector('.layout')).flexDirection"), 'column')
@@ -381,6 +545,25 @@ try {
           assert.equal(await evaluate("document.getElementById('message').value"), '')
           assert.equal(await evaluate("document.getElementById('note-form').elements.content.value"), '')
           assert.equal(await evaluate("document.getElementById('feed').textContent"), '')
+          await tab.navigate('about:blank')
+          await tab.settle()
+          await tab.navigate(url + '/#token=incorrect')
+          await until("document.getElementById('login-error').textContent === 'Access token is incorrect'")
+          assert.equal(await evaluate('location.hash'), '')
+          assert.equal(await evaluate("document.getElementById('app').hidden"), true)
+          await tab.navigate('about:blank')
+          await tab.settle()
+          await tab.navigate(url + '/#token=' + encodeURIComponent(token))
+          await until("!document.getElementById('app').hidden && document.getElementById('bot-name').textContent === 'engineer'")
+          assert.equal(await evaluate('location.search + location.hash'), '')
+          assert.equal(await evaluate("document.getElementById('token').value"), '')
+          await evaluate("document.getElementById('logout').click();true")
+          await until("!document.getElementById('login').hidden && document.getElementById('app').hidden")
+          await tab.navigate('about:blank')
+          await tab.settle()
+          await tab.navigate(url + '/?token=' + encodeURIComponent(token))
+          await until("!document.getElementById('login').hidden && document.getElementById('app').hidden && !refreshing")
+          assert.equal(await evaluate("fetch('/api/bots').then(response=>response.status)"), 401, 'Token query não autentica o painel')
           await evaluate(`document.getElementById('token').value=${JSON.stringify(token)};document.getElementById('login-form').requestSubmit();true`)
           await until("!document.getElementById('app').hidden && document.getElementById('bot-name').textContent === 'engineer'")
           await evaluate("document.getElementById('message').value='draft before logout';document.getElementById('routine-dialog').showModal();true")
@@ -388,6 +571,16 @@ try {
           await until("!document.getElementById('login').hidden && document.getElementById('app').hidden")
           assert.equal(await evaluate("document.querySelectorAll('dialog[open]').length"), 0)
           assert.equal(await evaluate("document.getElementById('message').value"), '')
+          // An unavailable graphics driver must not prevent appearance editing or task controls.
+          await tab.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source: "const originalContext=HTMLCanvasElement.prototype.getContext;HTMLCanvasElement.prototype.getContext=function(kind,...args){return kind==='webgl2'?null:originalContext.call(this,kind,...args)}" }, tab.sessionId)
+          await tab.navigate(url)
+          await tab.settle()
+          await evaluate(`document.getElementById('token').value=${JSON.stringify(token)};document.getElementById('login-form').requestSubmit();true`)
+          await until("document.getElementById('bot-avatar').dataset.renderer === 'unavailable' && document.getElementById('bot-name').textContent === 'engineer'")
+          await evaluate("document.querySelector('[data-workspace-view=profile]').click();[...document.querySelectorAll('#review-panel button')].find(b=>b.textContent==='Customize Pod').click();true")
+          await until("document.querySelector('#appearance-preview .editor-avatar').dataset.renderer === 'unavailable'")
+          assert.equal(await evaluate("[...document.querySelectorAll('#appearance-form input[name=tone]')].every(input=>!input.disabled)"), true)
+          assert.equal(await evaluate("document.querySelector('#appearance-form button[type=submit]').disabled"), false)
         })
       } finally { await browser.shutdown(); await browser.whenClosed() }
     }

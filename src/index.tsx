@@ -13,7 +13,7 @@ if (process.argv[2] === '--bot-worker') {
   try { await runPodsCli(process.argv.slice(3)) }
   catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exitCode = 1 }
 } else if (process.argv[2] === 'bots') {
-  console.error('The persistent-agent command is now `deepseek pods`.')
+  console.error('Pods now live under `deepseek pods`. Try `deepseek pods --help`.')
   process.exitCode = 1
 } else {
   await import('./entrypoints/cli.js')

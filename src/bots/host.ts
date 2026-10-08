@@ -109,7 +109,7 @@ Environment=HOME=%h/.deepseek-pods
 Environment=PATH=%h/.local/bin:%h/.bun/bin:/snap/bin:/usr/local/bin:/usr/bin:/bin
 EnvironmentFile=%h/.deepseek-pods/.deepseek/pods-host.env
 WorkingDirectory=%h/.deepseek-pods
-ExecStart=%h/.local/bin/deepseek pods --db %h/.deepseek-pods/.deepseek/bots/state.db serve --web --host 127.0.0.1 --port 8787 --concurrency 2
+ExecStart=%h/.local/bin/deepseek pods --db %h/.deepseek-pods/.deepseek/bots/state.db serve --web --no-open --host 127.0.0.1 --port 8787 --concurrency 2
 Restart=on-failure
 RestartSec=5
 UMask=0077

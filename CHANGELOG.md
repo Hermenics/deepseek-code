@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.12.0
+
+- Enhanced: Pods use locally bundled Geist typography, consistent neutral themes, readable conversation controls and concise workspace copy. The character editor has a dedicated inspection surface and larger visual choices.
+
+- Fixed: Pods use the official DeepSeek Code logo in the workspace header, sign-in screen and browser favicon instead of placeholder branding.
+
+- Enhanced: Pods now offer 13 real 3D body shapes, 12 colors and 10 accessory options through a visual picker with keyboard controls. Creation and customization use a compact studio layout; the dark workspace uses restrained neutral surfaces and clearer type.
+
+- Enhanced: The main CLI help is a compact quickstart, and `doctor`, `update`, `logout` and Pods use readable status lines with restrained terminal colors. JSON pipe output stays machine-readable.
+- Enhanced: Pods CLI help starts with a compact quickstart and topic-specific commands. Terminal results use restrained colors and readable labels; piped output, exports and `--json` retain structured JSON.
+- Added: `pods serve --web` opens the browser already authenticated, generating a process-local token when needed. The panel removes login credentials from the URL immediately; `--no-open` keeps headless services from launching a browser.
+- Fixed: Creating the first Pod keeps the editor and its draft open across automatic panel refreshes.
+- Enhanced: The Pods panel has a searchable roster, customizable plush avatars rendered from real 3D meshes, light and dark themes, a chronological conversation, and separate Activity, Scheduled, Library and Profile views.
+- Added: Customize each Pod's shape, color, eyes and accessories during creation or from Profile. Appearance is saved with the Pod and included in its data export.
+- Enhanced: Open a Pod's Codimium computer beside the conversation, expand the preview, take over and return control. Browser input stays disabled while the agent has control.
+
+- Added: Rotate the 3D Pod with mouse/touch dragging or arrow keys in the appearance editor. State-driven animations share one offline WebGL renderer, skip hidden avatars and honor reduced motion.
+- Enhanced: Group chats use the main conversation, with participant avatars and shared file downloads. Library collects completed results and links; the roster marks unread activity and routines show their next occurrence.
+
 ## 0.11.0
 
 - Added: Persistent Pods run named agents from a supervised queue with saved conversations, routines, notes, signed event delivery, groups, an authenticated web panel, and optional deployment to an existing Debian or Ubuntu host.

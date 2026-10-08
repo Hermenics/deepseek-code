@@ -39,6 +39,7 @@
     "start": "NODE_ENV=development bun src/index.tsx",
     "dev": "NODE_ENV=development bun --watch src/index.tsx",
     "build": "bun run build.ts",
+    "build:pods-avatar": "bun scripts/build-pod-avatar.ts",
     "typecheck": "bunx tsc --noEmit",
     "test": "bun test tests",
     "test:coverage": "bun test tests --coverage --coverage-reporter=lcov --coverage-dir=coverage",
@@ -95,7 +96,9 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.2.0",
     "@types/stack-utils": "^2.0.3",
+    "@types/three": "0.184.0",
     "react-devtools-core": "^7.0.1",
+    "three": "0.184.0",
     "typescript": "^5.9.3"
   }
 }

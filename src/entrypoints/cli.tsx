@@ -61,24 +61,6 @@ if (process.env.NODE_ENV === 'development') {
   process.on('unhandledRejection', (reason) => write(`unhandledRejection: ${reason}`))
 }
 
-// Force chalk color level based on terminal capabilities.
-// Bun doesn't set isTTY correctly in all cases, so chalk defaults to level 0.
-// We detect color support manually and set it before any UI renders.
-{
-  const { default: chalk } = await import('chalk')
-  if (chalk.level === 0) {
-    const colorterm = process.env.COLORTERM
-    const term = process.env.TERM ?? ''
-    if (colorterm === 'truecolor' || colorterm === '24bit') {
-      chalk.level = 3
-    } else if (colorterm === 'ansi256' || term.includes('256color')) {
-      chalk.level = 2
-    } else if (process.stdout.isTTY || term !== '') {
-      chalk.level = 1
-    }
-  }
-}
-
 // Set terminal title
 process.title = 'deepseek'
 if (process.stdout.isTTY) process.stdout.write('\x1b]0;DeepSeek\x07')
@@ -105,6 +87,7 @@ import type { DeepSeekSettings } from '../settings/types.js'
 import { formatExitScreen } from '../utils/exitScreen.js'
 import { exitWhenTerminalCloses } from '../utils/terminalLoss.js'
 import { auditLog } from '../agent/auditLog.js'
+import { cliStyle as chalk } from '../utils/cli-style.js'
 import pkg from '../../package.json' with { type: 'json' }
 
 /** Maps argv to a startup intent: subcommands (`update`, `logout`, `doctor`, `help`, `version`), `--resume [id]`, `agent <name> [msg]`, or an initial message. Only the first matching form is honoured. */
@@ -144,7 +127,7 @@ const { update, logout } = ARGV
 if (ARGV.doctor) {
   const { formatDoctorReport, runDoctor } = await import('../doctor.js')
   const report = await runDoctor()
-  process.stdout.write(`${formatDoctorReport(report)}\n`)
+  process.stdout.write(`${formatDoctorReport(report, true)}\n`)
   process.exit(report.checks.some(check => !check.ok) ? 1 : 0)
 }
 
@@ -156,34 +139,27 @@ if (ARGV.version) {
 
 if (ARGV.help) {
   process.stdout.write(`
-DeepSeek Code v${pkg.version} — AI coding agent for the terminal
+${chalk.bold.cyan('DeepSeek Code')} ${chalk.dim('· AI coding agent')} ${chalk.dim('v' + pkg.version)}
 
-Usage:
-  deepseek                          Start interactive session
-  deepseek "fix the bug in app.ts"  Start with an initial message
-  deepseek agent <name>             Load a custom agent
-  deepseek agent <name> "message"   Load agent with initial message
-  deepseek --resume <session-id>    Resume a previous session
-  deepseek doctor                   Diagnose local setup
-  deepseek update                   Update to latest version
-  deepseek logout                   Remove saved credentials
-  deepseek help                     Show this help
+${chalk.bold('Start')}
+  ${chalk.cyan('deepseek')}                         New interactive session
+  ${chalk.cyan('deepseek "fix the bug in app.ts"')} Start with a task
+  ${chalk.cyan('deepseek agent NAME [MESSAGE]')}     Use a custom agent
+  ${chalk.cyan('deepseek --resume [SESSION_ID]')}    Continue a session
 
-Pipe mode:
-  echo "task" | deepseek --pipe             Run headlessly from stdin
-  cat file.ts | deepseek --pipe "explain"   Pipe file content with prompt
-  echo "task" | deepseek --pipe --json      Return {"ok", "output", "tools"} JSON
+${chalk.bold('Explore')}
+  ${chalk.cyan('deepseek pods --help')}              Manage your Pods
+  ${chalk.cyan('deepseek doctor')}                   Check your setup
+  ${chalk.cyan('deepseek update')}                   Update DeepSeek Code
+  ${chalk.cyan('deepseek logout')}                   Remove saved credentials
 
-In-app commands (type / to see all):
-  /help        Show all slash commands
-  /model       Switch AI model
-  /agent       Load a custom agent
-  /clear       Clear conversation history
-  /compact     Summarize history to save context
-  /plan        Plan implementation of a task
-  /review      Review project code
-  /quit        Exit
+${chalk.bold('Run without the TUI')}
+  ${chalk.cyan('echo "task" | deepseek --pipe')}             Run a task from the shell
+  ${chalk.cyan('cat file.ts | deepseek --pipe "explain"')}  Include file contents
+  ${chalk.cyan('echo "task" | deepseek --pipe --json')}     Print a JSON result
 
+${chalk.bold('Inside a session')}  ${chalk.dim('Type / to browse commands')}
+  ${chalk.dim('/help  /model  /agent  /plan  /review  /quit')}
 `)
   process.exit(0)
 }
@@ -191,35 +167,32 @@ In-app commands (type / to see all):
 if (update) {
   const name = pkg.name
   const current = pkg.version
-  process.stdout.write(`Checking for updates to ${name}...\n`)
+  process.stdout.write(`${chalk.dim('Checking for updates')} ${chalk.cyan(name)}…\n`)
   try {
     const res = await fetch(`https://registry.npmjs.org/${name}/latest`)
     if (!res.ok) throw new Error(`Registry returned ${res.status}`)
     const data = await res.json() as { version: string }
     const latest = data.version
     if (latest === current) {
-      process.stdout.write(`Already up to date (${current}).\n`)
+      process.stdout.write(`${chalk.green('✓')} DeepSeek Code is up to date ${chalk.dim('v' + current)}\n`)
     } else {
-      process.stdout.write(`Updating ${current} → ${latest}...\n`)
+      process.stdout.write(`${chalk.dim('Updating')} ${chalk.dim('v' + current)} ${chalk.dim('→')} ${chalk.cyan('v' + latest)}…\n`)
       const { execa } = await import('execa')
       const managers = await getGlobalPackageManagers(name)
-      if (managers.length === 2) process.stdout.write(`Warning: ${name} is installed globally with npm and Bun; updating both in parallel.\n`)
+      if (managers.length === 2) process.stdout.write(`${chalk.dim('Updating both npm and Bun installations.')}\n`)
       const results = await Promise.all(managers.map(async (pm) => ({
         pm,
         result: await execa(pm, pm === 'bun' ? ['add', '-g', `${name}@${latest}`] : ['install', '-g', `${name}@${latest}`], { reject: false }),
       })))
-      for (const { result } of results) {
-        if (result.stdout) process.stdout.write(result.stdout + '\n')
-        if (result.stderr) process.stderr.write(result.stderr + '\n')
-      }
+      for (const { pm, result } of results) if (result.exitCode !== 0) process.stderr.write(`${pm}: ${result.stderr || result.stdout || result.shortMessage}\n`)
       if (results.some(({ result }) => result.exitCode !== 0)) {
-        process.stderr.write('Update failed. Check the errors above.\n')
+        process.stderr.write(`${chalk.red('Update failed.')} See the package manager error above.\n`)
         process.exit(1)
       }
-      process.stdout.write(`Updated to ${latest}. Restart deepseek to use the new version.\n`)
+      process.stdout.write(`${chalk.green('✓')} Updated to ${chalk.cyan('v' + latest)}. Restart DeepSeek Code to finish.\n`)
     }
   } catch (e) {
-    process.stderr.write(`Update failed: ${(e as Error).message}\n`)
+    process.stderr.write(`${chalk.red('Update failed:')} ${(e as Error).message}\n`)
     process.exit(1)
   }
   process.exit(0)
@@ -229,10 +202,10 @@ if (update) {
 if (logout) {
   const deleted = await doLogout()
   if (deleted.length > 0) {
-    process.stdout.write(`Logged out. Deleted:\n`)
-    for (const f of deleted) process.stdout.write(`  ${f}\n`)
+    process.stdout.write(`${chalk.green('✓')} Signed out. Removed saved credentials:\n`)
+    for (const f of deleted) process.stdout.write(`  ${chalk.dim(f)}\n`)
   } else {
-    process.stdout.write(`Already logged out (no credentials found).\n`)
+    process.stdout.write(`${chalk.dim('You are already signed out; no credentials were found.')}\n`)
   }
   process.exit(0)
 }
@@ -272,6 +245,7 @@ if (!ARGV.update) {
       for (const { result } of results) {
         if (result.stdout) process.stdout.write(result.stdout + '\n')
         if (result.stderr) process.stderr.write(result.stderr + '\n')
+        else if (result.exitCode !== 0 && !result.stdout) process.stderr.write(result.shortMessage + '\n')
       }
       if (results.some(({ result }) => result.exitCode !== 0)) {
         process.stderr.write('Update failed. Check the errors above.\n')
