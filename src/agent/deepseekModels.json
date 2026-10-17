@@ -22,7 +22,7 @@
   "models": [
     {
       "id": "deepseek-flash",
-      "version": "DeepSeek-V4.1-Flash",
+      "version": "DeepSeek-V4.1-Flash-1017",
       "contextTokens": 1000000,
       "maxOutputTokens": 384000,
       "vision": true,
