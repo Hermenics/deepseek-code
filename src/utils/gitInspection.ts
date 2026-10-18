@@ -37,9 +37,11 @@ export class GitCaptureIncompleteError extends Error {
 export async function runGitInspection(args: string[], cwd: string, options: GitInspectionOptions = {}) {
   const { disableHooks, sshAgent, input, ...processOptions } = options
   const env = scrubbedEnv()
+  // Git commands run on the model's behalf must never wait for terminal auth input.
+  env.GIT_TERMINAL_PROMPT = '0'
   if (sshAgent && process.env.SSH_AUTH_SOCK) env.SSH_AUTH_SOCK = process.env.SSH_AUTH_SOCK
   const executionOptions = { cwd, env, extendEnv: false, timeout: 3_000, ...processOptions }
-  const overrides = ['-c', 'credential.helper=']
+  const overrides = ['-c', 'credential.helper=', '-c', 'credential.interactive=false']
   if (args[0] === 'push' || args[0] === 'pull') {
     const customCommands = await execa('git', gitInspectionArgs(['config', '--null', '--name-only', '--get-regexp', '^(remote\\..*\\.(uploadpack|receivepack|vcs)|core\\.gitproxy)$']), {
       ...executionOptions, reject: false, all: false, maxBuffer: 64_000,

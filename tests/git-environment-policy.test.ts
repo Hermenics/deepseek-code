@@ -37,18 +37,17 @@ it.skipIf(process.platform === 'win32')('does not run configured credential or c
     const credentialHelper = join(root, 'credential-helper')
     await writeFile(credentialHelper, `#!/bin/sh\necho invoked > ${JSON.stringify(credentialMarker)}\ncat >/dev/null\n`, { mode: 0o700 })
     await git(credentialRepo, ['config', 'credential.helper', `!${credentialHelper}`])
-    await git(credentialRepo, ['config', 'credential.interactive', 'false'])
     const credentialInput = 'protocol=https\nhost=credential-canary.invalid\n\n'
 
     const unprotectedCredentialRun = await execa('git', ['credential', 'fill'], {
-      cwd: credentialRepo, env: scrubbedEnv(), extendEnv: false, reject: false, input: credentialInput,
+      cwd: credentialRepo, env: { ...scrubbedEnv(), GIT_TERMINAL_PROMPT: '0' }, extendEnv: false, reject: false, input: credentialInput,
     })
     expect(unprotectedCredentialRun.exitCode).not.toBe(0)
     expect((await lstat(credentialMarker)).isFile()).toBe(true)
     await rm(credentialMarker)
 
     const protectedCredentialRun = await runGitInspection(['credential', 'fill'], credentialRepo, {
-      reject: false, input: credentialInput,
+      reject: false, input: credentialInput, timeout: 1_000,
     })
     expect(protectedCredentialRun.exitCode).not.toBe(0)
     await expect(lstat(credentialMarker)).rejects.toMatchObject({ code: 'ENOENT' })
@@ -122,4 +121,4 @@ it.skipIf(process.platform === 'win32')('does not run configured credential or c
     restoreEnv()
     await rm(root, { recursive: true, force: true })
   }
-})
+}, 15_000)

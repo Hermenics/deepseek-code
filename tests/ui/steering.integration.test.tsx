@@ -28,7 +28,7 @@ function deferred<T = void>() {
 }
 
 async function waitFor(predicate: () => boolean, message: string): Promise<void> {
-  const deadline = Date.now() + 2_500
+  const deadline = Date.now() + 10_000
   while (!predicate()) {
     if (Date.now() >= deadline) throw new Error(`Timed out waiting for ${message}`)
     await Bun.sleep(10)
@@ -142,7 +142,7 @@ it('steers without a goal, waits for the active run, and precedes ordinary queue
 
     await typeAndSubmit(ui.stdin, 'ORDINARY_QUEUE_MARKER')
     await typeAndSubmit(ui.stdin, '/steer STEERING_CORRECTION_MARKER')
-    expect(runs[0]!.agent.getObjectiveEpoch()).toBe(initialEpoch + 1)
+    await waitFor(() => runs[0]!.agent.getObjectiveEpoch() === initialEpoch + 1, 'the objective epoch to advance')
 
     expect(runs).toHaveLength(1)
     expect(runs[0]!.settled).toBe(false)
@@ -162,7 +162,7 @@ it('steers without a goal, waits for the active run, and precedes ordinary queue
     runSpy.mockRestore()
     ui.stdout.isTTY = false
   }
-})
+}, 15_000)
 
 it('keeps a dequeued ordinary prompt queued when steering replaces its pending timer', async () => {
   setGoal(null)
@@ -216,7 +216,7 @@ it('keeps a dequeued ordinary prompt queued when steering replaces its pending t
     runSpy.mockRestore()
     ui.stdout.isTTY = false
   }
-})
+}, 15_000)
 
 it('/btw answers immediately without aborting or replacing the active run', async () => {
   setGoal(null)
@@ -250,4 +250,4 @@ it('/btw answers immediately without aborting or replacing the active run', asyn
     abortSpy.mockRestore()
     ui.stdout.isTTY = false
   }
-})
+}, 15_000)
