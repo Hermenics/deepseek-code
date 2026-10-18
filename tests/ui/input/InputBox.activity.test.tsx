@@ -127,7 +127,7 @@ test('renders a suggested reply while the input is empty', async () => {
       isLoading={false}
       toolCallCount={0}
       workingDirectory={process.cwd()}
-      suggestedReply="sim, pode fazer a revisão."
+      suggestedReply="yes, you can review it."
     />,
     {
       stdin: stdin as unknown as NodeJS.ReadStream,
@@ -141,7 +141,7 @@ test('renders a suggested reply while the input is empty', async () => {
   try {
     await Bun.sleep(100)
     const normalized = chunks.join('').replace(/\x1b\[\d*C/g, ' ')
-    expect(normalized).toContain('sim, pode fazer a revisão.')
+    expect(normalized).toContain('yes, you can review it.')
   } finally {
     stdout.isTTY = false
     instance.unmount()
@@ -159,7 +159,7 @@ test('Tab moves the suggested reply into the input without submitting it', async
       isLoading={false}
       toolCallCount={0}
       workingDirectory={process.cwd()}
-      suggestedReply="sim, pode fazer a revisão."
+      suggestedReply="yes, you can review it."
     />,
     {
       stdin: stdin as unknown as NodeJS.ReadStream,
@@ -178,7 +178,43 @@ test('Tab moves the suggested reply into the input without submitting it', async
 
     stdin.write('\r')
     await Bun.sleep(100)
-    expect(submitted).toEqual(['sim, pode fazer a revisão.'])
+    expect(submitted).toEqual(['yes, you can review it.'])
+  } finally {
+    stdout.isTTY = false
+    instance.unmount()
+    instance.cleanup()
+  }
+})
+
+test('routes a completed command to the queue while the agent is loading', async () => {
+  const stdin = new FakeTerminal()
+  const stdout = new FakeTerminal()
+  const submitted: string[] = []
+  const queued: string[] = []
+  const instance = renderSync(
+    <InputBox
+      onSubmit={(text) => { submitted.push(text) }}
+      isLoading
+      toolCallCount={1}
+      workingDirectory={process.cwd()}
+      onQueue={(text) => { queued.push(text) }}
+    />,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stderr: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  )
+
+  try {
+    await Bun.sleep(100)
+    for (const key of ['/','h']) { stdin.write(key); await Bun.sleep(40) }
+    stdin.write('\r')
+    await Bun.sleep(100)
+    expect(submitted).toEqual([])
+    expect(queued).toEqual(['/help'])
   } finally {
     stdout.isTTY = false
     instance.unmount()

@@ -17,7 +17,9 @@ const TOKEN_LIFETIME_MS = 3600 * 1000
  */
 export async function getVertexAccessToken(
   credentialsPath: string,
+  signal?: AbortSignal,
 ): Promise<string> {
+  signal?.throwIfAborted()
   const now = Date.now()
 
   if (
@@ -39,8 +41,11 @@ export async function getVertexAccessToken(
     }
   }
 
+  // GoogleAuth exposes no AbortSignal parameter; check after each await before using a late token.
   const client = await cachedGoogleAuth.auth.getClient()
+  signal?.throwIfAborted()
   const { token } = await client.getAccessToken()
+  signal?.throwIfAborted()
 
   if (!token) {
     throw new Error('Failed to obtain Vertex AI access token')
@@ -63,7 +68,8 @@ export function createVertexFetch(
   credentialsPath: string,
 ): typeof globalThis.fetch {
   const vertexFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const token = await getVertexAccessToken(credentialsPath)
+    const token = await getVertexAccessToken(credentialsPath, init?.signal ?? undefined)
+    init?.signal?.throwIfAborted()
 
     const headers = new Headers(init?.headers)
     headers.set('Authorization', `Bearer ${token}`)
@@ -88,12 +94,15 @@ export async function listVertexDeepSeekModels(
   _project: string,
   location: string,
   credentialsPath: string,
+  signal?: AbortSignal,
 ): Promise<string[]> {
   try {
-    const token = await getVertexAccessToken(credentialsPath)
+    const token = await getVertexAccessToken(credentialsPath, signal)
+    signal?.throwIfAborted()
     const url = `https://${location}-aiplatform.googleapis.com/v1/publishers/deepseek-ai/models`
     const res = await globalThis.fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
+      signal,
     })
     if (!res.ok) return []
     const data = await res.json() as { publisherModels?: { name?: string }[] }
@@ -108,6 +117,7 @@ export async function listVertexDeepSeekModels(
       .filter(Boolean)
       .sort()
   } catch {
+    if (signal?.aborted) throw signal.reason
     return []
   }
 }

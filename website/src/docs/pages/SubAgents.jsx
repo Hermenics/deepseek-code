@@ -323,6 +323,10 @@ export default function SubAgents() {
             Responses are injected into your <b>next foreground turn</b> as{" "}
             <code className="inline">@agent</code> notes — informational context, never new tasks.
           </p>
+          <p>
+            If a broadcast cannot schedule every specialist, its typed partial result includes the queued task handles
+            and per-agent failures. If none can be scheduled, it returns a typed failure result with each failure.
+          </p>
         </section>
 
         <section id="moa">

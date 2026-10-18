@@ -24,7 +24,7 @@ if (process.argv[2] === '--bot-worker') {
   mock.module('../src/settings/loader.js', () => ({ loadMergedSettings: async () => ({
     interaction: { defaultMode: 'build' }, mcp: { enabled: false }, memory: { enabled: false },
     promptRefiner: { enabled: false }, git: { checkpoint: false, verifyAfterEdit: false },
-    permissions: { allow: ['Shell(*)', 'read_file(*)'], deny: ['Shell(rm *)'] },
+    permissions: { allow: ['Shell(*)', 'read_file(*)', ...(process.env.BOT_CHECK_ALLOW_BOT_CONTROL === '1' ? ['bot_control'] : [])], deny: ['Shell(rm *)'] },
   }) }))
   mock.module('../src/ui/setup/ApiKeySetup.js', () => ({ loadSavedConfig: async () => ({ providerConfig: process.env.BOT_CHECK_NO_PROVIDER ? null : provider, theme: 'dark', language: null, enchant: false }) }))
   const pauseBoundary = (message: object, file: string) => {
@@ -119,16 +119,18 @@ if (process.argv[2] === '--bot-worker') {
   await runBotWorker(process.argv[3]!, process.argv[4]!)
 } else {
   const directory = await mkdtemp(join(tmpdir(), 'deepseek-bot-runtime-'))
-  const path = join(directory, 'state.db'), store = new BotStore({ path })
-  const bot = store.createBot({ name: 'engineer', projectRoot: directory, instructions: 'Carry out the queued request and report observed results.' })
-  const receiver = store.createBot({ name: 'researcher', projectRoot: directory, instructions: 'Read the source and report its actual contents.', agentConfig: 'reviewer' })
-  await writeFile(join(directory, 'input.txt'), 'Persisted source evidence')
-  const privateDirectory = join(directory, 'actors', bot.id, 'private-fixture')
+  const projectRoot = directory
+  const path = join(directory, '.deepseek', 'state.db'), store = new BotStore({ path })
+  const bot = store.createBot({ name: 'engineer', projectRoot, instructions: 'Carry out the queued request and report observed results.' })
+  const receiver = store.createBot({ name: 'researcher', projectRoot, instructions: 'Read the source and report its actual contents.', agentConfig: 'reviewer' })
+  await writeFile(join(projectRoot, 'input.txt'), 'Persisted source evidence')
+  const privateDirectory = join(dirname(path), 'actors', bot.id, 'private-fixture')
   await mkdir(privateDirectory, { recursive: true })
   await writeFile(join(privateDirectory, 'state.txt'), 'private-runtime-proof')
   let privateStateLeaked = false
   let requests = 0, independentTaskIsolated = false, browserSessionRestored = false, humanLogin = false
   let procedureEffects = 0, changedProcedure = false, learnedName = '', learnedSkillRead = false, procedureRejectionObserved = false
+  const safeRoutineToolCatalogs: string[][] = []
   let releaseChild: (() => void) | undefined, childWaiting = false
   const childGate = new Promise<void>(resolve => { releaseChild = resolve })
   let releaseFollowup: (() => void) | undefined, followupWaiting = false, followupRequested = false
@@ -161,6 +163,9 @@ if (process.argv[2] === '--bot-worker') {
     const prompt = String(body.messages[current]?.content ?? '')
     const done = body.messages.slice(current + 1).some(m => m.role === 'tool')
     const terminal = body.tools?.find(t => ['submit_result', 'submit_workflow_result'].includes(t.function.name))?.function.name
+    if (prompt.includes('Delegated bot researcher finished this handoff with status completed')) {
+      return response({ content: 'Reviewed the delegated researcher result and recorded its observed outcome.' })
+    }
     if (prompt.includes('Runtime privacy check')) {
       privateStateLeaked ||= JSON.stringify(body.messages).includes('private-runtime-proof')
       const steps = [
@@ -175,9 +180,10 @@ if (process.argv[2] === '--bot-worker') {
       return response({ content: null, tool_calls: [{ id: `call-${requests}`, type: 'function', function: { name: next.name, arguments: JSON.stringify(next.args) } }] }, 'tool_calls')
     }
     if (prompt.includes('Safe routine test scenario')) {
+      safeRoutineToolCatalogs.push(body.tools?.map(tool => tool.function.name) ?? [])
       const steps = [
-        { name: 'write_file', args: { path: join(directory, 'routine-test-write.txt'), content: 'must remain simulated' } },
-        { name: 'shell', args: { command: `printf pwn > '${join(directory, 'routine-test-shell.txt')}'` } },
+        { name: 'write_file', args: { path: join(projectRoot, 'routine-test-write.txt'), content: 'must remain simulated' } },
+        { name: 'shell', args: { command: `printf pwn > '${join(projectRoot, 'routine-test-shell.txt')}'` } },
         { name: 'browser', args: { action: 'navigate', url: `${url.origin}/procedure-effect` } },
         { name: 'web_fetch', args: { url: `${url.origin}/procedure-effect` } },
         { name: 'bot_control', args: { action: 'schedule', name: 'Must not be created', prompt: 'Mutate live schedule', schedule: { kind: 'once', at: Date.now() + 120_000 }, messageId: 'unsafe-schedule' } },
@@ -191,6 +197,12 @@ if (process.argv[2] === '--bot-worker') {
     if (prompt.includes('Coordinate check')) {
       if (done) return response({ content: 'The research was queued durably; its outcome is still pending.' })
       return response({ content: null, tool_calls: [{ id: `call-${requests}`, type: 'function', function: { name: 'bot_control', arguments: JSON.stringify({ action: 'send', bot: receiver.name, prompt: 'Restore check: read the current input.', messageId: 'source-research' }) } }] }, 'tool_calls')
+    }
+    if (prompt.includes('Shared artifact consent check')) {
+      if (done) return response({ content: 'Shared artifact proposal completed.' })
+      return response({ content: null, tool_calls: [{ id: `call-${requests}`, type: 'function', function: {
+        name: 'bot_control', arguments: JSON.stringify({ action: 'write_artifact', name: 'denied.md', content: 'must not persist', expectedVersion: 0 }),
+      } }] }, 'tool_calls')
     }
     if (!terminal && prompt.includes('Runtime background task outcomes')) {
       if (prompt.includes('failing-source')) return response({ content: 'Delegated work failed; no successful result exists.' })
@@ -390,14 +402,31 @@ if (process.argv[2] === '--bot-worker') {
     assert.equal(store.getRun(safePreview.id).status, 'completed')
     assert.equal(store.getRun(safePreview.id).testMode, true)
     const simulated = store.store.query<{ tool: string; status: string; read_only: number; checkpointed: number }>('SELECT tool,status,read_only,checkpointed FROM bot_actions WHERE run_id=? ORDER BY created_at,rowid', safePreview.id)
-    assert.deepEqual(simulated.map(action => action.tool), ['write_file', 'shell', 'browser', 'web_fetch', 'bot_control'])
+    assert.deepEqual(simulated.map(action => action.tool), ['write_file', 'shell', 'browser', 'web_fetch', 'bot_control'], JSON.stringify(safeRoutineToolCatalogs))
     assert.ok(simulated.every(action => action.status === 'simulated' && action.read_only === 1 && action.checkpointed === 1))
-    assert.equal(existsSync(join(directory, 'routine-test-write.txt')), false)
-    assert.equal(existsSync(join(directory, 'routine-test-shell.txt')), false)
+    assert.equal(existsSync(join(projectRoot, 'routine-test-write.txt')), false)
+    assert.equal(existsSync(join(projectRoot, 'routine-test-shell.txt')), false)
     assert.equal(procedureEffects, procedureEffectsBefore, 'browser and network proposals never reached the fixture')
     assert.deepEqual(store.routines(bot.id).find(item => item.id === safeRoutine.id), routineBefore)
     assert.deepEqual(store.store.query('SELECT * FROM bot_event_receipts WHERE scope_id=?', bot.id), receiptsBefore)
     assert.equal(store.routines(bot.id).some(item => item.name === 'Must not be created'), false)
+    stage = 'shared artifact requires exact consent despite broad bot_control access'
+    const group = store.createGroup({ name: 'Artifact consent', botIds: [bot.id, receiver.id] })
+    const artifactRun = store.sendGroupMessage(group.id, 'Shared artifact consent check', 'artifact-consent-check', [bot.id]).runs[0]!
+    const artifactWorker = spawn(false, { BOT_CHECK_ALLOW_BOT_CONTROL: '1' })
+    const artifactDecision = await until(() => {
+      const decision = store.conversation(bot.id).decisions.find(item => item.runId === artifactRun.id && item.kind === 'permission')
+      return decision ?? (artifactWorker.exitCode !== null ? { unexpectedExit: artifactWorker.exitCode } : undefined)
+    })
+    assert.ok('fingerprint' in artifactDecision, `Expected an exact artifact approval request, got ${JSON.stringify(artifactDecision)}`)
+    assert.equal(artifactDecision.request.toolName, 'bot_control')
+    assert.deepEqual(artifactDecision.request.args, { action: 'write_artifact', name: 'denied.md', content: 'must not persist', expectedVersion: 0 })
+    assert.equal(store.getRun(artifactRun.id).status, 'waiting')
+    assert.equal(store.groupArtifacts(group.id, bot.id).some(artifact => artifact.name === 'denied.md'), false, 'The artifact must remain absent while exact consent is pending')
+    store.answerDecision(artifactDecision.id, artifactDecision.fingerprint, 'deny')
+    await checkExit(artifactWorker)
+    assert.equal(store.getRun(artifactRun.id).status, 'failed')
+    assert.equal(store.groupArtifacts(group.id, bot.id).some(artifact => artifact.name === 'denied.md'), false, 'A denied exact approval must leave the shared artifact absent')
     if (findChromium() && process.platform !== 'win32') {
       for (const prompt of ['Browser login check', 'Browser restore check']) {
         stage = prompt
@@ -472,7 +501,7 @@ if (process.argv[2] === '--bot-worker') {
     const crash = store.enqueue(bot.id, 'Crash check'), w4 = spawn(true)
     stage = 'crash'
     await review(crash.id, 'once'); await checkExit(w4, 86)
-    assert.equal(await readFile(join(directory, 'crash-marker.txt'), 'utf8'), 'effect')
+    assert.equal(await readFile(join(projectRoot, 'crash-marker.txt'), 'utf8'), 'effect')
     assert.equal(store.recover(Date.now() + 31_000).find(r => r.id === crash.id)?.status, 'blocked')
     assert.throws(() => store.retry(crash.id), /Reconcile/)
     store.reconcile(crash.id, 'The marker contains one effect. Do not replay the crashed action.')
@@ -591,7 +620,7 @@ if (process.argv[2] === '--bot-worker') {
     }
     console.log('Bot runtime check passed: real Agent/HTTP/tools, native background/workflow completion, bounded workers and bot handoffs, learned skills with fresh inputs and DOM drift rejection, approvals, history, Codimium/remote takeover, crash reconciliation and cancellation.')
   } catch (error) {
-    throw new Error(`${stage}: ${String(error)}; runs=${JSON.stringify(store.listRuns(bot.id))}; decisions=${JSON.stringify(store.conversation(bot.id).decisions)}; worker log=${await readFile(join(directory, 'actors', bot.id, 'worker.log'), 'utf8').catch(() => '')}`)
+    throw new Error(`${stage}: ${String(error)}; runs=${JSON.stringify(store.listRuns(bot.id))}; decisions=${JSON.stringify(store.conversation(bot.id).decisions)}; worker log=${await readFile(join(dirname(path), 'actors', bot.id, 'worker.log'), 'utf8').catch(() => '')}`)
   } finally {
     for (const child of children) if (child.exitCode === null) child.kill('SIGKILL')
     await Promise.allSettled(children.map(child => child.exited))

@@ -1,4 +1,16 @@
 import type OpenAI from 'openai'
+import { assertProviderRequestBudget, CONVERSATION_MESSAGE_BYTES } from './toolOutputBudget.js'
+
+function assertProviderResponseBudget(message: unknown): void {
+  let serialized: string | undefined
+  try { serialized = JSON.stringify(message) }
+  catch { throw new Error('Provider response message could not be serialized for size validation') }
+  if (serialized === undefined) throw new Error('Provider response message was unavailable for size validation')
+  const bytes = Buffer.byteLength(serialized, 'utf8')
+  if (bytes > CONVERSATION_MESSAGE_BYTES) {
+    throw new Error(`Serialized provider response message exceeds the 4 MiB UTF-8 limit (${bytes} bytes)`)
+  }
+}
 
 const REFINER_SYSTEM = `You are an expert Prompt Engineer for AI coding agents.
 
@@ -58,20 +70,25 @@ export async function previewPromptRefinement(
   model: string,
   userMessage: string,
   minimumLength = 30,
+  signal?: AbortSignal,
 ): Promise<PromptRefinementPreview> {
   if (userMessage.length < minimumLength || userMessage.startsWith('/') || mentionsNativeDynamicWorkflow(userMessage)) {
     return { status: 'skip', original: userMessage }
   }
   try {
-    const response = await client.chat.completions.create({
+    const request = {
       model,
       messages: [
-        { role: 'system', content: REFINER_SYSTEM },
-        { role: 'user', content: userMessage },
+        { role: 'system' as const, content: REFINER_SYSTEM },
+        { role: 'user' as const, content: userMessage },
       ],
       max_tokens: 1024,
-    })
-    const result = response.choices[0]?.message.content?.trim()
+    }
+    assertProviderRequestBudget(request)
+    const response = await client.chat.completions.create(request, signal ? { signal } : undefined)
+    const message = response.choices[0]?.message
+    if (message) assertProviderResponseBudget(message)
+    const result = message?.content?.trim()
     if (!result || result === 'SKIP') return { status: 'skip', original: userMessage }
     return { status: 'refined', original: userMessage, refined: result }
   } catch (error) {
@@ -88,7 +105,8 @@ export async function refinePrompt(
   client: OpenAI,
   model: string,
   userMessage: string,
+  signal?: AbortSignal,
 ): Promise<string> {
-  const preview = await previewPromptRefinement(client, model, userMessage)
+  const preview = await previewPromptRefinement(client, model, userMessage, 30, signal)
   return preview.status === 'refined' ? preview.refined! : userMessage
 }

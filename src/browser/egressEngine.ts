@@ -37,12 +37,12 @@ export class EgressEngine {
 
   private constructor(private certificate: EgressCertificate, private authorize: EgressAuthorizer, private resolve: Resolver, private certificateAuthority?: string) {
     this.inner.setTimeout(30_000)
-    for (const server of [this.server, this.inner]) {
+    for (const [server, acceptTunnelAuthentication] of [[this.server, false], [this.inner, true]] as const) {
       server.maxHeadersCount = 100
       server.headersTimeout = 15_000
       server.requestTimeout = 30_000
-      server.on('request', (req, res) => { void this.forward(req, res).catch(() => { if (!res.headersSent) res.writeHead(502); res.end() }) })
-      server.on('upgrade', (req, socket, head) => { void this.upgrade(req, socket, head).catch(() => socket.destroy()) })
+      server.on('request', (req, res) => { void this.forward(req, res, acceptTunnelAuthentication).catch(() => { if (!res.headersSent) res.writeHead(502); res.end() }) })
+      server.on('upgrade', (req, socket, head) => { void this.upgrade(req, socket, head, acceptTunnelAuthentication).catch(() => socket.destroy()) })
       server.on('connection', socket => this.track(socket))
       server.on('clientError', (_error, socket) => socket.destroy())
     }
@@ -82,8 +82,8 @@ export class EgressEngine {
     socket.once('close', () => this.sockets.delete(socket))
     socket.on('error', () => socket.destroy())
   }
-  private hasAuth(req: IncomingMessage): boolean {
-    if (this.authenticated.has(req.socket)) return true
+  private hasAuth(req: IncomingMessage, acceptTunnelAuthentication = false): boolean {
+    if (acceptTunnelAuthentication && this.authenticated.has(req.socket)) return true
     const actual = Buffer.from(String(req.headers['proxy-authorization'] ?? ''))
     return actual.length === this.authorization.length && timingSafeEqual(actual, this.authorization)
   }
@@ -182,9 +182,9 @@ export class EgressEngine {
     }
     socket.on('data', read)
   }
-  private async forward(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  private async forward(req: IncomingMessage, res: ServerResponse, acceptTunnelAuthentication: boolean): Promise<void> {
     if (this.stopped) { res.writeHead(503); res.end(); return }
-    if (!this.hasAuth(req)) { res.writeHead(407, { 'proxy-authenticate': `Basic realm="${this.realm}"` }); res.end(); return }
+    if (!this.hasAuth(req, acceptTunnelAuthentication)) { res.writeHead(407, { 'proxy-authenticate': `Basic realm="${this.realm}"` }); res.end(); return }
     const url = this.destination(req)
     if (!['http:', 'https:'].includes(url.protocol)) { res.writeHead(400); res.end(); return }
     const endpoint = await this.endpoint(url)
@@ -218,9 +218,9 @@ export class EgressEngine {
     upstream.setTimeout(30_000, () => upstream.destroy())
     return upstream
   }
-  private async upgrade(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
+  private async upgrade(req: IncomingMessage, socket: Duplex, head: Buffer, acceptTunnelAuthentication: boolean): Promise<void> {
     if (this.stopped) { socket.destroy(); return }
-    if (!this.hasAuth(req)) { this.challenge(socket); return }
+    if (!this.hasAuth(req, acceptTunnelAuthentication)) { this.challenge(socket); return }
     if (String(req.headers.upgrade).toLowerCase() !== 'websocket') throw new Error('Unsupported upgrade')
     const url = this.destination(req)
     // Browser WebSocket Origin is immutable to page/worker JS. TLS is terminated

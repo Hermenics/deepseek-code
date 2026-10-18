@@ -173,18 +173,18 @@ function stripHtml(html: string): string {
     .replace(/&#39;/g, "'")
     .replace(/&nbsp;/g, ' ')
     .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
-    // Remove scripts e styles completos (conteúdo + tag).
+    // Remove complete script and style elements (content and tags).
     // The closing-tag regex accepts attributes (`</script foo="bar">`) because
     // browsers tolerate that parser error and would execute the script body.
     .replace(/<script\b[^>]*>[\s\S]*?<\/script[^>]*>/gi, ' ')
     .replace(/<style\b[^>]*>[\s\S]*?<\/style[^>]*>/gi, ' ')
-    // Remove todas as outras tags
+    // Remove all other tags.
     .replace(/<[^>]+>/g, ' ')
     // The ampersand is decoded LAST so an
     // entity like &amp;lt; (which means a literal "&lt;", not "<") does not get
     // double-unescaped into "<" (CodeQL js/double-escaping).
     .replace(/&amp;/g, '&')
-    // Colapsa espaços em branco excessivos
+    // Collapse excessive whitespace.
     .replace(/\s+/g, ' ')
     .trim()
 }

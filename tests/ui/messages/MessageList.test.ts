@@ -121,10 +121,10 @@ describe('formatToolLine', () => {
 
   it('summarizes AskUserQuestions arguments instead of rendering JSON', () => {
     const result = formatToolLine('ask_user_questions', JSON.stringify({
-      questions: [{ question: 'O que você quer atacar hoje no DeepSeek Code?' }],
+      questions: [{ question: 'What do you want to tackle in DeepSeek Code today?' }],
     }))
     expect(result.display).toBe('AskUser')
-    expect(result.arg).toBe('O que você quer atacar hoje no DeepSeek Code?')
+    expect(result.arg).toBe('What do you want to tackle in DeepSeek Code today?')
     expect(result.arg).not.toContain('{')
   })
 
@@ -388,12 +388,12 @@ describe('MessageList step headings', () => {
     const { text, cleanup } = await renderMessageList({
       messages: [
         { role: 'user', content: 'fix it' },
-        { role: 'step', content: 'Rodando os testes de UI', doneLabel: 'Rodou os testes de UI' },
+      { role: 'step', content: 'Running the UI tests', doneLabel: 'Ran the UI tests' },
         { role: 'tool', content: '✓ read_file → src/ui/App.tsx' },
       ],
     })
     try {
-      expect(text).toContain('○ Rodando os testes de UI.')
+      expect(text).toContain('○ Running the UI tests.')
       expect(text).toMatch(/\n {4}▶ Read 1 file \(ctrl\+o to expand\)/)
     } finally {
       cleanup()
@@ -403,14 +403,14 @@ describe('MessageList step headings', () => {
   it('draws the running tool inside the open step, right under its heading', async () => {
     const messages: Message[] = [
       { role: 'user', content: 'fix it' },
-      { role: 'step', content: 'Lendo os arquivos', doneLabel: 'Leu os arquivos' },
+      { role: 'step', content: 'Reading the files', doneLabel: 'Read the files' },
     ]
     const { text, cleanup } = await renderMessageList({
       messages,
       element: React.createElement(MessageList, { messages, streamText: '', theme: 'dark', reducedMotion: true, liveTool: { name: 'read_file', args: 'package.json', done: false } }),
     })
     try {
-      expect(text).toMatch(/○ Lendo os arquivos\.\.\.\r?\n {4}▶ Read\(package\.json\)/)
+      expect(text).toMatch(/○ Reading the files\.\.\.\r?\n {4}▶ Read\(package\.json\)/)
       // Spinner pinned to the right edge, not glued to the arg.
       expect(text).toMatch(/▶ Read\(package\.json\) {40,}[◌○◎◉]/)
     } finally {
@@ -419,11 +419,11 @@ describe('MessageList step headings', () => {
   })
 
   it('animates the running step dots and keeps them static under reduced motion', async () => {
-    const running: Message[] = [{ role: 'step', content: 'Rodando os testes', doneLabel: 'Rodou os testes' }]
+    const running: Message[] = [{ role: 'step', content: 'Running the tests', doneLabel: 'Ran the tests' }]
     expect([0, 5, 10, 15].map(ellipsisFrame)).toEqual(['.  ', '.. ', '...', '.  '])
     const still = await renderMessageList({ messages: running, element: React.createElement(MessageList, { messages: running, streamText: '', theme: 'dark', reducedMotion: true }) })
     try {
-      expect(still.text).toContain('○ Rodando os testes...')
+      expect(still.text).toContain('○ Running the tests...')
     } finally {
       still.cleanup()
     }
@@ -431,10 +431,10 @@ describe('MessageList step headings', () => {
 
   it('shows an interrupted step in the present tense with a cross, never as done', async () => {
     const { text, cleanup } = await renderMessageList({
-      messages: [{ role: 'user', content: 'fix it' }, { role: 'step', content: 'Inspecionando os arquivos', interrupted: true }],
+      messages: [{ role: 'user', content: 'fix it' }, { role: 'step', content: 'Inspecting the files', interrupted: true }],
     })
     try {
-      expect(text).toContain('✗ Inspecionando os arquivos · interrupted')
+      expect(text).toContain('✗ Inspecting the files · interrupted')
       expect(text).not.toContain('✓')
     } finally {
       cleanup()

@@ -1,0 +1,1 @@
+The recovery helper in `src/recovery.ts` treats partial stdout as a completed result. Fix it so a result is reported as completed only when the execution itself completed and its artifact can be read. Otherwise report an honest incomplete status. The interrupted execution in `data/interrupted.json` timed out before saving; do not promote its progress output to a persisted result.

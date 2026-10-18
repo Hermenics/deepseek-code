@@ -39,9 +39,9 @@ describe('input ghost text', () => {
   })
 
   it('shows a complete suggested reply only for an empty input', () => {
-    expect(getSuggestedReplyGhost('', 'sim, pode commitar.')).toMatchObject({
-      text: 'sim, pode commitar.', fullCommand: 'sim, pode commitar.', insertPosition: 0,
+    expect(getSuggestedReplyGhost('', 'yes, you can commit it.')).toMatchObject({
+      text: 'yes, you can commit it.', fullCommand: 'yes, you can commit it.', insertPosition: 0,
     })
-    expect(getSuggestedReplyGhost('não', 'sim, pode commitar.')).toBeNull()
+    expect(getSuggestedReplyGhost('no', 'yes, you can commit it.')).toBeNull()
   })
 })

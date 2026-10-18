@@ -1,0 +1,498 @@
+{
+  "schema_version": 1,
+  "status": "DOCUMENT_COVERAGE_NOT_EXPERIMENT_EXECUTION",
+  "requirements": [
+    {
+      "part": 1,
+      "topic": "Competing tools and sources",
+      "sections": [
+        2,
+        18,
+        35
+      ]
+    },
+    {
+      "part": 2,
+      "topic": "Context/tools/terminal/files/edit/stale/verification/recovery (2.1–2.15)",
+      "sections": [
+        3,
+        4,
+        6,
+        7,
+        8,
+        9,
+        10,
+        11,
+        21,
+        22,
+        23,
+        24
+      ]
+    },
+    {
+      "part": 3,
+      "topic": "Latency, quality, and cost",
+      "sections": [
+        16,
+        33
+      ]
+    },
+    {
+      "part": 4,
+      "topic": "Model routing",
+      "sections": [
+        13,
+        16,
+        33
+      ]
+    },
+    {
+      "part": 5,
+      "topic": "Planning",
+      "sections": [
+        13,
+        20,
+        33
+      ]
+    },
+    {
+      "part": 6,
+      "topic": "Parallelism",
+      "sections": [
+        13,
+        20,
+        33
+      ]
+    },
+    {
+      "part": 7,
+      "topic": "Subagents",
+      "sections": [
+        13,
+        20,
+        30,
+        33
+      ]
+    },
+    {
+      "part": 8,
+      "topic": "Session/repository/user/global memory",
+      "sections": [
+        12
+      ]
+    },
+    {
+      "part": 9,
+      "topic": "Prompts, skills, and size",
+      "sections": [
+        6,
+        21
+      ]
+    },
+    {
+      "part": 10,
+      "topic": "AGENTS.md hierarchy, priority, and updates",
+      "sections": [
+        21
+      ]
+    },
+    {
+      "part": 11,
+      "topic": "Permissions and fatigue",
+      "sections": [
+        14,
+        15,
+        17
+      ]
+    },
+    {
+      "part": 12,
+      "topic": "Sandboxing and boundaries",
+      "sections": [
+        14,
+        15,
+        25
+      ]
+    },
+    {
+      "part": 13,
+      "topic": "Destructive commands and risk",
+      "sections": [
+        15,
+        25
+      ]
+    },
+    {
+      "part": 14,
+      "topic": "Git, checkpoints, rollback, and human edits",
+      "sections": [
+        3,
+        10,
+        17
+      ]
+    },
+    {
+      "part": 15,
+      "topic": "User interruptions",
+      "sections": [
+        17,
+        20,
+        23
+      ]
+    },
+    {
+      "part": 16,
+      "topic": "Streaming and progress",
+      "sections": [
+        8,
+        17,
+        23
+      ]
+    },
+    {
+      "part": 17,
+      "topic": "Final response",
+      "sections": [
+        17,
+        31
+      ]
+    },
+    {
+      "part": 18,
+      "topic": "Unnecessary confirmations",
+      "sections": [
+        15,
+        17,
+        31
+      ]
+    },
+    {
+      "part": 19,
+      "topic": "Autonomy levels",
+      "sections": [
+        15
+      ]
+    },
+    {
+      "part": 20,
+      "topic": "Slash commands, shortcuts, input, history, clipboard, sessions, models, and usage",
+      "sections": [
+        17,
+        31
+      ]
+    },
+    {
+      "part": 21,
+      "topic": "Zero configuration",
+      "sections": [
+        17
+      ]
+    },
+    {
+      "part": 22,
+      "topic": "First run",
+      "sections": [
+        17,
+        31
+      ]
+    },
+    {
+      "part": 23,
+      "topic": "Resume, persistence, and reconciliation",
+      "sections": [
+        12,
+        17,
+        20
+      ]
+    },
+    {
+      "part": 24,
+      "topic": "Multiple repositories",
+      "sections": [
+        9,
+        21,
+        24
+      ]
+    },
+    {
+      "part": 25,
+      "topic": "Nx/Turbo/pnpm/Bazel/Cargo/Maven/Gradle",
+      "sections": [
+        9
+      ]
+    },
+    {
+      "part": 26,
+      "topic": "Million-line repositories",
+      "sections": [
+        9,
+        24
+      ]
+    },
+    {
+      "part": 27,
+      "topic": "Lexical/AST/LSP/embeddings/code graph",
+      "sections": [
+        9,
+        24
+      ]
+    },
+    {
+      "part": 28,
+      "topic": "LSP and comparisons with and without it",
+      "sections": [
+        9,
+        24,
+        33
+      ]
+    },
+    {
+      "part": 29,
+      "topic": "Tree-sitter/AST",
+      "sections": [
+        9,
+        24
+      ]
+    },
+    {
+      "part": 30,
+      "topic": "Dependency graph",
+      "sections": [
+        9,
+        24
+      ]
+    },
+    {
+      "part": 31,
+      "topic": "Desktop/focus/uploads/clipboard/OS/background",
+      "sections": [
+        17,
+        18
+      ]
+    },
+    {
+      "part": 32,
+      "topic": "Prompt injection: data versus instructions",
+      "sections": [
+        14,
+        25
+      ]
+    },
+    {
+      "part": 33,
+      "topic": "Secrets/credentials/egress",
+      "sections": [
+        14,
+        25
+      ]
+    },
+    {
+      "part": 34,
+      "topic": "Defensive command-injection analysis",
+      "sections": [
+        14,
+        15,
+        25
+      ]
+    },
+    {
+      "part": 35,
+      "topic": "Installation and supply chain",
+      "sections": [
+        14,
+        15
+      ]
+    },
+    {
+      "part": 36,
+      "topic": "MCP/auth/discovery/overhead",
+      "sections": [
+        6,
+        14,
+        22
+      ]
+    },
+    {
+      "part": 37,
+      "topic": "Cost without unmeasured quality degradation",
+      "sections": [
+        16
+      ]
+    },
+    {
+      "part": 38,
+      "topic": "Caching and stale state",
+      "sections": [
+        16,
+        21,
+        22,
+        24
+      ]
+    },
+    {
+      "part": 39,
+      "topic": "Observability and privacy",
+      "sections": [
+        19,
+        20
+      ]
+    },
+    {
+      "part": 40,
+      "topic": "Metrics without vanity scores",
+      "sections": [
+        16,
+        19
+      ]
+    },
+    {
+      "part": 41,
+      "topic": "Benchmarks and what they do not measure",
+      "sections": [
+        19
+      ]
+    },
+    {
+      "part": 42,
+      "topic": "Same-model A/B comparison; ten scenario classes",
+      "sections": [
+        19,
+        33
+      ]
+    },
+    {
+      "part": 43,
+      "topic": "At least 50 cuts with six fields",
+      "sections": [
+        4
+      ]
+    },
+    {
+      "part": 44,
+      "topic": "At least 30 multipliers",
+      "sections": [
+        5
+      ]
+    },
+    {
+      "part": 45,
+      "topic": "Competitor failures and qualified causes",
+      "sections": [
+        18
+      ]
+    },
+    {
+      "part": 46,
+      "topic": "Issues/PRs/discussions/changelog",
+      "sections": [
+        18,
+        35
+      ]
+    },
+    {
+      "part": 47,
+      "topic": "Reference architecture",
+      "sections": [
+        20
+      ]
+    },
+    {
+      "part": 48,
+      "topic": "Context Engine",
+      "sections": [
+        21
+      ]
+    },
+    {
+      "part": 49,
+      "topic": "Tool Engine",
+      "sections": [
+        22
+      ]
+    },
+    {
+      "part": 50,
+      "topic": "Shell Engine",
+      "sections": [
+        23
+      ]
+    },
+    {
+      "part": 51,
+      "topic": "File Intelligence Engine",
+      "sections": [
+        24
+      ]
+    },
+    {
+      "part": 52,
+      "topic": "Safety Engine",
+      "sections": [
+        25
+      ]
+    },
+    {
+      "part": 53,
+      "topic": "Five workflows A/B/C/D/E",
+      "sections": [
+        20
+      ]
+    },
+    {
+      "part": 54,
+      "topic": "MVP/v0.1",
+      "sections": [
+        26
+      ]
+    },
+    {
+      "part": 55,
+      "topic": "v0.5",
+      "sections": [
+        27
+      ]
+    },
+    {
+      "part": 56,
+      "topic": "v1.0",
+      "sections": [
+        28
+      ]
+    },
+    {
+      "part": 57,
+      "topic": "Features to avoid",
+      "sections": [
+        28
+      ]
+    },
+    {
+      "part": 58,
+      "topic": "Impact/UX/complexity/cost/priority matrix",
+      "sections": [
+        29
+      ]
+    },
+    {
+      "part": 59,
+      "topic": "Top 10 model-quality improvements",
+      "sections": [
+        30
+      ]
+    },
+    {
+      "part": 60,
+      "topic": "Top 10 UX improvements",
+      "sections": [
+        31
+      ]
+    },
+    {
+      "part": 61,
+      "topic": "Top 10 architectural mistakes",
+      "sections": [
+        32
+      ]
+    }
+  ]
+}

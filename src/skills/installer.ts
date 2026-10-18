@@ -6,6 +6,7 @@ import { randomBytes } from 'crypto'
 import { parseSkillManifest, validateSkillName } from './validate.js'
 import { readRegistry, addToRegistry, removeFromRegistry, type SkillEntry } from './registry.js'
 import { escapesRoot } from '../utils/pathContainment.js'
+import { gitInstallerEnv } from '../utils/platform.js'
 
 export interface InstallResult {
   ok: boolean
@@ -35,6 +36,7 @@ export async function installSkill(repo: string, skillsDir: string): Promise<Ins
   try {
     // Clone
     const clone = Bun.spawn(['git', 'clone', '--depth', '1', url, tmpDir], {
+      env: gitInstallerEnv(),
       stdout: 'pipe',
       stderr: 'pipe',
     })
@@ -84,6 +86,7 @@ export async function installSkill(repo: string, skillsDir: string): Promise<Ins
     // Get commit hash
     const hashProc = Bun.spawn(['git', 'rev-parse', 'HEAD'], {
       cwd: tmpDir,
+      env: gitInstallerEnv(),
       stdout: 'pipe',
     })
     await hashProc.exited
@@ -165,6 +168,7 @@ export async function updateSkill(name: string, skillsDir: string): Promise<Inst
 
   try {
     const clone = Bun.spawn(['git', 'clone', '--depth', '1', url, tmpDir], {
+      env: gitInstallerEnv(),
       stdout: 'pipe',
       stderr: 'pipe',
     })
@@ -200,6 +204,7 @@ export async function updateSkill(name: string, skillsDir: string): Promise<Inst
     // Get commit hash
     const hashProc = Bun.spawn(['git', 'rev-parse', 'HEAD'], {
       cwd: tmpDir,
+      env: gitInstallerEnv(),
       stdout: 'pipe',
     })
     await hashProc.exited

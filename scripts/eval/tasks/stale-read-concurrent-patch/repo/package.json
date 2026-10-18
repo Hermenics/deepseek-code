@@ -1,0 +1,1 @@
+{"name":"stale-read-concurrent-patch","type":"module","scripts":{"test":"bun test"}}

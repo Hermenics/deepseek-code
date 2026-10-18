@@ -1,5 +1,7 @@
 import { expect, it } from 'bun:test'
 import { readdirSync, readFileSync } from 'node:fs'
+import ts from 'typescript'
+import { findExecutableTestCallbacks, structuralTestBodyText } from './testEvidence.js'
 import { TaskStore } from '../src/store'
 import { formatTask } from '../src/format'
 
@@ -25,9 +27,24 @@ it('prefixes only high-priority tasks', () => {
   expect(format({ id: 3, title: 'Walk', done: false, priority: 'normal' })).toBe('[ ] Walk')
 })
 
-it('adds tests covering priorities', () => {
-  const files = readdirSync('.', { recursive: true })
-    .map(String)
+function testCallbacks() {
+  const sources = readdirSync('.', { recursive: true }).map(String)
     .filter((file) => /\.(test|spec)\.[jt]sx?$/.test(file) && !file.includes('__eval_check__') && !file.includes('node_modules'))
-  expect(files.some((file) => readFileSync(file, 'utf8').includes('high'))).toBe(true)
+    .map((fileName) => ({ fileName, text: readFileSync(fileName, 'utf8') }))
+  return findExecutableTestCallbacks(sources)
+}
+
+function hasHighPriorityLiteral(callback: ReturnType<typeof findExecutableTestCallbacks>[number]): boolean {
+  let found = false
+  const visit = (node: ts.Node): void => {
+    if (ts.isStringLiteralLike(node) && node.text === 'high') found = true
+    ts.forEachChild(node, visit)
+  }
+  visit(callback.body)
+  const body = structuralTestBodyText(callback)
+  return found && /\bexpect\s*\(/.test(body) && /(?:priority|\.list\s*\(|formatTask)/.test(body)
+}
+
+it('adds tests covering priorities', () => {
+  expect(testCallbacks().some(hasHighPriorityLiteral)).toBe(true)
 })

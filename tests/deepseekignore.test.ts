@@ -81,6 +81,21 @@ describe('isPathIgnored', () => {
     expect(isPathIgnored(path.join(root, 'beta/x'), root)).toBe(true)
   })
 
+  it('detects same-size edits even when the original modification time is restored', () => {
+    writeIgnoreFile('alpha/\n')
+    const ignorePath = path.join(root, IGNORE_FILE_NAME)
+    const fixedTime = new Date('2024-01-01T00:00:00.000Z')
+    fs.utimesSync(ignorePath, fixedTime, fixedTime)
+    const original = fs.statSync(ignorePath)
+    expect(isPathIgnored(path.join(root, 'alpha/x'), root)).toBe(true)
+
+    fs.writeFileSync(ignorePath, 'bravo/\n', 'utf8')
+    fs.utimesSync(ignorePath, original.atime, original.mtime)
+
+    expect(isPathIgnored(path.join(root, 'alpha/x'), root)).toBe(false)
+    expect(isPathIgnored(path.join(root, 'bravo/x'), root)).toBe(true)
+  })
+
   it('ignores paths outside the root', () => {
     expect(isPathIgnored('/etc/passwd', root)).toBe(false)
   })
@@ -295,6 +310,40 @@ describe('Grep', () => {
       { pattern: 'needle', path: root },
       { workspacePath: root } as any,
     )
-    expect(result).toBe('No matches')
+    expect(result).toBe('Search scope: .\nNo matches')
+  })
+
+  it('does not expose sensitive files or aliases through recursive search', async () => {
+    fs.mkdirSync(path.join(root, '.aws'))
+    fs.writeFileSync(path.join(root, '.env'), 'PRIVATE_GREP_CANARY\n')
+    fs.writeFileSync(path.join(root, '.ENV'), 'PRIVATE_GREP_CANARY\n')
+    fs.writeFileSync(path.join(root, '.aws', 'credentials'), 'PRIVATE_GREP_CANARY\n')
+    fs.writeFileSync(path.join(root, '.aws', 'config'), 'PRIVATE_GREP_CANARY\n')
+    fs.mkdirSync(path.join(root, '.AWS'))
+    fs.writeFileSync(path.join(root, '.AWS', 'CONFIG'), 'PRIVATE_GREP_CANARY\n')
+    fs.symlinkSync(path.join(root, '.env'), path.join(root, 'local-config.txt'))
+
+    const native = await Grep.execute({ pattern: 'PRIVATE_GREP_CANARY', path: root }, { workspacePath: root } as any)
+    const javascript = await Grep.execute({ pattern: 'PRIVATE_GREP_CANARY', path: root }, {
+      workspacePath: root,
+      protectedPaths: [path.join(root, 'runtime-private')],
+    } as any)
+    const nativeAwsRoot = await Grep.execute({ pattern: 'PRIVATE_GREP_CANARY', path: path.join(root, '.aws') }, { workspacePath: root } as any)
+    const javascriptAwsRoot = await Grep.execute({ pattern: 'PRIVATE_GREP_CANARY', path: path.join(root, '.aws') }, {
+      workspacePath: root,
+      protectedPaths: [path.join(root, 'runtime-private')],
+    } as any)
+    const nativeExplicitInclude = await Grep.execute({ pattern: 'PRIVATE_GREP_CANARY', path: root, include: '.env' }, { workspacePath: root } as any)
+    const javascriptExplicitInclude = await Grep.execute({ pattern: 'PRIVATE_GREP_CANARY', path: root, include: '.env' }, {
+      workspacePath: root,
+      protectedPaths: [path.join(root, 'runtime-private')],
+    } as any)
+
+    expect(native).not.toContain('PRIVATE_GREP_CANARY')
+    expect(javascript).not.toContain('PRIVATE_GREP_CANARY')
+    expect(nativeAwsRoot).not.toContain('PRIVATE_GREP_CANARY')
+    expect(javascriptAwsRoot).not.toContain('PRIVATE_GREP_CANARY')
+    expect(nativeExplicitInclude).not.toContain('PRIVATE_GREP_CANARY')
+    expect(javascriptExplicitInclude).not.toContain('PRIVATE_GREP_CANARY')
   })
 })

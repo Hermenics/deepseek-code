@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach } from 'bun:test'
 import {
   getGoal, setGoal, createGoal, updateGoal,
   markGoalComplete, markGoalBlocked, resumeGoal,
-  buildContinuationPrompt, GOAL_MAX_CONTINUATIONS, getElapsedSeconds,
-  recordGoalTurnProgress, GOAL_MAX_IDLE_TURNS,
+  reviseGoal, buildObjectiveRevisionPrompt, buildContinuationPrompt, GOAL_MAX_CONTINUATIONS, getElapsedSeconds,
+  recordGoalTurnProgress, GOAL_MAX_IDLE_TURNS, rollbackFailedGoalRevision,
   type Goal,
 } from '../src/agent/goal.js'
 
@@ -55,6 +55,68 @@ describe('Goal creation', () => {
     expect(getGoal()).toBeNull()
   })
 })
+
+describe('Goal objective revisions', () => {
+  it('increments the revision, records the user source, and resets stale completion state', () => {
+    createGoal('Original objective', 20_000, 4)
+    updateGoal({
+      status: 'blocked',
+      blockReason: 'Old blocker',
+      consecutiveBlockCount: 2,
+      idleTurns: 2,
+      tokensUsed: 500,
+      continuations: 2,
+      updatedAt: new Date().toISOString(),
+    })
+    const first = reviseGoal('  Corrected objective  ')
+
+    expect(first.objective).toBe('Corrected objective')
+    expect(first.objectiveRevision).toBe(1)
+    expect(first.objectiveSource).toBe('user')
+    expect(first.objectiveUpdatedAt).toBeTruthy()
+    expect(first.status).toBe('active')
+    expect(first.blockReason).toBeUndefined()
+    expect(first.consecutiveBlockCount).toBe(0)
+    expect(first.idleTurns).toBe(0)
+    expect(first.tokensUsed).toBe(500)
+    expect(first.continuations).toBe(2)
+
+    const second = reviseGoal('Final objective')
+    expect(second.objectiveRevision).toBe(2)
+    expect(second.objectiveUpdatedAt).toBeTruthy()
+  })
+
+  it('makes the explicit correction authoritative in the replacement prompt', () => {
+    const goal = reviseGoalForPrompt()
+    const prompt = buildObjectiveRevisionPrompt(goal)
+    expect(prompt).toContain('[Objective revision 1 from user]')
+    expect(prompt).toContain('Treat the current objective below as authoritative')
+    expect(prompt).toContain('Replacement objective')
+  })
+
+  it('rejects empty revisions and missing goals', () => {
+    expect(() => reviseGoal('  ')).toThrow('The revised objective cannot be empty.')
+    setGoal(null)
+    expect(() => reviseGoal('Anything')).toThrow('No active goal.')
+  })
+
+  it('rolls back a failed checkpoint to the durable goal but preserves a newer revision', () => {
+    const durable = structuredClone(createGoal('Durable objective'))
+    const failed = reviseGoal('Unpersisted objective')
+    expect(rollbackFailedGoalRevision(failed.objectiveRevision!, durable)).toBe(true)
+    expect(getGoal()).toEqual(durable)
+
+    const firstFailedRevision = reviseGoal('First correction')
+    reviseGoal('Newer correction')
+    expect(rollbackFailedGoalRevision(firstFailedRevision.objectiveRevision!, durable)).toBe(false)
+    expect(getGoal()?.objective).toBe('Newer correction')
+  })
+})
+
+function reviseGoalForPrompt(): Goal {
+  createGoal('Old objective')
+  return reviseGoal('Replacement objective')
+}
 
 describe('Status transitions', () => {
   it('should mark goal complete', () => {
@@ -280,5 +342,11 @@ describe('Goal persistence round-trip', () => {
     setGoal(null)
     const sessionData = { goal: getGoal() ?? undefined }
     expect(sessionData.goal).toBeUndefined()
+  })
+
+  it('clears the previous session goal when restoring a session without one', () => {
+    createGoal('Goal from the previous session')
+    setGoal(undefined)
+    expect(getGoal()).toBeNull()
   })
 })

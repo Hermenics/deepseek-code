@@ -156,7 +156,8 @@ DEEPSEEK_BASE_URL=http://gateway.internal/v1 deepseek --pipe "list likely regres
           <p>
             One pipe invocation supplies one user message, but it may produce many provider requests. Text can
             arrive, tools can run, their results return to the model, and the cycle repeats until a response has
-            no tool calls. Read-only tool batches may run concurrently; mixed or mutating batches run in order.
+            no tool calls. Parallel-safe batches run up to four calls at once. If a call is denied, queued siblings
+            are reported as skipped while calls already in progress settle; mixed or mutating batches run in order.
           </p>
           <p>
             The loop continues until the model answers, the task is cancelled, or a separate request or

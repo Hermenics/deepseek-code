@@ -1,4 +1,5 @@
 import { Tool } from '../types.js'
+import { formatToolError } from '../result.js'
 import { createGoal, getGoal } from '../../agent/goal.js'
 
 /** Tool that starts a session goal with an optional token budget; refuses while an unfinished (active, paused, blocked or limited) goal exists. */
@@ -22,15 +23,12 @@ export const CreateGoal: Tool = {
   },
   async execute(args) {
     const objective = (args.objective as string)?.trim()
-    if (!objective) return JSON.stringify({ error: 'objective is required.' })
+    if (!objective) return formatToolError('validation', 'INVALID_ARGUMENTS', 'objective is required.')
 
     const existing = getGoal()
     const unfinished = new Set(['active', 'paused', 'blocked', 'budget_limited', 'usage_limited'])
     if (existing && unfinished.has(existing.status)) {
-      return JSON.stringify({
-        error: 'An unfinished goal already exists. Complete or clear it first.',
-        goal: { objective: existing.objective, status: existing.status },
-      })
+      return formatToolError('conflict', 'GOAL_ALREADY_EXISTS', `An unfinished ${existing.status} goal already exists: ${JSON.stringify({ objective: existing.objective })}. Complete or clear it first.`)
     }
 
     const tokenBudget = args.tokenBudget as number | undefined

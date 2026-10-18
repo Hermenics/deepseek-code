@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { spawn } from 'node:child_process'
 import type { Store } from '../store/store.js'
 import type { EventBus } from '../events/eventBus.js'
-import { defaultShell, isWindows, shellCommandArgs } from '../../utils/platform.js'
+import { defaultShell, isWindows, scrubbedEnv, shellCommandArgs } from '../../utils/platform.js'
 
 export type HookHandlerType = 'command' | 'shell' | 'http' | 'prompt' | 'agent'
 
@@ -60,9 +60,10 @@ function runProcessHandler(useShell: boolean): HookHandler {
     const argv = config.argv ?? [command]
 
     const stdout = await new Promise<string>((resolve, reject) => {
+      const env = scrubbedEnv()
       const proc = useShell
-        ? spawn(defaultShell(), shellCommandArgs(command), { cwd: ctx.cwd, stdio: ['pipe', 'pipe', 'pipe'], windowsVerbatimArguments: isWindows })
-        : spawn(argv[0] ?? '', argv.slice(1), { cwd: ctx.cwd, stdio: ['pipe', 'pipe', 'pipe'] })
+        ? spawn(defaultShell(), shellCommandArgs(command), { cwd: ctx.cwd, env, stdio: ['pipe', 'pipe', 'pipe'], windowsVerbatimArguments: isWindows })
+        : spawn(argv[0] ?? '', argv.slice(1), { cwd: ctx.cwd, env, stdio: ['pipe', 'pipe', 'pipe'] })
 
       const MAX_BYTES = 100_000
       let out = ''; let err = ''

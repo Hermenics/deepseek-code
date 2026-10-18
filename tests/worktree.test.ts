@@ -90,3 +90,14 @@ describe('safe interactive worktrees', () => {
     expect(await exitWorktree(root, false)).toContain('No active worktree')
   })
 })
+
+it.skipIf(process.platform === 'win32')('creates interactive worktrees without running repository checkout hooks', async () => {
+  await initializeGit()
+  const marker = join(root, '.git', 'checkout-hook-started')
+  await writeFile(join(root, '.git', 'hooks', 'post-checkout'), `#!${process.execPath}\nawait Bun.write(${JSON.stringify(marker)}, 'executed')\n`, { mode: 0o700 })
+  const created = await createWorktree(root)
+  expect(created.isGitWorktree).toBe(true)
+  expect(existsSync(marker)).toBe(false)
+  await exitWorktree(root, false)
+  expect(existsSync(created.path)).toBe(false)
+})

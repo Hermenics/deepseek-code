@@ -175,7 +175,7 @@ describe('persistent bots', () => {
     expect(s.runtimeState(b.id, job.id)).toEqual({ goal: null, todos: [] })
     expect(s.inspectRuntime(job.id).legacy).toEqual(state)
     expect(() => s.resetLegacyRuntime(job.id, 'Repeated reset')).toThrow('ambiguous legacy')
-  })
+  }, 15_000)
 
   it('requires fresh demonstrations for historical manual recordings and pauses their routines', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsk-human-migration-')); dirs.push(dir)

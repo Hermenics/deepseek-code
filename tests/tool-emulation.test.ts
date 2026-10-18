@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test'
 import { parseToolResponse, injectToolPrompt } from '../src/agent/providers/utils/prompt-emulation.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// parseToolResponse — Parser de tool calls do DeepSeek via OAuth proxy
+// parseToolResponse — parser for DeepSeek tool calls via the OAuth proxy
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('parseToolResponse', () => {
@@ -36,7 +36,7 @@ describe('parseToolResponse', () => {
     })
   })
 
-  // ── 2. Wrapped in markdown code fences (agora suportado após fix) ───────────
+  // ── 2. Wrapped in markdown code fences (supported after the fix) ───────────
   describe('markdown code fence wrapper', () => {
     it('should parse tool_use inside ```json fence', () => {
       const input = '```json\n{"tool_use": {"name": "shell", "arguments": {"command": "bun test"}}}\n```'
@@ -233,7 +233,7 @@ describe('parseToolResponse', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// injectToolPrompt — Injeção do prompt de tools nas mensagens
+// injectToolPrompt — inject the tools prompt into messages
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('injectToolPrompt', () => {

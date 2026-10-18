@@ -33,6 +33,7 @@ function testStore(root: string, sessionId: string): WorkflowStore {
 }
 
 async function persistRun(store: WorkflowStore, record: WorkflowRun): Promise<void> {
+  await mkdir(store.options.projectRoot, { recursive: true })
   const directory = join(store.projectDirectory, record.sessionId, 'workflows', record.runId)
   await mkdir(directory, { recursive: true })
   await writeFile(join(directory, 'run.json'), JSON.stringify(record))
@@ -47,6 +48,7 @@ describe('workflow activity lifecycle', () => {
   test('persists a terminal startup failure after the run directory was created', async () => {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-lifecycle-'))
     roots.push(root)
+    await mkdir(join(root, 'project'), { recursive: true })
     const manager = new WorkflowManager({
       sessionId: 'startup-failure-session', projectRoot: join(root, 'project'), baseDirectory: join(root, 'state'),
       providerConfig: { provider: 'deepseek' }, agentRunner: async request => ({ value: request.prompt }),
@@ -63,6 +65,7 @@ describe('workflow activity lifecycle', () => {
   test('shutdown waits for a run whose startup is still persisting', async () => {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-lifecycle-'))
     roots.push(root)
+    await mkdir(join(root, 'project'), { recursive: true })
     const manager = new WorkflowManager({
       sessionId: 'startup-session', projectRoot: join(root, 'project'), baseDirectory: join(root, 'state'),
       providerConfig: { provider: 'deepseek' }, agentRunner: async request => ({ value: request.prompt }),
@@ -106,6 +109,7 @@ describe('workflow activity lifecycle', () => {
   test('cleans up the lease and active map when session shutdown fails', async () => {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-lifecycle-'))
     roots.push(root)
+    await mkdir(join(root, 'project'), { recursive: true })
     const manager = new WorkflowManager({
       sessionId: 'shutdown-session', projectRoot: join(root, 'project'), baseDirectory: join(root, 'state'),
       providerConfig: { provider: 'deepseek' }, agentRunner: async request => ({ value: request.prompt }),
@@ -153,7 +157,7 @@ describe('workflow activity lifecycle', () => {
     expect((await manager.listActivityRuns()).map(item => item.runId)).toContain(live.runId)
   })
 
-  test('keeps historical active records for restart but excludes them from live activity', async () => {
+  test('keeps historical active records inspectable but refuses replay without context identity', async () => {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-lifecycle-'))
     roots.push(root)
     const oldStore = testStore(root, 'old-session')
@@ -172,7 +176,7 @@ describe('workflow activity lifecycle', () => {
     expect(await manager.listActiveRuns()).toEqual([])
     expect(await manager.listActivityRuns()).toEqual([])
     expect((await manager.get('deadbeef'))?.status).toBe('running')
-    const restarted = await manager.restart('deadbeef'); await expect(restarted.result).resolves.toMatchObject({ status: expect.any(String) })
+    await expect(manager.restart('deadbeef')).rejects.toThrow('no safe replay')
   })
 
   test('retains a fresh lease owned by another live session as active', async () => {
@@ -318,6 +322,7 @@ describe('workflow activity lifecycle', () => {
   test('creates a lease for a live run and removes it after cancellation', async () => {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-lifecycle-'))
     roots.push(root)
+    await mkdir(join(root, 'project'), { recursive: true })
     let manager!: WorkflowManager
     const handle = await (manager = new WorkflowManager({
       sessionId: 'lease-session', projectRoot: join(root, 'project'), baseDirectory: join(root, 'state'),

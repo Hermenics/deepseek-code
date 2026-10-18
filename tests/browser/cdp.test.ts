@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'bun:test'
-import { existsSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, writeFileSync, chmodSync, rmSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { CdpConnection, pipeTransport, type CdpTransport } from '../../src/browser/cdp.js'
 import { chromeArgs, launchBrowser } from '../../src/browser/launcher.js'
 import { findChromium } from '../../src/utils/platform.js'
@@ -110,4 +112,50 @@ describe('launcher', () => {
     expect(profile && existsSync(profile)).toBeFalsy()
     await expect(browser.connection.send('Browser.getVersion')).rejects.toThrow('closed')
   }, 30_000)
+})
+
+
+it.skipIf(process.platform !== 'linux')('terminates owned browser helpers before leaving a throwaway profile behind', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'deepseek-browser-helper-'))
+  const ready = join(root, 'helper-ready.json')
+  const executable = join(root, 'fake-browser')
+  const helper = `const fs = require('node:fs'); const profile = process.argv[1];
+    const write = () => { fs.mkdirSync(profile, {recursive:true}); fs.writeFileSync(profile + '/helper-state', 'owned helper'); };
+    write(); fs.writeFileSync(${JSON.stringify(ready)}, JSON.stringify({pid:process.pid,profile})); setInterval(write, 2);`
+  writeFileSync(executable, `#!${process.execPath}
+const {spawn} = require('node:child_process'); const profile = process.argv.find(arg => arg.startsWith('--user-data-dir=')).slice('--user-data-dir='.length); spawn(process.execPath, ['-e', ${JSON.stringify(helper)}, profile], {stdio:'ignore'}); setInterval(()=>{},10000);`)
+  chmodSync(executable, 0o700)
+  const browser = launchBrowser({ executablePath: executable })
+  let helperPid: number | undefined
+  let helperProfile: string | undefined
+  const liveOwnedHelper = () => {
+    if (!helperPid) return false
+    try {
+      const stat = readFileSync(`/proc/${helperPid}/stat`, 'utf8')
+      const state = stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0]
+      return state !== 'Z' && state !== 'X' && readFileSync(`/proc/${helperPid}/cmdline`, 'utf8').includes(root)
+    } catch { return false }
+  }
+  try {
+    const deadline = Date.now() + 2000
+    while (!existsSync(ready) && Date.now() < deadline) await Bun.sleep(5)
+    expect(existsSync(ready)).toBe(true)
+    const helperState = JSON.parse(readFileSync(ready, 'utf8'))
+    helperPid = helperState.pid
+    helperProfile = helperState.profile
+    expect(liveOwnedHelper()).toBe(true)
+    browser.kill()
+    await browser.exited
+    const stopped = Date.now() + 1000
+    while (liveOwnedHelper() && Date.now() < stopped) await Bun.sleep(5)
+    expect(liveOwnedHelper()).toBe(false)
+  } finally {
+    browser.kill()
+    await browser.exited
+    if (liveOwnedHelper()) process.kill(helperPid!, 'SIGKILL')
+    const deadline = Date.now() + 1000
+    while (liveOwnedHelper() && Date.now() < deadline) await Bun.sleep(5)
+    if (helperProfile) rmSync(helperProfile, { recursive: true, force: true })
+    rmSync(root, { recursive: true, force: true })
+  }
 })

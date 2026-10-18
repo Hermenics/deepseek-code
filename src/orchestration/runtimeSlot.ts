@@ -20,4 +20,7 @@ export interface TaskSlot<T = unknown> {
   partial?: unknown
   settledAttempt?: number
   inFlight?: boolean
+  reconciliationPending?: boolean
+  processHeartbeat?: ReturnType<typeof setInterval>
+  reattachProcess?: boolean
 }

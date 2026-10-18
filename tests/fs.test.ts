@@ -116,7 +116,7 @@ describe('writeRaw', () => {
 
   it('should handle unicode content', async () => {
     const path = join(testDir, 'unicode.txt')
-    const text = 'Olá Marcelo! 🚀 日本語'
+    const text = 'Hello Marcelo! 🚀 日本語'
     await writeRaw(path, text)
     const content = await readFile(path, 'utf-8')
     expect(content).toBe(text)

@@ -1,37 +1,40 @@
 import { describe, it, expect, mock, beforeEach, afterEach, beforeAll, afterAll } from 'bun:test'
 import { Agent, canonicalResearchUrl, evidenceUrls } from '../src/agent/agent.js'
 import type { AgentCallbacks, ToolPermissionResult } from '../src/agent/agent.js'
+import type { Tool } from '../src/tools/types.js'
+import type { OrchestratorSession } from '../src/orchestration/OrchestratorSession.js'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { ReadFile } from '../src/tools/ReadFile/ReadFile.js'
+import { createHash } from 'node:crypto'
 
 const TEST_HISTORY_PATH = join(tmpdir(), `deepseek-code-agent-history-${process.pid}.json`)
 const ORIGINAL_HISTORY_PATH = process.env.DEEPSEEK_HISTORY_PATH
 
-// Helper: injeta um client mockado no Agent via cast (mesmo padrão de reasoning.test.ts)
+// Helper: injects a mocked client into Agent via cast (same pattern as reasoning.test.ts)
 function injectMockClient(agent: Agent, clientMock: object) {
   ;(agent as unknown as Record<string, unknown>).client = clientMock
 }
 
-// Helper: resolve o readyPromise para não aguardar inicialização assíncrona real
+// Helper: resolves readyPromise without waiting for real asynchronous initialization
 function resolveReady(agent: Agent) {
   ;(agent as unknown as Record<string, unknown>).readyPromise = Promise.resolve()
 }
 
-// Helper: lê o conteúdo do system message atual (observador do prompt real)
+// Helper: reads the current system message content (observes the real prompt)
 function systemPromptContent(agent: Agent): string {
   return String(agent.getMessages()[0]?.content ?? '')
 }
 
-// Helper: cria um async iterable a partir de chunks
+// Helper: creates an async iterable from chunks
 async function* makeStream(chunks: object[]) {
   for (const chunk of chunks) {
     yield chunk
   }
 }
 
-// Helper: cria um async iterable que lança erro após alguns chunks
+// Helper: creates an async iterable that throws after several chunks
 async function* makeErrorStream(chunks: object[], error: Error) {
   for (const chunk of chunks) {
     yield chunk
@@ -77,6 +80,34 @@ describe('Agent class', () => {
       expect(canonicalResearchUrl('getllms.org/models/gpt-6-sol')).toBe('https://getllms.org/models/gpt-6-sol')
       expect(evidenceUrls('gpt-5.6 and e.g. Node.js')).toEqual(new Set())
     })
+
+    it('requires web-fetch approval before researching unknown model descriptions', async () => {
+      const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
+      resolveReady(agent)
+      const toolMap = (agent as unknown as { toolMap: Map<string, Tool> }).toolMap
+      const webFetch = toolMap.get('web_fetch')
+      if (!webFetch) throw new Error('web_fetch tool is not installed')
+      const executeSearch = mock(async () => 'search should not run')
+      toolMap.set('web_fetch', { ...webFetch, execute: executeSearch })
+
+      const createCompletion = mock(async () => ({ choices: [{ message: { content: '{}' } }] }))
+      injectMockClient(agent, {
+        chat: { completions: { create: createCompletion } },
+        models: { list: mock(async () => ({ [Symbol.asyncIterator]: async function* () {} })) },
+      })
+      const requestPermission = mock(async () => 'deny' as ToolPermissionResult)
+      agent.setToolPermissionHandler(requestPermission)
+
+      try {
+        const descriptions = await agent.generateDescriptions(['unlisted-model-auth-gate-test'])
+        expect(descriptions).toEqual({})
+        expect(requestPermission).toHaveBeenCalledWith(expect.objectContaining({ toolName: 'web_fetch', reason: 'risk' }))
+        expect(executeSearch).not.toHaveBeenCalled()
+        expect(createCompletion).not.toHaveBeenCalled()
+      } finally {
+        await agent.shutdown()
+      }
+    })
   })
 
   describe('constructor', () => {
@@ -96,6 +127,27 @@ describe('Agent class', () => {
       const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
       await agent.readyPromise
       expect(agent.promptRefinerEnabled).toBe(false)
+    })
+  })
+
+  describe('task inspection', () => {
+    it('shows when a task may have started effects before a replay', async () => {
+      const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' }, { logFile: null, snapshotFile: null })
+      await agent.readyPromise.catch(() => {})
+      const session = (agent as unknown as { orchestrator: OrchestratorSession }).orchestrator
+      const task = session.spawn({ taskId: 'effect-inspection' }, async context => {
+        await context.markEffectStarted('write_file')
+        return 'done'
+      })
+
+      try {
+        expect((await task.awaitResult()).status).toBe('done')
+        expect(agent.formatTasks()).toContain('possible effects started; reconcile before replay')
+        ;(agent as unknown as { refreshProjectContextMessage(): void }).refreshProjectContextMessage()
+        expect(agent.getMessages().some(message => String(message.content).includes('"effectMayHaveStarted":true'))).toBe(true)
+      } finally {
+        await agent.shutdown()
+      }
     })
   })
 
@@ -171,14 +223,14 @@ describe('Agent class', () => {
       try {
         await agent.readyPromise
         const system = agent.getMessages()[0]
-        agent.loadSessionMessages([
+        await agent.loadSessionMessages([
           { role: 'system', content: String(system?.content ?? '') },
           { role: 'user', content: 'task to summarize' },
         ])
         injectMockClient(agent, {
           chat: {
             completions: {
-              create: async () => ({ choices: [{ message: { content: 'compact summary' } }] }),
+              create: async () => ({ choices: [{ message: { content: Array.from({ length: 9 }, (_, index) => `## ${index + 1}. Section\nPreserved context`).join('\n') } }] }),
             },
           },
         })
@@ -195,6 +247,37 @@ describe('Agent class', () => {
   })
 
   describe('read-before-edit records', () => {
+    it('reconciles saved workspace versions and clears stale grants on resume', async () => {
+      const root = await mkdtemp(join(tmpdir(), 'deepseek-agent-resume-'))
+      const options = { projectRoot: root, logFile: null, snapshotFile: null }
+      const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' }, options)
+      const resumed = new Agent({ provider: 'deepseek', apiKey: 'test-key' }, options)
+      try {
+        await Promise.all([agent.readyPromise, resumed.readyPromise])
+        await writeFile(join(root, 'file.ts'), 'before')
+        const original = agent as any
+        original.sessionEvidence.add('request', 'user', 'Preserve the library interface')
+        await original.reconcileWorkspace(false)
+        const saved = agent.getRawMessages()
+        await writeFile(join(root, 'file.ts'), 'after')
+        const restored = resumed as any
+        restored.sessionApprovedTools.add('shell')
+        restored.sessionApprovedDirectories.add('/tmp')
+        restored.fileReadVersions.set(join(root, 'file.ts'), { exists: true, hash: 'stale' })
+        await resumed.loadSessionMessages(saved)
+        await resumed.readyPromise
+        expect(restored.sessionApprovedTools.size).toBe(0)
+        expect(restored.sessionApprovedDirectories.size).toBe(0)
+        expect(restored.fileReadVersions.size).toBe(0)
+        expect(JSON.stringify(resumed.getMessages())).toContain('Changed since saved state: digest')
+        expect(JSON.stringify(resumed.getMessages())).toContain('Preserve the library interface')
+        expect(resumed.getMessages().some((message: any) => message.name === 'deepseek_runtime_evidence_v1')).toBe(false)
+      } finally {
+        await Promise.all([agent.shutdown(), resumed.shutdown()])
+        await rm(root, { recursive: true, force: true })
+      }
+    })
+
     it('records successful batched reads after a failed path and through a symlink', async () => {
       const root = await mkdtemp(join(tmpdir(), 'deepseek-agent-read-seen-'))
       const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' }, { projectRoot: root, logFile: null, snapshotFile: null })
@@ -205,15 +288,13 @@ describe('Agent class', () => {
         const alias = join(root, 'alias.txt')
         await writeFile(target, 'source', 'utf8')
         await symlink(target, alias)
-        const context = agent.orchestrator.toolContext({ workspacePath: root })
-        const result = await ReadFile.execute({ paths: ['missing.txt', 'alias.txt'] }, context)
         const internals = agent as unknown as {
-          recordFileSeen(toolName: string, args: Record<string, unknown>, result: string): Promise<void>
-          fileSeenTimes: Map<string, number>
+          executeTool(toolName: string, args: Record<string, unknown>): Promise<string>
+          fileReadVersions: Map<string, { exists: boolean; hash?: string }>
         }
-        await internals.recordFileSeen('read_file', { paths: ['missing.txt', 'alias.txt'] }, result)
-        expect(internals.fileSeenTimes.has(join(root, 'missing.txt'))).toBe(false)
-        expect(internals.fileSeenTimes.get(alias)).toBe((await stat(alias)).mtimeMs)
+        await internals.executeTool('read_file', { paths: ['missing.txt', 'alias.txt'] })
+        expect(internals.fileReadVersions.get(join(root, 'missing.txt'))).toEqual({ exists: false, hash: createHash('sha256').update('').digest('hex') })
+        expect(internals.fileReadVersions.get(alias)).toEqual({ exists: true, hash: createHash('sha256').update('source').digest('hex') })
       } finally {
         await agent.shutdown()
         await rm(root, { recursive: true, force: true })
@@ -250,6 +331,15 @@ describe('Agent class', () => {
       expect(await agent.getAvailableModels()).toEqual(['active-model', 'inactive-model'])
       expect(agent.contextLimit).toBe(999999)
       expect(agent.getModelContextLimit('inactive-model')).toBe(123456)
+    })
+
+    it('preserves provider errors when listing available models', async () => {
+      const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
+      resolveReady(agent)
+      const providerError = new Error('Model catalog unavailable')
+      injectMockClient(agent, { models: { list: mock(async () => { throw providerError }) } })
+
+      await expect(agent.getAvailableModels()).rejects.toBe(providerError)
     })
 
     it('should accept arbitrary model string', () => {
@@ -347,14 +437,15 @@ describe('Agent class', () => {
   })
 
   describe('loadSessionMessages', () => {
-    it('should replace current messages', () => {
+    it('should replace current messages', async () => {
       const agent = new Agent()
       const newMessages = [
         { role: 'system' as const, content: 'custom prompt' },
         { role: 'user' as const, content: 'hello' },
       ]
-      agent.loadSessionMessages(newMessages)
-      expect(agent.getMessages()).toEqual(newMessages)
+      await agent.loadSessionMessages(newMessages)
+      expect(agent.getMessages()).toEqual(expect.arrayContaining(newMessages))
+      expect(agent.getMessages().some(message => typeof message.content === 'string' && message.content.includes('Resumed conversation.'))).toBe(true)
     })
   })
 
@@ -445,7 +536,7 @@ describe('Agent class', () => {
     it('uses a separate tool-free request without changing the main history', async () => {
       const agent = new Agent()
       await agent.readyPromise
-      agent.loadSessionMessages([
+      await agent.loadSessionMessages([
         { role: 'system', content: 'system' },
         { role: 'user', content: 'main task' },
       ])
@@ -455,12 +546,11 @@ describe('Agent class', () => {
       }))
       injectMockClient(agent, { chat: { completions: { create } } })
 
+      await agent.readyPromise
+      const historyBefore = structuredClone(agent.getMessages())
       await expect(agent.askBtw('what is the status?')).resolves.toBe('side answer')
       expect(create).toHaveBeenCalledTimes(1)
-      expect(agent.getMessages()).toEqual([
-        { role: 'system', content: 'system' },
-        { role: 'user', content: 'main task' },
-      ])
+      expect(agent.getMessages()).toEqual(historyBefore)
       const request = create.mock.calls[0]?.[0] as any
       expect(request).toMatchObject({ stream: false })
       expect(request).not.toHaveProperty('tools')
@@ -470,7 +560,7 @@ describe('Agent class', () => {
     it('omits an unfinished tool exchange from the side-question snapshot', async () => {
       const agent = new Agent()
       await agent.readyPromise
-      agent.loadSessionMessages([
+      await agent.loadSessionMessages([
         { role: 'system', content: 'system' },
         { role: 'user', content: 'main task' },
         { role: 'assistant', content: null, tool_calls: [{ id: 'call-1', type: 'function', function: { name: 'read_file', arguments: '{}' } }] },
@@ -536,14 +626,14 @@ describe('Agent class', () => {
 })
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Testes de propagação de erro do Agent.run()
-// Contexto: erros da API (401, 503, stream quebrado) devem propagar via rejeição
-// da promise retornada por run(). O bug reportado está na UI que não captura
-// esses erros — aqui confirmamos que o Agent já os propaga corretamente.
+// Tests for Agent.run() error propagation
+// Context: API errors (401, 503, broken streams) must propagate by rejecting
+// the promise returned by run(). The reported bug is that the UI does not catch
+// these errors; this confirms that Agent already propagates them correctly.
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('Agent error propagation', () => {
-  // Callbacks com mocks rastreáveis para verificar que onDone NÃO é chamado em erro
+  // Callbacks with tracked mocks verify that onDone is NOT called on errors.
   function makeTrackedCallbacks() {
     return {
       onToken: mock((_text: string) => {}),
@@ -578,7 +668,7 @@ describe('Agent error propagation', () => {
     expect(cb.onToken).toHaveBeenCalledWith('Done')
   })
 
-  describe('run(): erros da API devem propagar', () => {
+  describe('run(): API errors must propagate', () => {
     it('should reject with API error and NOT call onDone when create throws 401', async () => {
       // Arrange
       const agent = new Agent()
@@ -631,7 +721,7 @@ describe('Agent error propagation', () => {
     })
   })
 
-  describe('run(): erros de rede após retries esgotados devem propagar', () => {
+  describe('run(): network errors must propagate after retries are exhausted', () => {
     it('should reject after retries are exhausted when create throws 503', async () => {
       // Arrange
       const agent = new Agent()
@@ -640,13 +730,13 @@ describe('Agent error propagation', () => {
       const networkError = new Error('Service Unavailable')
       ;(networkError as unknown as Record<string, unknown>).status = 503
 
-      // withRetry tenta 4 vezes (attempt 0..3) para status 503 — o mock sempre falha
+      // withRetry tries four times (attempts 0–3) for status 503; the mock always fails.
       const createMock = mock(() => { throw networkError })
 
       injectMockClient(agent, {
         chat: {
           completions: {
-            // Substitui os delays de retry para o teste não demorar
+            // Replace retry delays so the test does not run slowly.
             create: createMock,
           },
         },
@@ -655,7 +745,7 @@ describe('Agent error propagation', () => {
         },
       })
 
-      // Substitui os delays do withRetry por zero para o teste ser rápido
+      // Set withRetry delays to zero so the test runs quickly.
       ;(agent as unknown as Record<string, unknown>).withRetry = async (fn: () => Promise<unknown>) => {
         const delays = [0, 0, 0]
         for (let attempt = 0; attempt <= delays.length; attempt++) {
@@ -672,15 +762,15 @@ describe('Agent error propagation', () => {
 
       const cb = makeTrackedCallbacks()
 
-      // Act + Assert — deve rejeitar após esgotar retries
+      // Act + Assert — must reject after exhausting retries.
       await expect(agent.run('hello', cb)).rejects.toThrow('Service Unavailable')
       expect(cb.onDone).not.toHaveBeenCalled()
-      // Confirma que tentou múltiplas vezes (4 tentativas: attempt 0, 1, 2, 3)
+      // Confirm that all four attempts ran (attempts 0, 1, 2, and 3).
       expect(createMock).toHaveBeenCalledTimes(4)
     }, 10_000)
   })
 
-  describe('run(): erros no meio do stream devem propagar', () => {
+  describe('run(): errors during streaming must propagate', () => {
     it('should reject when stream throws mid-iteration', async () => {
       // Arrange
       const agent = new Agent()
@@ -688,10 +778,10 @@ describe('Agent error propagation', () => {
 
       const streamError = new Error('Stream connection reset')
 
-      // Stream emite um chunk válido e depois lança erro
+      // The stream emits one valid chunk and then throws.
       const brokenStream = makeErrorStream(
         [
-          { choices: [{ delta: { content: 'Olá' } }] },
+          { choices: [{ delta: { content: 'Hello' } }] },
         ],
         streamError,
       )

@@ -5,8 +5,34 @@ import type {
   MoAAggregatorModel, MoACallbacks, MoAConfig, MoALayerResult, MoAReferenceModel, MoAResult,
 } from './types.js'
 import { MoAExecutionError } from './types.js'
+import { assertProviderRequestBudget, TOOL_BATCH_BYTES } from '../../agent/toolOutputBudget.js'
+import { safeGraphemeEnd } from '../../utils/textBoundaries.js'
+import { estimateCost, hasVerifiedDeepSeekPricing } from '../../agent/cost.js'
+import { TaskRuntimeError } from '../../orchestration/lifecycle.js'
+import type { AggregateBudgetLease } from '../../orchestration/aggregateBudget.js'
 
 interface ModelTarget { model: string; provider?: MoAReferenceModel['provider']; temperature?: number }
+
+const REFERENCE_MAX_TOKENS = 4_096
+const AGGREGATOR_MAX_TOKENS = 4_096
+const REFERENCE_OUTPUT_TRUNCATION = '\n[Reference response truncated to the 40,000-byte UTF-8 limit.]'
+
+/** Keep provider output bounded before it enters candidate results or the aggregator request. */
+function boundReferenceOutput(text: string): string {
+  if (Buffer.byteLength(text, 'utf8') <= TOOL_BATCH_BYTES) return text
+
+  const maxPrefixBytes = TOOL_BATCH_BYTES - Buffer.byteLength(REFERENCE_OUTPUT_TRUNCATION, 'utf8')
+  let bytes = 0
+  let end = 0
+  for (const character of text) {
+    const characterBytes = Buffer.byteLength(character, 'utf8')
+    if (bytes + characterBytes > maxPrefixBytes) break
+    bytes += characterBytes
+    end += character.length
+  }
+  end = safeGraphemeEnd(text, end)
+  return `${text.slice(0, end)}${REFERENCE_OUTPUT_TRUNCATION}`
+}
 
 /** Make one non-streaming chat completion with its own timeout, linked to the parent abort signal. Never throws: failures, timeouts and empty replies are returned as a `failed` or `empty` layer result. */
 async function callModel(
@@ -16,6 +42,7 @@ async function callModel(
   timeoutMs: number,
   parentSignal?: AbortSignal,
   maxTokens?: number,
+  context?: ToolExecutionContext,
 ): Promise<MoALayerResult> {
   const provider = target.provider ?? { provider: 'deepseek' as const }
   const { createLLMClient } = await import('../../agent/llmClient.js')
@@ -26,25 +53,66 @@ async function callModel(
   if (parentSignal?.aborted) cancel()
   else parentSignal?.addEventListener('abort', cancel, { once: true })
   const started = Date.now()
+  let budget: AggregateBudgetLease | undefined
+  let dispatched = false
+  let usageReported = false
+  const report = (usage: { tokens?: number; costUsd?: number } | undefined) => {
+    if (!budget || usageReported) return undefined
+    usageReported = true
+    try { return budget.reportUsage(usage ?? {}) }
+    finally { budget.release() }
+  }
   try {
-    const response = await client.chat.completions.create(
-      { model: target.model, messages, temperature: target.temperature, ...(maxTokens === undefined ? {} : { max_tokens: Math.max(1, Math.floor(maxTokens)) }) },
-      { signal: controller.signal },
-    )
+    assertProviderRequestBudget({ model: target.model, messages, temperature: target.temperature })
+    budget = await context?.session?.registry.acquireAggregateBudget(context.budgetGroupId, controller.signal)
+    let outputLimit = maxTokens === undefined ? REFERENCE_MAX_TOKENS : Math.min(REFERENCE_MAX_TOKENS, Math.max(1, Math.floor(maxTokens)))
+    if (budget?.maxCompletionTokens !== undefined) outputLimit = Math.min(outputLimit, budget.maxCompletionTokens)
+    const pricedAt = new Date()
+    if (budget?.maxCostUsd !== undefined) {
+      if (!hasVerifiedDeepSeekPricing(provider, target.model)) throw new TaskRuntimeError('AGGREGATE_BUDGET_UNAVAILABLE', 'No verified provider/model price is available; the cost-limited MoA request was not started')
+      const costPerOutputToken = estimateCost(target.model, { promptTokens: 0, completionTokens: 1, cachedTokens: 0 }, pricedAt)
+      const costAllowance = Math.floor(budget.maxCostUsd / costPerOutputToken)
+      if (costAllowance < 1) throw new TaskRuntimeError('AGGREGATE_BUDGET_EXHAUSTED', 'The remaining aggregate cost allowance cannot reserve one completion token')
+      outputLimit = Math.min(outputLimit, costAllowance)
+    }
+    const request = { model: target.model, messages, temperature: target.temperature, max_tokens: outputLimit }
+    const requestBytes = assertProviderRequestBudget(request)
+    budget?.reserveRequestBytes(requestBytes)
+    dispatched = true
+    const response = await client.chat.completions.create(request, { signal: controller.signal })
     const content = response.choices[0]?.message?.content
-    const text = typeof content === 'string' ? content.trim() : ''
-    const tokens = response.usage?.total_tokens
+    const text = typeof content === 'string' ? boundReferenceOutput(content.trim()) : ''
+    const usage = response.usage as { total_tokens?: unknown; prompt_tokens?: unknown; completion_tokens?: unknown; prompt_cache_hit_tokens?: unknown; prompt_tokens_details?: { cached_tokens?: unknown } } | undefined
+    const safeTokens = (value: unknown) => Number.isSafeInteger(value) && (value as number) >= 0 ? value as number : undefined
+    const promptTokens = safeTokens(usage?.prompt_tokens)
+    const completionTokens = safeTokens(usage?.completion_tokens)
+    const tokens = safeTokens(usage?.total_tokens) ?? (promptTokens !== undefined && completionTokens !== undefined ? promptTokens + completionTokens : undefined)
+    const cachedTokens = safeTokens(usage?.prompt_cache_hit_tokens ?? usage?.prompt_tokens_details?.cached_tokens) ?? 0
+    const costAvailable = hasVerifiedDeepSeekPricing(provider, target.model) && promptTokens !== undefined && completionTokens !== undefined
+    const costUsd = costAvailable ? estimateCost(target.model, { promptTokens: promptTokens!, completionTokens: completionTokens!, cachedTokens }, pricedAt) : undefined
+    const budgetResult = report({ tokens, costUsd })
+    if (budgetResult?.unavailable) throw new TaskRuntimeError('AGGREGATE_BUDGET_UNAVAILABLE', 'Provider usage could not be measured for the configured aggregate budget; no further model calls are allowed')
+    if (budgetResult?.exceeded) throw new TaskRuntimeError('AGGREGATE_BUDGET_EXCEEDED', 'The MoA response exceeded the remaining aggregate budget')
     return {
       candidateId, model: target.model, provider: provider.provider,
       status: text ? 'done' : 'empty', response: text || null,
       error: text ? undefined : 'Model returned an empty response', attempts: 1,
-      tokens, usageAvailable: tokens !== undefined, costAvailable: false, durationMs: Date.now() - started,
+      tokens, usageAvailable: tokens !== undefined, costUsd, costAvailable, durationMs: Date.now() - started,
     }
   } catch (cause) {
     const error = cause instanceof Error ? cause : new Error(String(cause))
+    let budgetFailure: string | undefined
+    if (budget && !usageReported) {
+      if (dispatched) {
+        try {
+          if (report(undefined)?.unavailable) budgetFailure = 'AGGREGATE_BUDGET_UNAVAILABLE: '
+        } catch { budgetFailure = 'AGGREGATE_BUDGET_UNAVAILABLE: ' }
+      } else budget.release()
+    }
+    const code = cause instanceof TaskRuntimeError ? `${cause.code}: ` : budgetFailure ?? ''
     return {
       candidateId, model: target.model, provider: provider.provider, status: 'failed', response: null,
-      error: controller.signal.aborted ? String(controller.signal.reason instanceof Error ? controller.signal.reason.message : controller.signal.reason) : error.message,
+      error: `${code}${controller.signal.aborted ? String(controller.signal.reason instanceof Error ? controller.signal.reason.message : controller.signal.reason) : error.message}`,
       attempts: 1, usageAvailable: false, costAvailable: false, durationMs: Date.now() - started,
     }
   } finally {
@@ -61,17 +129,20 @@ export async function callReferenceModel(
   timeoutMs = 60_000,
   parentSignal?: AbortSignal,
   candidateId = 'candidate-1',
+  context?: ToolExecutionContext,
 ): Promise<MoALayerResult> {
   const messages: ChatCompletionMessageParam[] = []
   if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
   messages.push({ role: 'user', content: prompt })
-  return callModel(ref, messages, candidateId, timeoutMs, parentSignal)
+  return callModel(ref, messages, candidateId, timeoutMs, parentSignal, REFERENCE_MAX_TOKENS, context)
 }
 
 /** Re-run a layer until it succeeds, retries run out or the signal aborts, adding up tokens and duration across attempts. `usageAvailable` stays true only if every attempt reported tokens. */
 async function retryLayer(run: () => Promise<MoALayerResult>, retries: number, signal?: AbortSignal): Promise<MoALayerResult> {
   let accumulatedTokens = 0
   let tokensKnown = true
+  let accumulatedCostUsd = 0
+  let costKnown = true
   let accumulatedDuration = 0
   let attemptsRun = 0
   let latest!: MoALayerResult
@@ -81,11 +152,14 @@ async function retryLayer(run: () => Promise<MoALayerResult>, retries: number, s
     accumulatedDuration += latest.durationMs
     if (latest.tokens === undefined) tokensKnown = false
     else accumulatedTokens += latest.tokens
-    if (latest.status === 'done' || signal?.aborted) break
+    if (latest.costUsd === undefined) costKnown = false
+    else accumulatedCostUsd += latest.costUsd
+    if (latest.status === 'done' || signal?.aborted || latest.error?.startsWith('AGGREGATE_BUDGET_')) break
   }
   return {
     ...latest, attempts: attemptsRun,
-    tokens: accumulatedTokens > 0 ? accumulatedTokens : undefined, usageAvailable: tokensKnown,
+    tokens: tokensKnown ? accumulatedTokens : undefined, usageAvailable: tokensKnown,
+    costUsd: costKnown ? accumulatedCostUsd : undefined, costAvailable: costKnown,
     durationMs: accumulatedDuration,
   }
 }
@@ -156,7 +230,7 @@ export async function executeMoA(
   const references = await mapConcurrent(config.referenceModels, concurrency, async (ref, index) => {
     const candidateId = `candidate-${index + 1}`
     const result = await retryLayer(
-      () => callReferenceModel(ref, prompt, systemPrompt, timeoutMs, context?.signal, candidateId),
+      () => callReferenceModel(ref, prompt, systemPrompt, timeoutMs, context?.signal, candidateId, context),
       retries,
       context?.signal,
     )
@@ -165,6 +239,8 @@ export async function executeMoA(
     return result
   })
   if (context?.signal?.aborted) fail(new MoAExecutionError('CANCELLED', 'MoA was cancelled', { references }), callbacks, context)
+  const aggregateFailure = references.find(result => result.error?.startsWith('AGGREGATE_BUDGET_'))
+  if (aggregateFailure) fail(new MoAExecutionError('BUDGET_EXCEEDED', `Aggregate budget stopped MoA: ${aggregateFailure.error}`, { references }), callbacks, context)
   markDuplicates(references)
   const candidates = references.filter(result => result.status === 'done' && result.response)
   const minimum = Math.max(1, config.minResponses ?? 1)
@@ -188,23 +264,30 @@ export async function executeMoA(
     { role: 'user', content: JSON.stringify({ originalPrompt: prompt, candidates: candidateData }) },
   ]
   const aggregator = await retryLayer(
-    () => callModel(config.aggregator, aggregatorMessages, 'aggregator', timeoutMs, context?.signal, remainingTokens),
+    () => callModel(config.aggregator, aggregatorMessages, 'aggregator', timeoutMs, context?.signal,
+      remainingTokens === undefined ? AGGREGATOR_MAX_TOKENS : Math.min(AGGREGATOR_MAX_TOKENS, remainingTokens), context),
     retries,
     context?.signal,
   )
   if (context?.signal?.aborted) fail(new MoAExecutionError('CANCELLED', 'MoA was cancelled', { references, aggregator }), callbacks, context)
   callbacks?.onToolUse?.(aggregator)
+  if (aggregator.error?.startsWith('AGGREGATE_BUDGET_')) {
+    fail(new MoAExecutionError('BUDGET_EXCEEDED', `Aggregate budget stopped MoA: ${aggregator.error}`, { references, aggregator }), callbacks, context)
+  }
   if (aggregator.status !== 'done' || !aggregator.response) {
     fail(new MoAExecutionError('AGGREGATOR_FAILED', `Aggregator failed: ${aggregator.error ?? aggregator.status}`, { references, aggregator }), callbacks, context)
   }
   const totals = tokenTotal([...references, aggregator])
+  const allLayers = [...references, aggregator]
+  const costAvailable = allLayers.every(layer => layer.costUsd !== undefined)
+  const totalCostUsd = costAvailable ? allLayers.reduce((sum, layer) => sum + layer.costUsd!, 0) : undefined
   if (context?.maxTokens !== undefined && totals.value !== undefined && totals.value > context.maxTokens) {
     fail(new MoAExecutionError('BUDGET_EXCEEDED', `MoA used ${totals.value} tokens; limit is ${context.maxTokens}`, { references, aggregator }), callbacks, context)
   }
-  callbacks?.onDone?.(totals.value, undefined)
+  callbacks?.onDone?.(totals.value, totalCostUsd)
   return {
     schemaVersion: 1, synthesis: aggregator.response, references, aggregator,
-    totalTokens: totals.value, usageAvailable: totals.available, costAvailable: false,
+    totalTokens: totals.value, usageAvailable: totals.available, totalCostUsd, costAvailable,
     totalDurationMs: Date.now() - started,
   }
 }

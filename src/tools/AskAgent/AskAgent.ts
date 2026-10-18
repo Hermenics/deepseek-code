@@ -2,6 +2,7 @@ import type { ProviderConfig } from '../../types/provider.js'
 import type { Tool, } from '../types.js'
 import { listAgents, loadAgentConfig, type LoadedAgent } from '../../agent/config.js'
 import type { ToolExecutionContext } from '../../orchestration/types.js'
+import { formatToolError } from '../result.js'
 import {
   getSubAgentSession,
   setLegacyAgentNoteCallback,
@@ -33,7 +34,7 @@ async function dispatch(agent: string, question: string, context?: ToolExecution
 /** Tool that dispatches a question to one configured specialist (or every enabled subagent with `broadcast`) as fresh-context background tasks; returns task handles immediately and the answers arrive on a later turn. */
 export const AskAgent: Tool = {
   name: 'ask_agent',
-  description: 'Ask one or more configured specialists in the background. Returns cancellable task handles immediately.',
+  description: 'Ask one or more configured specialists in the background. Returns cancellable task handles immediately; broadcast scheduling failures include typed per-agent outcomes.',
   parameters: {
     type: 'object', additionalProperties: false,
     properties: {
@@ -54,9 +55,14 @@ export const AskAgent: Tool = {
       const failures = settled.flatMap((result, index) => result.status === 'rejected'
         ? [{ agent: available[index]!.name, error: result.reason instanceof Error ? result.reason.message : String(result.reason) }]
         : [])
+      const message = `Dispatched to ${tasks.map(item => `@${item.agent}`).join(', ') || 'no agents'}. Responses will arrive in your next turn.`
+      if (failures.length > 0) {
+        return formatToolError('tool', tasks.length > 0 ? 'ASK_AGENT_BROADCAST_PARTIAL' : 'ASK_AGENT_BROADCAST_FAILED',
+          `${failures.length} of ${available.length} agent tasks could not be scheduled.`, false, { message, tasks, failures })
+      }
       return JSON.stringify({
         schemaVersion: 1,
-        message: `Dispatched to ${tasks.map(item => `@${item.agent}`).join(', ') || 'no agents'}. Responses will arrive in your next turn.`,
+        message,
         tasks,
         failures,
       })

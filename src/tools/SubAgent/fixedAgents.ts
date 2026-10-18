@@ -35,7 +35,7 @@ export const FIXED_AGENTS: Record<FixedAgentName, FixedAgentDef> = {
 1. Read all relevant files and trace the actual flow end to end
 2. Identify the minimum change needed
 3. Implement it
-4. Run tests if a test runner exists (bun test, npm test, pytest, etc.)
+4. Run tests if a test runner exists (bun test, npm test, pytest, etc.); for Python, invoke the project's absolute virtualenv interpreter (for example, .venv/bin/python on POSIX or .venv/Scripts/python.exe on Windows) instead of relying on activation across shell calls
 5. If tests fail, diagnose the root cause — do not patch symptoms
 
 ## Output
@@ -92,6 +92,7 @@ List findings by severity. If nothing is wrong, say "No issues found." in one li
 - Prefer minimal setup — avoid deep mocking unless the real dependency is truly unavailable or slow
 - If no test framework exists, note it and use the simplest appropriate one for the language
 - Think about what could break in the implementation and write a test for that specific scenario
+- For Python tests, use the project's absolute virtualenv interpreter (for example, .venv/bin/python on POSIX or .venv/Scripts/python.exe on Windows) instead of relying on activation across shell calls
 
 ## What you must NOT do
 - Write tests that pass trivially without exercising the logic

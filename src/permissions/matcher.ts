@@ -1,13 +1,19 @@
 import type { PermissionRule, PermissionDecision } from './types.js'
 import { browserActionKind, browserApprovalKey, browserTarget, originOf } from './browser.js'
 
+/** Normalize documented CamelCase tool aliases while preserving snake_case and custom tool names. */
+function normalizePermissionToolName(name: string): string {
+  if (name.toLowerCase() === 'moa') return 'moa'
+  return name.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+}
+
 /**
  * Parse a rule string like "Shell(git *)" or "ReadFile" into a PermissionRule.
  */
 export function parseRule(raw: string): PermissionRule {
   const match = raw.match(/^(\w+)(?:\((.+)\))?$/)
   if (!match) return { raw, toolName: raw.toLowerCase(), pattern: undefined }
-  const toolName = match[1]!.toLowerCase()
+  const toolName = normalizePermissionToolName(match[1]!)
   const pattern = match[2]?.trim() || undefined
   return { raw, toolName, pattern }
 }
@@ -120,7 +126,7 @@ export function approvalOrigin(toolName: string, args: Record<string, unknown>):
  * Check if a rule matches a specific tool invocation.
  */
 export function matchesRule(rule: PermissionRule, toolName: string, args: Record<string, unknown>): boolean {
-  if (rule.toolName !== toolName.toLowerCase()) return false
+  if (rule.toolName !== normalizePermissionToolName(toolName)) return false
   if (!rule.pattern) return true
   const content = getMatchContent(toolName.toLowerCase(), args)
   if (content === undefined) return false  // Can't match pattern without content

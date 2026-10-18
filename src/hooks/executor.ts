@@ -2,7 +2,8 @@ import { spawn } from 'child_process'
 import { randomUUID } from 'node:crypto'
 import type { HooksConfig, HookCommand, HookInput, HookRun, PreToolHookOutput } from './types.js'
 import { matchesHookPattern } from './matcher.js'
-import { defaultShell, isWindows, shellCommandArgs } from '../utils/platform.js'
+import { defaultShell, isWindows, scrubbedEnv, shellCommandArgs } from '../utils/platform.js'
+import { signalProcessGroup } from '../utils/processGroup.js'
 
 const MAX_OUTPUT_BYTES = 100_000
 /** Bounded in-memory retention for hook audit entries. */
@@ -51,7 +52,8 @@ export function buildInput(
  * The finalization guard ensures error and close handlers cannot duplicate
  * audit entries.
  */
-export async function runHookCommand(cmd: HookCommand, input: HookInput): Promise<string> {
+export async function runHookCommand(cmd: HookCommand, input: HookInput, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted()
   if (cmd.enabled === false) return ''
   const timeoutMs = (cmd.timeout ?? 30) * 1000
 
@@ -65,10 +67,11 @@ export async function runHookCommand(cmd: HookCommand, input: HookInput): Promis
     started_at: new Date().toISOString(),
   }
 
-  return new Promise<string>((resolve) => {
+  return new Promise<string>((resolve, reject) => {
     const proc = spawn(defaultShell(), shellCommandArgs(cmd.command), {
       stdio: ['pipe', 'pipe', 'pipe'],
-      timeout: timeoutMs,
+      detached: process.platform !== 'win32',
+      env: scrubbedEnv(),
       windowsVerbatimArguments: isWindows,
     })
 
@@ -76,16 +79,20 @@ export async function runHookCommand(cmd: HookCommand, input: HookInput): Promis
     let stderr = ''
     let finalized = false
     let killedByTimeout = false
+    let cancelled = false
+    let stopped = false
+    let killTimer: ReturnType<typeof setTimeout> | undefined
 
-    const timer = setTimeout(() => {
-      killedByTimeout = true
-      proc.kill('SIGKILL')
-    }, timeoutMs)
+    const cleanup = () => {
+      clearTimeout(timer)
+      if (killTimer) clearTimeout(killTimer)
+      signal?.removeEventListener('abort', onAbort)
+    }
 
     function finalize(decision: string, error?: string, exitCode?: number, outputTruncated?: boolean): void {
       if (finalized) return
       finalized = true
-      clearTimeout(timer)
+      cleanup()
       run.finished_at = new Date().toISOString()
       run.decision = decision
       if (exitCode !== undefined) run.exit_code = exitCode
@@ -94,24 +101,51 @@ export async function runHookCommand(cmd: HookCommand, input: HookInput): Promis
       pushAudit(run)
     }
 
+    function stop(reason: 'timeout' | 'cancel'): void {
+      if (stopped || finalized) return
+      stopped = true
+      killedByTimeout = reason === 'timeout'
+      cancelled = reason === 'cancel'
+      signalProcessGroup(proc, 'SIGTERM')
+      killTimer = setTimeout(() => signalProcessGroup(proc, 'SIGKILL'), 1000)
+    }
+
+    const onAbort = () => stop('cancel')
+    const timer = setTimeout(() => stop('timeout'), timeoutMs)
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) onAbort()
+    proc.once('spawn', () => { if (stopped) signalProcessGroup(proc, 'SIGTERM') })
+
     proc.stdout?.on('data', (chunk: Buffer) => { stdout = appendCapped(stdout, chunk) })
     proc.stderr?.on('data', (chunk: Buffer) => { stderr = appendCapped(stderr, chunk) })
 
     // Register stdin error listener BEFORE writing or ending input.
     proc.stdin?.on('error', (err) => {
+      if (cancelled || signal?.aborted) return
       finalize('block', `stdin error: ${err.message}`)
       resolve(JSON.stringify({ decision: 'block', reason: `stdin error: ${err.message}` }))
     })
 
     proc.on('error', (err) => {
+      if (cancelled || signal?.aborted) {
+        finalize('block', 'Hook cancelled')
+        reject(signal?.reason ?? new Error('Hook cancelled'))
+        return
+      }
       finalize('block', err.message)
       resolve(JSON.stringify({ decision: 'block', reason: err.message }))
     })
 
-    proc.on('close', (code, signal) => {
-      if (killedByTimeout || (code === null && signal === 'SIGKILL')) {
+    proc.on('close', (code, childSignal) => {
+      if (stopped) signalProcessGroup(proc, 'SIGKILL')
+      if (killedByTimeout || (code === null && childSignal === 'SIGKILL')) {
         finalize('block', 'Hook timed out')
         resolve(JSON.stringify({ decision: 'block', reason: 'Hook timed out' }))
+        return
+      }
+      if (cancelled || signal?.aborted) {
+        finalize('block', 'Hook cancelled', code ?? undefined)
+        reject(signal?.reason ?? new Error('Hook cancelled'))
         return
       }
       const errInfo = stderr.trim()
@@ -163,6 +197,7 @@ export async function runPreToolHooks(
   toolName: string,
   toolInput: Record<string, unknown>,
   sessionId: string,
+  signal?: AbortSignal,
 ): Promise<{ decision: 'approve' | 'block' | 'pass'; reason?: string; modifiedInput?: Record<string, unknown> }> {
   if (!config?.PreToolUse?.length) return { decision: 'pass' }
 
@@ -171,11 +206,13 @@ export async function runPreToolHooks(
   const correlationId = randomUUID()
 
   for (const matcher of config.PreToolUse) {
+    signal?.throwIfAborted()
     if (matcher.enabled === false) continue
     if (!matchesHookPattern(matcher.matcher, toolName)) continue
     matched = true
 
     for (const hook of matcher.hooks) {
+      signal?.throwIfAborted()
       if (hook.enabled === false) continue
       const input = buildInput({
         event: 'PreToolUse',
@@ -184,7 +221,7 @@ export async function runPreToolHooks(
         tool_input: currentInput,
       }, correlationId)
 
-      const output = await runHookCommand(hook, input)
+      const output = await runHookCommand(hook, input, signal)
       if (!output) continue
 
       try {
@@ -230,6 +267,7 @@ export async function runPostToolHooks(
   toolInput: Record<string, unknown>,
   toolResult: string,
   sessionId: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   if (!config?.PostToolUse?.length) return
 
@@ -247,7 +285,7 @@ export async function runPostToolHooks(
         tool_input: toolInput,
         tool_result: toolResult.slice(0, 10_000),
       }, correlationId)
-      runHookCommand(hook, input).catch(() => {})
+      runHookCommand(hook, input, signal).catch(() => {})
     }
   }
 }

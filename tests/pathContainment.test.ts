@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { link, mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 import { escapesRoot } from '../src/utils/pathContainment.js'
@@ -45,11 +45,31 @@ describe('escapesRoot', () => {
       await expect(resolveSafePath('actors/session.json', context)).rejects.toThrow('runtime state')
       await expect(resolveSafePath('actors/new.json', context)).rejects.toThrow('runtime state')
       await expect(resolveSafePath('alias.txt', context)).rejects.toThrow('runtime state')
-      await expect(ReadFile.execute({ path: 'actors/session.json' }, context)).rejects.toThrow('runtime state')
+      expect(await ReadFile.execute({ path: 'actors/session.json' }, context)).toContain('runtime state')
       expect(await ReadFolder.execute({ path: '.', recursive: true }, context)).not.toContain('actors')
       expect(await Glob.execute({ pattern: '**/*' }, context)).not.toContain('session.json')
       expect(await Grep.execute({ pattern: 'marker', path: '.' }, context)).not.toContain('private-runtime-marker')
       expect(await Grep.execute({ pattern: 'marker', path: '.' }, context)).toContain('public-source-marker')
     } finally { await rm(dir, { recursive: true, force: true }) }
+  })
+
+  it('keeps a protected external file private through a workspace hard link and enumeration', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsk-protected-hardlink-'))
+    try {
+      const workspace = join(root, 'workspace')
+      const runtimeState = join(root, 'runtime-state')
+      const protectedFile = join(runtimeState, 'session.json')
+      const alias = join(workspace, 'session-copy.json')
+      await mkdir(workspace)
+      await mkdir(runtimeState)
+      await writeFile(protectedFile, 'external-private-hardlink-marker')
+      await link(protectedFile, alias)
+      const context = { workspacePath: workspace, projectRoot: workspace, protectedPaths: [protectedFile], approvedExternalPaths: [root] } as unknown as ToolExecutionContext
+
+      await expect(resolveSafePath(alias, context)).rejects.toThrow('runtime state')
+      expect(await ReadFolder.execute({ path: '.', recursive: true }, context)).not.toContain('session-copy.json')
+      expect(await Glob.execute({ pattern: '**/*' }, context)).not.toContain('session-copy.json')
+      expect(await Grep.execute({ pattern: 'marker', path: '.' }, context)).not.toContain('external-private-hardlink-marker')
+    } finally { await rm(root, { recursive: true, force: true }) }
   })
 })

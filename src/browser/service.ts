@@ -719,9 +719,8 @@ export class BrowserService {
     let allow = false
     try {
       const lookup = (): RequestOwner | undefined => (params.networkId ? this.requestOwner.get(params.networkId) : undefined)
-        ?? (params.frameId ? this.workerByTarget.get(params.frameId) : undefined)
         ?? (params.frameId ? this.frameByTarget.get(params.frameId)?.tab : undefined)
-        ?? [...this.tabContext.keys()].find(tab => tab.targetId === params.frameId)
+        ?? (params.frameId ? this.workerByTarget.get(params.frameId) : undefined)
       let owner = lookup()
       const deadline = Date.now() + 1000
       while (!owner && params.networkId && Date.now() < deadline && this.browser?.connection === cdp) {

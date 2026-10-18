@@ -1,7 +1,12 @@
 import type { Tool } from '../types.js'
 import { addTodo, updateTodo, removeTodo, clearTodos, getTodos, type TodoStatus } from '../../agent/todoStore.js'
+import { formatToolError, isToolErrorResult, normalizeToolResult } from '../result.js'
 
 type TodoOperation = { action: 'add' | 'update' | 'remove'; title?: string; id?: string; status?: TodoStatus }
+
+function todoNotFound(id: string): string {
+  return formatToolError('tool', 'TODO_NOT_FOUND', `Todo [${id}] not found`)
+}
 
 function perform(operation: TodoOperation): string {
   if (operation.action === 'add') {
@@ -11,13 +16,24 @@ function perform(operation: TodoOperation): string {
   }
   if (operation.action === 'update') {
     if (!operation.id || !['pending', 'in_progress', 'done'].includes(operation.status ?? '')) return 'Error: id and valid status are required for update'
-    return updateTodo(operation.id, operation.status!) ? `Updated [${operation.id}] → ${operation.status}` : `Todo [${operation.id}] not found`
+    return updateTodo(operation.id, operation.status!) ? `Updated [${operation.id}] → ${operation.status}` : todoNotFound(operation.id)
   }
   if (operation.action === 'remove') {
     if (!operation.id) return 'Error: id is required for remove'
-    return removeTodo(operation.id) ? `Removed [${operation.id}]` : `Todo [${operation.id}] not found`
+    return removeTodo(operation.id) ? `Removed [${operation.id}]` : todoNotFound(operation.id)
   }
   return `Unknown action: ${String(operation.action)}`
+}
+
+function performBatch(operations: TodoOperation[]): string {
+  const results = operations.map(operation => normalizeToolResult(perform(operation)))
+  if (results.every(result => !isToolErrorResult(result))) return results.join('\n')
+
+  return formatToolError('tool', 'TODO_BATCH_FAILED', `${results.filter(isToolErrorResult).length} of ${results.length} Todo operations failed`, false, {
+    operations: results.map((result, index) => isToolErrorResult(result)
+      ? { index, status: 'error', result: JSON.parse(result) }
+      : { index, status: 'completed', output: result }),
+  })
 }
 
 /** Tool that adds, updates, clears or lists items in the in-memory todo store shown in the UI. */
@@ -47,7 +63,7 @@ Actions:
     switch (action) {
       case 'add': case 'update': case 'remove': return perform({ action, title, id, status })
       case 'batch': return Array.isArray(operations) && operations.length > 0
-        ? operations.map(perform).join('\n')
+        ? performBatch(operations)
         : 'Error: operations must be a non-empty array for batch'
       case 'clear': {
         clearTodos()

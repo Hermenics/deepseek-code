@@ -8,6 +8,7 @@ import { readPluginRegistry, addPluginToRegistry, removePluginFromRegistry, getP
 import { discoverComponents, readPluginManifest } from './loader.js'
 import { REPO_PATTERN, PLUGIN_NAME_PATTERN } from './validation.js'
 import { escapesRoot } from '../utils/pathContainment.js'
+import { gitInstallerEnv } from '../utils/platform.js'
 
 export interface InstallResult {
   ok: boolean
@@ -56,7 +57,7 @@ function detectPluginDir(tmpDir: string): string | null {
 /** Spawn a git clone with a hard timeout. Kills the process if the deadline is reached. */
 async function spawnClone(url: string, dest: string): Promise<{ exitCode: number; stderr: string }> {
   const proc = Bun.spawn(['git', 'clone', '--depth', '1', url, dest], {
-    env: process.env,
+    env: gitInstallerEnv(),
     stdout: 'pipe', stderr: 'pipe',
   })
 
@@ -78,7 +79,7 @@ async function spawnClone(url: string, dest: string): Promise<{ exitCode: number
 /** Resolve a commit hash from cwd; returns null on failure. */
 async function resolveCommitHash(cwd: string): Promise<string | null> {
   const proc = Bun.spawn(['git', 'rev-parse', 'HEAD'], {
-    cwd, env: process.env, stdout: 'pipe', stderr: 'pipe',
+    cwd, env: gitInstallerEnv(), stdout: 'pipe', stderr: 'pipe',
   })
   const exitCode = await proc.exited
   if (exitCode !== 0) return null

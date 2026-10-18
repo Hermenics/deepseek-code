@@ -1,12 +1,12 @@
 import { describe, test, expect } from 'bun:test'
-import { DEFAULT_SUBAGENT_ROLE, getToolsForRole } from '../src/tools/SubAgent/permissions.js'
+import { DEFAULT_SUBAGENT_ROLE, getToolNamesForProfile, getToolsForRole } from '../src/tools/SubAgent/permissions.js'
 import type { Tool } from '../src/tools/types.js'
 
 // Minimal mock tools covering all names referenced by ROLE_TOOLS
 const ALL_TOOLS: Tool[] = [
   'read_file', 'read_folder', 'grep', 'glob',
   'write_file', 'patch_file', 'shell',
-  'web_fetch', 'introspect', 'subagent',
+  'web_fetch', 'introspect', 'subagent', 'record_claim', 'session_evidence', 'discover_tools',
 ].map((name) => ({ name, description: name, parameters: {} }) as unknown as Tool)
 
 function names(tools: Tool[]): string[] {
@@ -17,14 +17,14 @@ describe('getToolsForRole', () => {
   test('reader — returns only read tools', () => {
     const result = getToolsForRole('reader', ALL_TOOLS)
     expect(names(result)).toEqual(
-      ['glob', 'grep', 'introspect', 'read_file', 'read_folder', 'web_fetch'],
+      ['discover_tools', 'glob', 'grep', 'introspect', 'read_file', 'read_folder', 'record_claim', 'session_evidence', 'web_fetch'],
     )
   })
 
   test('writer — includes read + write tools', () => {
     const result = getToolsForRole('writer', ALL_TOOLS)
     expect(names(result)).toEqual(
-      ['glob', 'grep', 'introspect', 'patch_file', 'read_file', 'read_folder', 'write_file'],
+      ['discover_tools', 'glob', 'grep', 'introspect', 'patch_file', 'read_file', 'read_folder', 'record_claim', 'session_evidence', 'write_file'],
     )
   })
 
@@ -33,12 +33,14 @@ describe('getToolsForRole', () => {
     expect(names(result)).toContain('shell')
     expect(names(result)).toContain('read_file')
     expect(names(result)).toContain('write_file')
+    expect(names(result)).toContain('session_evidence')
+    expect(names(result)).toContain('discover_tools')
   })
 
   test('reviewer — only read tools, no writes', () => {
     const result = getToolsForRole('reviewer', ALL_TOOLS)
     expect(names(result)).toEqual(
-      ['glob', 'grep', 'introspect', 'read_file', 'read_folder'],
+      ['discover_tools', 'glob', 'grep', 'introspect', 'read_file', 'read_folder', 'record_claim', 'session_evidence'],
     )
     expect(names(result)).not.toContain('write_file')
     expect(names(result)).not.toContain('shell')
@@ -64,5 +66,14 @@ describe('default role', () => {
     expect(granted).not.toContain('shell')
     expect(granted).not.toContain('write_file')
     expect(granted).not.toContain('patch_file')
+  })
+
+  test('standard permission profiles include scoped read-only evidence and discovery tools', () => {
+    for (const profile of ['researcher-readonly', 'tester', 'writer-worktree'] as const) {
+      const granted = getToolNamesForProfile(profile)
+      expect(granted).toContain('session_evidence')
+      expect(granted).toContain('record_claim')
+      expect(granted).toContain('discover_tools')
+    }
   })
 })

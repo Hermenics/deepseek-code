@@ -1,5 +1,5 @@
 /**
- * Testes de readiness de provider para loadSavedConfig()
+ * Provider readiness tests for loadSavedConfig().
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
@@ -60,10 +60,10 @@ async function loadSavedConfigFromPath(
   }
 }
 
-describe('loadSavedConfig — readiness de provider', () => {
+describe('loadSavedConfig — provider readiness', () => {
 
   describe('Bedrock', () => {
-    it('deve ser ready com apenas AWS_REGION', async () => {
+    it('should be ready with only AWS_REGION', async () => {
       await saveFullConfig({ PROVIDER: 'bedrock', AWS_REGION: 'us-east-1' }, configPath)
 
       const result = await loadSavedConfigFromPath(configPath)
@@ -73,16 +73,16 @@ describe('loadSavedConfig — readiness de provider', () => {
       expect(result.providerConfig?.awsRegion).toBe('us-east-1')
     })
 
-    it('deve ser ready com AWS_REGION e AWS_PROFILE', async () => {
-      await saveFullConfig({ PROVIDER: 'bedrock', AWS_REGION: 'eu-west-1', AWS_PROFILE: 'meu-perfil' }, configPath)
+    it('should be ready with AWS_REGION and AWS_PROFILE', async () => {
+      await saveFullConfig({ PROVIDER: 'bedrock', AWS_REGION: 'eu-west-1', AWS_PROFILE: 'my-profile' }, configPath)
 
       const result = await loadSavedConfigFromPath(configPath)
 
       expect(result.providerConfig).not.toBeNull()
-      expect(result.providerConfig?.awsProfile).toBe('meu-perfil')
+      expect(result.providerConfig?.awsProfile).toBe('my-profile')
     })
 
-    it('deve retornar null sem AWS_REGION', async () => {
+    it('should return null without AWS_REGION', async () => {
       await saveFullConfig({ PROVIDER: 'bedrock' }, configPath)
 
       const result = await loadSavedConfigFromPath(configPath)
@@ -92,10 +92,10 @@ describe('loadSavedConfig — readiness de provider', () => {
   })
 
   describe('Vertex', () => {
-    it('deve ser ready com GCP_PROJECT e GCP_CREDENTIALS', async () => {
+    it('should be ready with GCP_PROJECT and GCP_CREDENTIALS', async () => {
       await saveFullConfig({
         PROVIDER: 'vertex',
-        GCP_PROJECT: 'meu-projeto',
+        GCP_PROJECT: 'my-project',
         GCP_LOCATION: 'us-central1',
         GCP_CREDENTIALS: '/tmp/sa.json',
       }, configPath)
@@ -106,10 +106,10 @@ describe('loadSavedConfig — readiness de provider', () => {
       expect(result.providerConfig?.gcpCredentials).toBe('/tmp/sa.json')
     })
 
-    it('deve retornar null com GCP_PROJECT mas SEM GCP_CREDENTIALS', async () => {
+    it('should return null with GCP_PROJECT but without GCP_CREDENTIALS', async () => {
       await saveFullConfig({
         PROVIDER: 'vertex',
-        GCP_PROJECT: 'meu-projeto',
+        GCP_PROJECT: 'my-project',
         GCP_LOCATION: 'us-central1',
       }, configPath)
 
@@ -118,7 +118,7 @@ describe('loadSavedConfig — readiness de provider', () => {
       expect(result.providerConfig).toBeNull()
     })
 
-    it('deve retornar null sem GCP_PROJECT', async () => {
+    it('should return null without GCP_PROJECT', async () => {
       await saveFullConfig({
         PROVIDER: 'vertex',
         GCP_CREDENTIALS: '/tmp/sa.json',
@@ -131,7 +131,7 @@ describe('loadSavedConfig — readiness de provider', () => {
   })
 
   describe('DeepSeek', () => {
-    it('deve ser ready com DEEPSEEK_API_KEY', async () => {
+    it('should be ready with DEEPSEEK_API_KEY', async () => {
       await saveFullConfig({ PROVIDER: 'deepseek', DEEPSEEK_API_KEY: 'sk-test' }, configPath)
 
       const result = await loadSavedConfigFromPath(configPath)
@@ -140,7 +140,7 @@ describe('loadSavedConfig — readiness de provider', () => {
       expect(result.providerConfig?.apiKey).toBe('sk-test')
     })
 
-    it('deve retornar null sem DEEPSEEK_API_KEY', async () => {
+    it('should return null without DEEPSEEK_API_KEY', async () => {
       await saveFullConfig({ PROVIDER: 'deepseek' }, configPath)
 
       const result = await loadSavedConfigFromPath(configPath)
@@ -150,7 +150,7 @@ describe('loadSavedConfig — readiness de provider', () => {
   })
 
   describe('Local', () => {
-    it('deve ser ready com LOCAL_BASE_URL', async () => {
+    it('should be ready with LOCAL_BASE_URL', async () => {
       await saveFullConfig({
         PROVIDER: 'local',
         LOCAL_BASE_URL: 'http://localhost:11434/v1',
@@ -163,7 +163,7 @@ describe('loadSavedConfig — readiness de provider', () => {
       expect(result.providerConfig?.localBaseUrl).toBe('http://localhost:11434/v1')
     })
 
-    it('deve retornar null sem LOCAL_BASE_URL', async () => {
+    it('should return null without LOCAL_BASE_URL', async () => {
       await saveFullConfig({ PROVIDER: 'local' }, configPath)
 
       const result = await loadSavedConfigFromPath(configPath)
@@ -173,7 +173,7 @@ describe('loadSavedConfig — readiness de provider', () => {
   })
 
   describe('OAuth', () => {
-    it('deve ser ready quando provider é oauth', async () => {
+    it('should be ready when the provider is oauth', async () => {
       await saveFullConfig({ PROVIDER: 'oauth' }, configPath)
 
       const result = await loadSavedConfigFromPath(configPath)
@@ -185,36 +185,36 @@ describe('loadSavedConfig — readiness de provider', () => {
   })
 })
 
-// ─── Testes de mensagem de erro de chat ──────────────────────────────────────
+// ─── Chat error message tests ────────────────────────────────────────────────
 
-describe('formatChatError — mensagem de erro específica por provider', () => {
+describe('formatChatError — provider-specific error messages', () => {
   async function importFormatChatError() {
     const mod = await import('../src/utils/chatError.js')
     return mod.formatChatError
   }
 
-  it('deve retornar mensagem genérica para provider deepseek', async () => {
+  it('should return a generic message for the DeepSeek provider', async () => {
     const formatChatError = await importFormatChatError()
     const msg = formatChatError(new Error('401 Unauthorized'), 'deepseek')
     expect(msg).toContain('401 Unauthorized')
     expect(msg).not.toContain('credentials')
   })
 
-  it('deve retornar mensagem específica para Bedrock com erro de auth', async () => {
+  it('should return a Bedrock-specific message for an auth error', async () => {
     const formatChatError = await importFormatChatError()
     const msg = formatChatError(new Error('UnrecognizedClientException'), 'bedrock')
     expect(msg).toContain('AWS')
     expect(msg).toContain('credentials')
   })
 
-  it('deve retornar mensagem específica para Vertex sem credenciais', async () => {
+  it('should return a Vertex-specific message without credentials', async () => {
     const formatChatError = await importFormatChatError()
     const msg = formatChatError(new Error('GCP_CREDENTIALS'), 'vertex')
     expect(msg).toContain('GCP_CREDENTIALS')
     expect(msg).toContain('/models')
   })
 
-  it('deve retornar mensagem genérica para provider local', async () => {
+  it('should return a generic message for the local provider', async () => {
     const formatChatError = await importFormatChatError()
     const msg = formatChatError(new Error('Connection refused'), 'local')
     expect(msg).toContain('Connection refused')

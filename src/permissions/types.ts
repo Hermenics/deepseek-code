@@ -10,16 +10,16 @@ export type PermissionDecision = 'allow' | 'deny' | 'ask'
 
 // ── Risk Level System ────────────────────────────────────────────────────────
 export type RiskLevel = 'high' | 'medium'
-// Tudo que não matcha nenhuma regra = low implícito (passa sem confirmar)
+// Anything that matches no rule defaults to low risk (allowed without confirmation).
 
 export interface RiskRule {
   id: string              // human-readable key, e.g. "shell:rm"
-  level: RiskLevel        // 'high' = sempre pede, 'medium' = pede só em subagent
+  level: RiskLevel        // 'high' = always asks; 'medium' = asks only in subagents.
   enabled?: boolean
   tool?: string           // tool name, e.g. "shell", "write_file"
-  pattern?: string        // glob para comando/path
+  pattern?: string        // Glob for a command or path.
   condition?: 'large_overwrite' | 'outside_project' | 'config_file' | 'multi_edit_burst'
-  description?: string    // mostrado no prompt de confirmação
+  description?: string    // Shown in the confirmation prompt.
 }
 
 export interface RiskConfig {
@@ -39,7 +39,7 @@ export interface RiskContext {
 
 export interface RiskAssessment {
   level: RiskLevel
-  matchedRule: string     // rule id que triggerou
+  matchedRule: string     // ID of the rule that matched
   description: string     // human-readable reason
   requiresConfirmation: boolean
 }

@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
-import { runClaudeHookEvent } from '../../src/hooks/lifecycle.js'
+import { existsSync } from 'node:fs'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { runClaudeHookEvent, runSubagentStartHooks } from '../../src/hooks/lifecycle.js'
 import { hookAuditLog } from '../../src/hooks/executor.js'
 import { printOutput } from '../platform-commands.js'
 
@@ -39,5 +43,29 @@ describe('Claude Code lifecycle hooks', () => {
     }, 'PermissionDenied', sessionId, { tool_name: 'shell', reason: 'auto-denied' }, 'shell')
 
     expect(result).toMatchObject({ decision: 'block', reason: 'policy' })
+  })
+
+  it.skipIf(process.platform === 'win32')('cancels a SubagentStart hook process group and its child', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'dsk-hook-cancel-'))
+    const started = join(directory, 'started')
+    const late = join(directory, 'late')
+    const child = `setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(late)}, 'late'), 700)`
+    const parent = `const fs = require('node:fs'); const { spawn } = require('node:child_process'); fs.writeFileSync(${JSON.stringify(started)}, 'started'); const child = spawn(process.execPath, ['-e', ${JSON.stringify(child)}], { stdio: 'ignore' }); child.on('exit', () => {});`
+    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
+    const config = { SubagentStart: [{ matcher: 'reviewer', hooks: [{ type: 'command' as const, command: `${quote(process.execPath)} -e ${quote(parent)}`, timeout: 3 }] }] }
+    const controller = new AbortController()
+    const pending = Reflect.apply(runSubagentStartHooks, undefined, [config, sessionId, 'agent-1', 'reviewer', {}, controller.signal]) as Promise<unknown>
+    try {
+      const deadline = Date.now() + 2_000
+      while (!existsSync(started) && Date.now() < deadline) await Bun.sleep(10)
+      expect(existsSync(started)).toBe(true)
+      controller.abort(new Error('cancelled hook'))
+      await expect(pending).rejects.toThrow('cancelled hook')
+      await Bun.sleep(800)
+      expect(existsSync(late)).toBe(false)
+    } finally {
+      controller.abort()
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 })

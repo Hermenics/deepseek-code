@@ -1,8 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { realpath } from 'node:fs/promises'
+import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { ProviderConfig } from '../types/provider.js'
 import type { DeepSeekSettings } from '../settings/types.js'
+import { captureWorkspaceVersion, diffWorkspaceFileDigests, restoreWorkspaceFileDigests } from '../agent/workspaceVersion.js'
 import { TaskEventSink, type TaskEventListener } from './events.js'
 import { TaskRegistry } from './TaskRegistry.js'
 import { TaskSnapshotStore } from './snapshot.js'
@@ -16,9 +18,13 @@ import type {
   TaskLimits,
   TaskRunner,
   TaskRunnerResolver,
+  ShellWorkspaceObservationV1,
   ToolExecutionContext,
 } from './types.js'
 import type { AskUserHandler } from '../tools/AskUserQuestions/types.js'
+import { closeLspSession } from '../lsp.js'
+
+const MAX_FORK_CONTEXT_BYTES = 16_000
 
 export interface OrchestratorCallbacks {
   onStart?(id: string, task: string, agentName?: string): void
@@ -63,9 +69,18 @@ export function taskSnapshotFile(sessionId: string): string {
 }
 
 interface PreviousResult {
+  taskId: string
   task: string
   summary: string
   confidence: number
+  filesRead: string[]
+  filesChanged: string[]
+  issuesFound: string[]
+}
+
+function inside(root: string, target: string): boolean {
+  const path = relative(root, target)
+  return path === '' || (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path))
 }
 
 /** Per-session facade that wires the task registry, event log, snapshot persistence, workspaces and memory together, and translates task events into the UI callbacks. */
@@ -100,10 +115,20 @@ export class OrchestratorSession {
       ? undefined
       : options.logFile ?? join(homedir(), '.deepseek', 'logs', `session-${storageKey}.jsonl`)
     this.events = new TaskEventSink(this.sessionId, logFile)
-    this.registry = new TaskRegistry({ sessionId: this.sessionId, projectRoot: this.projectRoot, limits: options.limits, events: this.events })
+    this.snapshotStore = options.snapshotFile ? new TaskSnapshotStore(options.snapshotFile) : undefined
+    this.registry = new TaskRegistry({
+      sessionId: this.sessionId, projectRoot: this.projectRoot, limits: options.limits, events: this.events,
+      persistEffectMarker: this.snapshotStore ? async () => {
+        this.snapshotStore!.save(this.sessionId, this.projectRoot, this.registry.listTasks(), this.registry.mailbox.list())
+        await this.snapshotStore!.flush()
+      } : undefined,
+      persistReconciliation: this.snapshotStore ? async () => {
+        this.snapshotStore!.save(this.sessionId, this.projectRoot, this.registry.listTasks(), this.registry.mailbox.list())
+        await this.snapshotStore!.flush()
+      } : undefined,
+    })
     this.workspaces = new TaskWorkspaceManager(this.projectRoot, this.sessionId, this.events)
     this.memory = new MemoryStore(this.projectRoot)
-    this.snapshotStore = options.snapshotFile ? new TaskSnapshotStore(options.snapshotFile) : undefined
     this.events.subscribe(event => {
       this.routeCompatibilityEvent(event.type, event.taskId, event.payload)
       this.queueSnapshot()
@@ -134,7 +159,7 @@ export class OrchestratorSession {
     return this.toolExecution?.requestPermission?.(tool, args, taskId)
   }
 
-  /** Rebuild a session from a snapshot file, marking interrupted tasks failed and re-deriving the generic agent counter. */
+  /** Rebuild a session from a snapshot file, reattaching eligible background shells, marking other interrupted tasks failed, and re-deriving the generic agent counter. */
   static async restore(options: OrchestratorSessionOptions & { snapshotFile: string; projectRoot: string; runnerResolver?: TaskRunnerResolver }): Promise<OrchestratorSession> {
     const snapshot = await TaskSnapshotStore.read(options.snapshotFile)
     if (options.sessionId && options.sessionId !== snapshot.sessionId) throw new Error('Snapshot sessionId does not match requested session')
@@ -143,6 +168,7 @@ export class OrchestratorSession {
     session.registry.restoreTasks(snapshot.tasks, options.runnerResolver)
     session.registry.mailbox.restore(snapshot.messages)
     session.workspaces.restore(snapshot.tasks)
+    await session.reconcileInterruptedShellWorkspaceObservations()
     session.syncGenericCounterFromTasks()
     session.restored = true
     session.queueSnapshot()
@@ -162,6 +188,7 @@ export class OrchestratorSession {
     this.registry.restoreTasks(snapshot.tasks, runnerResolver)
     this.registry.mailbox.restore(snapshot.messages)
     this.workspaces.restore(snapshot.tasks)
+    await this.reconcileInterruptedShellWorkspaceObservations()
     this.syncGenericCounterFromTasks()
     this.restored = true
     this.queueSnapshot()
@@ -172,7 +199,10 @@ export class OrchestratorSession {
   configure(values: { providerConfig?: ProviderConfig; model?: string; settings?: DeepSeekSettings; limits?: Partial<TaskLimits> }): void {
     if (values.providerConfig) this.providerConfig = values.providerConfig
     if (values.model) this.model = values.model
-    if (values.settings) this.settings = structuredClone(values.settings)
+    if (values.settings) {
+      if (JSON.stringify(values.settings.lsp) !== JSON.stringify(this.settings.lsp)) closeLspSession(this)
+      this.settings = structuredClone(values.settings)
+    }
     if (values.limits) this.registry.updateLimits(values.limits)
   }
 
@@ -186,6 +216,7 @@ export class OrchestratorSession {
     )
     if (anchored.length > 0) throw new Error(`Cannot change project root while ${anchored.length} task workspace(s) remain anchored to the current project`)
     const previous = this.projectRoot
+    closeLspSession(this)
     this.projectRoot = target
     this.registry.projectRoot = target
     this.workspaces.projectRoot = target
@@ -248,15 +279,58 @@ export class OrchestratorSession {
     return cleaned
   }
 
+  private async reconcileInterruptedShellWorkspaceObservations(): Promise<void> {
+    const root = await realpath(this.projectRoot).catch(() => undefined)
+    for (const record of this.registry.listTasks({ state: 'failed' })) {
+      if (record.error?.code !== 'INTERRUPTED' || !record.partial || typeof record.partial !== 'object') continue
+      const summary = record.partial as Record<string, unknown>
+      const observation = summary.workspaceObservation as ShellWorkspaceObservationV1 | undefined
+      if (!observation || observation.schema !== 'shell_workspace_observation_v1' || observation.status !== 'pending') continue
+      let reconciled: ShellWorkspaceObservationV1 = { ...observation, status: 'unknown', observedAt: new Date().toISOString() }
+      const baselineFileDigests = restoreWorkspaceFileDigests(summary.workspaceBaselineFileDigests)
+      try {
+        if (!root || typeof observation.cwdRelative !== 'string' || isAbsolute(observation.cwdRelative)
+          || !observation.baselineDigest || !/^[a-f0-9]{64}$/.test(observation.baselineDigest)) throw new Error('Invalid workspace baseline')
+        const requested = resolve(root, observation.cwdRelative)
+        if (!inside(root, requested)) throw new Error('Workspace path escapes project root')
+        const cwd = await realpath(requested)
+        if (!inside(root, cwd) || relative(root, cwd) !== observation.cwdRelative) throw new Error('Workspace path changed')
+        const version = await captureWorkspaceVersion(cwd, undefined, [], { includeFileDigests: baselineFileDigests !== undefined })
+        const observedDigest = version.digest
+        const changes = baselineFileDigests && version.fileDigests
+          ? diffWorkspaceFileDigests(baselineFileDigests, version.fileDigests) : undefined
+        reconciled = {
+          ...observation,
+          status: observedDigest === observation.baselineDigest ? 'no-change-observed' : 'changed',
+          observedDigest,
+          observedAt: new Date().toISOString(),
+          fileChangesStatus: changes ? 'complete' : 'unknown',
+          ...(changes ? {
+            fileChangesRootRelative: relative(root, version.root) || '.',
+            fileChanges: changes.changes,
+            omittedFileChanges: changes.omitted,
+          } : {}),
+        }
+      } catch { /* A missing, moved or unobservable workspace remains explicitly unknown. */ }
+      const reconciledSummary = { ...summary }
+      delete reconciledSummary.workspaceBaselineFileDigests
+      this.registry.updateInterruptedPartial(record.taskId, { ...reconciledSummary, workspaceObservation: reconciled })
+    }
+  }
+
   /** Build the ToolExecutionContext for a tool call. Defaults the workspace to the project root and the profile to coordinator-integrator; emitted events are tagged with the task ID. */
-  toolContext(input: { taskId?: string; workspacePath?: string; workspaceIsolation?: ToolExecutionContext['workspaceIsolation']; signal?: AbortSignal; permissionProfile?: PermissionProfile; allowedTools?: string[] | '*'; maxTokens?: number; maxCostUsd?: number; dangerousOperationApproved?: boolean; approvedExternalPaths?: string[]; workflowManager?: ToolExecutionContext['workflowManager']; interactionMode?: ToolExecutionContext['interactionMode']; askUser?: AskUserHandler } = {}): ToolExecutionContext {
+  toolContext(input: { taskId?: string; budgetGroupId?: string; workspacePath?: string; workspaceIsolation?: ToolExecutionContext['workspaceIsolation']; signal?: AbortSignal; trackProcess?: ToolExecutionContext['trackProcess']; markEffectStarted?: ToolExecutionContext['markEffectStarted']; markEffectOutcome?: ToolExecutionContext['markEffectOutcome']; permissionProfile?: PermissionProfile; allowedTools?: string[] | '*'; maxTokens?: number; maxCostUsd?: number; dangerousOperationApproved?: boolean; approvedExternalPaths?: string[]; workflowManager?: ToolExecutionContext['workflowManager']; interactionMode?: ToolExecutionContext['interactionMode']; askUser?: AskUserHandler } = {}): ToolExecutionContext {
     return {
       sessionId: this.sessionId,
       taskId: input.taskId,
+      budgetGroupId: input.budgetGroupId,
       workspacePath: input.workspacePath ?? this.projectRoot,
       projectRoot: this.projectRoot,
       workspaceIsolation: input.workspaceIsolation,
       signal: input.signal,
+      trackProcess: input.trackProcess,
+      markEffectStarted: input.markEffectStarted,
+      markEffectOutcome: input.markEffectOutcome,
       permissionProfile: input.permissionProfile ?? 'coordinator-integrator',
       allowedTools: input.allowedTools,
       model: this.model,
@@ -287,17 +361,34 @@ export class OrchestratorSession {
     this.previousResults = []
   }
 
-  /** Record a subagent result (task and summary truncated to 200/300 chars) for later fork context. */
-  addPreviousResult(task: string, summary: string, confidence: number): void {
-    this.previousResults.push({ task: task.slice(0, 200), summary: summary.slice(0, 300), confidence })
+  /** Record a bounded, source-referencing subagent result for later fork context. */
+  addPreviousResult(taskId: string, task: string, result: {
+    summary: string
+    confidence: number
+    filesRead: string[]
+    filesChanged: string[]
+    issuesFound: string[]
+  }): void {
+    const references = (values: string[]) => values.slice(0, 12).map(value => value.slice(0, 200))
+    this.previousResults.push({
+      taskId, task: task.slice(0, 200), summary: result.summary.slice(0, 300), confidence: result.confidence,
+      filesRead: references(result.filesRead), filesChanged: references(result.filesChanged), issuesFound: references(result.issuesFound),
+    })
   }
 
-  /** Serialize previous subagent results as JSON for fork-context subagents; empty string when there are none. */
-  formatForkContext(): string {
-    if (this.previousResults.length === 0) return ''
-    return JSON.stringify(this.previousResults.map(result => ({
-      task: result.task, summary: result.summary, confidence: result.confidence,
-    })))
+  /** Serialize only declared dependency results, in dependency order, within a UTF-8 byte budget. */
+  formatForkContext(dependencies?: readonly string[]): string {
+    if (!dependencies?.length || this.previousResults.length === 0) return ''
+    const byTaskId = new Map(this.previousResults.map(result => [result.taskId, result]))
+    const selected: PreviousResult[] = []
+    for (const taskId of new Set(dependencies)) {
+      const result = byTaskId.get(taskId)
+      if (!result) continue
+      const candidate = [...selected, result]
+      if (Buffer.byteLength(JSON.stringify(candidate), 'utf8') > MAX_FORK_CONTEXT_BYTES) break
+      selected.push(result)
+    }
+    return selected.length ? JSON.stringify(selected) : ''
   }
 
   emit(type: TaskEventType, payload: Record<string, unknown>, taskId?: string): void {
@@ -306,6 +397,7 @@ export class OrchestratorSession {
 
   /** Cancel all unfinished tasks, then flush snapshot and event-log writes. */
   async shutdown(reason = 'Session shutdown'): Promise<void> {
+    closeLspSession(this)
     this.registry.cancelAll(reason)
     await this.snapshotStore?.flush()
     await this.events.flush()
@@ -342,7 +434,7 @@ export class OrchestratorSession {
     } else if (type === 'completed') {
       const value = record.result?.value
       const text = this.formatValue(value)
-      this.callbacks.onDone?.(taskId, text.slice(0, 200), record.metrics.tokens, record.metrics.costUsd, value)
+      this.callbacks.onDone?.(taskId, text.slice(0, 200), record.metrics.tokens, record.metrics.costAvailable === true ? record.metrics.costUsd : undefined, value)
       if (record.metadata.origin === 'ask_agent') this.callbacks.onNote?.(String(record.metadata.agentName ?? 'agent'), `[task ${taskId}] ${text.slice(0, 500)}`)
     } else if (type === 'error' || type === 'timeout' || type === 'cancelled') {
       const message = record.error?.message ?? String((payload.error as { message?: string } | undefined)?.message ?? type)

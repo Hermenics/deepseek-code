@@ -5,6 +5,7 @@ import { randomBytes } from 'crypto'
 import { readJson, writeJson } from '../utils/fs.js'
 import type { MessageOrBoundary } from './compactBoundary.js'
 import { CHECKPOINT_MAX } from '../constants.js'
+import { redactSecrets } from '../orchestration/events.js'
 
 const CHECKPOINT_ID = /^\d+-[a-f0-9]{6}$/i
 
@@ -36,7 +37,7 @@ export async function saveCheckpoint(
     messages,
     filesModified,
   }
-  await writeJson(join(dir, `${id}.json`), cp)
+  await writeJson(join(dir, `${id}.json`), redactSecrets(cp))
   await prune()
   return id
 }
@@ -48,7 +49,7 @@ export async function listCheckpoints(): Promise<Checkpoint[]> {
     const files = (await readdir(dir)).filter((f) => f.endsWith('.json')).sort().reverse()
     const result: Checkpoint[] = []
     for (const f of files) {
-      try { result.push(await readJson<Checkpoint>(join(dir, f))) } catch { /* skip */ }
+      try { result.push(redactSecrets(await readJson<Checkpoint>(join(dir, f))) as Checkpoint) } catch { /* skip */ }
     }
     return result
   } catch {
@@ -59,7 +60,7 @@ export async function listCheckpoints(): Promise<Checkpoint[]> {
 /** Loads a checkpoint by id; ids not matching the `<ms>-<hex6>` format are rejected so they cannot address other paths. */
 export async function loadCheckpoint(id: string): Promise<Checkpoint | null> {
   if (!CHECKPOINT_ID.test(id)) return null
-  try { return await readJson<Checkpoint>(join(getDir(), `${id}.json`)) } catch { return null }
+  try { return redactSecrets(await readJson<Checkpoint>(join(getDir(), `${id}.json`))) as Checkpoint } catch { return null }
 }
 
 /** Deletes the oldest checkpoint files beyond CHECKPOINT_MAX. Best-effort; errors are ignored. */

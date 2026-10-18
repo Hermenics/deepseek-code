@@ -1,0 +1,6 @@
+{
+  "name": "constraint-after-compaction-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "bun test" }
+}

@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test'
 import type { MoAConfig, MoALayerResult, MoAReferenceModel } from '../../src/tools/MoA/types.js'
+import { TOOL_BATCH_BYTES } from '../../src/agent/toolOutputBudget.js'
+import { AGGREGATE_REQUEST_BYTES, OrchestratorSession } from '../../src/orchestration/index.js'
 
 const mockChatCreate = mock(async (_args: any, _options?: { signal?: AbortSignal }): Promise<any> => ({
   choices: [{ message: { content: 'response' } }], usage: { total_tokens: 10 }, model: 'fake',
@@ -42,6 +44,47 @@ beforeEach(() => {
 })
 
 describe('MoA candidate execution', () => {
+  it('rejects oversized candidate messages before provider dispatch', async () => {
+    const result = await callReferenceModel({ model: 'oversized' }, 'x'.repeat(4 * 1024 * 1024))
+    expect(result.status).toBe('failed')
+    expect(result.error).toContain('serialized provider request exceeds the 4 MiB UTF-8 limit')
+    expect(mockChatCreate).not.toHaveBeenCalled()
+  })
+
+  it('rejects an oversized request option before candidate provider dispatch', async () => {
+    const result = await callReferenceModel({ model: 'x'.repeat(4 * 1024 * 1024) }, 'short prompt')
+    expect(result.status).toBe('failed')
+    expect(result.error).toContain('serialized provider request exceeds the 4 MiB UTF-8 limit')
+    expect(mockChatCreate).not.toHaveBeenCalled()
+  })
+
+  it('reserves the final serialized candidate request before dispatch without token or cost limits', async () => {
+    const session = new OrchestratorSession({ projectRoot: process.cwd(), logFile: null, snapshotFile: null })
+    const existing = await session.registry.acquireAggregateBudget('turn')
+    if (!existing) throw new Error('Expected the default aggregate request-byte budget')
+    existing.reserveRequestBytes(AGGREGATE_REQUEST_BYTES - 1)
+    existing.release()
+
+    try {
+      const result = await callReferenceModel({ model: 'candidate-a' }, 'question', undefined, 1_000, undefined, 'candidate-1',
+        session.toolContext({ budgetGroupId: 'turn' }))
+      expect(result.status).toBe('failed')
+      expect(result.error).toContain('AGGREGATE_REQUEST_BYTES_EXCEEDED')
+      expect(mockChatCreate).not.toHaveBeenCalled()
+    } finally {
+      await session.shutdown()
+    }
+  })
+
+  it('rejects an oversized aggregation request before dispatching it', async () => {
+    const prompt = 'x'.repeat(4 * 1024 * 1024 - 300)
+    await expect(executeMoA(prompt, undefined, config({
+      referenceModels: [{ model: 'large-candidate' }],
+      maxRetries: 0,
+    }))).rejects.toMatchObject({ code: 'AGGREGATOR_FAILED' })
+    expect(mockChatCreate).toHaveBeenCalledTimes(1)
+  })
+
   it('returns a labeled candidate with explicit usage availability', async () => {
     const reference: MoAReferenceModel = { model: 'candidate-a' }
     const result = await callReferenceModel(reference, 'question', undefined, 1_000, undefined, 'candidate-7')
@@ -49,6 +92,48 @@ describe('MoA candidate execution', () => {
       candidateId: 'candidate-7', model: 'candidate-a', status: 'done', response: 'answer:candidate-a',
       attempts: 1, tokens: 10, usageAvailable: true, costAvailable: false,
     })
+  })
+
+  it('caps reference generation requests with max_tokens', async () => {
+    await callReferenceModel({ model: 'candidate-a' }, 'question')
+    expect(mockChatCreate.mock.calls[0]?.[0]).toMatchObject({ max_tokens: 4_096 })
+  })
+
+  it('caps aggregator generation when no task token budget is supplied', async () => {
+    let aggregatorMaxTokens: number | undefined
+    mockChatCreate.mockImplementation(async (args: any) => {
+      if (isAggregator(args)) aggregatorMaxTokens = args.max_tokens
+      return { choices: [{ message: { content: isAggregator(args) ? 'synthesized' : `answer:${args.model}` } }], usage: { total_tokens: 1 } }
+    })
+
+    await executeMoA('question', undefined, config({ maxRetries: 0 }))
+    expect(aggregatorMaxTokens).toBe(4_096)
+  })
+
+  it('bounds oversized candidate output before aggregation and preserves its partial status', async () => {
+    const oversized = '🙂'.repeat(12_000)
+    let aggregatedCandidate: string | undefined
+    mockChatCreate.mockImplementation(async (args: any) => {
+      if (isAggregator(args)) {
+        aggregatedCandidate = JSON.parse(args.messages[1].content).candidates[0].response
+        throw new Error('aggregator unavailable')
+      }
+      return { choices: [{ message: { content: oversized } }], usage: { total_tokens: 10 } }
+    })
+
+    let caught: MoAExecutionError | undefined
+    try {
+      await executeMoA('question', undefined, config({ referenceModels: [{ model: 'large-candidate' }], maxRetries: 0 }))
+    } catch (error) {
+      caught = error as MoAExecutionError
+    }
+
+    expect(caught?.code).toBe('AGGREGATOR_FAILED')
+    expect(caught?.partial.references[0]?.status).toBe('done')
+    expect(Buffer.byteLength(caught?.partial.references[0]?.response ?? '', 'utf8')).toBeLessThanOrEqual(TOOL_BATCH_BYTES)
+    expect(caught?.partial.references[0]?.response).toContain('[Reference response truncated')
+    expect(aggregatedCandidate).toBe(caught?.partial.references[0]?.response ?? undefined)
+    expect(Buffer.byteLength(aggregatedCandidate ?? '', 'utf8')).toBeLessThanOrEqual(TOOL_BATCH_BYTES)
   })
 
   it('exposes empty, failed and timed-out candidates without turning them into success', async () => {
@@ -164,6 +249,66 @@ describe('MoA failure handling and limits', () => {
     await expect(executeMoA('q', undefined, config({ maxRetries: 0 }), undefined, {
       sessionId: 's', workspacePath: process.cwd(), projectRoot: process.cwd(), permissionProfile: 'coordinator-integrator', maxTokens: 5,
     })).rejects.toMatchObject({ code: 'BUDGET_EXCEEDED' })
+  })
+
+  it('serializes concurrent candidates through the shared aggregate reservation and caps each dispatch', async () => {
+    const session = new OrchestratorSession({ projectRoot: process.cwd(), logFile: null, snapshotFile: null, limits: { maxAggregateTokens: 50 } })
+    const requests: Array<Record<string, any>> = []
+    let active = 0
+    let peak = 0
+    mockChatCreate.mockImplementation(async (args: any) => {
+      requests.push(args)
+      active++
+      peak = Math.max(peak, active)
+      await new Promise(resolve => setTimeout(resolve, 2))
+      active--
+      return { choices: [{ message: { content: isAggregator(args) ? 'synthesized' : `answer:${args.model}` } }], usage: { total_tokens: 10 } }
+    })
+
+    try {
+      await executeMoA('question', undefined, config({ maxRetries: 0, concurrency: 3 }), undefined, session.toolContext({ budgetGroupId: 'moa-turn' }))
+      expect(peak).toBe(1)
+      expect(requests.map(request => request.max_tokens)).toEqual([50, 40, 30, 20])
+    } finally {
+      await session.shutdown()
+    }
+  })
+
+  it('charges each retry before dispatching the next attempt and aggregator', async () => {
+    const session = new OrchestratorSession({ projectRoot: process.cwd(), logFile: null, snapshotFile: null, limits: { maxAggregateTokens: 12 } })
+    const requests: Array<Record<string, any>> = []
+    let candidateAttempts = 0
+    mockChatCreate.mockImplementation(async (args: any) => {
+      requests.push(args)
+      if (isAggregator(args)) return { choices: [{ message: { content: 'synthesized' } }], usage: { total_tokens: 1 } }
+      candidateAttempts++
+      return {
+        choices: [{ message: { content: candidateAttempts === 1 ? '' : 'candidate answer' } }],
+        usage: { total_tokens: 2 },
+      }
+    })
+
+    try {
+      const result = await executeMoA('question', undefined, config({ referenceModels: [{ model: 'candidate-a' }], maxRetries: 1 }), undefined,
+        session.toolContext({ budgetGroupId: 'moa-retry-turn' }))
+      expect(result.totalTokens).toBe(5)
+      expect(requests.map(request => request.max_tokens)).toEqual([12, 10, 8])
+    } finally {
+      await session.shutdown()
+    }
+  })
+
+  it('blocks remaining concurrent candidates when an aggregate token budget lacks provider usage', async () => {
+    const session = new OrchestratorSession({ projectRoot: process.cwd(), logFile: null, snapshotFile: null, limits: { maxAggregateTokens: 50 } })
+    mockChatCreate.mockImplementation(async () => ({ choices: [{ message: { content: 'unmeasured' } }] }))
+
+    try {
+      await expect(executeMoA('question', undefined, config({ maxRetries: 0, concurrency: 3 }), undefined,
+        session.toolContext({ budgetGroupId: 'moa-unmeasured-turn' }))).rejects.toMatchObject({ code: 'BUDGET_EXCEEDED' })
+      expect(mockChatCreate).toHaveBeenCalledTimes(1)
+    } finally {
+      await session.shutdown()
+    }
   })
 
   it('enforces known usage even when another layer omits metrics and reserves aggregation budget', async () => {

@@ -75,6 +75,8 @@ export interface WorkflowRun {
   scriptHash: string
   argsHash: string
   optionsHash: string
+  /** Hash of the workspace and non-secret execution configuration used to produce cached results. */
+  replayContextHash?: string
   options: WorkflowRunOptions
   createdAt: string
   startedAt?: string

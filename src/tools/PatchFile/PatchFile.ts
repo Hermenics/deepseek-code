@@ -1,5 +1,6 @@
 import { Tool } from '../types.js'
 import * as fs from 'fs/promises'
+import { createHash } from 'node:crypto'
 import { assertExecutionActive, assertSafePath, atomicWriteFile } from '../shared/pathSafety.js'
 
 type DiffLine = { type: 'added' | 'removed' | 'context'; text: string; lineNo: number }
@@ -50,12 +51,12 @@ export function closestMatchHint(source: string, snippet: string): string {
 export const PatchFile: Tool = {
   name: 'patch_file',
   description:
-    'Edit a file by replacing a specific string with new content. More efficient than write_file for targeted changes — only the changed section is sent. Fails if old_content is not found exactly once.',
+    'Edit a file by replacing a specific string with new content. More efficient than write_file for targeted changes — only the changed section is sent. Fails if old_content is not found exactly once. Uniform CRLF files accept LF snippets and normalize replacement newlines to CRLF, reported in the result. Mixed line endings require exact snippets and are not normalized; bytes outside the replacement are preserved.',
   parameters: {
     type: 'object',
     properties: {
       path: { type: 'string', description: 'File path' },
-      old_content: { type: 'string', description: 'Exact string to find and replace' },
+      old_content: { type: 'string', minLength: 1, description: 'Exact non-empty string to find and replace' },
       new_content: { type: 'string', description: 'Replacement string' },
     },
     required: ['path', 'old_content', 'new_content'],
@@ -65,28 +66,36 @@ export const PatchFile: Tool = {
     const filePath = await assertSafePath(args.path as string, context)
     let oldContent = args.old_content as string
     let newContent = args.new_content as string
+    if (!oldContent.length) return 'Error: old_content must be a non-empty exact snippet.'
 
-    let source: string
+    let sourceBytes: Buffer
     try {
-      source = await fs.readFile(filePath, 'utf-8')
+      sourceBytes = await fs.readFile(filePath)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
       return `Error: file not found: ${filePath}`
     }
+    const source = sourceBytes.toString('utf-8')
+    const expectedFileVersion = context?.expectedFileVersion ?? {
+      exists: true,
+      hash: createHash('sha256').update(sourceBytes).digest('hex'),
+    }
 
-    // Models write LF; in a CRLF file convert the snippet to match, and always write CRLF so endings never mix.
-    if (source.includes('\r\n')) {
+    // Normalize only uniform CRLF files; mixed endings must match exactly.
+    if (source.includes('\r\n') && !/(^|[^\r])\n|\r(?!\n)/.test(source)) {
       if (oldContent.includes('\n') && !oldContent.includes('\r\n')) oldContent = oldContent.replace(/\n/g, '\r\n')
       newContent = newContent.replace(/\r?\n/g, '\r\n')
     }
+    const lineEndingNormalization = oldContent !== args.old_content || newContent !== args.new_content ? 'CRLF' : null
 
-    const count = source.split(oldContent).length - 1
+    let count = 0
+    for (let offset = 0; (offset = source.indexOf(oldContent, offset)) !== -1; offset++) count++
     if (count === 0) return `Error: old_content not found in ${filePath}${closestMatchHint(source, oldContent)}`
     if (count > 1) return `Error: old_content matches ${count} times — be more specific`
 
     // Use a function replacement to avoid special $ patterns in newContent being interpreted
     const updated = source.replace(oldContent, () => newContent)
-    await atomicWriteFile(filePath, updated, context)
+    await atomicWriteFile(filePath, updated, context, expectedFileVersion)
 
     const oldLines = source.split('\n')
     const newLines = updated.split('\n')
@@ -99,6 +108,7 @@ export const PatchFile: Tool = {
         summary: `File too large for detailed diff (old: ${oldLines.length} lines, new: ${newLines.length} lines). Written successfully.`,
         linesAdded: newLines.length,
         linesRemoved: oldLines.length,
+        lineEndingNormalization,
       })
     }
 
@@ -106,6 +116,6 @@ export const PatchFile: Tool = {
     const removed = diff.filter((l) => l.type === 'removed').length
     const firstChanged = diff.find((l) => l.type !== 'context')?.lineNo ?? 1
 
-    return JSON.stringify({ __diff: true, path: filePath, added, removed, firstChanged, lines: diff })
+    return JSON.stringify({ __diff: true, path: filePath, added, removed, firstChanged, lines: diff, lineEndingNormalization })
   },
 }

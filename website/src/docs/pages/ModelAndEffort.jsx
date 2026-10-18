@@ -83,9 +83,9 @@ export default function ModelAndEffort() {
             when the provider returns previously unseen model IDs.
           </Note>
           <p>
-            If discovery fails or times out, the picker shows “No models available from this provider.” The
-            discovery path normally returns an empty list rather than surfacing the underlying provider error
-            in the conversation. You can still try an exact known ID with the direct form.
+            If the provider returns an empty catalog, the picker reports that no models are available. If
+            listing the catalog fails, the provider error is shown separately from an empty result and the
+            loading indicator is cleared. You can still try an exact known ID with the direct form.
           </p>
         </section>
 

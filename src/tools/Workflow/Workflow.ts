@@ -54,7 +54,7 @@ export const Workflow: Tool = {
       name: { type: 'string', pattern: '^[a-z0-9][a-z0-9-]{0,63}$', description: 'Name of a saved workflow from .deepseek/workflows to run (when script and scriptPath are omitted), or the fallback name for an ad-hoc script without metadata.' },
       args: { description: 'Workflow arguments exposed to the script as `args`. Pass real JSON values, not a JSON-encoded string.' },
       resumeFromRunId: { type: 'string', minLength: 4, description: 'runId of an earlier run whose journaled agent results should be reused for every unchanged agent() call.' },
-      timeoutMs: { type: 'number', minimum: 1, maximum: 3_600_000, description: 'Whole-run timeout in ms (default 120000). Raise it for runs with many or slow agents.' },
+      timeoutMs: { type: 'number', minimum: 1, maximum: 3_600_000, default: 120_000, description: 'Whole-run timeout in ms (default 120000). Raise it for runs with many or slow agents.' },
       maxTokens: { type: 'number', minimum: 1, description: 'OPTIONAL hard token ceiling for the whole run, exposed to the script as budget.total. Omit unless the user asked for a budget: one subagent commonly uses 5k–30k tokens, and once the ceiling is reached every remaining agent() resolves to null and the run ends as budget_exhausted.' },
       maxCostUsd: { type: 'number', minimum: 0, description: 'OPTIONAL hard cost ceiling for the whole run. Omit unless the user asked for one.' },
     },

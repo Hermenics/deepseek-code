@@ -311,6 +311,10 @@ export function validateSettings(settings: DeepSeekSettings, level?: SettingsLev
   if (threshold !== undefined && (typeof threshold !== 'number' || threshold < 0.7 || threshold > 0.95)) add('compaction.threshold', 'Must be between 0.70 and 0.95')
   const concurrency = settings.agents?.concurrency
   if (concurrency !== undefined && (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 16)) add('agents.concurrency', 'Must be an integer from 1 to 16')
+  const aggregateTokens = settings.agents?.maxAggregateTokens
+  if (aggregateTokens !== undefined && (!Number.isSafeInteger(aggregateTokens) || aggregateTokens < 1)) add('agents.maxAggregateTokens', 'Must be a positive safe integer')
+  const aggregateCost = settings.agents?.maxAggregateCostUsd
+  if (aggregateCost !== undefined && (typeof aggregateCost !== 'number' || !Number.isFinite(aggregateCost) || aggregateCost <= 0)) add('agents.maxAggregateCostUsd', 'Must be a positive finite number')
   const retention = settings.sessions?.retention
   if (retention !== undefined && (!Number.isInteger(retention) || retention < 1)) add('sessions.retention', 'Must be a positive integer')
   const workflows = settings.workflows as unknown
@@ -381,6 +385,13 @@ export function validateSettings(settings: DeepSeekSettings, level?: SettingsLev
       if (!Array.isArray(server.extensions) || server.extensions.some(extension => typeof extension !== 'string' || !extension.startsWith('.'))) add(`${path}.extensions`, 'Must be extensions beginning with a dot')
       if (server.args !== undefined && (!Array.isArray(server.args) || server.args.some(arg => typeof arg !== 'string'))) add(`${path}.args`, 'Must be an array of strings')
       if (server.languageId !== undefined && typeof server.languageId !== 'string') add(`${path}.languageId`, 'Must be a string')
+      if (server.initializationOptions !== undefined) {
+        if (!isObject(server.initializationOptions)) add(`${path}.initializationOptions`, 'Must be a JSON object')
+        else {
+          try { if (Buffer.byteLength(JSON.stringify(server.initializationOptions)) > 65_536) add(`${path}.initializationOptions`, 'Must not exceed 65536 UTF-8 bytes') }
+          catch { add(`${path}.initializationOptions`, 'Must be a serializable JSON object') }
+        }
+      }
     }
   }
   const mcp = settings.mcp as unknown

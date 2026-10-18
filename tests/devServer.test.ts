@@ -108,6 +108,31 @@ describe('dev_server lifecycle', () => {
     }
   }, 20_000)
 
+  it('returns a typed partial result when a live process never opens its port', async () => {
+    const port = freePort()
+    await writeLaunch('.deepseek', [{
+      name: 'stalled',
+      runtimeExecutable: process.execPath,
+      runtimeArgs: ['-e', "console.log('x'.repeat(6000)); setInterval(() => {}, 1000)"],
+      port,
+    }])
+    const context = { sessionId: 'test', projectRoot: root, workspacePath: root } as never
+    const result = await runDevServer(await withLaunchApproval(root, { action: 'start' }), context, { readinessTimeoutMs: 300 })
+    const envelope = JSON.parse(result) as {
+      status: string
+      error: { code: string }
+      partial: { state: string; pid: number; port: number; timeoutMs: number; logs: string }
+    }
+
+    expect(envelope).toMatchObject({ status: 'partial', error: { code: 'DEV_SERVER_NOT_READY' } })
+    expect(envelope.partial).toMatchObject({ state: 'running', port, timeoutMs: 300 })
+    expect(envelope.partial.pid).toBeGreaterThan(0)
+    expect(envelope.partial.logs.length).toBeLessThanOrEqual(4_000)
+    expect(envelope.partial.logs).toContain('xxxxx')
+    expect(devServers.get(root, 'stalled')).toMatchObject({ exitCode: null })
+    expect(await portOpen(port)).toBe(false)
+  }, 10_000)
+
   it('keeps subagents out', async () => {
     expect(await runDevServer({ action: 'list' }, { sessionId: 'test', taskId: 't1', projectRoot: root } as never)).toContain('subagents cannot')
   })

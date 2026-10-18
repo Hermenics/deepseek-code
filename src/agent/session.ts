@@ -1,13 +1,14 @@
-import { basename, join, resolve } from 'path'
+import { basename, dirname, join, resolve } from 'path'
 import { homedir } from 'os'
-import { mkdir, readdir, unlink, rm, writeFile } from 'fs/promises'
+import { mkdir, open, readdir, rename, stat, unlink, rm, writeFile } from 'fs/promises'
 import { readFileSync, readdirSync } from 'fs'
-import { createHash, randomBytes } from 'crypto'
+import { createHash, randomBytes, randomUUID } from 'crypto'
 import { readJson, writeRaw } from '../utils/fs.js'
 import type { MessageOrBoundary } from './compactBoundary.js'
 import type { Message } from '../ui/App.js'
 import { redactSecrets } from '../orchestration/events.js'
 import type { Goal } from './goal.js'
+import { deleteFileCheckpoints } from './fileCheckpoint.js'
 
 function resolvedCwd(cwd = process.cwd()): string {
   return resolve(cwd)
@@ -41,7 +42,7 @@ async function readSessionsDir(dir: string): Promise<SessionData[]> {
     const sessions = await Promise.all(
       files
         .filter((f) => f.endsWith('.json'))
-        .map((f) => readJson<SessionData>(join(dir, f)).catch(() => null))
+        .map((f) => readJson<SessionData>(join(dir, f)).then(session => redactSecrets(session) as SessionData).catch(() => null))
     )
     return sessions.filter(Boolean) as SessionData[]
   } catch {
@@ -143,13 +144,65 @@ export function hasSavedSession(id: string): boolean {
   }
 }
 
+async function syncDirectory(path: string): Promise<void> {
+  // shortcut: Windows has no portable Node directory-fsync path; use a platform-specific primitive to cover rename loss there.
+  if (process.platform === 'win32') return
+  const directory = await open(path, 'r')
+  try { await directory.sync() } finally { await directory.close() }
+}
+
+async function ensureSessionDirectory(dir: string, durable: boolean): Promise<void> {
+  if (!durable) {
+    await mkdir(dir, { recursive: true, mode: 0o700 })
+    return
+  }
+  const missing: string[] = []
+  let current = dir
+  while (true) {
+    try { await stat(current); break }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      missing.push(current)
+      const parent = dirname(current)
+      if (parent === current) throw error
+      current = parent
+    }
+  }
+  for (const path of missing.reverse()) {
+    try { await mkdir(path, { mode: 0o700 }) }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error }
+    await syncDirectory(dirname(path))
+  }
+}
+
+async function writeSession(data: SessionData, durable = false): Promise<void> {
+  const dir = getSessionsDir(data.cwd)
+  await ensureSessionDirectory(dir, durable)
+  const path = join(dir, `${data.id}.json`)
+  const temporary = `${path}.${randomUUID()}.tmp`
+  try {
+    const persisted = redactSecrets({ ...data, updatedAt: new Date().toISOString() })
+    const contents = JSON.stringify(persisted, null, 2)
+    if (durable) {
+      const file = await open(temporary, 'wx', 0o600)
+      try { await file.writeFile(contents, 'utf8'); await file.sync() } finally { await file.close() }
+    } else await writeRaw(temporary, contents)
+    await rename(temporary, path)
+    if (durable) await syncDirectory(dir)
+  } finally {
+    await unlink(temporary).catch(() => {})
+  }
+}
+
+/** Flushes the secret-redacted checkpoint before returning; throws if the file or supported directory sync fails. */
+export async function saveSessionCheckpoint(data: SessionData): Promise<void> {
+  await writeSession(data, true)
+}
+
 /** Writes a session to its per-project directory with a fresh updatedAt and prunes old sessions. Failures are swallowed. */
 export async function saveSession(data: SessionData): Promise<void> {
   try {
-    const dir = getSessionsDir(data.cwd)
-    await mkdir(dir, { recursive: true })
-    const path = join(dir, `${data.id}.json`)
-    await writeRaw(path, JSON.stringify({ ...data, updatedAt: new Date().toISOString() }, null, 2))
+    await writeSession(data)
     await pruneOldSessions()
   } catch {
     // Never crash on session save failure
@@ -200,6 +253,7 @@ async function pruneOldSessions(): Promise<void> {
     const sessions = await listSessions()
     if (sessions.length <= maxSessions) return
     const toDelete = sessions.slice(maxSessions)
+    await Promise.all(toDelete.map(session => deleteFileCheckpoints(session.id)))
     await Promise.all(
       toDelete.map((s) => Promise.all([
         unlink(join(getSessionsDir(s.cwd), `${s.id}.json`)).catch(() => {}),
@@ -212,6 +266,7 @@ async function pruneOldSessions(): Promise<void> {
 
 /** Deletes one saved session from every directory layout; a missing file is expected, any other failure is thrown. */
 export async function deleteSession(session: Pick<SessionData, 'id' | 'cwd'>): Promise<void> {
+  await deleteFileCheckpoints(session.id)
   await Promise.all([getSessionsDir(session.cwd), getPreviousProjectDir(session.cwd), getLegacySessionsDir()]
     .map(dir => unlink(join(dir, `${session.id}.json`)).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== 'ENOENT') throw error
@@ -221,6 +276,7 @@ export async function deleteSession(session: Pick<SessionData, 'id' | 'cwd'>): P
 /** Deletes all sessions for the current project, or every session when scope is `global`; returns how many were removed. */
 export async function clearSessions(scope: 'project' | 'global', cwd = process.cwd()): Promise<number> {
   const selected = scope === 'global' ? await listSessions() : await listSessions(cwd)
+  await Promise.all(selected.map(session => deleteFileCheckpoints(session.id)))
   await Promise.all(selected.map(session => Promise.all([
     rm(join(getSessionsDir(session.cwd), `${session.id}.json`), { force: true }),
     rm(join(getPreviousProjectDir(session.cwd), `${session.id}.json`), { force: true }),

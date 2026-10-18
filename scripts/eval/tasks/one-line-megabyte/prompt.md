@@ -1,0 +1,1 @@
+Update only the `settings.target.value` field to `enabled`. The one-line generated JSON is over 1 MB and contains many unrelated fields, including a decoy `value` field with the same old value. Preserve every non-target key and array element exactly at the parsed-data level. Keep the update function general; do not hardcode the fixture payload.

@@ -1,0 +1,6 @@
+{
+  "name": "memory-update-and-abstain-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "bun test" }
+}

@@ -1,0 +1,1 @@
+{"name":"scoped-instructions-fixture","private":true,"type":"module","workspaces":["packages/*"],"scripts":{"test":"bun test"}}

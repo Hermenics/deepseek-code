@@ -149,10 +149,35 @@ describe('AskAgent tool', () => {
     it('preserves handles when only part of a broadcast can be scheduled', async () => {
       await withBlockedScheduler(async session => {
         const result = JSON.parse(await AskAgent.execute({ question: 'Bounded broadcast', broadcast: true }, session.toolContext()))
-        expect(result.tasks).toHaveLength(1)
-        expect(result.failures).toHaveLength(2)
-        expect(session.registry.getStatus(result.tasks[0].taskId).state).toBe('queued')
+        expect(result).toMatchObject({
+          schemaVersion: 1,
+          status: 'partial',
+          error: { kind: 'tool', code: 'ASK_AGENT_BROADCAST_PARTIAL', retryable: false },
+          partial: { tasks: [{}] },
+        })
+        expect(result.partial.tasks).toHaveLength(1)
+        expect(Array.isArray(result.partial.failures)).toBe(true)
+        expect(result.partial.failures).toHaveLength(2)
+        expect([
+          ...result.partial.tasks.map((task: { agent: string }) => task.agent),
+          ...result.partial.failures.map((failure: { agent: string }) => failure.agent),
+        ].sort()).toEqual(['coder', 'reviewer', 'tester'])
+        expect(session.registry.getStatus(result.partial.tasks[0].taskId).state).toBe('queued')
       }, 2)
+    })
+
+    it('returns a typed error with per-agent failures when no broadcast task can be scheduled', async () => {
+      await withBlockedScheduler(async session => {
+        const result = JSON.parse(await AskAgent.execute({ question: 'Blocked broadcast', broadcast: true }, session.toolContext()))
+        expect(result).toMatchObject({
+          schemaVersion: 1,
+          status: 'partial',
+          error: { kind: 'tool', code: 'ASK_AGENT_BROADCAST_FAILED', retryable: false },
+          partial: { tasks: [] },
+        })
+        expect(Array.isArray(result.partial.failures)).toBe(true)
+        expect(result.partial.failures).toHaveLength(3)
+      }, 1)
     })
   })
 

@@ -5,14 +5,14 @@ import type { Message } from '../../../src/ui/App.js'
 describe('steps', () => {
   it('closes the running step when the next one opens and at the end of the turn', () => {
     let messages: Message[] = [{ role: 'user', content: 'fix it' }]
-    messages = openStep(messages, { active: 'Rodando os testes', done: 'Rodou os testes' })
-    messages = openStep(messages, { active: 'Corrigindo o bug', done: 'Corrigiu o bug' })
+    messages = openStep(messages, { active: 'Running the tests', done: 'Ran the tests' })
+    messages = openStep(messages, { active: 'Fixing the bug', done: 'Fixed the bug' })
     expect(messages.slice(1)).toEqual([
-      { role: 'step', content: 'Rodou os testes' },
-      { role: 'step', content: 'Corrigindo o bug', doneLabel: 'Corrigiu o bug' },
+      { role: 'step', content: 'Ran the tests' },
+      { role: 'step', content: 'Fixing the bug', doneLabel: 'Fixed the bug' },
     ])
     const closed = closeSteps(messages)
-    expect(closed[2]).toEqual({ role: 'step', content: 'Corrigiu o bug' })
+    expect(closed[2]).toEqual({ role: 'step', content: 'Fixed the bug' })
     expect(closeSteps(closed)).toBe(closed)
   })
 
@@ -20,7 +20,7 @@ describe('steps', () => {
     const messages: Message[] = [
       { role: 'user', content: 'a' },
       { role: 'tool', content: '✓ glob → *' },
-      { role: 'step', content: 'Lendo', doneLabel: 'Leu' },
+      { role: 'step', content: 'Reading', doneLabel: 'Read' },
       { role: 'tool', content: '✓ read_file → a.ts' },
       { role: 'assistant', content: 'hmm' },
       { role: 'tool', content: '✓ grep → x' },
@@ -30,13 +30,13 @@ describe('steps', () => {
     expect(stepToolFlags(messages)).toEqual([false, false, false, true, false, true, false, false])
   })
   it('marks an interrupted step without claiming it finished', () => {
-    const messages = openStep([{ role: 'user', content: 'a' }], { active: 'Rodando os testes', done: 'Rodou os testes' })
-    expect(interruptSteps(messages)[1]).toEqual({ role: 'step', content: 'Rodando os testes', interrupted: true })
-    expect(closeSteps(interruptSteps(messages))[1]).toEqual({ role: 'step', content: 'Rodando os testes', interrupted: true })
+    const messages = openStep([{ role: 'user', content: 'a' }], { active: 'Running the tests', done: 'Ran the tests' })
+    expect(interruptSteps(messages)[1]).toEqual({ role: 'step', content: 'Running the tests', interrupted: true })
+    expect(closeSteps(interruptSteps(messages))[1]).toEqual({ role: 'step', content: 'Running the tests', interrupted: true })
   })
 
   it('drops a trailing ellipsis the model wrote, since the heading animates its own', () => {
-    expect(openStep([], { active: 'Rodando os testes...', done: 'Rodou' })[0]!.content).toBe('Rodando os testes')
-    expect(openStep([], { active: 'Rodando os testes…', done: 'Rodou' })[0]!.content).toBe('Rodando os testes')
+    expect(openStep([], { active: 'Running the tests...', done: 'Ran them' })[0]!.content).toBe('Running the tests')
+    expect(openStep([], { active: 'Running the tests…', done: 'Ran them' })[0]!.content).toBe('Running the tests')
   })
 })

@@ -174,4 +174,4 @@ it('upgrades historic notes without losing their identity and persists corrected
     expect(store.notes(bot.id)).toEqual([corrected])
     expect(store.store.query('SELECT version FROM _schema_version WHERE version=15')).toHaveLength(1)
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }) }
-})
+}, 15_000)

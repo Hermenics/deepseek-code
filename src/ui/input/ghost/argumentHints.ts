@@ -6,6 +6,8 @@ const ARGUMENT_HINTS: Record<string, string> = {
   '/plan': '<task description>',
   '/review': '<file or description>',
   '/btw': '<question>',
+  '/revise': '<new objective>',
+  '/steer': '<instruction>',
   '/language': '<language>',
   '/theme': '<theme>',
   '/checkpoint': '<name>',

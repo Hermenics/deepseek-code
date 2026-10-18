@@ -101,4 +101,13 @@ describe('new CLI features', () => {
     expect(header).toBe(`Content-Length: ${Buffer.byteLength(body!)}`)
     expect(JSON.parse(body!)).toMatchObject({ id: 1, method: 'initialize' })
   })
+
+  it('validates bounded user-owned language-server initialization options', () => {
+    const server = { name: 'Fixture', command: 'fixture-server', extensions: ['.ts'], initializationOptions: { tsserver: { useSyntaxServer: 'never' } } }
+    expect(validateSettings({ lsp: { servers: [server] } }, 'user')).toEqual([])
+    for (const initializationOptions of [[], 'invalid', { data: 'x'.repeat(65_536) }]) {
+      const issues = validateSettings({ lsp: { servers: [{ ...server, initializationOptions }] } } as any, 'user')
+      expect(issues.some(issue => issue.path === 'lsp.servers.0.initializationOptions')).toBe(true)
+    }
+  })
 })

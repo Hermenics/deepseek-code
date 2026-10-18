@@ -1,0 +1,20 @@
+Synthetic diagnostic history, session 84:
+
+[01] The checkout latency report loads successfully.
+[02] The benchmark input contains twenty synthetic request durations.
+[03] Sorting the values produces a stable ascending sequence.
+[04] The SLO target is documented in the reference contract.
+[05] The target is not the cause of the report discrepancy.
+[06] The helper currently chooses a zero-based index from the percentile fraction.
+[07] The median differs by one rank for even-sized inputs.
+[08] The p95 differs by one rank for a twenty-element sample.
+[09] A nearest-rank percentile uses ceil(p * n), with a one-based rank.
+[10] The helper must leave the caller's sample array unchanged.
+[11] The empty input behavior is already relied upon by the report.
+[12] The single-observation behavior is also relied upon by the report.
+[13] A broad replacement of the SLO file would be unrelated to the defect.
+[14] No dependency is needed for the correction.
+[15] The existing helper can remain the public API.
+[16] Add a focused regression test for the median and p95 ranks.
+[17] Run the fixture tests after editing.
+[18] Record the active constraint and completed checks in the continuation note.

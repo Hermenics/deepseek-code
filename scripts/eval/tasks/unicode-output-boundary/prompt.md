@@ -1,0 +1,1 @@
+Tool output has a 4,096-byte UTF-8 budget. Fix `truncateOutput` so it measures UTF-8 bytes, never splits a Unicode grapheme at either retained edge, keeps the truncation marker inside the budget, and preserves useful tail diagnostics. Add regression coverage using the supplied long log; do not special-case its error text.

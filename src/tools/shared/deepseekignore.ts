@@ -1,4 +1,5 @@
 import * as fs from 'node:fs'
+import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
 import * as path from 'node:path'
 import ignore, { type Ignore } from 'ignore'
@@ -60,8 +61,8 @@ const SAFETY_LINES = ['.git/', '.deepseek/']
 interface CacheEntry {
   matcher: Ignore
   fromFile: boolean
-  /** mtimeMs of the ignore file, or -1 when absent. */
-  mtimeMs: number
+  stamp: string
+  contentHash: string | null
 }
 
 // Cache per workspace root. Synchronous fs on purpose: the file is tiny, read
@@ -72,25 +73,28 @@ const promptedIgnoreRoots = new Set<string>()
 /** Build (or reuse, keyed by root and file mtime) the ignore matcher: the .deepseekignore content if present, otherwise DEFAULT_IGNORE_LINES, plus the SAFETY_LINES that are always applied. */
 function loadMatcher(root: string): CacheEntry {
   const filePath = path.join(root, IGNORE_FILE_NAME)
-  let mtimeMs = -1
+  let stamp = 'missing'
   let content: string | null = null
   try {
-    const stat = fs.statSync(filePath)
-    mtimeMs = stat.mtimeMs
+    const stat = fs.statSync(filePath, { bigint: true })
+    stamp = [stat.dev, stat.ino, stat.mode, stat.size, stat.mtimeNs, stat.ctimeNs].join(':')
     const cached = cache.get(root)
-    if (cached && cached.mtimeMs === mtimeMs) return cached
+    if (cached?.stamp === stamp) return cached
     content = fs.readFileSync(filePath, 'utf8')
-  } catch {
-    const cached = cache.get(root)
-    if (cached && cached.mtimeMs === -1) return cached
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
   }
+
+  const contentHash = content === null ? null : createHash('sha256').update(content).digest('hex')
+  const cached = cache.get(root)
+  if (cached?.contentHash === contentHash) { cached.stamp = stamp; return cached }
 
   const matcher = ignore()
   if (content !== null) matcher.add(content)
   else matcher.add(DEFAULT_IGNORE_LINES)
   matcher.add(SAFETY_LINES)
 
-  const entry: CacheEntry = { matcher, fromFile: content !== null, mtimeMs }
+  const entry: CacheEntry = { matcher, fromFile: content !== null, stamp, contentHash }
   cache.set(root, entry)
   return entry
 }

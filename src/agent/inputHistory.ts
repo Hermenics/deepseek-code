@@ -35,16 +35,16 @@ export async function loadWritingStyle(): Promise<WritingStyleProfile> {
   }
 }
 
-/** Summarises the profile as a Portuguese prompt fragment; a trait is reported when it appears in at least 60% of samples. */
+/** Summarizes the profile as an English prompt fragment; a trait is reported when it appears in at least 60% of samples. */
 export function describeWritingStyle(profile: WritingStyleProfile): string {
-  if (profile.samples === 0) return 'Ainda não há dados suficientes sobre o estilo do usuário.'
+  if (profile.samples === 0) return 'There is not enough user-style data yet.'
   const ratio = (value: number) => value / profile.samples >= 0.6
   return [
-    ratio(profile.lowercase) ? 'prefere escrever em minúsculas' : 'usa maiúsculas normalmente',
-    ratio(profile.noAccents) ? 'normalmente não usa acentos' : 'usa acentos normalmente',
-    ratio(profile.comma) ? 'costuma usar vírgulas' : 'raramente usa vírgulas',
-    ratio(profile.period) ? 'costuma terminar com ponto final' : 'raramente termina com ponto final',
-    `comprimento típico de ${Math.round(profile.averageLength)} caracteres`,
+    ratio(profile.lowercase) ? 'prefers lowercase writing' : 'usually uses uppercase letters',
+    ratio(profile.noAccents) ? 'usually omits diacritics' : 'usually uses diacritics',
+    ratio(profile.comma) ? 'often uses commas' : 'rarely uses commas',
+    ratio(profile.period) ? 'often ends with a period' : 'rarely ends with a period',
+    `typical message length of ${Math.round(profile.averageLength)} characters`,
   ].join('; ')
 }
 

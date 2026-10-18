@@ -162,6 +162,11 @@ export default function HookLifecycle() {
             before removal and refuses cleanup when the hook blocks or the workspace no longer matches its recorded
             patch. <code className="inline">FileChanged</code> observes successful write, patch and edit operations.
           </p>
+          <p>
+            Cancelling a writer task propagates to an in-flight <code className="inline">WorktreeCreate</code> hook
+            and worktree Git operations. Cancelled setup does not fall back to an in-place serialized writer; on
+            POSIX, the hook process group is terminated.
+          </p>
         </section>
 
         <section id="stop">

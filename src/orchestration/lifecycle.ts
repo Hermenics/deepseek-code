@@ -40,6 +40,8 @@ export function normalizeTaskLimits(limits: TaskLimits): TaskLimits {
     retryBackoffMs: clamp(limits.retryBackoffMs, 0, 60_000),
     maxTokens: optionalBudget(limits.maxTokens, 'token budget', true),
     maxCostUsd: optionalBudget(limits.maxCostUsd, 'cost budget'),
+    maxAggregateTokens: optionalBudget(limits.maxAggregateTokens, 'aggregate token budget', true),
+    maxAggregateCostUsd: optionalBudget(limits.maxAggregateCostUsd, 'aggregate cost budget'),
   }
 }
 

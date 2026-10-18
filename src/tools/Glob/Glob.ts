@@ -5,6 +5,7 @@ import * as path from 'node:path'
 import { GLOB_MAX_FILES } from '../../constants.js'
 import { assertSafeDir, isProtectedPath } from '../shared/pathSafety.js'
 import { ignoreDirNames, isPathIgnored } from '../shared/deepseekignore.js'
+import { formatToolError } from '../result.js'
 
 /** True when `target` is `root` itself or lies inside it. */
 function isContained(root: string, target: string): boolean {
@@ -41,13 +42,15 @@ export const Glob: Tool = {
     type: 'object',
     properties: {
       pattern: { type: 'string', description: 'Glob pattern' },
-      cwd: { type: 'string', description: 'Working directory (default: .)' },
+      cwd: { type: 'string', default: '.', description: 'Working directory (default: .)' },
     },
     required: ['pattern'],
   },
   async execute(args, context) {
     const cwd = await assertSafeDir((args.cwd as string) || '.', context)
     const workspaceRoot = path.resolve(context?.workspacePath ?? process.cwd())
+    const relativeScope = path.relative(workspaceRoot, cwd)
+    const scope = isContained(workspaceRoot, cwd) ? relativeScope || '.' : cwd
     const canonicalWorkspaceRoot = await realpath(workspaceRoot)
 
     // Fast path: simple dir names from .deepseekignore as glob excludes;
@@ -59,6 +62,7 @@ export const Glob: Tool = {
       dot: true,
       followSymbolicLinks: false,
     })
+    let verificationFailures = 0
     const files = (await Promise.all(matches.map(async (file) => {
       const absolute = path.resolve(cwd, file)
       try {
@@ -67,14 +71,21 @@ export const Glob: Tool = {
         if (!isContained(canonicalWorkspaceRoot, canonical)) return null
         return isPathIgnored(absolute, workspaceRoot) ? null : file
       } catch {
+        verificationFailures++
         return null
       }
     }))).filter((file): file is string => file !== null)
-    if (!files.length) return 'No matches'
     const truncated = files.length > GLOB_MAX_FILES
     const result = files.slice(0, GLOB_MAX_FILES).join('\n')
-    return truncated
+    const listing = truncated
       ? `${result}\n\n(truncated — ${files.length} files, showing first ${GLOB_MAX_FILES})`
       : result
+    if (verificationFailures) {
+      const message = `Could not verify ${verificationFailures} of ${matches.length} glob matches; results may be incomplete.`
+      return files.length
+        ? formatToolError('tool', 'GLOB_PARTIAL', message, false, { output: `Search scope: ${scope}\n${listing}` })
+        : formatToolError('tool', 'GLOB_FAILED', message)
+    }
+    return files.length ? `Search scope: ${scope}\n${listing}` : `Search scope: ${scope}\nNo matches`
   },
 }

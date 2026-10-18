@@ -54,6 +54,7 @@ async function runCommands(
   commands: HookCommand[],
   sessionId: string,
   extras: HookInputExtras = {},
+  signal?: AbortSignal,
 ): Promise<HookOutput[]> {
   const correlationId = randomUUID()
   const uniqueCommands = [...new Map(
@@ -62,8 +63,9 @@ async function runCommands(
       .map(command => [JSON.stringify({ command: command.command, timeout: command.timeout }), command] as const),
   ).values()]
   return Promise.all(uniqueCommands.map(async (command) => {
+    signal?.throwIfAborted()
     const input = buildInput({ event, session_id: sessionId, ...extras }, correlationId)
-    return parseOutput(await runHookCommand(command, input))
+    return parseOutput(await runHookCommand(command, input, signal))
   }))
 }
 
@@ -74,11 +76,12 @@ async function runMatcherCommands(
   matcherValue: string,
   sessionId: string,
   extras: HookInputExtras = {},
+  signal?: AbortSignal,
 ): Promise<HookOutput[]> {
   const commands = matchers
     .filter(matcher => matcher.enabled !== false && matchesHookPattern(matcher.matcher, matcherValue))
     .flatMap(matcher => matcher.hooks)
-  return runCommands(event, commands, sessionId, extras)
+  return runCommands(event, commands, sessionId, extras, signal)
 }
 
 /**
@@ -121,11 +124,12 @@ export async function runClaudeHookEvent(
   sessionId: string,
   extras: HookInputExtras = {},
   matcherValue?: string,
+  signal?: AbortSignal,
 ): Promise<HookControlResult> {
   if (!config || !MATCHER_EVENTS.has(event as HookMatcherEvent)) {
     const commands = (config?.[event] ?? []) as HookCommand[]
     if (!commands.length) return { decision: 'pass' }
-    return foldControl(await runCommands(event, commands, sessionId, extras))
+    return foldControl(await runCommands(event, commands, sessionId, extras, signal))
   }
   const matchers = (config[event] ?? []) as HookMatcher[]
   if (!matchers.length) return { decision: 'pass' }
@@ -135,7 +139,7 @@ export async function runClaudeHookEvent(
         : event === 'SessionEnd' ? extras.reason
           : undefined
   ) ?? ''
-  const outputs = await runMatcherCommands(event, matchers, eventMatcherValue, sessionId, extras)
+  const outputs = await runMatcherCommands(event, matchers, eventMatcherValue, sessionId, extras, signal)
   return foldControl(outputs)
 }
 
@@ -145,9 +149,10 @@ export async function runUserPromptSubmitHooks(
   sessionId: string,
   prompt: string,
   extras: Omit<HookInputExtras, 'prompt'> = {},
+  signal?: AbortSignal,
 ): Promise<HookControlResult> {
   if (!config?.UserPromptSubmit?.length) return { decision: 'pass' }
-  const outputs = await runCommands('UserPromptSubmit', config.UserPromptSubmit, sessionId, { ...extras, prompt })
+  const outputs = await runCommands('UserPromptSubmit', config.UserPromptSubmit, sessionId, { ...extras, prompt }, signal)
   return foldControl(outputs)
 }
 
@@ -157,11 +162,12 @@ export async function runUserPromptExpansionHooks(
   sessionId: string,
   prompt: string,
   extras: Omit<HookInputExtras, 'prompt'> = {},
+  signal?: AbortSignal,
 ): Promise<HookControlResult> {
   if (!config?.UserPromptExpansion?.length) return { decision: 'pass' }
   return foldControl(await runMatcherCommands('UserPromptExpansion', config.UserPromptExpansion, 'prompt', sessionId, {
     ...extras, prompt,
-  }))
+  }, signal))
 }
 
 /** Fires SessionStart hooks, matched on the start source (default `startup`); their output is ignored. */
@@ -182,11 +188,12 @@ export async function runPermissionRequestHooks(
   toolInput: Record<string, unknown>,
   sessionId: string,
   extras: Omit<HookInputExtras, 'tool_name' | 'tool_input'> = {},
+  signal?: AbortSignal,
 ): Promise<HookControlResult> {
   if (!config?.PermissionRequest?.length) return { decision: 'pass' }
   const outputs = await runMatcherCommands('PermissionRequest', config.PermissionRequest, toolName, sessionId, {
     ...extras, tool_name: toolName, tool_input: toolInput,
-  })
+  }, signal)
   return foldControl(outputs)
 }
 
@@ -197,11 +204,12 @@ export async function runStopHooks(
   lastAssistantMessage: string | null,
   stopHookActive: boolean,
   extras: Omit<HookInputExtras, 'last_assistant_message' | 'stop_hook_active'> = {},
+  signal?: AbortSignal,
 ): Promise<HookControlResult> {
   if (!config?.Stop?.length) return { decision: 'pass' }
   const outputs = await runCommands('Stop', config.Stop, sessionId, {
     ...extras, last_assistant_message: lastAssistantMessage, stop_hook_active: stopHookActive,
-  })
+  }, signal)
   return foldControl(outputs)
 }
 
@@ -221,9 +229,10 @@ export async function runPreCompactHooks(
   sessionId: string,
   trigger: 'manual' | 'auto',
   extras: Omit<HookInputExtras, 'trigger'> = {},
+  signal?: AbortSignal,
 ): Promise<HookControlResult> {
   if (!config?.PreCompact?.length) return { decision: 'pass' }
-  return runClaudeHookEvent(config, 'PreCompact', sessionId, { ...extras, trigger })
+  return runClaudeHookEvent(config, 'PreCompact', sessionId, { ...extras, trigger }, undefined, signal)
 }
 
 /** Fires PostCompact hooks matched on the trigger after compaction completes; output is ignored. */
@@ -232,9 +241,10 @@ export async function runPostCompactHooks(
   sessionId: string,
   trigger: 'manual' | 'auto',
   extras: Omit<HookInputExtras, 'trigger'> = {},
+  signal?: AbortSignal,
 ): Promise<void> {
   if (!config?.PostCompact?.length) return
-  await runClaudeHookEvent(config, 'PostCompact', sessionId, { ...extras, trigger })
+  await runClaudeHookEvent(config, 'PostCompact', sessionId, { ...extras, trigger }, undefined, signal)
 }
 
 /** Runs SubagentStart hooks matched on the agent type before a subagent starts. */
@@ -244,11 +254,12 @@ export async function runSubagentStartHooks(
   agentId: string,
   agentType: string,
   extras: Omit<HookInputExtras, 'agent_id' | 'agent_type'> = {},
+  signal?: AbortSignal,
 ): Promise<HookControlResult> {
   if (!config?.SubagentStart?.length) return { decision: 'pass' }
   const outputs = await runMatcherCommands('SubagentStart', config.SubagentStart, agentType, sessionId, {
     ...extras, agent_id: agentId, agent_type: agentType,
-  })
+  }, signal)
   return foldControl(outputs)
 }
 

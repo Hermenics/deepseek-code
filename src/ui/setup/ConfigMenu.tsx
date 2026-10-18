@@ -99,6 +99,8 @@ const CATEGORIES: Category[] = [
       { path: 'agents.basePrompt', label: 'Subagent base prompt', description: 'Editable prompt composed before each specialization. The executor protocol remains protected.', kind: 'text' },
       { path: 'agents.subagentModel', label: 'Subagent model', description: 'Default model for delegated work.', kind: 'enum' },
       { path: 'agents.concurrency', label: 'Concurrency', description: 'Maximum concurrent subagents, from 1 to 16.', kind: 'number' },
+      { path: 'agents.maxAggregateTokens', label: 'Turn token budget', description: 'Target for reported tokens across primary and delegated model calls in one turn. Output is capped; prompt-token overshoot is detected after dispatch.', kind: 'number' },
+      { path: 'agents.maxAggregateCostUsd', label: 'Turn cost budget', description: 'Estimated USD spend across primary and delegated model calls in one turn. Output is capped when pricing is verified; prompt-cost overshoot is detected after dispatch.', kind: 'number' },
       { path: 'agents.permissionPolicy', label: 'Permission policy', description: 'Inherit parent rules or isolate allow rules. Parent deny and risk rules always remain.', kind: 'enum', options: ['inherit', 'isolated'] },
       { path: 'agents.additionalDirectories', label: 'Additional directories', description: 'Comma-separated agent library paths.', kind: 'list' },
       { path: 'agents.disabledBuiltins', label: 'Disabled built-ins', description: 'Built-ins disabled by name. Restore removes the scoped override.', kind: 'list' },

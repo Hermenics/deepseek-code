@@ -1,11 +1,20 @@
 import { expect, it } from 'bun:test'
 import { readdirSync, readFileSync } from 'node:fs'
+import { findExecutableTestCallbacks, structuralTestBodyText } from './testEvidence.js'
 import { SwrCache } from '../src/swrCache'
 
 /** A wrong implementation can leave a caller waiting forever; fail the check instead of hanging it. */
 function within<T>(promise: Promise<T>, ms = 1_000): Promise<T> {
   return Promise.race([promise, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('call did not settle')), ms))])
 }
+
+function testCallbacks() {
+  const sources = readdirSync('.', { recursive: true }).map(String)
+    .filter((file) => /\.(test|spec)\.[jt]sx?$/.test(file) && !file.includes('__eval_check__') && !file.includes('node_modules'))
+    .map((fileName) => ({ fileName, text: readFileSync(fileName, 'utf8') }))
+  return findExecutableTestCallbacks(sources)
+}
+
 /** Lets pending promise callbacks and timers run. */
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 
@@ -98,8 +107,8 @@ it('rejects every waiter of a failed foreground fetch and caches nothing', async
 })
 
 it('adds tests for stale values', () => {
-  const tests = readdirSync('.', { recursive: true }).map(String)
-    .filter((f) => /\.(test|spec)\.[jt]sx?$/.test(f) && !f.includes('__eval_check__') && !f.includes('node_modules'))
-    .map((f) => readFileSync(f, 'utf8')).join('\n')
-  expect(tests).toMatch(/stale|maxStale|background/i)
+  expect(testCallbacks().some((callback) => {
+    const body = structuralTestBodyText(callback)
+    return /stale/i.test(body) && /cache\.get\s*\(/.test(body) && /\bexpect\s*\(/.test(body)
+  })).toBe(true)
 })

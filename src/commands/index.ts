@@ -24,6 +24,8 @@ import catalog from './catalog/index.js'
 import system from './system/index.js'
 import permissions from './permissions/index.js'
 import btw from './btw/index.js'
+import revise from './revise/index.js'
+import steer from './steer/index.js'
 import stats from './stats/index.js'
 import memory from './memory/index.js'
 import effort from './effort/index.js'
@@ -73,6 +75,8 @@ const commands: Command[] = [
   system,
   permissions,
   btw,
+  revise,
+  steer,
   stats,
   memory,
   effort,

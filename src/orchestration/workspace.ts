@@ -3,7 +3,7 @@ import { realpathSync } from 'node:fs'
 import { appendFile, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve } from 'node:path'
-import { execa } from 'execa'
+import { runWorktreeGit } from '../utils/worktreeGit.js'
 import { TaskEventSink } from './events.js'
 import { acquireFileLease } from './fileLease.js'
 import type { PermissionProfile, TaskWorkspaceV1 } from './types.js'
@@ -50,6 +50,7 @@ export class TaskWorkspaceManager {
 
   /** Get or create a task's workspace. Worktree and shared workspaces are reused on re-acquire, and releasing a worktree lease keeps it for integration; a serialized-writer workspace can only be leased once at a time. */
   async acquire(taskId: string, profile: PermissionProfile, signal?: AbortSignal): Promise<WorkspaceLease> {
+    signal?.throwIfAborted()
     const existing = this.workspaces.get(taskId)
     if (existing?.isolation === 'git-worktree' || existing?.isolation === 'readonly-shared') {
       return { workspace: this.snapshot(existing), release: async () => { existing.preserved = true } }
@@ -70,8 +71,9 @@ export class TaskWorkspaceManager {
 
     let isolated: ManagedWorkspace | null
     try {
-      isolated = await this.createGitWorktree(taskId)
+      isolated = await this.createGitWorktree(taskId, signal)
     } catch (error) {
+      if (signal?.aborted) throw signal.reason ?? error
       if (error instanceof WorktreeHookBlockedError) throw error
       this.events.emit('workspace_fallback', { reason: error instanceof Error ? error.message : String(error) }, taskId)
       isolated = null
@@ -192,60 +194,79 @@ export class TaskWorkspaceManager {
     const { patch } = await this.capturePatch(workspace)
     const currentHash = createHash('sha256').update(patch).digest('hex')
     if (currentHash !== workspace.integratedPatchHash) return false
-    const ignored = await execa('git', ['status', '--porcelain=v1', '--ignored', '-z'], { cwd: workspace.path, reject: false })
+    const ignored = await runWorktreeGit(['status', '--porcelain=v1', '--ignored', '-z'], workspace.path)
     if (ignored.stdout.split('\0').some(entry => entry.startsWith('!! '))) return false
     this.assertOwnedPath(workspace.path, workspace.projectRoot)
-    const result = await execa('git', ['worktree', 'remove', '--force', workspace.path], { cwd: workspace.projectRoot, reject: false })
+    const result = await runWorktreeGit(['worktree', 'remove', '--force', workspace.path], workspace.projectRoot, { reject: false })
     if (result.exitCode !== 0) return false
     this.workspaces.delete(taskId)
     return true
   }
 
   /** Create a detached worktree at HEAD under .deepseek/worktrees. Requires the session root to be the repository root with a clean checkout; runs the WorktreeCreate hook and excludes the directory from Git. */
-  private async createGitWorktree(taskId: string): Promise<ManagedWorkspace> {
+  private async createGitWorktree(taskId: string, signal?: AbortSignal): Promise<ManagedWorkspace> {
     const projectRoot = await realpath(this.projectRoot).catch(() => resolve(this.projectRoot))
-    const root = (await execa('git', ['rev-parse', '--show-toplevel'], { cwd: projectRoot })).stdout.trim()
+    signal?.throwIfAborted()
+    const root = (await runWorktreeGit(['rev-parse', '--show-toplevel'], projectRoot, { cancelSignal: signal })).stdout.trim()
     if (resolve(root) !== resolve(projectRoot)) throw new Error('Session root is not the Git repository root')
-    if ((await this.changedPaths(projectRoot)).size > 0) throw new Error('Session checkout has uncommitted changes; writer fallback must be serialized')
-    const baseHead = (await execa('git', ['rev-parse', 'HEAD'], { cwd: projectRoot })).stdout.trim()
+    if ((await this.changedPaths(projectRoot, signal)).size > 0) throw new Error('Session checkout has uncommitted changes; writer fallback must be serialized')
+    const baseHead = (await runWorktreeGit(['rev-parse', 'HEAD'], projectRoot, { cancelSignal: signal })).stdout.trim()
     const path = join(projectRoot, '.deepseek', 'worktrees', `${this.sessionId.slice(0, 8)}-${taskId.slice(0, 8)}-${randomUUID().slice(0, 6)}`)
     this.assertOwnedPath(path, projectRoot)
     const settings = await loadMergedSettings(projectRoot)
+    signal?.throwIfAborted()
     const worktreeName = basename(path)
     const hook = await runClaudeHookEvent(settings.hooks, 'WorktreeCreate', this.sessionId, {
       cwd: projectRoot, name: worktreeName, path: worktreeName,
-    } as Record<string, unknown>)
+    } as Record<string, unknown>, undefined, signal)
+    signal?.throwIfAborted()
     if (hook.decision === 'block') throw new WorktreeHookBlockedError(hook.reason ?? 'Worktree creation blocked by hook')
-    await this.ensureWorktreeIgnored()
+    await this.ensureWorktreeIgnored(signal)
+    signal?.throwIfAborted()
     await mkdir(join(projectRoot, '.deepseek', 'worktrees'), { recursive: true })
-    await execa('git', ['worktree', 'add', '--detach', path, baseHead], { cwd: projectRoot })
+    signal?.throwIfAborted()
+    try {
+      await runWorktreeGit(['worktree', 'add', '--detach', path, baseHead], projectRoot, { cancelSignal: signal })
+      signal?.throwIfAborted()
+    } catch (error) {
+      await this.removePartialWorktree(path, projectRoot)
+      throw error
+    }
     return { taskId, path, projectRoot, isolation: 'git-worktree', baseHead, integrated: false, preserved: true }
   }
 
   /** Append `.deepseek/worktrees/` to the repository's info/exclude file unless it is already listed. */
-  private async ensureWorktreeIgnored(): Promise<void> {
-    const gitPath = (await execa('git', ['rev-parse', '--git-path', 'info/exclude'], { cwd: this.projectRoot })).stdout.trim()
+  private async ensureWorktreeIgnored(signal?: AbortSignal): Promise<void> {
+    const gitPath = (await runWorktreeGit(['rev-parse', '--git-path', 'info/exclude'], this.projectRoot, { cancelSignal: signal })).stdout.trim()
     const excludePath = resolve(this.projectRoot, gitPath)
     const content = await readFile(excludePath, 'utf8').catch(error => {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return ''
       throw error
     })
+    signal?.throwIfAborted()
     if (!content.split(/\r?\n/).includes('.deepseek/worktrees/')) await appendFile(excludePath, '\n.deepseek/worktrees/\n')
+  }
+
+  /** Remove only the uniquely generated task path if Git setup was interrupted after creating it. */
+  private async removePartialWorktree(path: string, projectRoot: string): Promise<void> {
+    try { this.assertOwnedPath(path, projectRoot) } catch { return }
+    await runWorktreeGit(['worktree', 'remove', '--force', path], projectRoot, { reject: false }).catch(() => undefined)
+    await rm(path, { recursive: true, force: true }).catch(() => undefined)
   }
 
   /** Build a binary diff against HEAD plus the changed paths. Side effect: untracked files are marked intent-to-add (`git add -N`) in the worktree so they appear in the diff. */
   private async capturePatch(workspace: ManagedWorkspace): Promise<{ patch: string; files: string[] }> {
     const files = [...await this.changedPaths(workspace.path)]
-    const untracked = await execa('git', ['ls-files', '--others', '--exclude-standard', '-z'], { cwd: workspace.path, reject: false })
+    const untracked = await runWorktreeGit(['ls-files', '--others', '--exclude-standard', '-z'], workspace.path)
     const untrackedFiles = untracked.stdout.split('\0').filter(Boolean)
-    if (untrackedFiles.length > 0) await execa('git', ['add', '-N', '--', ...untrackedFiles], { cwd: workspace.path })
-    const diff = await execa('git', ['diff', '--binary', 'HEAD'], { cwd: workspace.path, reject: false, stripFinalNewline: false })
+    if (untrackedFiles.length > 0) await runWorktreeGit(['add', '-N', '--', ...untrackedFiles], workspace.path)
+    const diff = await runWorktreeGit(['diff', '--binary', 'HEAD'], workspace.path)
     return { patch: diff.stdout, files: [...new Set([...files, ...untrackedFiles])] }
   }
 
   /** Parse `git status --porcelain=v1 -z` into changed paths, skipping the extra source-path entry that renames and copies carry. */
-  private async changedPaths(cwd: string): Promise<Set<string>> {
-    const result = await execa('git', ['status', '--porcelain=v1', '-z'], { cwd, reject: false })
+  private async changedPaths(cwd: string, signal?: AbortSignal): Promise<Set<string>> {
+    const result = await runWorktreeGit(['status', '--porcelain=v1', '-z'], cwd, { cancelSignal: signal })
     const entries = result.stdout.split('\0').filter(Boolean)
     const paths = new Set<string>()
     for (let index = 0; index < entries.length; index++) {
@@ -264,7 +285,7 @@ export class TaskWorkspaceManager {
     const patchPath = join(directory, 'change.patch')
     try {
       await writeFile(patchPath, patch, { encoding: 'utf8', mode: 0o600 })
-      return await execa('git', ['apply', ...(check ? ['--check'] : []), patchPath], { cwd: projectRoot, reject: false })
+      return await runWorktreeGit(['apply', ...(check ? ['--check'] : []), patchPath], projectRoot, { reject: false })
     } finally {
       await rm(directory, { recursive: true, force: true })
     }

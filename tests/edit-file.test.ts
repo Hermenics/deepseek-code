@@ -26,6 +26,34 @@ async function writeTestFile(name: string, content: string): Promise<string> {
 }
 
 describe('EditFile tool', () => {
+  it('uses the edited CRLF line ending for inserted lines and reports normalization', async () => {
+    const { EditFile } = await import('../src/tools/EditFile/EditFile.js')
+    const filePath = await writeTestFile('crlf.txt', 'first\r\nsecond\r\nlast')
+    const result = JSON.parse(await EditFile.execute({ path: filePath, edits: [{ line: 2, old: ['second'], new: ['SECOND\ninserted'] }] }))
+    expect(await fs.readFile(filePath, 'utf-8')).toBe('first\r\nSECOND\r\ninserted\r\nlast')
+    expect(result.normalizedReplacementLineEndings).toBe(true)
+  })
+
+  it('preserves mixed line endings outside each edited line and no final newline', async () => {
+    const { EditFile } = await import('../src/tools/EditFile/EditFile.js')
+    const filePath = await writeTestFile('mixed.txt', 'first\r\nsecond\nthird\r\nlast')
+    const result = JSON.parse(await EditFile.execute({ path: filePath, edits: [
+      { line: 1, old: ['first'], new: ['FIRST\ninserted'] },
+      { line: 2, old: ['second'], new: ['SECOND\ninserted'] },
+      { line: 4, old: ['last'], new: ['LAST'] },
+    ] }))
+    expect(await fs.readFile(filePath, 'utf-8')).toBe('FIRST\r\ninserted\r\nSECOND\ninserted\nthird\r\nLAST')
+    expect(result.normalizedReplacementLineEndings).toBe(true)
+  })
+
+  it('preserves a literal final carriage return without treating it as CRLF', async () => {
+    const { EditFile } = await import('../src/tools/EditFile/EditFile.js')
+    const filePath = await writeTestFile('bare-cr.txt', 'last\r')
+    const result = JSON.parse(await EditFile.execute({ path: filePath, edits: [{ line: 1, old: ['last'], new: ['LAST\ninserted'] }] }))
+    expect(await fs.readFile(filePath, 'utf-8')).toBe('LAST\ninserted\r')
+    expect(result.normalizedReplacementLineEndings).toBe(false)
+  })
+
   it('should apply a simple single replacement', async () => {
     const { EditFile } = await import('../src/tools/EditFile/EditFile.js')
     const filePath = await writeTestFile('single.txt', 'hello world\n')

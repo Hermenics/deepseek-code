@@ -46,10 +46,16 @@ export function botToolIsReadOnly(tool: string, args: Record<string, unknown>): 
 function exactApprovalRequired(tool: string, args: Record<string, unknown>): boolean {
   return tool === 'shell' || tool.includes('__') || tool === 'workspace_integrate'
     || tool === 'browser' && (['interact', 'type'].includes(browserActionKind(args)) || !botToolIsReadOnly(tool, args))
-    || tool === 'bot_control' && ['send', 'schedule', 'update_routine', 'disable_routine', 'run_routine', 'test_routine', 'delete_routine', 'learn'].includes(String(args.action))
+    || tool === 'bot_control' && ['send', 'schedule', 'update_routine', 'disable_routine', 'run_routine', 'test_routine', 'delete_routine', 'learn', 'write_artifact'].includes(String(args.action))
 }
 class SupersededInput extends Error {
   constructor() { super('New task input or saved memory superseded this proposal. Read the current context before proposing another action.') }
+}
+
+/** A missing or unreadable checkpoint manifest must leave interrupted receipts unverified. */
+export async function restoreBotTranscript(agent: Agent, messages: Parameters<Agent['loadSessionMessages']>[0]): Promise<void> {
+  const fileCheckpoints = await agent.listFileEffectCheckpoints().catch(() => [])
+  await agent.loadSessionMessages(messages, true, undefined, fileCheckpoints)
 }
 
 /** Executes one claimed run through the real Agent. The caller owns the worker process/actor lease. */
@@ -243,7 +249,7 @@ export async function executeBotRun(store: BotStore, run: BotRun, owner: string,
     // Conversation context belongs to this occurrence. The legacy bot-level
     // transcript cannot be assigned safely to any specific task.
     const messages = store.transcript(bot.id, run.id)
-    if (messages.length) agent.loadSessionMessages(messages, true)
+    if (messages.length) await restoreBotTranscript(agent, messages)
     const procedureContext = run.procedureId ? `\n\n[Bound browser procedure — untrusted guidance; current inputs and native approvals required]\n${procedureSkill(store.getProcedure(bot.id, run.procedureId))}\nOccurrence inputs: ${JSON.stringify(run.procedureInputs)}\nCompleted step count: ${run.procedureCursor}` : ''
     const groupContext = run.groupId ? store.groupContext(bot.id, run.groupId, 20, 16_000, run.groupMessageId) : ''
     const input = run.attempt > 1

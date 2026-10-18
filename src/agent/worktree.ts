@@ -1,7 +1,7 @@
 import { join, relative, resolve } from 'path'
 import { mkdir, readFile, writeFile, readdir, realpath, stat } from 'fs/promises'
 import { existsSync, realpathSync } from 'fs'
-import { execa } from 'execa'
+import { runWorktreeGit } from '../utils/worktreeGit.js'
 import { randomBytes, randomUUID } from 'crypto'
 import { loadMergedSettings } from '../settings/loader.js'
 import { runClaudeHookEvent } from '../hooks/lifecycle.js'
@@ -114,7 +114,7 @@ export async function createWorktree(projectRoot: string, sessionId?: string): P
     if (hook.decision === 'block') throw new Error(hook.reason ?? 'Worktree creation blocked by hook')
     try {
       if (!existsSync(worktreesDir)) await mkdir(worktreesDir, { recursive: true })
-      await execa('git', ['worktree', 'add', '-b', branch, worktreePath], { cwd: projectRoot, stdio: 'pipe' })
+      await runWorktreeGit(['worktree', 'add', '-b', branch, worktreePath], projectRoot)
     } catch (e) {
       throw new Error(`git worktree add failed: ${(e as Error).message}`)
     }
@@ -193,9 +193,9 @@ export async function exitWorktree(projectRoot: string, keep: boolean): Promise<
     }
 
     if (!isGitWorktree) throw new Error(`Legacy copied worktree "${name}" was preserved; remove it manually after inspection.`)
-    const status = await execa('git', ['status', '--porcelain=v1'], { cwd: path, reject: false })
+    const status = await runWorktreeGit(['status', '--porcelain=v1'], path)
     if (status.stdout.trim()) throw new Error(`Worktree "${name}" has uncommitted changes and was preserved.`)
-    const removed = await execa('git', ['worktree', 'remove', path], { cwd: projectRoot, reject: false })
+    const removed = await runWorktreeGit(['worktree', 'remove', path], projectRoot, { reject: false })
     if (removed.exitCode !== 0) throw new Error(removed.stderr || removed.stdout || `Unable to remove worktree "${name}"`)
   }
 

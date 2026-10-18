@@ -4,9 +4,29 @@ import { findChromium } from '../../src/utils/platform.js'
 import { launchBrowser } from '../../src/browser/launcher.js'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
+import { networkInterfaces, tmpdir } from 'node:os'
+import { isBlockedIp } from '../../src/tools/WebFetch/WebFetch.js'
 
 const canRun = Boolean(findChromium()) && process.platform !== 'win32'
+const blockedHosts = Object.values(networkInterfaces()).flatMap(addresses => addresses ?? [])
+  .filter(address => !address.internal && address.family === 'IPv4' && isBlockedIp(address.address))
+  .map(address => address.address)
+
+async function findReachableBlockedHost(): Promise<string | undefined> {
+  if (!canRun || blockedHosts.length === 0) return undefined
+  const server = Bun.serve({ hostname: '0.0.0.0', port: 0, fetch: () => new Response('reachable') })
+  try {
+    for (const host of blockedHosts) {
+      try {
+        const response = await fetch(`http://${host}:${server.port}/probe`, { signal: AbortSignal.timeout(500) })
+        if (response.status === 200 && await response.text() === 'reachable') return host
+      } catch { /* Try the next host-assigned address. */ }
+    }
+    return undefined
+  } finally { server.stop(true) }
+}
+
+const blockedHost = await findReachableBlockedHost()
 
 describe.skipIf(!canRun)('browser worker network policy', () => {
   it('requires fresh approval when a persisted service worker starts before its page', async () => {
@@ -77,7 +97,7 @@ describe.skipIf(!canRun)('browser worker network policy', () => {
     let hits = 0
     const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
       if (new URL(request.url).pathname === '/probe') hits++
-      return new Response('<!doctype html><title>Opaque worker</title>', { headers: { 'content-type': 'text/html' } })
+      return new Response('<!doctype html><title>Opaque worker</title>', { headers: { 'access-control-allow-origin': '*', 'content-type': 'text/html' } })
     } })
     const base = `http://localhost:${server.port}`, service = new BrowserService(), key = contextKey('opaque-worker')
     try {
@@ -102,7 +122,7 @@ describe.skipIf(!canRun)('browser worker network policy', () => {
       await service.withTab(key, tab => tab.snapshot())
     } finally { await service.shutdown(); await service.whenClosed(); server.stop(true) }
   }, 30_000)
-  for (const persistent of [false, true]) it(`checks page and worker requests in a ${persistent ? 'persistent' : 'disposable'} context`, async () => {
+  for (const persistent of [false, true]) it.skipIf(!blockedHost)(`checks page and worker requests in a ${persistent ? 'persistent' : 'disposable'} context (requires a reachable blocked IPv4 fixture)`, async () => {
     const directory = await mkdtemp(join(tmpdir(), 'deepseek-worker-network-'))
     const hits = new Map<string, number>(), allowed = new Set<string>()
     const worker = `async function probe(kind) {
@@ -112,7 +132,7 @@ describe.skipIf(!canRun)('browser worker network policy', () => {
       return {kind, denied};
     }`
     let blocked = ''
-    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(request) {
+    const server = Bun.serve({ hostname: '0.0.0.0', port: 0, fetch(request) {
       const url = new URL(request.url), kind = url.searchParams.get('kind') ?? ''
       if (url.pathname === '/probe') { hits.set(kind, (hits.get(kind) ?? 0) + 1); return new Response('probe') }
       if (url.pathname === '/allowed') { allowed.add(kind); return new Response('allowed') }
@@ -124,9 +144,9 @@ describe.skipIf(!canRun)('browser worker network policy', () => {
       return new Response('<!doctype html><title>Worker policy</title><p>Ready</p>', { headers: { 'content-type': 'text/html' } })
     } })
     const base: string = `http://localhost:${server.port}`
-    // Linux routes this unspecified IPv4 address to the local listener, but the
-    // production policy blocks it. All probes stay on this isolated fixture.
-    blocked = `http://0.0.0.0:${server.port}`
+    // Use a host-assigned address that the production policy blocks, without
+    // assuming that 0.0.0.0 is routable on this machine.
+    blocked = `http://${blockedHost}:${server.port}`
     const targets: unknown[] = []
     const service = new BrowserService((_visible, network) => {
       const browser = launchBrowser({ ...network, profileDirectory: persistent ? join(directory, 'profile') : undefined })

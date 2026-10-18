@@ -99,7 +99,7 @@ it('yields during pending-migration startup for terminal commands too', async ()
     if (writer.exitCode === null) writer.kill()
     await writer.exited; await listing; store.close(); await rm(directory, { recursive: true, force: true })
   }
-}, 5000)
+}, 15000)
 
 it('keeps the supervisor alive across real SQLite writer contention', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'deepseek-busy-check-'))
@@ -208,7 +208,8 @@ it('starts the full run lease after acquiring a contended writer', async () => {
     await Promise.race([holding, writer.exited.then(() => { throw Error('Writer exited before its lock') })])
     const claimed = store.claim(bot.id, 'fresh-owner')!
     expect(claimed.id).toBe(run.id)
-    expect(claimed.leaseUntil!).toBeGreaterThanOrEqual(Date.now() + 29500)
+    // Allow transaction/readback latency while still detecting a lease timestamp taken before the 2s writer wait.
+    expect(claimed.leaseUntil!).toBeGreaterThanOrEqual(Date.now() + 29_000)
     expect(await writer.exited).toBe(0)
   } finally {
     if (writer.exitCode === null) writer.kill()

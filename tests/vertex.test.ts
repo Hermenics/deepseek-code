@@ -25,6 +25,7 @@ mock.module('google-auth-library', () => ({
 const {
   getVertexAccessToken,
   createVertexFetch,
+  listVertexDeepSeekModels,
   clearTokenCache,
 } = await import('../src/agent/providers/vertex.js')
 
@@ -40,7 +41,7 @@ describe('vertex provider', () => {
   })
 
   describe('getVertexAccessToken', () => {
-    it('chama GoogleAuth com keyFile e scopes corretos', async () => {
+    it('calls GoogleAuth with the correct keyFile and scopes', async () => {
       await getVertexAccessToken('/path/to/sa.json')
 
       expect(constructorCalls).toHaveLength(1)
@@ -50,27 +51,38 @@ describe('vertex provider', () => {
       })
     })
 
-    it('retorna o access token gerado', async () => {
+    it('returns the generated access token', async () => {
       const token = await getVertexAccessToken('/path/to/sa.json')
       expect(token).toBe('fake-oauth-token-123')
     })
 
-    it('retorna token do cache se ainda válido', async () => {
-      // Primeira chamada — gera token
+    it('checks abort after non-cancellable GoogleAuth token acquisition completes', async () => {
+      let finishToken!: (value: { token: string }) => void
+      mockGetAccessToken.mockImplementationOnce(() => new Promise(resolve => { finishToken = resolve }))
+      const controller = new AbortController()
+      const pending = getVertexAccessToken('/path/to/sa.json', controller.signal)
+      await Bun.sleep(0)
+      controller.abort(new Error('cancelled'))
+      finishToken({ token: 'late-token' })
+      await expect(pending).rejects.toThrow('cancelled')
+    })
+
+    it('returns the cached token while it is still valid', async () => {
+      // First call generates a token.
       await getVertexAccessToken('/path/to/sa.json')
-      // Segunda chamada — deve usar cache
+      // Second call should use the cache.
       await getVertexAccessToken('/path/to/sa.json')
 
-      // GoogleAuth constructor deve ter sido chamado apenas 1 vez
+      // The GoogleAuth constructor should have been called only once.
       expect(mockGetAccessToken).toHaveBeenCalledTimes(1)
     })
 
-    it('gera novo token se cache expirado', async () => {
-      // Primeira chamada
+    it('generates a new token when the cache expires', async () => {
+      // First call.
       await getVertexAccessToken('/path/to/sa.json')
 
-      // Simula expiração do cache manipulando o tempo
-      // Avança o relógio 1 hora (token expira em 3600s, buffer de 5min)
+      // Simulate cache expiration by manipulating the clock.
+      // Advance one hour (the token expires in 3600s, with a 5-minute buffer).
       const originalNow = Date.now
       Date.now = () => originalNow() + 3600 * 1000
 
@@ -82,10 +94,10 @@ describe('vertex provider', () => {
       }
     })
 
-    it('gera novo token quando falta menos de 5 minutos para expirar', async () => {
+    it('generates a new token when less than 5 minutes remain before expiration', async () => {
       await getVertexAccessToken('/path/to/sa.json')
 
-      // Avança 56 minutos (3360s) — faltam 4min, dentro do buffer de 5min
+      // Advance 56 minutes (3360s), leaving 4 minutes within the 5-minute buffer.
       const originalNow = Date.now
       Date.now = () => originalNow() + 3360 * 1000
 
@@ -97,7 +109,7 @@ describe('vertex provider', () => {
       }
     })
 
-    it('lança erro se getAccessToken retorna token nulo', async () => {
+    it('throws when getAccessToken returns a null token', async () => {
       mockGetAccessToken.mockImplementation(() =>
         Promise.resolve({ token: null as unknown as string }),
       )
@@ -109,7 +121,7 @@ describe('vertex provider', () => {
   })
 
   describe('clearTokenCache', () => {
-    it('limpa o cache forçando nova geração de token', async () => {
+    it('clears the cache to force token regeneration', async () => {
       await getVertexAccessToken('/path/to/sa.json')
       clearTokenCache()
       await getVertexAccessToken('/path/to/sa.json')
@@ -119,12 +131,12 @@ describe('vertex provider', () => {
   })
 
   describe('createVertexFetch', () => {
-    it('retorna uma função', () => {
+    it('returns a function', () => {
       const fetchFn = createVertexFetch('/path/to/sa.json')
       expect(typeof fetchFn).toBe('function')
     })
 
-    it('seta Authorization header com Bearer token real', async () => {
+    it('sets the Authorization header with the real Bearer token', async () => {
       const originalFetch = globalThis.fetch
       let capturedHeaders: Headers | null = null
 
@@ -148,7 +160,7 @@ describe('vertex provider', () => {
       }
     })
 
-    it('substitui o header dummy do OpenAI SDK', async () => {
+    it('replaces the OpenAI SDK dummy header', async () => {
       const originalFetch = globalThis.fetch
       let capturedHeaders: Headers | null = null
 
@@ -159,7 +171,7 @@ describe('vertex provider', () => {
 
       try {
         const fetchFn = createVertexFetch('/path/to/sa.json')
-        // Simula o que o OpenAI SDK faz: seta Authorization: Bearer vertex
+        // Simulate the OpenAI SDK setting Authorization: Bearer vertex.
         await fetchFn('https://vertex.googleapis.com/v1/test', {
           headers: {
             Authorization: 'Bearer vertex',
@@ -176,7 +188,7 @@ describe('vertex provider', () => {
       }
     })
 
-    it('preserva outros headers além do Authorization', async () => {
+    it('preserves headers other than Authorization', async () => {
       const originalFetch = globalThis.fetch
       let capturedHeaders: Headers | null = null
 
@@ -202,7 +214,7 @@ describe('vertex provider', () => {
       }
     })
 
-    it('passa URL e body corretamente para o fetch original', async () => {
+    it('passes the URL and body to the original fetch correctly', async () => {
       const originalFetch = globalThis.fetch
       let capturedUrl: any = null
       let capturedBody: any = null
@@ -223,6 +235,33 @@ describe('vertex provider', () => {
 
         expect(capturedUrl).toBe('https://vertex.googleapis.com/v1/test')
         expect(capturedBody).toBe(JSON.stringify({ prompt: 'hello' }))
+      } finally {
+        globalThis.fetch = originalFetch
+      }
+    })
+  })
+
+  describe('listVertexDeepSeekModels', () => {
+    it('passes the abort signal to the cancellable catalog fetch', async () => {
+      const originalFetch = globalThis.fetch
+      const controller = new AbortController()
+      let receivedSignal: AbortSignal | undefined
+      let requestStarted!: () => void
+      const started = new Promise<void>(resolve => { requestStarted = resolve })
+      globalThis.fetch = mock(async (_input: any, init?: RequestInit) => {
+        receivedSignal = init?.signal ?? undefined
+        requestStarted()
+        return await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true })
+        })
+      }) as any
+
+      try {
+        const pending = listVertexDeepSeekModels('fixture-project', 'us-central1', '/path/to/sa.json', controller.signal)
+        await started
+        expect(receivedSignal).toBe(controller.signal)
+        controller.abort(new Error('cancelled'))
+        await expect(pending).rejects.toThrow('cancelled')
       } finally {
         globalThis.fetch = originalFetch
       }

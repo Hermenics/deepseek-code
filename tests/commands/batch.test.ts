@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from 'bun:test'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { WorkflowManager } from '../../src/workflows/manager.js'
@@ -24,6 +24,7 @@ describe('/batch', () => {
   test('executes all prompts through WorkflowManager', async () => {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-batch-'))
     roots.push(root)
+    await mkdir(join(root, 'project'), { recursive: true })
     const calls: string[] = []
     const manager = new WorkflowManager({
       sessionId: 'batch-test', projectRoot: join(root, 'project'), baseDirectory: join(root, 'state'),

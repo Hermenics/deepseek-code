@@ -14,7 +14,7 @@ import Text from '../../ink/components/Text.js'
 export type { ThemeName, ProviderName, ProviderConfig } from '../../types/provider.js'
 import type { ThemeName, ProviderName, ProviderConfig } from '../../types/provider.js'
 import { readClipboardSync } from '../../utils/platform.js'
-import { afterKeyCheck, checkOfficialDeepSeekApi } from './deepseekHealth.js'
+import { afterKeyCheck, checkOfficialDeepSeekApi, checkProviderModelCatalogConnectivity } from './deepseekHealth.js'
 import { loadProviderProfiles, migrateLegacyProviderProfile, saveProviderProfiles, type ProviderProfile } from '../../utils/providerProfiles.js'
 
 export const PROVIDERS: { label: string; value: ProviderName; hint: string }[] = [
@@ -100,10 +100,12 @@ type Step = 'theme' | 'provider' | 'fields' | 'done'
 
 interface Props {
   onDone(theme: ThemeName, providerConfig: ProviderConfig): void
+  /** Injectable model-catalog connectivity check for local setup tests. */
+  probeProvider?: (config: ProviderConfig) => Promise<string[]>
 }
 
 /** First-run wizard: picks a theme, then a provider, then prompts for that provider's fields, saving credentials and a provider profile before calling onDone. */
-export function ApiKeySetup({ onDone }: Props) {
+export function ApiKeySetup({ onDone, probeProvider = checkProviderModelCatalogConnectivity }: Props) {
   const [step, setStep] = useState<Step>('theme')
   const [themeIdx, setThemeIdx] = useState(0)
   const [providerIdx, setProviderIdx] = useState(0)
@@ -238,7 +240,31 @@ export function ApiKeySetup({ onDone }: Props) {
         if (fieldIdx < fields.length - 1) {
           setFieldIdx((i) => i + 1)
           setCurrentInput('')
-        } else completeSetup(updated)
+        } else if (selectedProvider === 'deepseek') completeSetup(updated)
+        else {
+          const providerConfig: ProviderConfig = {
+            provider: selectedProvider,
+            awsRegion: updated['AWS_REGION'],
+            awsProfile: updated['AWS_PROFILE'],
+            gcpProject: updated['GCP_PROJECT'],
+            gcpLocation: updated['GCP_LOCATION'],
+            gcpCredentials: updated['GCP_CREDENTIALS'],
+            localBaseUrl: updated['LOCAL_BASE_URL'],
+            localModel: updated['LOCAL_MODEL'],
+          }
+          setCheckingHealth(true)
+          setError('')
+          void probeProvider(providerConfig)
+            .then((models) => {
+              if (!models.length) throw new Error(`No models were returned by the ${selectedProvider} model catalog.`)
+              if (selectedProvider === 'local' && !models.includes(updated['LOCAL_MODEL']!.trim())) {
+                throw new Error(`Configured local model "${updated['LOCAL_MODEL']}" was not returned by the local endpoint.`)
+              }
+              completeSetup(updated)
+            })
+            .catch((e: unknown) => setError(`Could not connect to the ${selectedProvider} model catalog: ${(e as Error).message}`))
+            .finally(() => setCheckingHealth(false))
+        }
         return
       }
       if (key.backspace) { setCurrentInput((s) => s.slice(0, -1)); setError(''); return }
@@ -333,7 +359,7 @@ export function ApiKeySetup({ onDone }: Props) {
           <Text>{currentField!.secret ? '•'.repeat(currentInput.length) : currentInput}</Text>
           <Text color={colors.primary}>{'█'}</Text>
         </Box>
-        {saving ? <Text color={colors.textDim}>Saving…</Text> : checkingHealth ? <Text color={colors.textDim}>Checking the official DeepSeek API…</Text> : error ? <Text color={colors.error}>{error}</Text> : <Text color={colors.textDim}>{'Enter to confirm · Esc back'}</Text>}
+        {saving ? <Text color={colors.textDim}>Saving…</Text> : checkingHealth ? <Text color={colors.textDim}>Checking model catalog connectivity…</Text> : error ? <Text color={colors.error}>{error}</Text> : <Text color={colors.textDim}>{'Enter to confirm · Esc back'}</Text>}
       </Box>
     )
   }

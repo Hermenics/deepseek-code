@@ -39,11 +39,11 @@ describe('WebFetch tool', () => {
     return streamResponse([body], { headers })
   }
 
-  // --- Happy path (testes originais adaptados) ---
+  // --- Happy path (adapted from the original tests) ---
 
-  it('chama fetch com a URL e signal de timeout', async () => {
+  it('calls fetch with the URL and timeout signal', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
-    const fetchMock = mock(() => Promise.resolve(okResponse('conteúdo simples')))
+    const fetchMock = mock(() => Promise.resolve(okResponse('simple content')))
     global.fetch = fetchMock as any
     await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -64,28 +64,28 @@ describe('WebFetch tool', () => {
     expect(lookupMock).toHaveBeenCalledTimes(1)
   })
 
-  it('remove tags HTML do conteúdo', async () => {
+  it('removes HTML tags from content', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     global.fetch = mock(() =>
-      Promise.resolve(okResponse('<p>texto limpo</p><b>negrito</b>'))
+      Promise.resolve(okResponse('<p>clean text</p><b>bold</b>'))
     ) as any
     const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
     expect(result).not.toContain('<p>')
     expect(result).not.toContain('<b>')
-    expect(result).toContain('texto limpo')
-    expect(result).toContain('negrito')
+    expect(result).toContain('clean text')
+    expect(result).toContain('bold')
   })
 
-  it('remove script com tag de fechamento malformada (CodeQL js/bad-tag-filter)', async () => {
+  it('removes a script with a malformed closing tag (CodeQL js/bad-tag-filter)', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     global.fetch = mock(() =>
-      Promise.resolve(okResponse('ok <script>alert(1)</script foo="bar"> resto'))
+      Promise.resolve(okResponse('ok <script>alert(1)</script foo="bar"> rest'))
     ) as any
     const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
     expect(result).not.toContain('alert(1)')
     expect(result).not.toContain('<script')
     expect(result).toContain('ok')
-    expect(result).toContain('resto')
+    expect(result).toContain('rest')
   })
 
   it('strips markup revealed by one layer of HTML entity decoding', async () => {
@@ -98,7 +98,7 @@ describe('WebFetch tool', () => {
     expect(result).toContain('&lt;b&gt;')
   })
 
-  it('trunca conteúdo em 20.000 chars', async () => {
+  it('truncates content at 20,000 characters', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     const longContent = 'a'.repeat(30000)
     global.fetch = mock(() => Promise.resolve(okResponse(longContent))) as any
@@ -106,7 +106,7 @@ describe('WebFetch tool', () => {
     expect((result as string).length).toBeLessThanOrEqual(20000)
   })
 
-  it('mantém UTF-8 válido e limita caracteres sem cortar emoji', async () => {
+  it('keeps valid UTF-8 and limits characters without cutting emojis', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     const content = '🙂'.repeat(20000)
     global.fetch = mock(() => Promise.resolve(okResponse(content))) as any
@@ -115,7 +115,7 @@ describe('WebFetch tool', () => {
     expect((result as string).includes('\uFFFD')).toBe(false)
   })
 
-  it('rejeita Content-Length acima do limite antes de ler o body', async () => {
+  it('rejects Content-Length above the limit before reading the body', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     let read = false
     let cancelled = false
@@ -132,7 +132,7 @@ describe('WebFetch tool', () => {
     expect(cancelled).toBe(true)
   })
 
-  it('cancela resposta chunked ao atingir o limite de bytes', async () => {
+  it('cancels a chunked response when it reaches the byte limit', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     let cancelled = false
     global.fetch = mock(() => Promise.resolve(streamResponse(['a'.repeat(10000), 'b'.repeat(80000), 'c'], {
@@ -143,38 +143,38 @@ describe('WebFetch tool', () => {
     expect(cancelled).toBe(true)
   })
 
-  it('conteúdo menor que 20.000 chars não é truncado', async () => {
+  it('does not truncate content shorter than 20,000 characters', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
-    const shortContent = 'conteúdo curto'
+    const shortContent = 'short content'
     global.fetch = mock(() => Promise.resolve(okResponse(shortContent))) as any
     const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
-    expect(result).toContain('conteúdo curto')
+    expect(result).toContain('short content')
   })
 
-  it('retorna string para resposta válida', async () => {
+  it('returns a string for a valid response', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     global.fetch = mock(() => Promise.resolve(okResponse('ok'))) as any
     const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
     expect(typeof result).toBe('string')
   })
 
-  // --- Validação de URL ---
+  // --- URL validation ---
 
-  it('rejeita URL sem protocolo http/https', async () => {
+  it('rejects a URL without the http/https protocol', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     const result = await WebFetch.execute({ url: 'ftp://example.com' })
     expect(result).toContain('Error:')
     expect(result).toContain('invalid URL')
   })
 
-  it('rejeita URL completamente inválida', async () => {
+  it('rejects a completely invalid URL', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
-    const result = await WebFetch.execute({ url: 'não-é-url' })
+    const result = await WebFetch.execute({ url: 'not-a-url' })
     expect(result).toContain('Error:')
     expect(result).toContain('invalid URL')
   })
 
-  it('aceita URL com http://', async () => {
+  it('accepts a URL with http://', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     global.fetch = mock(() => Promise.resolve(okResponse('ok'))) as any
     const result = await WebFetch.execute({ url: PUBLIC_HTTP_URL })
@@ -185,7 +185,7 @@ describe('WebFetch tool', () => {
     ['loopback IPv4', 'http://127.0.0.2/'],
     ['loopback IPv6', 'http://[::1]/'],
     ['IPv4-mapped IPv6', 'http://[::ffff:127.0.0.2]/'],
-  ])('bloqueia %s', async (_, url) => {
+  ])('blocks %s', async (_, url) => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     const fetchMock = mock(() => Promise.resolve(okResponse('must not fetch')))
     global.fetch = fetchMock as any
@@ -194,7 +194,7 @@ describe('WebFetch tool', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('revalida cada redirect e bloqueia destino interno', async () => {
+  it('revalidates each redirect and blocks internal destinations', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     const fetchMock = mock(() => Promise.resolve(streamResponse([], {
       status: 302,
@@ -206,9 +206,9 @@ describe('WebFetch tool', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  // --- Status HTTP não-2xx ---
+  // --- Non-2xx HTTP status ---
 
-  it('retorna erro para status 404', async () => {
+  it('returns an error for status 404', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     global.fetch = mock(() =>
       Promise.resolve({ ok: false, status: 404, text: () => Promise.resolve('Not Found') } as Response)
@@ -218,7 +218,7 @@ describe('WebFetch tool', () => {
     expect(result).toContain('404')
   })
 
-  it('retorna erro para status 500', async () => {
+  it('returns an error for status 500', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     global.fetch = mock(() =>
       Promise.resolve({ ok: false, status: 500, text: () => Promise.resolve('') } as Response)
@@ -228,9 +228,9 @@ describe('WebFetch tool', () => {
     expect(result).toContain('500')
   })
 
-  // --- Erros de rede ---
+  // --- Network errors ---
 
-  it('retorna erro amigável para falha de rede', async () => {
+  it('returns a friendly error for a network failure', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     global.fetch = mock(() => Promise.reject(new TypeError('fetch failed'))) as any
     const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
@@ -240,7 +240,7 @@ describe('WebFetch tool', () => {
 
   // --- Timeout ---
 
-  it('retorna erro amigável para timeout', async () => {
+  it('returns a friendly error for a timeout', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
     const timeoutErr = new DOMException('The operation was aborted.', 'TimeoutError')
     global.fetch = mock(() => Promise.reject(timeoutErr)) as any
@@ -250,13 +250,13 @@ describe('WebFetch tool', () => {
     expect(result).toContain('15s')
   })
 
-  // --- Erro genérico ---
+  // --- Generic error ---
 
-  it('retorna erro amigável para exceção desconhecida', async () => {
+  it('returns a friendly error for an unknown exception', async () => {
     const { WebFetch } = await import('../src/tools/WebFetch/WebFetch.js')
-    global.fetch = mock(() => Promise.reject(new Error('algo inesperado'))) as any
+    global.fetch = mock(() => Promise.reject(new Error('something unexpected'))) as any
     const result = await WebFetch.execute({ url: PUBLIC_HTTPS_URL })
     expect(result).toContain('Error:')
-    expect(result).toContain('algo inesperado')
+    expect(result).toContain('something unexpected')
   })
 })

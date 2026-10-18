@@ -4,6 +4,7 @@ import { connect } from 'node:net'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { onExit } from 'signal-exit'
 import { scrubbedEnv } from '../utils/platform.js'
+import { safeGraphemeEnd } from '../utils/textBoundaries.js'
 
 /** One entry of a `launch.json` (the `.claude/launch.json` format), resolved against the project root. */
 export interface LaunchConfig {
@@ -20,6 +21,26 @@ export interface LaunchConfig {
 export const LAUNCH_FILES = ['.deepseek/launch.json', '.claude/launch.json']
 const LOG_LINES = 500
 const READY_TIMEOUT_MS = 60_000
+const MAX_READINESS_LOG_CHARS = 4_000
+
+export interface DevServerNotReadyPartial {
+  state: 'running'
+  pid: number
+  port: number
+  timeoutMs: number
+  logs: string
+}
+
+export class DevServerNotReadyError extends Error {
+  readonly code = 'DEV_SERVER_NOT_READY'
+  readonly partial: DevServerNotReadyPartial
+
+  constructor(name: string, source: string, partial: DevServerNotReadyPartial) {
+    super(`${name} is running (pid ${partial.pid}) but nothing listens on port ${partial.port} after ${partial.timeoutMs / 1000}s. Check the port in ${source}.`)
+    this.name = 'DevServerNotReadyError'
+    this.partial = partial
+  }
+}
 
 function inside(root: string, path: string): boolean {
   const rel = relative(root, path)
@@ -69,11 +90,12 @@ export function launchHash(config: LaunchConfig): string {
   return createHash('sha256').update(JSON.stringify([name, runtimeExecutable, runtimeArgs, port, cwd, Object.entries(env).sort()])).digest('hex').slice(0, 16)
 }
 
-/** The command line as the user sees it in the approval prompt. */
+/** A safe command summary for users: configured environment keys are visible, values are never displayed. */
 export function launchCommand(config: LaunchConfig): string {
   const quote = (part: string) => /^[\w@%+=:,./-]+$/.test(part) ? part : `'${part.replace(/'/g, `'\\''`)}'`
-  const env = Object.entries(config.env).map(([key, value]) => `${key}=${quote(value)}`)
-  return [...env, config.runtimeExecutable, ...config.runtimeArgs].map((part, i) => i < env.length ? part : quote(part)).join(' ')
+  const envKeys = Object.keys(config.env).sort().map(key => JSON.stringify(key))
+  const envSummary = envKeys.length ? `[env: ${envKeys.join(', ')}] ` : ''
+  return `${envSummary}${[config.runtimeExecutable, ...config.runtimeArgs].map(quote).join(' ')}`
 }
 
 /** Resolves when something accepts TCP connections on the port. */
@@ -114,7 +136,7 @@ export class DevServerManager {
     return [...this.servers.values()].filter(server => server.root === root)
   }
 
-  async start(root: string, config: LaunchConfig, owner: string, signal?: AbortSignal): Promise<string> {
+  async start(root: string, config: LaunchConfig, owner: string, signal?: AbortSignal, readinessTimeoutMs = READY_TIMEOUT_MS): Promise<string> {
     const running = this.get(root, config.name)
     if (running && running.exitCode === null) return `${config.name} is already running (pid ${running.proc.pid}) at http://localhost:${config.port}`
     const url = `http://localhost:${config.port}`
@@ -139,14 +161,24 @@ export class DevServerManager {
     void this.pump(server, proc.stderr as ReadableStream<Uint8Array>, '[err] ')
     void proc.exited.then(code => { server.exitCode = code })
 
-    const deadline = Date.now() + READY_TIMEOUT_MS
+    const timeoutMs = Number.isFinite(readinessTimeoutMs) ? Math.max(0, Math.trunc(readinessTimeoutMs)) : READY_TIMEOUT_MS
+    const deadline = Date.now() + timeoutMs
     while (Date.now() < deadline && server.exitCode === null && !signal?.aborted) {
       if (await portOpen(config.port)) return `Started ${config.name} (pid ${proc.pid}); ready at ${url} after ${((Date.now() - server.startedAt) / 1000).toFixed(1)}s.`
-      await Bun.sleep(250)
+      const remainingMs = deadline - Date.now()
+      if (remainingMs > 0) await Bun.sleep(Math.min(250, remainingMs))
     }
     if (server.exitCode !== null) return `Error: ${config.name} exited with code ${server.exitCode} before listening on port ${config.port}.\n${this.tail(server, 30)}`
     if (signal?.aborted) return `Cancelled: ${config.name} is still starting (pid ${proc.pid}); check it with dev_server logs.`
-    return `${config.name} is running (pid ${proc.pid}) but nothing listens on port ${config.port} after ${READY_TIMEOUT_MS / 1000}s. Check the port in ${config.source}.\n${this.tail(server, 30)}`
+    const logs = this.tail(server, 30)
+    const logEnd = safeGraphemeEnd(logs, MAX_READINESS_LOG_CHARS)
+    throw new DevServerNotReadyError(config.name, config.source, {
+      state: 'running',
+      pid: proc.pid,
+      port: config.port,
+      timeoutMs,
+      logs: logs.slice(0, logEnd),
+    })
   }
 
   private async pump(server: RunningServer, stream: ReadableStream<Uint8Array>, prefix: string): Promise<void> {

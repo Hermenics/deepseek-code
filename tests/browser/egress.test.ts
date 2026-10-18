@@ -6,6 +6,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BrowserEgress, createEgressCertificate, type EgressCertificate } from '../../src/browser/egress.js'
+import { EgressEngine } from '../../src/browser/egressEngine.js'
 import { BrowserService, contextKey } from '../../src/browser/service.js'
 import { findChromium } from '../../src/utils/platform.js'
 
@@ -21,10 +22,12 @@ beforeAll(async () => {
 })
 afterAll(() => { key = ''; cert = '' })
 
-function auth(gate: BrowserEgress): string { return `Basic ${Buffer.from(`${gate.username}:${gate.password}`).toString('base64')}` }
-function proxyHttp(gate: BrowserEgress, target: string, credential = auth(gate)): Promise<{ status: number; text: string }> {
+type ProxyCredentials = { url: string; username: string; password: string }
+function auth(gate: ProxyCredentials): string { return `Basic ${Buffer.from(`${gate.username}:${gate.password}`).toString('base64')}` }
+function proxyHttp(gate: ProxyCredentials, target: string, credential: string | null = auth(gate)): Promise<{ status: number; text: string }> {
   return new Promise((resolve, reject) => {
-    const upstream = request(gate.url, { path: target, headers: { 'proxy-authorization': credential, connection: 'close' } }, response => {
+    const headers = { connection: 'close', ...(credential === null ? {} : { 'proxy-authorization': credential }) }
+    const upstream = request(gate.url, { path: target, headers, agent: false }, response => {
       let text = ''
       response.on('data', value => { text += value })
       response.on('end', () => resolve({ status: response.statusCode!, text }))
@@ -155,12 +158,26 @@ describe.skipIf(process.platform === 'win32')('Codimium egress transport', () =>
     const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch(req) { hits++; observed = req.headers.get('proxy-authorization') ?? ''; return new Response('real upstream') } })
     const gate = await BrowserEgress.start(identity, () => true), target = `http://localhost:${server.port}/`
     try {
-      expect((await proxyHttp(gate, target, '')).status).toBe(407)
-      expect(hits).toBe(0)
+      for (const credential of [null, '']) {
+        const credentialKind = credential === null ? 'missing' : 'empty'
+        const response = await proxyHttp(gate, target, credential)
+        expect({ credential: credentialKind, response, hits }).toEqual({ credential: credentialKind, response: { status: 407, text: '' }, hits: 0 })
+      }
       expect(await proxyHttp(gate, target)).toEqual({ status: 200, text: 'real upstream' })
       expect(hits).toBe(1); expect(observed).toBe('')
       const other = await BrowserEgress.start(identity, () => true)
       try { expect((await proxyHttp(other, target, auth(gate))).status).toBe(407); expect(hits).toBe(1) } finally { other.stop() }
+    } finally { gate.stop(); server.stop(true) }
+  })
+  it('does not let an authenticated tunnel marker authorize the outer proxy', async () => {
+    let hits = 0
+    const server = Bun.serve({ hostname: '127.0.0.1', port: 0, fetch() { hits++; return new Response('real upstream') } })
+    const gate = await EgressEngine.start(identity, () => true)
+    try {
+      ;(gate as any).server.once('connection', (socket: object) => (gate as any).authenticated.add(socket))
+      const response = await proxyHttp(gate, `http://localhost:${server.port}/`, null)
+      expect(response).toEqual({ status: 407, text: '' })
+      expect(hits).toBe(0)
     } finally { gate.stop(); server.stop(true) }
   })
   it('rejects private DNS answers and does not reuse previous public classification', async () => {

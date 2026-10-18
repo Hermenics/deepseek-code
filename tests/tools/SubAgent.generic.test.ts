@@ -5,8 +5,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execa } from 'execa'
 import { OrchestratorSession } from '../../src/orchestration/index.js'
-import type { TaskHandle, ToolExecutionContext } from '../../src/orchestration/types.js'
+import type { TaskHandle, TaskResultEnvelopeV1, ToolExecutionContext } from '../../src/orchestration/types.js'
+import type { DeepSeekSettings } from '../../src/settings/types.js'
 import { SubAgent, spawnSubAgentTask } from '../../src/tools/SubAgent/SubAgent.js'
+import { normalizeToolException } from '../../src/tools/result.js'
+import { hookAuditLog } from '../../src/hooks/executor.js'
+import { printOutput } from '../platform-commands.js'
 
 /**
  * Unknown agent name that can never resolve: not a builtin (coder/reviewer/tester),
@@ -20,13 +24,13 @@ const UNKNOWN_AGENT = 'no-such-agent-8f3a'
  * provider — hermetic and deterministic. Retries are disabled so the failure is
  * terminal within milliseconds.
  */
-function createSession(projectRoot?: string): OrchestratorSession {
+function createSession(projectRoot?: string, settings: DeepSeekSettings = { agents: {} }): OrchestratorSession {
   const root = projectRoot ?? mkdtempSync(join(tmpdir(), 'dsk-generic-project-'))
   if (!projectRoot) roots.push(root)
   const session = new OrchestratorSession({
     projectRoot: root,
     providerConfig: { provider: 'local', localBaseUrl: 'http://127.0.0.1:1/v1' },
-    settings: { agents: {} },
+    settings,
     limits: { maxRetries: 0, retryBackoffMs: 0, timeoutMs: 10_000 },
     logFile: null,
   })
@@ -34,8 +38,8 @@ function createSession(projectRoot?: string): OrchestratorSession {
   return session
 }
 
-function context(session: OrchestratorSession): ToolExecutionContext {
-  return session.toolContext({})
+function context(session: OrchestratorSession, signal?: AbortSignal): ToolExecutionContext {
+  return session.toolContext({ signal })
 }
 
 const handles: Array<TaskHandle<unknown>> = []
@@ -71,6 +75,22 @@ async function createGitRepo(): Promise<string> {
 }
 
 describe('SubAgent generic spawn fallback', () => {
+  it('does not run SubagentStart hooks or create a task after parent cancellation', async () => {
+    const session = createSession(undefined, {
+      agents: {},
+      hooks: { SubagentStart: [{ matcher: 'Agent1', hooks: [{ type: 'command', command: printOutput('hook ran') }] }] },
+    })
+    const controller = new AbortController()
+    controller.abort(new Error('parent cancelled'))
+    hookAuditLog.length = 0
+
+    await expect(spawnSubAgentTask({ task: 'Search the repository', role: 'reader' }, context(session, controller.signal)))
+      .rejects.toThrow('parent cancelled')
+
+    expect(hookAuditLog).toHaveLength(0)
+    expect(session.registry.listTasks()).toHaveLength(0)
+  })
+
   it('falls back to a generic subagent instead of throwing when the agent name is unknown', async () => {
     const session = createSession()
     const spawned = await spawnSubAgentTask({ task: 'Search the repository', agent: UNKNOWN_AGENT, role: 'reader' }, context(session))
@@ -152,14 +172,257 @@ describe('SubAgent generic spawn fallback', () => {
   it('returns a generic-fallback note in the background tool result when the agent name is unknown', async () => {
     const session = createSession()
     const output = await SubAgent.execute(
-      { task: 'Summarize the codebase', agent: UNKNOWN_AGENT, role: 'reader', mode: 'background' },
+      { task: 'Summarize the codebase', agent: UNKNOWN_AGENT, mode: 'background' },
       context(session),
     )
-    const parsed = JSON.parse(output) as { taskId?: string; agent?: string }
+    const parsed = JSON.parse(output) as {
+      taskId?: string
+      agent?: string
+      effectiveScope?: { mode: string; role: string; permissionProfile: string; contextMode: string; timeoutMs: number }
+    }
 
     expect(parsed.taskId).toBeTruthy()
     expect(parsed.agent).toBe('Agent1')
+    expect(parsed.effectiveScope).toEqual({
+      mode: 'background', role: 'reader', permissionProfile: 'researcher-readonly', contextMode: 'fresh', timeoutMs: 120_000,
+    })
     expect(output).toContain('generic')
+  })
+
+  it('reports a primary background effect only after its durable task subtree settles', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsk-primary-background-subagent-'))
+    roots.push(root)
+    const session = new OrchestratorSession({
+      projectRoot: root,
+      providerConfig: { provider: 'local', localBaseUrl: 'http://127.0.0.1:1/v1' },
+      settings: { agents: {} },
+      snapshotFile: join(root, 'tasks.json'),
+      logFile: null,
+      limits: { maxRetries: 0, retryBackoffMs: 0, timeoutMs: 10_000 },
+    })
+    sessions.push(session)
+    const spawn = session.spawn.bind(session)
+    let releaseTask!: () => void
+    let taskStarted!: () => void
+    const taskGate = new Promise<void>(resolve => { releaseTask = resolve })
+    const started = new Promise<void>(resolve => { taskStarted = resolve })
+    session.spawn = ((input: Parameters<typeof session.spawn>[0], runner: Parameters<typeof session.spawn>[1]) => {
+      if (input.metadata?.origin !== 'subagent') return spawn(input, runner)
+      return spawn(input, async taskContext => {
+        const effectId = await taskContext.markEffectStarted('write_file')
+        taskStarted()
+        await taskGate
+        await taskContext.markEffectOutcome(effectId, 'effect-observed', `file-sha256:${'b'.repeat(64)}`)
+        return { summary: 'completed', confidence: 1, filesRead: [], filesChanged: ['result.txt'], issuesFound: [], suggestions: [], metadata: {} }
+      })
+    }) as typeof session.spawn
+
+    const primaryCallId = 'stable-primary-background-call'
+    let reportOutcome!: (value: { effectId: string; state: string; evidence: string }) => void
+    const outcome = new Promise<{ effectId: string; state: string; evidence: string }>(resolve => { reportOutcome = resolve })
+    const toolContext = context(session)
+    toolContext.effectId = primaryCallId
+    toolContext.markEffectOutcome = async (effectId, state, evidence) => reportOutcome({ effectId, state, evidence })
+
+    const output = await SubAgent.execute({ task: 'Perform a bounded task', mode: 'background' }, toolContext)
+    const handle = JSON.parse(output) as { taskId: string }
+    await started
+    expect(session.registry.getStatus(handle.taskId).metadata.primaryEffectId).toBe(primaryCallId)
+    releaseTask()
+
+    const report = await outcome
+    expect(report.effectId).toBe(primaryCallId)
+    expect(report.state).toBe('effect-observed')
+    expect(JSON.parse(report.evidence)).toMatchObject({
+      schema: 'primary_subagent_background_outcome_v1',
+      taskId: handle.taskId,
+      evidence: expect.stringMatching(/^descendant-effects-sha256:[a-f0-9]{64}$/),
+    })
+  })
+
+  it('exposes effective foreground defaults when spawning without optional scope arguments', async () => {
+    const session = createSession()
+    const spawned = await spawnSubAgentTask({ task: 'Summarize the codebase' }, context(session))
+    handles.push(spawned.handle)
+
+    expect(spawned.effectiveScope).toEqual({
+      mode: 'foreground', role: 'reader', permissionProfile: 'researcher-readonly', contextMode: 'fresh', timeoutMs: 120_000,
+    })
+  })
+
+  it('includes the effective default scope when a foreground subagent fails', async () => {
+    const session = createSession()
+    await expect(SubAgent.execute({ task: 'Summarize the codebase' }, context(session))).rejects.toThrow(
+      'Effective delegation scope: {"mode":"foreground","role":"reader","permissionProfile":"researcher-readonly","contextMode":"fresh","timeoutMs":120000}',
+    )
+  })
+
+  it('preserves a failed task envelope through the foreground tool error boundary', async () => {
+    const session = createSession()
+    const taskResult: TaskResultEnvelopeV1 = {
+      schemaVersion: 1,
+      taskId: 'failed-subagent',
+      sessionId: session.sessionId,
+      status: 'failed',
+      partial: { completedFiles: ['README.md'], artifactRefs: ['existing-artifact'] },
+      artifacts: [{ id: 'recovery-artifact', kind: 'log' }],
+      metrics: { usageAvailable: true },
+      error: { code: 'REMOTE_WORKER_FAILED', message: 'worker unavailable', retryable: true },
+      completedAt: new Date(0).toISOString(),
+    }
+    const handle = { awaitResult: async () => taskResult } as TaskHandle<unknown>
+    session.spawn = (() => handle) as typeof session.spawn
+
+    const thrown = await SubAgent.execute({ task: 'Inspect the repository' }, context(session)).catch(error => error)
+    const normalized = JSON.parse(normalizeToolException(thrown)) as {
+      status: string
+      error: { code: string; retryable: boolean }
+      partial: { completedFiles: string[]; artifactRefs: string[] }
+    }
+
+    expect(normalized).toMatchObject({
+      status: 'partial',
+      error: { code: 'REMOTE_WORKER_FAILED', retryable: true },
+      partial: { completedFiles: ['README.md'], artifactRefs: ['existing-artifact', 'recovery-artifact'] },
+    })
+  })
+
+  it('records a linked foreground subagent effect only from a durable descendant receipt', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsk-subagent-effects-'))
+    roots.push(root)
+    const session = new OrchestratorSession({
+      projectRoot: root,
+      providerConfig: { provider: 'local', localBaseUrl: 'http://127.0.0.1:1/v1' },
+      settings: { agents: {} },
+      snapshotFile: join(root, 'tasks.json'),
+      logFile: null,
+      limits: { maxRetries: 0, retryBackoffMs: 0, timeoutMs: 10_000 },
+    })
+    sessions.push(session)
+    const spawn = session.spawn.bind(session)
+    session.spawn = ((input: Parameters<typeof session.spawn>[0], runner: Parameters<typeof session.spawn>[1]) => {
+      if (!input.parentTaskId) return spawn(input, runner)
+      return spawn(input, async childContext => {
+        const childEffectId = await childContext.markEffectStarted('write_file')
+        await childContext.markEffectOutcome(childEffectId, 'effect-observed', `file-sha256:${'a'.repeat(64)}`)
+        return { summary: 'completed', confidence: 1, filesRead: [], filesChanged: ['result.txt'], issuesFound: [], suggestions: [], metadata: {} }
+      })
+    }) as typeof session.spawn
+
+    const parent = spawn({
+      taskId: 'effect-parent', effectPolicy: 'tool-gated', allowDelegation: true, maxDepth: 2, maxFanOut: 2,
+      maxRetries: 0, permissionProfile: 'coordinator-integrator',
+    }, async parentContext => {
+      const effectId = await parentContext.markEffectStarted('subagent')
+      const toolContext = session.toolContext({
+        taskId: parentContext.taskId,
+        markEffectStarted: parentContext.markEffectStarted,
+        markEffectOutcome: parentContext.markEffectOutcome,
+        permissionProfile: 'coordinator-integrator',
+      })
+      toolContext.effectId = effectId
+      await SubAgent.execute({ task: 'Perform a bounded child task', role: 'reader' }, toolContext)
+      return 'completed'
+    })
+    handles.push(parent)
+
+    const result = await parent.awaitResult()
+    const record = session.registry.getStatus(parent.taskId)
+    const child = session.registry.listTasks({ parentTaskId: parent.taskId })[0]!
+    expect(result.status).toBe('done')
+    expect(child.parentEffectId).toBe(record.effectLedger?.[0]?.id)
+    expect(child.parentEffectAttempt).toBe(1)
+    expect(record.effectLedger).toMatchObject([{ tool: 'subagent', state: 'effect-observed', evidence: expect.stringMatching(/^descendant-effects-sha256:[a-f0-9]{64}$/) }])
+  })
+
+  it('leaves the parent effect unknown when a completed child has no durable positive receipt', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsk-subagent-no-effect-'))
+    roots.push(root)
+    const session = new OrchestratorSession({
+      projectRoot: root,
+      providerConfig: { provider: 'local', localBaseUrl: 'http://127.0.0.1:1/v1' },
+      settings: { agents: {} },
+      snapshotFile: join(root, 'tasks.json'),
+      logFile: null,
+      limits: { maxRetries: 0, retryBackoffMs: 0, timeoutMs: 10_000 },
+    })
+    sessions.push(session)
+    const spawn = session.spawn.bind(session)
+    session.spawn = ((input: Parameters<typeof session.spawn>[0], runner: Parameters<typeof session.spawn>[1]) => {
+      if (!input.parentTaskId) return spawn(input, runner)
+      return spawn(input, async () => ({ summary: 'completed', confidence: 1, filesRead: [], filesChanged: [], issuesFound: [], suggestions: [], metadata: {} }))
+    }) as typeof session.spawn
+
+    const parent = spawn({
+      taskId: 'no-effect-parent', effectPolicy: 'tool-gated', allowDelegation: true, maxDepth: 2, maxFanOut: 2,
+      maxRetries: 0, permissionProfile: 'coordinator-integrator',
+    }, async parentContext => {
+      const effectId = await parentContext.markEffectStarted('subagent')
+      const toolContext = session.toolContext({
+        taskId: parentContext.taskId,
+        markEffectStarted: parentContext.markEffectStarted,
+        markEffectOutcome: parentContext.markEffectOutcome,
+        permissionProfile: 'coordinator-integrator',
+      })
+      toolContext.effectId = effectId
+      await SubAgent.execute({ task: 'Perform a bounded child task', role: 'reader' }, toolContext)
+      return 'completed'
+    })
+    handles.push(parent)
+
+    const result = await parent.awaitResult()
+    expect(result.status).toBe('done')
+    expect(session.registry.getStatus(parent.taskId).effectLedger?.[0]).toMatchObject({ tool: 'subagent', state: 'unknown' })
+  })
+
+  it('keeps a positive parent receipt unknown when another descendant outcome is unresolved', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsk-subagent-partial-effects-'))
+    roots.push(root)
+    const session = new OrchestratorSession({
+      projectRoot: root,
+      providerConfig: { provider: 'local', localBaseUrl: 'http://127.0.0.1:1/v1' },
+      settings: { agents: {} },
+      snapshotFile: join(root, 'tasks.json'),
+      logFile: null,
+      limits: { maxRetries: 0, retryBackoffMs: 0, timeoutMs: 10_000 },
+    })
+    sessions.push(session)
+    const spawn = session.spawn.bind(session)
+    session.spawn = ((input: Parameters<typeof session.spawn>[0], runner: Parameters<typeof session.spawn>[1]) => {
+      if (!input.parentTaskId) return spawn(input, runner)
+      return spawn(input, async childContext => {
+        const observed = await childContext.markEffectStarted('write_file')
+        await childContext.markEffectOutcome(observed, 'effect-observed', `file-sha256:${'e'.repeat(64)}`)
+        await childContext.markEffectStarted('external_database_query')
+        return { summary: 'completed', confidence: 1, filesRead: [], filesChanged: ['result.txt'], issuesFound: [], suggestions: [], metadata: {} }
+      })
+    }) as typeof session.spawn
+
+    const parent = spawn({
+      taskId: 'partial-effect-parent', effectPolicy: 'tool-gated', allowDelegation: true, maxDepth: 2, maxFanOut: 2,
+      maxRetries: 0, permissionProfile: 'coordinator-integrator',
+    }, async parentContext => {
+      const effectId = await parentContext.markEffectStarted('subagent')
+      const toolContext = session.toolContext({
+        taskId: parentContext.taskId,
+        markEffectStarted: parentContext.markEffectStarted,
+        markEffectOutcome: parentContext.markEffectOutcome,
+        permissionProfile: 'coordinator-integrator',
+      })
+      toolContext.effectId = effectId
+      await SubAgent.execute({ task: 'Perform a bounded child task', role: 'reader' }, toolContext)
+      return 'completed'
+    })
+    handles.push(parent)
+
+    const result = await parent.awaitResult()
+    const child = session.registry.listTasks({ parentTaskId: parent.taskId })[0]!
+    expect(result.status).toBe('done')
+    expect(child.effectLedger).toMatchObject([
+      { tool: 'write_file', state: 'effect-observed' },
+      { tool: 'external_database_query', state: 'unknown' },
+    ])
+    expect(session.registry.getStatus(parent.taskId).effectLedger?.[0]).toMatchObject({ tool: 'subagent', state: 'unknown' })
   })
 
   it('keeps numbering beyond nine with no zero-padding (Agent10, Agent11)', async () => {

@@ -6,6 +6,7 @@ import type { DeepSeekSettings } from '../settings/types.js'
 import type { InteractionMode } from '../ui/interactionMode.js'
 import { OrchestratorSession, type DurableToolExecution, type OrchestratorCallbacks } from '../orchestration/OrchestratorSession.js'
 import type { TaskRecordV1 } from '../orchestration/types.js'
+import { captureWorkspaceVersion } from '../agent/workspaceVersion.js'
 import { discoverWorkflows } from './discovery.js'
 import { executeWorkflowScript, type WorkflowExecution } from './runtime.js'
 import { formatWorkflowSource, isWorkflowName, parseWorkflowSource } from './parser.js'
@@ -116,6 +117,8 @@ interface ActiveRun {
   persistChain: Promise<void>
   structuralError?: string
   budgetExhausted: boolean
+  /** Serializes workers only when this run has an explicit aggregate usage cap. */
+  budgetQueue: Promise<void>
   /** Phase each spawned agent belonged to, captured at spawn time because `record.phase` moves on. */
   agentPhases: Map<string, string>
   lease?: WorkflowRunLease
@@ -268,6 +271,20 @@ export class WorkflowManager {
     const runId = randomUUID()
     const scriptHash = hashWorkflowValue(input.script)
     const argsHash = hashWorkflowValue(input.args ?? {})
+    const workspaceHash = (await captureWorkspaceVersion(this.options.projectRoot, undefined, [this.store.projectDirectory])).digest
+    const provider = this.options.providerConfig
+    const replayContextHash = hashWorkflowValue({
+      workspaceHash,
+      provider: {
+        provider: provider.provider, profileId: provider.profileId, model: provider.model, baseURL: provider.baseURL,
+        awsRegion: provider.awsRegion, awsProfile: provider.awsProfile, gcpProject: provider.gcpProject,
+        gcpLocation: provider.gcpLocation, localBaseUrl: provider.localBaseUrl, localModel: provider.localModel,
+        vision: provider.vision,
+      },
+      model: this.options.model,
+      settings: this.options.settings ?? {},
+      interactionMode: this.options.interactionMode?.() ?? 'build',
+    })
     const runOptions: WorkflowRunOptions = {
       ...(input.name ? { name: input.name } : {}), ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
       ...(input.maxTokens ? { maxTokens: input.maxTokens } : {}), ...(input.maxCostUsd !== undefined ? { maxCostUsd: input.maxCostUsd } : {}),
@@ -275,7 +292,7 @@ export class WorkflowManager {
     const optionsHash = hashWorkflowValue(runOptions)
     const record: WorkflowRun = {
       runId, sessionId: this.options.sessionId, projectRoot: this.options.projectRoot, meta: parsed.meta,
-      status: 'queued', scriptHash, argsHash, optionsHash, options: runOptions, createdAt: new Date().toISOString(),
+      status: 'queued', scriptHash, argsHash, optionsHash, replayContextHash, options: runOptions, createdAt: new Date().toISOString(),
       usage: { agents: 0, tokens: 0, costUsd: 0 }, failures: [], worktrees: [],
     }
     const settings = this.options.settings ?? {}
@@ -293,10 +310,10 @@ export class WorkflowManager {
     const startupCompletion = new Promise<void>(resolve => { resolveStartup = resolve })
     const active: ActiveRun = {
       record, script: input.script, args: input.args ?? {}, store: this.store,
-      journal: { schemaVersion: 1, scriptHash, argsHash, optionsHash, entries: [] },
+      journal: { schemaVersion: 1, scriptHash, argsHash, optionsHash, replayContextHash, entries: [] },
       replay: undefined, replayValid: true, nextCall: 0,
       session, controller: new AbortController(), pauseWaiters: [], persistChain: Promise.resolve(), budgetExhausted: false,
-      agentPhases: new Map(),
+      budgetQueue: Promise.resolve(), agentPhases: new Map(),
       startupCompletion,
     }
     this.active.set(runId, active)
@@ -307,7 +324,7 @@ export class WorkflowManager {
       }
     })
     try {
-      active.replay = await this.selectReplay(input, scriptHash, argsHash, optionsHash)
+      active.replay = await this.selectReplay(input, scriptHash, argsHash, optionsHash, replayContextHash)
       await this.store.createRun(record, input.script, input.args ?? {})
       active.lease = await this.store.acquireRunLease(runId, record.sessionId)
       active.leaseTimer = setInterval(() => {
@@ -366,12 +383,12 @@ export class WorkflowManager {
   }
 
   /**
-   * An explicit resume replays the named run's journal regardless of script changes — call
-   * fingerprints decide how far the cached prefix reaches. Without one, an identical
-   * script/args/options combination silently reuses its most complete earlier journal.
+   * An explicit resume replays the named run's journal when its execution context still matches;
+   * call fingerprints decide how far the cached prefix reaches. Automatic replay also requires
+   * identical workspace and execution configuration.
    */
-  private async selectReplay(input: StartWorkflowInput, scriptHash: string, argsHash: string, optionsHash: string): Promise<WorkflowJournal | undefined> {
-    if (!input.resumeFromRunId) return this.store.findReplay(scriptHash, argsHash, optionsHash)
+  private async selectReplay(input: StartWorkflowInput, scriptHash: string, argsHash: string, optionsHash: string, replayContextHash: string): Promise<WorkflowJournal | undefined> {
+    if (!input.resumeFromRunId) return this.store.findReplay(scriptHash, argsHash, optionsHash, replayContextHash)
     const resolved = await this.resolveRunId(input.resumeFromRunId)
     const source = resolved ? await this.store.readRun(resolved) : undefined
     if (source && isWorkflowRunActive(source) && await this.store.hasLiveLease(source)) {
@@ -379,6 +396,9 @@ export class WorkflowManager {
     }
     const journal = resolved ? await this.store.readJournal(resolved) : undefined
     if (!journal) throw new Error(`Workflow run '${input.resumeFromRunId}' has no journal to resume from`)
+    if (source?.replayContextHash !== replayContextHash || journal.replayContextHash !== replayContextHash) {
+      throw new Error(`Workflow run '${input.resumeFromRunId}' has no safe replay: its workspace or execution configuration changed`)
+    }
     return journal
   }
 
@@ -537,9 +557,23 @@ export class WorkflowManager {
       (input.maxCostUsd !== undefined && active.record.usage.costUsd >= input.maxCostUsd)
   }
 
+  /** Aggregate-capped runs admit one worker at a time so parallel script calls cannot all observe the same unspent budget. */
+  private runAgent(active: ActiveRun, args: unknown[], input: StartWorkflowInput, callIndex: number): Promise<WorkflowAgentResponse> {
+    if (input.maxTokens === undefined && input.maxCostUsd === undefined) return this.runAgentNow(active, args, input, callIndex)
+    const current = active.budgetQueue.then(() => active.controller.signal.aborted
+      ? { value: null, usage: { agents: 0, tokens: 0, costUsd: 0 } }
+      : this.runAgentNow(active, args, input, callIndex))
+    active.budgetQueue = current.then(() => undefined, () => undefined)
+    return current
+  }
+
   /** Spawns one subagent for an agent() call. Budget exhaustion and agent failures return null instead of throwing; exceeding the agent cap or invalid options are structural errors that fail the whole run. */
-  private async runAgent(active: ActiveRun, args: unknown[], input: StartWorkflowInput, callIndex: number): Promise<WorkflowAgentResponse> {
-    if (this.budgetReached(active, input)) { active.budgetExhausted = true; this.publish(active); return { value: null } }
+  private async runAgentNow(active: ActiveRun, args: unknown[], input: StartWorkflowInput, callIndex: number): Promise<WorkflowAgentResponse> {
+    if (this.budgetReached(active, input)) {
+      active.budgetExhausted = true
+      this.publish(active)
+      return { value: null, usage: { agents: 0, tokens: 0, costUsd: 0 } }
+    }
     if (active.record.usage.agents >= MAX_AGENTS) {
       const message = `Workflow exceeds the ${MAX_AGENTS}-agent limit`
       active.structuralError = message
@@ -550,6 +584,13 @@ export class WorkflowManager {
     try { options = validateAgentOptions(args[1]) } catch (error) {
       active.structuralError = (error as Error).message
       throw error
+    }
+    const remainingTokens = input.maxTokens === undefined ? undefined : Math.floor(input.maxTokens - active.record.usage.tokens)
+    const remainingCost = input.maxCostUsd === undefined ? undefined : input.maxCostUsd - active.record.usage.costUsd
+    options = {
+      ...options,
+      ...(remainingTokens === undefined ? {} : { maxTokens: Math.min(options.maxTokens ?? remainingTokens, remainingTokens) }),
+      ...(remainingCost === undefined ? {} : { maxCostUsd: Math.min(options.maxCostUsd ?? remainingCost, remainingCost) }),
     }
     if (options.phase) {
       this.setPhase(active, options.phase)

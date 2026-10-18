@@ -47,9 +47,9 @@ describe('previewStreamingArgs', () => {
 describe('AskUserQuestions tool previews', () => {
   it('shows the question instead of streaming the raw arguments', () => {
     const preview = previewToolCallArgs('ask_user_questions', {
-      questions: [{ question: 'O que você quer atacar hoje no DeepSeek Code?', header: 'Prioridade' }],
+      questions: [{ question: 'What do you want to tackle in DeepSeek Code today?', header: 'Priority' }],
     })
-    expect(preview).toBe('O que você quer atacar hoje no DeepSeek Code?')
+    expect(preview).toBe('What do you want to tackle in DeepSeek Code today?')
     expect(preview).not.toContain('{')
   })
 

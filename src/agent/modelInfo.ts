@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { formatContextLimit } from './cost.js'
 
 const CONFIG_PATH = join(homedir(), '.deepseek', 'config.json')
+const DESCRIPTION_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
 
 // Auto-format: 'deepseek-flash' → 'DeepSeek Flash'
 // Preserves "DeepSeek" branding (capital S) while formatting other segments normally
@@ -58,14 +59,22 @@ function saveConfig(config: Record<string, any>): void {
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2))
 }
 
+/** Legacy entries and descriptions whose research is more than 30 days old are refreshed. */
+export function isCachedDescriptionFresh(updatedAt: unknown, now = Date.now()): boolean {
+  if (typeof updatedAt !== 'string') return false
+  const timestamp = Date.parse(updatedAt)
+  return Number.isFinite(timestamp) && timestamp <= now && now - timestamp < DESCRIPTION_CACHE_MAX_AGE_MS
+}
+
 /** Returns cached model descriptions that are non-generic and backed by an http(s) source URL. */
 function loadCachedDescriptions(): Record<string, string> {
   const config = loadConfig()
   const descriptions = config.modelDescriptions as Record<string, unknown> | undefined
   const sources = config.modelDescriptionSources as Record<string, unknown> | undefined
+  const updatedAt = config.modelDescriptionUpdatedAt as Record<string, unknown> | undefined
   return Object.fromEntries(
     Object.entries(descriptions ?? {}).filter(([id, value]) =>
-      typeof value === 'string' && !isGenericModelDescription(value) && typeof sources?.[id] === 'string' && /^https?:\/\//.test(sources[id] as string),
+      typeof value === 'string' && !isGenericModelDescription(value) && typeof sources?.[id] === 'string' && /^https?:\/\//.test(sources[id] as string) && isCachedDescriptionFresh(updatedAt?.[id]),
     ),
   ) as Record<string, string>
 }
@@ -82,15 +91,18 @@ export function isGenericModelDescription(description: string): boolean {
 export function saveCachedDescriptions(descriptions: Record<string, string>, sources: Record<string, string> = {}): void {
   const config = loadConfig()
   const previousSources = config.modelDescriptionSources ?? {}
+  const previousUpdatedAt = config.modelDescriptionUpdatedAt ?? {}
   const allSources = { ...previousSources, ...sources }
+  const now = new Date().toISOString()
   const existing = Object.fromEntries(
-    Object.entries(config.modelDescriptions ?? {}).filter(([id, value]) => typeof value === 'string' && !isGenericModelDescription(value) && typeof allSources[id] === 'string' && /^https?:\/\//.test(allSources[id])),
+    Object.entries(config.modelDescriptions ?? {}).filter(([id, value]) => typeof value === 'string' && !isGenericModelDescription(value) && typeof allSources[id] === 'string' && /^https?:\/\//.test(allSources[id]) && isCachedDescriptionFresh(previousUpdatedAt[id])),
   )
   const next = Object.fromEntries(
     Object.entries(descriptions).filter(([id, value]) => typeof value === 'string' && !isGenericModelDescription(value) && typeof allSources[id] === 'string' && /^https?:\/\//.test(allSources[id])),
   )
   config.modelDescriptions = { ...existing, ...next }
   config.modelDescriptionSources = Object.fromEntries(Object.keys(config.modelDescriptions).map((id) => [id, allSources[id]]))
+  config.modelDescriptionUpdatedAt = Object.fromEntries(Object.keys(config.modelDescriptions).map((id) => [id, sources[id] ? now : previousUpdatedAt[id]]))
   saveConfig(config)
 }
 

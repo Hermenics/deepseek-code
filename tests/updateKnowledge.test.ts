@@ -35,47 +35,47 @@ describe('UpdateKnowledge tool', () => {
     }
   })
 
-  it('cria DEEPSEEK.md com cabeçalho se não existir', async () => {
+  it('creates DEEPSEEK.md with a header when it does not exist', async () => {
     const { UpdateKnowledge } = await import('../src/tools/UpdateKnowledge/UpdateKnowledge.js')
-    await UpdateKnowledge.execute({ section: 'Arquitetura', content: 'Usa Ink para UI' })
+    await UpdateKnowledge.execute({ section: 'Architecture', content: 'Uses Ink for the UI' })
     const content = await fs.readFile(DEEPSEEK_MD, 'utf-8')
     expect(content).toContain('# DEEPSEEK.md — Project Knowledge')
-    expect(content).toContain('## Arquitetura')
-    expect(content).toContain('Usa Ink para UI')
+    expect(content).toContain('## Architecture')
+    expect(content).toContain('Uses Ink for the UI')
   })
 
-  it('adiciona nova seção ao arquivo existente', async () => {
-    await fs.writeFile(DEEPSEEK_MD, '# DEEPSEEK.md — Project Knowledge\n\n## Seção Existente\n\nconteúdo\n', 'utf-8')
+  it('adds a new section to an existing file', async () => {
+    await fs.writeFile(DEEPSEEK_MD, '# DEEPSEEK.md — Project Knowledge\n\n## Existing Section\n\ncontent\n', 'utf-8')
     const { UpdateKnowledge } = await import('../src/tools/UpdateKnowledge/UpdateKnowledge.js')
-    await UpdateKnowledge.execute({ section: 'Nova Seção', content: 'novo conteúdo' })
+    await UpdateKnowledge.execute({ section: 'New Section', content: 'new content' })
     const content = await fs.readFile(DEEPSEEK_MD, 'utf-8')
-    expect(content).toContain('## Seção Existente')
-    expect(content).toContain('## Nova Seção')
-    expect(content).toContain('novo conteúdo')
+    expect(content).toContain('## Existing Section')
+    expect(content).toContain('## New Section')
+    expect(content).toContain('new content')
   })
 
-  it('atualiza seção existente sem duplicar', async () => {
-    await fs.writeFile(DEEPSEEK_MD, '# DEEPSEEK.md\n\n## Arquitetura\n\nconteúdo antigo\n', 'utf-8')
+  it('updates an existing section without duplicating it', async () => {
+    await fs.writeFile(DEEPSEEK_MD, '# DEEPSEEK.md\n\n## Architecture\n\nold content\n', 'utf-8')
     const { UpdateKnowledge } = await import('../src/tools/UpdateKnowledge/UpdateKnowledge.js')
-    await UpdateKnowledge.execute({ section: 'Arquitetura', content: 'conteúdo novo' })
+    await UpdateKnowledge.execute({ section: 'Architecture', content: 'new content' })
     const content = await fs.readFile(DEEPSEEK_MD, 'utf-8')
-    const count = (content.match(/## Arquitetura/g) || []).length
+    const count = (content.match(/## Architecture/g) || []).length
     expect(count).toBe(1)
-    expect(content).toContain('conteúdo novo')
-    expect(content).not.toContain('conteúdo antigo')
+    expect(content).toContain('new content')
+    expect(content).not.toContain('old content')
   })
 
-  it('retorna mensagem de confirmação com nome da seção', async () => {
+  it('returns a confirmation message with the section name', async () => {
     const { UpdateKnowledge } = await import('../src/tools/UpdateKnowledge/UpdateKnowledge.js')
-    const result = await UpdateKnowledge.execute({ section: 'Padrões', content: 'usar TDD' })
+    const result = await UpdateKnowledge.execute({ section: 'Standards', content: 'use TDD' })
     expect(result).toContain('Knowledge updated')
-    expect(result).toContain('Padrões')
+    expect(result).toContain('Standards')
   })
 
-  it('seção com caracteres especiais não quebra o regex', async () => {
+  it('handles section names with special characters in the regex', async () => {
     const { UpdateKnowledge } = await import('../src/tools/UpdateKnowledge/UpdateKnowledge.js')
     await expect(
-      UpdateKnowledge.execute({ section: 'Seção (com) especiais.', content: 'conteúdo' })
+      UpdateKnowledge.execute({ section: 'Section (with) special chars.', content: 'content' })
     ).resolves.toBeDefined()
   })
 })

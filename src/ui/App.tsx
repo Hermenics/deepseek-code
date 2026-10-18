@@ -5,6 +5,7 @@ import { execa } from 'execa'
 import type { Key } from '../ink/events/input-event.js'
 import { Agent, type ToolPermissionRequest, type ToolPermissionResult } from '../agent/agent.js'
 import { approvalOrigin } from '../permissions/matcher.js'
+import { browserActionKind } from '../permissions/browser.js'
 import { FullModeBar, MessageList, getDiffPayload } from './messages/MessageList.js'
 import { DiffDialog, type DiffLine } from './messages/DiffDialog.js'
 import { TodoPanel } from './messages/TodoPanel.js'
@@ -19,7 +20,7 @@ import { AgentsOverview } from './agents/AgentsOverview.js'
 import { liveStatus } from './agents/overview.js'
 import { InputBox, LoadingSpinner } from './input/InputBox.js'
 import { QueuedMessagesList } from './input/QueuedMessagesList.js'
-import { enqueue, getImmediateBtwQuestion } from './queueLogic.js'
+import { dequeueWithPriority, dropGoalContinuations, enqueue, getImmediateBtwQuestion, getObjectiveRevision, getSteerInstruction, isObjectiveRevisionDurable, runWithObjectiveRevisionGuard, serializeAsync } from './queueLogic.js'
 import { BtwSideQuestion, type BtwState } from './btw/BtwSideQuestion.js'
 import { browserIndicator, StatusBar, type BrowserIndicator } from './layout/StatusBar.js'
 import { canShowHomeAnimation, EmptySessionScreen } from './layout/EmptySessionScreen.js'
@@ -37,9 +38,9 @@ import { appendInputHistory, describeWritingStyle, loadWritingStyle } from '../a
 import type { ThemeName, ProviderConfig } from '../types/provider.js'
 import type { DeepSeekSettings, InterfaceSettings, SubagentStatusLineSettings } from '../settings/types.js'
 import { formatChatError } from '../utils/chatError.js'
-import { defaultShell, hasBinary, isWindows, scrubbedEnv, shellCommandArgs } from '../utils/platform.js'
-import { createSessionBranch, deleteSession, listSessions, loadSession, saveSession, updateSessionTitle, type SessionData } from '../agent/session.js'
-import { getGoal, getElapsedSeconds, resumeGoal, updateGoal, buildContinuationPrompt, GOAL_MAX_CONTINUATIONS } from '../agent/goal.js'
+import { defaultShell, isWindows, scrubbedEnv, shellCommandArgs } from '../utils/platform.js'
+import { createSessionBranch, deleteSession, listSessions, loadSession, saveSession, saveSessionCheckpoint, updateSessionTitle, type SessionData } from '../agent/session.js'
+import { getGoal, getElapsedSeconds, resumeGoal, updateGoal, reviseGoal, rollbackFailedGoalRevision, buildContinuationPrompt, buildObjectiveRevisionPrompt, GOAL_MAX_CONTINUATIONS } from '../agent/goal.js'
 import { DEFAULT_MODE, nextMode, isBuildMode, isAutoMode, type InteractionMode } from './interactionMode.js'
 import Box from '../ink/components/Box.js'
 import Text from '../ink/components/Text.js'
@@ -62,6 +63,35 @@ import type { WorkflowManager } from '../workflows/manager.js'
 import type { PromptImage, PromptInput } from '../types/input.js'
 
 export type AgentPhase = 'idle' | 'refining' | 'executing'
+
+interface PendingObjectivePrompt {
+  input: PromptInput
+  revision: number
+  objectiveEpoch: number
+  label: string
+  prompt: string
+  mode: InteractionMode
+  ready: Promise<boolean>
+  resolveReady(value: boolean): void
+  dispatching: boolean
+  cancelled: boolean
+}
+
+interface PendingSteeringPrompt {
+  input: PromptInput
+  prompt: string
+  objectiveEpoch: number
+  mode: InteractionMode
+  dispatching: boolean
+  cancelled: boolean
+}
+
+function persistedGoalSnapshot() {
+  const goal = getGoal()
+  if (!goal || goal.status !== 'active') return goal ?? undefined
+  const now = new Date().toISOString()
+  return { ...goal, timeUsedSeconds: getElapsedSeconds(goal), startedAt: now, updatedAt: now }
+}
 
 /** Pin the header only when the transcript and TODO area retain more than 21 rows; otherwise it scrolls with the transcript. */
 const ACTIVE_SUBAGENT_STATES = new Set<SubagentState['status']>(['queued', 'running', 'blocked'])
@@ -289,9 +319,9 @@ async function readLimitedStatusLineOutput(
 /** Terminates a status-line command, signalling its whole process group first (non-Windows) so shell children do not outlive the timeout. */
 function killStatusLineProcess(child: { pid: number; kill(signal?: number | NodeJS.Signals): void }, processGroup: boolean): void {
   if (processGroup && !isWindows) {
-    try { process.kill(-child.pid, 'SIGTERM') } catch { /* the shell may have exited already */ }
+    try { process.kill(-child.pid, 'SIGKILL') } catch { /* the shell may have exited already */ }
   }
-  child.kill()
+  child.kill('SIGKILL')
 }
 
 /**
@@ -306,15 +336,15 @@ export async function runSubagentStatusLine(
   const config = validateSubagentStatusLineConfig(configValue)
   if (!config || !options.trusted) return new Map()
   const timeoutMs = Math.max(1, Math.min(options.timeoutMs ?? 5_000, 5_000))
-  const processGroup = !isWindows && hasBinary('setsid')
-  const shellArgs = processGroup ? [defaultShell(), ...shellCommandArgs(config.command)] : shellCommandArgs(config.command)
+  const processGroup = !isWindows
   let child: ReturnType<typeof Bun.spawn> | undefined
   let timedOut = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const timeoutController = new AbortController()
   try {
-    child = Bun.spawn([...(processGroup ? ['setsid'] : [defaultShell()]), ...shellArgs], {
+    child = Bun.spawn([defaultShell(), ...shellCommandArgs(config.command)], {
       cwd: options.cwd,
+      detached: processGroup,
       env: scrubbedEnv(),
       windowsVerbatimArguments: isWindows,
       stdin: 'pipe',
@@ -475,9 +505,68 @@ interface ConfirmState {
   resolve: (yes: boolean) => void
 }
 
-interface ToolPermissionState {
+export interface ToolPermissionState {
   request: ToolPermissionRequest
   resolve: (result: ToolPermissionResult) => void
+}
+
+/** Connects Agent permission requests to the host prompt and denies any outstanding request when that host unmounts. */
+export function bindToolPermissionPrompt(
+  agent: Pick<Agent, 'setToolPermissionHandler'>,
+  publish: (state: ToolPermissionState | null) => void,
+): () => void {
+  const queue: ToolPermissionState[] = []
+  let pending: ToolPermissionState | null = null
+  let disposed = false
+  const publishNext = () => {
+    if (disposed || pending) return
+    pending = queue.shift() ?? null
+    publish(pending)
+  }
+  agent.setToolPermissionHandler((request, signal) => new Promise(resolve => {
+    if (disposed) { resolve('deny'); return }
+    if (signal?.aborted) { resolve('reject'); return }
+    let settled = false
+    let onAbort: (() => void) | undefined
+    const state: ToolPermissionState = {
+      request,
+      resolve: result => {
+        if (settled) return
+        settled = true
+        if (onAbort) signal?.removeEventListener('abort', onAbort)
+        if (pending === state) {
+          pending = null
+          if (result === 'deny') {
+            const waiting = queue.splice(0)
+            publish(null)
+            resolve(result)
+            for (const request of waiting) request.resolve(result)
+            return
+          }
+          if (signal?.aborted) publish(null)
+          else publishNext()
+        } else {
+          const index = queue.indexOf(state)
+          if (index >= 0) queue.splice(index, 1)
+        }
+        resolve(result)
+      },
+    }
+    onAbort = () => state.resolve('reject')
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) { state.resolve('reject'); return }
+    queue.push(state)
+    publishNext()
+  }))
+  return () => {
+    agent.setToolPermissionHandler(null)
+    disposed = true
+    const outstanding = [...(pending ? [pending] : []), ...queue]
+    pending = null
+    queue.length = 0
+    publish(null)
+    for (const state of outstanding) state.resolve('deny')
+  }
 }
 
 interface AskUserState {
@@ -491,6 +580,21 @@ interface PlanApprovalState {
   summary?: string
   resolve(toolResult: string): void
   reject(reason: string): void
+}
+
+/** Loads models for the picker without treating a provider error as an empty catalog. */
+export async function loadModelCatalog(
+  getModels: () => Promise<string[]>,
+  setLoading: (loading: boolean) => void,
+): Promise<{ models: string[] } | { error: string }> {
+  setLoading(true)
+  try {
+    return { models: await getModels() }
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) }
+  } finally {
+    setLoading(false)
+  }
 }
 
 /** Root TUI component for an interactive session: owns the conversation, agent loop, input, interaction mode, permission/plan/question prompts, subagent and workflow activity, and its overlay screens (config, model picker, workflow monitor, diff dialog). */
@@ -534,17 +638,33 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [alternateScreen, selection])
   const initialSessionRef = useRef(initialSession)
   const handleSubmitRef = useRef<((text: string, images?: PromptImage[]) => Promise<void>) | null>(null)
+  const runWithPromptRef = useRef<((label: string, prompt: string, mode: InteractionMode, images?: PromptImage[], objectiveEpoch?: number, isSteeringTurn?: boolean) => Promise<void>) | null>(null)
   const projectRootRef = useRef(initialSession?.cwd && existsSync(initialSession.cwd) ? initialSession.cwd : process.cwd())
   const originalProjectRoot = useRef(process.cwd())  // never changes — used to scope worktree isolation
   const toolStatusClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastTurnTokenCountRef = useRef(0)
   const compactBadgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const btwAbortRef = useRef<AbortController | null>(null)
+  const activeAgentRunRef = useRef<Promise<void> | null>(null)
   const goalContinuationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const queuedSubmitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveSessionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const sessionWriteTailRef = useRef<Promise<void>>(Promise.resolve())
+  const durableGoalRef = useRef<ReturnType<typeof getGoal>>(initialSession?.goal ?? null)
   const sessionTitleRef = useRef<string | null>(initialSession?.title ?? null)
   const titleRequestedRef = useRef(Boolean(initialSession?.title))
+  const queueSessionWrite = <T,>(write: () => Promise<T>): Promise<T> => serializeAsync(sessionWriteTailRef, write)
+  const queueSessionCheckpoint = (data: SessionData): Promise<void> => queueSessionWrite(async () => {
+    await saveSessionCheckpoint(data)
+    durableGoalRef.current = data.goal ? structuredClone(data.goal) : null
+  })
+  const queueSessionSave = (data: SessionData): Promise<void> => queueSessionWrite(async () => {
+    const snapshotRevision = data.goal ? data.goal.objectiveRevision ?? 0 : undefined
+    const durableRevision = durableGoalRef.current ? durableGoalRef.current.objectiveRevision ?? 0 : undefined
+    if (!isObjectiveRevisionDurable(snapshotRevision, durableRevision)) return
+    await saveSession(data)
+    durableGoalRef.current = data.goal ? structuredClone(data.goal) : null
+  })
   const [messages, setMessages] = useState<Message[]>([])
   const [inputHasDraft, setInputHasDraft] = useState(false)
   const [streamText, setStreamText] = useState('')
@@ -560,15 +680,55 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [agentPhase, setAgentPhase] = useState<AgentPhase>('idle')
   const [interactionMode, setInteractionMode] = useState<InteractionMode>(initialSettings?.interaction?.defaultMode ?? DEFAULT_MODE)
   const [queuedMessages, setQueuedMessages] = useState<PromptInput[]>([])
+  const scheduledQueuedInputRef = useRef<PromptInput | null>(null)
+  const pendingObjectivePromptRef = useRef<PendingObjectivePrompt | null>(null)
+  const pendingSteeringPromptRef = useRef<PendingSteeringPrompt | null>(null)
+  const drainQueuedMessagesRef = useRef<() => void>(() => {})
   const [btw, setBtw] = useState<BtwState | null>(null)
-  const [agent] = useState(() => new Agent(providerConfig ?? undefined, { sessionId, projectRoot: projectRootRef.current }))
+  const messagesRef = useRef(messages)
+  const agentRef = useRef<Agent | null>(null)
+  const activeAgentRef = useRef(activeAgent)
+  const sessionCreatedAtRef = useRef(initialSession?.createdAt ?? new Date().toISOString())
+  messagesRef.current = messages
+  activeAgentRef.current = activeAgent
+  const cancelQueuedSubmit = useCallback((restoreQueuedInput: boolean) => {
+    if (queuedSubmitTimerRef.current) {
+      clearTimeout(queuedSubmitTimerRef.current)
+      queuedSubmitTimerRef.current = null
+    }
+    const scheduled = scheduledQueuedInputRef.current
+    scheduledQueuedInputRef.current = null
+    if (restoreQueuedInput && scheduled) setQueuedMessages(queue => [scheduled, ...queue])
+  }, [])
+  const [agent] = useState(() => new Agent(providerConfig ?? undefined, {
+    sessionId,
+    projectRoot: projectRootRef.current,
+    checkpointHistory: sessionId ? async agentMessages => {
+      const currentAgent = agentRef.current
+      if (!currentAgent) throw new Error('Cannot checkpoint a session before its Agent is initialized.')
+      await queueSessionCheckpoint({
+        id: sessionId,
+        title: sessionTitleRef.current ?? undefined,
+        createdAt: sessionCreatedAtRef.current,
+        updatedAt: new Date().toISOString(),
+        cwd: currentAgent.getWorkingDirectory(),
+        model: currentAgent.model,
+        provider: currentAgent.provider,
+        language: language ?? null,
+        activeAgent: activeAgentRef.current,
+        agentMessages,
+        uiMessages: messagesRef.current,
+        filesModified: currentAgent.getFilesModified(),
+        goal: persistedGoalSnapshot(),
+      })
+    } : undefined,
+  }))
+  agentRef.current = agent
   const pendingProviderSwitchRef = useRef<{ profile: ProviderProfile; completion: Promise<'queued'>; resolve(value: 'queued'): void; reject(error: unknown): void } | null>(null)
   const workflowRuns = useWorkflowRuns(agent.workflows)
   const activeWorkflowRuns = useActiveWorkflowRuns(agent.workflows)
   const [theme, setTheme] = useState<ThemeName>(initialTheme)
   const colors = getThemeColors(theme)
-  const messagesRef = useRef(messages)
-  messagesRef.current = messages
   useEffect(() => {
     selection.setSelectionBgColor(getThemeColors(theme).selectionBg)
   }, [selection, theme])
@@ -997,12 +1157,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [])
 
   useEffect(() => {
-    agent.setToolPermissionHandler((request) => {
-      return new Promise<ToolPermissionResult>((resolve) => {
-        setToolPermissionState({ request, resolve })
-      })
-    })
-    return () => agent.setToolPermissionHandler(null)
+    return bindToolPermissionPrompt(agent, setToolPermissionState)
   }, [agent])
 
   useEffect(() => {
@@ -1038,15 +1193,16 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [agent])
 
   useEffect(() => {
-    agent.setVerificationHandler(async (files) => {
-      const { detectVerificationCommand, runVerification } = await import('../agent/verify.js')
+    agent.setVerificationHandler(async (files, signal) => {
+      const { detectVerificationCommand } = await import('../agent/verify.js')
+      const { runProjectVerificationReadOnly } = await import('../tools/Shell/Shell.js')
       const command = await detectVerificationCommand(agent.getWorkingDirectory())
       if (!command) return
       const approved = await new Promise<boolean>((resolve) => {
         setConfirmState({ message: `Files changed this turn:\n${files.map(file => `  ${file}`).join('\n')}\n\nRun verification?\n\n${command.display}`, resolve })
       })
-      if (!approved) return
-      const result = await runVerification(command, agent.getWorkingDirectory())
+      if (!approved || signal?.aborted) return
+      const result = await runProjectVerificationReadOnly(command, agent.getWorkingDirectory(), { signal })
       setMessages((m) => [...m, { role: 'assistant', content: `${result.ok ? '✓' : '✗'} ${command.display}\n\n${result.output}` }])
       return result
     })
@@ -1089,15 +1245,20 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         agent.setPromptRefinerEnabled(enchant)
       }
       const session = initialSessionRef.current
-      if (session?.agentMessages?.length) {
-        agent.loadSessionMessages(session.agentMessages)
-      }
+      const { setGoal } = await import('../agent/goal.js')
+      setGoal(session?.goal)
+      durableGoalRef.current = session?.goal ? structuredClone(session.goal) : null
+      const fileCheckpoints = session?.agentMessages?.length
+        ? await agent.listFileEffectCheckpoints().catch(() => [])
+        : []
+      const interruptedToolNames = session?.agentMessages?.length
+        ? await agent.loadSessionMessages(session.agentMessages, true, { provider: session.provider, model: session.model }, fileCheckpoints)
+        : []
       if (session?.uiMessages?.length) {
         setMessages(session.uiMessages)
       }
-      if (session?.goal) {
-        const { setGoal } = await import('../agent/goal.js')
-        setGoal(session.goal)
+      if (interruptedToolNames.length) {
+        setMessages(current => [...current, { role: 'assistant', content: `⚠ Previous execution stopped with unknown results for: ${interruptedToolNames.join(', ')}. These actions may have run; inspect their effects before continuing. They were not replayed.` }])
       }
       if (agent.mcpErrors.length > 0) {
         const errMsg = `⚠ MCP connection errors:\n${agent.mcpErrors.map((e) => `  • ${e}`).join('\n')}`
@@ -1123,7 +1284,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         await handleSubmitRef.current?.(initialMessage)
       }
     }
-    init()
+    init().catch(error => setMessages(current => [...current, {
+      role: 'assistant',
+      content: `⚠ Session restore failed; resumed work is blocked: ${(error as Error).message}`,
+    }]))
   }, [])
 
   const shellProcRef = useRef<ReturnType<typeof execa> | null>(null)
@@ -1138,6 +1302,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         clearTimeout(queuedSubmitTimerRef.current)
         queuedSubmitTimerRef.current = null
       }
+      scheduledQueuedInputRef.current = null
       if (saveSessionTimerRef.current) {
         clearTimeout(saveSessionTimerRef.current)
         saveSessionTimerRef.current = null
@@ -1146,6 +1311,18 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [])
 
   const handleAbort = useCallback(() => {
+    const pendingObjective = pendingObjectivePromptRef.current
+    if (pendingObjective) {
+      pendingObjective.cancelled = true
+      pendingObjectivePromptRef.current = null
+      pendingObjective.resolveReady(false)
+    }
+    const pendingSteering = pendingSteeringPromptRef.current
+    if (pendingSteering) {
+      pendingSteering.cancelled = true
+      pendingSteeringPromptRef.current = null
+    }
+    cancelQueuedSubmit(false)
     agent.abort()
     setMessages(interruptSteps)
     if (goalContinuationTimerRef.current) {
@@ -1157,7 +1334,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       shellProcRef.current = null
     }
     setQueuedMessages([])
-  }, [agent])
+  }, [agent, cancelQueuedSubmit])
 
   const runBtw = useCallback((question: string) => {
     if (!question.trim()) {
@@ -1177,6 +1354,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [agent])
 
   const handleQueue = useCallback((msg: string, images: PromptImage[] = []) => {
+    if (getObjectiveRevision(msg) !== null || getSteerInstruction(msg) !== null) {
+      void handleSubmitRef.current?.(msg, images)
+      return
+    }
     const question = getImmediateBtwQuestion(msg)
     if (question !== undefined) {
       runBtw(question)
@@ -1184,6 +1365,74 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     }
     setQueuedMessages((q) => enqueue(q, { text: msg, images }))
   }, [runBtw])
+
+  const drainQueuedMessages = useCallback(() => {
+    setQueuedMessages((queue) => {
+      if (queuedSubmitTimerRef.current) return queue
+      const pending = pendingObjectivePromptRef.current
+      const steering = pendingSteeringPromptRef.current
+      if (pending?.dispatching || steering?.dispatching) return queue
+      const priorityInput = pending?.input ?? steering?.input ?? null
+      const { next, remaining } = dequeueWithPriority(queue, priorityInput)
+      if (!next) return queue
+      if (pending) pending.dispatching = true
+      else if (steering) steering.dispatching = true
+      if (!priorityInput) scheduledQueuedInputRef.current = next
+      queuedSubmitTimerRef.current = setTimeout(() => {
+        queuedSubmitTimerRef.current = null
+        if (scheduledQueuedInputRef.current === next) scheduledQueuedInputRef.current = null
+        if (!pending && steering) {
+          void (async () => {
+            while (activeAgentRunRef.current) {
+              const activeRun = activeAgentRunRef.current
+              await activeRun.catch(() => undefined)
+              if (activeAgentRunRef.current === activeRun) break
+            }
+            if (steering.cancelled || pendingSteeringPromptRef.current !== steering) {
+              drainQueuedMessagesRef.current()
+              return
+            }
+            if (agent.getObjectiveEpoch() !== steering.objectiveEpoch) {
+              pendingSteeringPromptRef.current = null
+              drainQueuedMessagesRef.current()
+              return
+            }
+            pendingSteeringPromptRef.current = null
+            await runWithPromptRef.current?.(
+              steering.input.text,
+              steering.prompt,
+              steering.mode,
+              steering.input.images,
+              steering.objectiveEpoch,
+              true,
+            )
+          })()
+          return
+        }
+        const submit = () => { void handleSubmitRef.current?.(next.text, next.images) }
+        if (!pending) {
+          submit()
+          return
+        }
+        void pending.ready.then((durable) => {
+          if (pending.cancelled) return
+          if (pendingObjectivePromptRef.current !== pending) {
+            drainQueuedMessagesRef.current()
+            return
+          }
+          if (!durable || (getGoal()?.objectiveRevision ?? 0) !== pending.revision) {
+            pendingObjectivePromptRef.current = null
+            drainQueuedMessagesRef.current()
+            return
+          }
+          pendingObjectivePromptRef.current = null
+          void runWithPromptRef.current?.(pending.label, pending.prompt, pending.mode, pending.input.images, pending.objectiveEpoch)
+        })
+      }, 0)
+      return remaining
+    })
+  }, [agent])
+  drainQueuedMessagesRef.current = drainQueuedMessages
 
   const handleModeChange = useCallback(() => {
     setInteractionMode((current) => {
@@ -1206,7 +1455,6 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const handleToolPermission = useCallback((result: ToolPermissionResult) => {
     if (!toolPermissionState) return
     toolPermissionState.resolve(result)
-    setToolPermissionState(null)
   }, [toolPermissionState])
 
   const handlePlanDecision = useCallback((result: PlanApprovalResult) => {
@@ -1228,7 +1476,9 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     setPlanApprovalState(null)
   }, [planApprovalState, agent])
 
-  const runAgent = useCallback(async (prompt: string, images: PromptImage[] = []) => {
+  const runAgent = useCallback(async (prompt: string, images: PromptImage[] = [], expectedObjectiveEpoch = agent.getObjectiveEpoch(), isSteeringTurn = false) => {
+    if (expectedObjectiveEpoch !== agent.getObjectiveEpoch()) return
+    const objectiveRevisionAtTurnStart = getGoal()?.objectiveRevision ?? 0
     const suggestionGeneration = ++suggestedReplyGenerationRef.current
     setSuggestedReply(undefined)
     turnStartedAtRef.current = Date.now()
@@ -1320,7 +1570,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     }, 50)
 
     try {
-      await agent.run(images.length > 0 ? { text: prompt, images } : prompt, {
+      const activeRun = agent.run(images.length > 0 ? { text: prompt, images } : prompt, {
         onPhaseChange(phase) { setAgentPhase(phase) },
         onToken(token) { tokenBuffer += token },
         onToolPending(name, argsText) { if (name !== 'step') pendingTool = { name, args: argsText } },
@@ -1401,17 +1651,17 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           }
           setIsLoading(false)
           setSuggestedReply(undefined)
-          if (loadFeatures().ghostReplies) {
+          if (loadFeatures().ghostReplies && agent.getObjectiveEpoch() === expectedObjectiveEpoch && (getGoal()?.objectiveRevision ?? 0) === objectiveRevisionAtTurnStart) {
             const assistantMessage = pending
               ? processStreamedText(pending).content.trim()
               : ''
             if (assistantMessage) {
               void loadWritingStyle().then(style => agent.askBtw(
-                `A última mensagem do assistente foi:\n${assistantMessage}\n\n` +
-                `Sugira uma única resposta curta que o usuário poderia enviar agora. ` +
-                `Responda somente com essa mensagem, sem aspas, markdown ou explicação. ` +
-                `Se não houver uma próxima ação natural, responda apenas EMPTY. ` +
-                `Estilo do usuário: ${describeWritingStyle(style)}`,
+                `The assistant's last message was:\n${assistantMessage}\n\n` +
+                `Suggest one short reply the user could send now. ` +
+                `Reply only with that message, without quotes, Markdown, or explanation. ` +
+                `If there is no natural next action, reply only with EMPTY. ` +
+                `User style: ${describeWritingStyle(style)}`,
               )).then(reply => {
                 const clean = reply.trim()
                 if (clean && clean !== 'EMPTY' && !clean.startsWith('!') && !clean.startsWith('/') && suggestedReplyGenerationRef.current === suggestionGeneration) setSuggestedReply(clean)
@@ -1422,18 +1672,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setTokenCount(agent.tokenCount)
           setSubagentTick((t) => t + 1)
           void refreshCustomCommands(agent.getWorkingDirectory())
-          setQueuedMessages((q) => {
-            if (q.length === 0) return q
-            const [first, ...rest] = q
-            if (queuedSubmitTimerRef.current) {
-              clearTimeout(queuedSubmitTimerRef.current)
-            }
-            queuedSubmitTimerRef.current = setTimeout(() => {
-              queuedSubmitTimerRef.current = null
-              void handleSubmitRef.current!(first!.text, first!.images)
-            }, 0)
-            return rest
-          })
+          drainQueuedMessagesRef.current()
           const pct = agent.contextLimit > 0 ? Math.round((agent.contextUsage / agent.contextLimit) * 100) : 0
           setContextPct(pct)
           if (sessionId) {
@@ -1443,10 +1682,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             saveSessionTimerRef.current = setTimeout(() => {
               saveSessionTimerRef.current = null
               setMessages((current) => {
-                saveSession({
+                void queueSessionSave({
                   id: sessionId,
                   title: sessionTitleRef.current ?? undefined,
-                  createdAt: initialSession?.createdAt ?? new Date().toISOString(),
+                  createdAt: sessionCreatedAtRef.current,
                   updatedAt: new Date().toISOString(),
                   cwd: agent.getWorkingDirectory(),
                   model: agent.model,
@@ -1456,15 +1695,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
                   agentMessages: agent.getRawMessages(),
                   uiMessages: current,
                   filesModified: agent.getFilesModified(),
-                  goal: (() => {
-                    const g = getGoal()
-                    if (!g) return undefined
-                    // Only touch active goals: freeze elapsed time and reset the
-                    // active interval so a reload does not double-count it.
-                    if (g.status !== 'active') return g
-                    const now = new Date().toISOString()
-                    return { ...g, timeUsedSeconds: getElapsedSeconds(g), startedAt: now, updatedAt: now }
-                  })(),
+                  goal: persistedGoalSnapshot(),
                 })
                 return current
               })
@@ -1475,12 +1706,14 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             const activeGoal = getGoal()
             const maxTurns = activeGoal?.maxContinuations ?? GOAL_MAX_CONTINUATIONS
             if (activeGoal?.status !== 'active') return
+            if (isSteeringTurn || agent.getObjectiveEpoch() !== expectedObjectiveEpoch) return
             const turnTokens = agent.tokenCount - lastTurnTokenCountRef.current
             const now = new Date().toISOString()
             updateGoal({
               tokensUsed: activeGoal.tokensUsed + Math.max(0, turnTokens),
               updatedAt: now,
             })
+            if ((getGoal()?.objectiveRevision ?? 0) !== objectiveRevisionAtTurnStart) return
             const stalled = recordGoalTurnProgress(agent.getTurnModifiedFiles().length > 0 || agent.getTurnToolCallCount() > 0)
             if (stalled) {
               updateGoal({ status: 'blocked', blockReason: stalled, updatedAt: new Date().toISOString() })
@@ -1501,15 +1734,17 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
               const prompt = buildContinuationPrompt(updated, updated.continuations)
               goalContinuationTimerRef.current = setTimeout(() => {
                 goalContinuationTimerRef.current = null
+                if (agent.getObjectiveEpoch() !== expectedObjectiveEpoch) return
                 setQueuedMessages((q) => {
+                  if (agent.getObjectiveEpoch() !== expectedObjectiveEpoch) return q.filter((message) => message.text !== prompt)
                   const next = enqueue(q, { text: prompt })
                   // Queue processing already ran earlier in onDone, so if
                   // the queue was empty before this enqueue we must trigger
                   // the dequeue ourselves.
-                  if (q.length === 0 && next.length > 0) {
-                    if (queuedSubmitTimerRef.current) clearTimeout(queuedSubmitTimerRef.current)
+                  if (q.length === 0 && next.length > 0 && !queuedSubmitTimerRef.current) {
                     queuedSubmitTimerRef.current = setTimeout(() => {
                       queuedSubmitTimerRef.current = null
+                      if (agent.getObjectiveEpoch() !== expectedObjectiveEpoch) return
                       void handleSubmitRef.current!(next[0]!.text, next[0]!.images)
                     }, 0)
                   }
@@ -1531,7 +1766,13 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setMessages((m) => [...m, { role: 'assistant', content: `⚡ Context compacted automatically.\n\n${summary}` }])
           showCompactBadge('full')
         },
-      })
+      }, expectedObjectiveEpoch)
+      activeAgentRunRef.current = activeRun
+      try {
+        await activeRun
+      } finally {
+        if (activeAgentRunRef.current === activeRun) activeAgentRunRef.current = null
+      }
     } catch (e: unknown) {
       clearInterval(flushInterval)
       const workedMs = turnStartedAtRef.current == null ? undefined : Date.now() - turnStartedAtRef.current
@@ -1549,19 +1790,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         : String(e)
       setMessages((m) => [...m, { role: 'assistant', content: `⚠ Error: ${message}`, workedMs }])
       
-      // Drain queued messages same as onDone
-      setQueuedMessages((q) => {
-        if (q.length === 0) return q
-        const [first, ...rest] = q
-        if (queuedSubmitTimerRef.current) {
-          clearTimeout(queuedSubmitTimerRef.current)
-        }
-        queuedSubmitTimerRef.current = setTimeout(() => {
-          queuedSubmitTimerRef.current = null
-          void handleSubmitRef.current!(first!.text, first!.images)
-        }, 0)
-        return rest
-      })
+      drainQueuedMessagesRef.current()
     }
   }, [agent, sessionId, language, initialSession, providerConfig, showCompactBadge])
 
@@ -1578,58 +1807,111 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       .catch(() => { titleRequestedRef.current = false })
   }, [agent, sessionId])
 
-  const runWithPrompt = useCallback(async (label: string, prompt: string, intendedMode: InteractionMode, images: PromptImage[] = []) => {
-    if (isLoading) return
+  const runWithPrompt = useCallback(async (
+    label: string,
+    prompt: string,
+    intendedMode: InteractionMode,
+    images: PromptImage[] = [],
+    expectedObjectiveEpoch = agent.getObjectiveEpoch(),
+    isSteeringTurn = false,
+  ) => {
     const shouldGenerateTitle = Boolean(sessionId && !sessionTitleRef.current && !titleRequestedRef.current && !agent.getLastUserMessage())
     if (shouldGenerateTitle) titleRequestedRef.current = true
-    setMessages((m) => [...m, { role: 'user', content: label }])
     setIsLoading(true)
     setAgentPhase(agent.promptRefinerEnabled ? 'refining' : 'executing')
     setStreamText('')
 
-    const worktreePolicy = agent.settings.git?.worktree ?? 'ask'
-    const cwdChanged = projectRootRef.current !== originalProjectRoot.current
-    if (!cwdChanged && (isBuildMode(intendedMode) || isAutoMode(intendedMode)) && worktreePolicy !== 'off') {
-      try {
-        const { createWorktree, getActiveWorktree, isInsideWorktree, isGitRepository } = await import('../agent/worktree.js')
-        const projectRoot = originalProjectRoot.current
-        if (!isGitRepository(projectRoot)) {
-          await runAgent(prompt, images)
-          if (shouldGenerateTitle) generateSessionTitle()
-          return
+    const dispatched = await runWithObjectiveRevisionGuard(
+      expectedObjectiveEpoch,
+      () => agent.getObjectiveEpoch(),
+      async (isCurrent) => {
+        // Settings may still be loading when the user submits the first prompt.
+        // Wait before choosing worktree policy, but never let a superseded prompt
+        // proceed to worktree setup after that wait.
+        await agent.readyPromise.catch(() => {})
+        if (!isCurrent()) return { ready: true }
+        const worktreePolicy = agent.settings.git?.worktree ?? 'ask'
+        const cwdChanged = projectRootRef.current !== originalProjectRoot.current
+        if (cwdChanged || (!isBuildMode(intendedMode) && !isAutoMode(intendedMode)) || worktreePolicy === 'off') return { ready: true }
+        try {
+          const { createWorktree, getActiveWorktree, isInsideWorktree, isGitRepository } = await import('../agent/worktree.js')
+          if (!isCurrent()) return { ready: true }
+          const projectRoot = originalProjectRoot.current
+          if (!isGitRepository(projectRoot)) return { ready: true }
+          const active = await getActiveWorktree(projectRoot)
+          if (!isCurrent()) return { ready: true }
+          if (active && active.sessionId != null && active.sessionId === sessionId && existsSync(active.path) && !isInsideWorktree(projectRoot, agent.getWorkingDirectory())) {
+            await agent.setWorkingDirectory(active.path)
+            if (!isCurrent()) return { ready: true }
+            await refreshCustomCommands(active.path)
+            if (!isCurrent()) return { ready: true }
+          }
+          let isolate = worktreePolicy === 'auto'
+          if (!active && worktreePolicy === 'ask') {
+            isolate = await new Promise<boolean>((resolve) => {
+              setConfirmState({ message: 'Run this mutating turn in an isolated Git worktree?', resolve })
+            })
+            if (!isCurrent()) return { ready: true }
+          }
+          if (!active && isolate) {
+            const info = await createWorktree(projectRoot, sessionId)
+            if (!isCurrent()) return { ready: true }
+            await agent.setWorkingDirectory(info.path)
+            if (!isCurrent()) return { ready: true }
+            await refreshCustomCommands(info.path)
+            if (!isCurrent()) return { ready: true }
+            setMessages((m) => [...m, { role: 'assistant', content: `Worktree "${info.name}" created on ${info.branch ?? 'an isolated copy'} at ${info.path}.` }])
+          }
+          return { ready: true }
+        } catch (error) {
+          if (!isCurrent()) return { ready: true }
+          setIsLoading(false)
+          setAgentPhase('idle')
+          if (shouldGenerateTitle) titleRequestedRef.current = false
+          setMessages((m) => [...m, { role: 'assistant', content: `△ Worktree isolation failed; turn aborted: ${(error as Error).message}\n  Use /cwd <path> to change directory, or /worktree exit to clear the stale worktree.` }])
+          return { ready: false }
         }
-        const active = await getActiveWorktree(projectRoot)
-        if (active && active.sessionId != null && active.sessionId === sessionId && existsSync(active.path) && !isInsideWorktree(projectRoot, agent.getWorkingDirectory())) {
-          await agent.setWorkingDirectory(active.path)
-          await refreshCustomCommands(active.path)
-        }
-        let isolate = worktreePolicy === 'auto'
-        if (!active && worktreePolicy === 'ask') {
-          isolate = await new Promise<boolean>((resolve) => {
-            setConfirmState({ message: 'Run this mutating turn in an isolated Git worktree?', resolve })
-          })
-        }
-        if (!active && isolate) {
-          const info = await createWorktree(projectRoot, sessionId)
-          await agent.setWorkingDirectory(info.path)
-          await refreshCustomCommands(info.path)
-          setMessages((m) => [...m, { role: 'assistant', content: `Worktree "${info.name}" created on ${info.branch ?? 'an isolated copy'} at ${info.path}.` }])
-        }
-      } catch (error) {
+      },
+      async (prepared, isCurrent) => {
+        if (!prepared.ready) return true
+        if (!isCurrent()) return false
+        setMessages((m) => [...m, { role: 'user', content: label }])
+        if (!isCurrent()) return false
+        await runAgent(prompt, images, expectedObjectiveEpoch, isSteeringTurn)
+        if (isCurrent() && shouldGenerateTitle) generateSessionTitle()
+        return true
+      },
+      () => {
+        setStreamText('')
+        setThinkingText('')
+        setToolStatus(null)
         setIsLoading(false)
         setAgentPhase('idle')
-        setMessages((m) => [...m, { role: 'assistant', content: `△ Worktree isolation failed; turn aborted: ${(error as Error).message}\n  Use /cwd <path> to change directory, or /worktree exit to clear the stale worktree.` }])
-        return
-      }
-    }
-    await runAgent(prompt, images)
-    if (shouldGenerateTitle) generateSessionTitle()
-  }, [isLoading, runAgent, agent, generateSessionTitle, sessionId])
+        if (shouldGenerateTitle) titleRequestedRef.current = false
+        drainQueuedMessagesRef.current()
+      },
+    )
+    if (!dispatched) return
+  }, [runAgent, agent, generateSessionTitle, sessionId, setConfirmState])
+  runWithPromptRef.current = runWithPrompt
 
   const handleSubmit = useCallback(async (text: string, images: PromptImage[] = []) => {
     if (!text.trim()) return
+    const acceptedObjectiveEpoch = agent.getObjectiveEpoch()
+    const revisedObjective = getObjectiveRevision(text)
+    const steeringInstruction = getSteerInstruction(text)
     const pendingProviderSwitch = pendingProviderSwitchRef.current?.completion
-    if (pendingProviderSwitch) await pendingProviderSwitch.catch(() => undefined)
+    if (pendingProviderSwitch && revisedObjective === null && steeringInstruction === null) {
+      await pendingProviderSwitch.catch(() => undefined)
+      if (agent.getObjectiveEpoch() !== acceptedObjectiveEpoch) {
+        handleQueue(text, images)
+        return
+      }
+    }
+    if (revisedObjective === null && steeringInstruction === null && agent.getObjectiveEpoch() !== acceptedObjectiveEpoch) {
+      handleQueue(text, images)
+      return
+    }
 
     // While focused on a subagent, plain text goes to that subagent via its
     // mailbox ('question' messages are drained by the executor each iteration);
@@ -1658,7 +1940,147 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       setActivityOpen(false)
     }
 
+    if (steeringInstruction !== null) {
+      if (!steeringInstruction) {
+        setMessages((m) => [...m, { role: 'assistant', content: 'Usage: /steer <instruction>' }])
+        return
+      }
+      if (pendingSteeringPromptRef.current) pendingSteeringPromptRef.current.cancelled = true
+      const objectiveEpoch = agent.reviseObjective()
+      const steering: PendingSteeringPrompt = {
+        input: { text, images },
+        prompt: [
+          'The user is steering the current task with this correction:',
+          steeringInstruction,
+          'Apply this correction to the current work. Preserve completed work where it remains relevant, and do not resume superseded goal work.',
+        ].join('\n\n'),
+        objectiveEpoch,
+        mode: interactionMode,
+        dispatching: false,
+        cancelled: false,
+      }
+      pendingSteeringPromptRef.current = steering
+      if (goalContinuationTimerRef.current) {
+        clearTimeout(goalContinuationTimerRef.current)
+        goalContinuationTimerRef.current = null
+      }
+      cancelQueuedSubmit(true)
+      setQueuedMessages((queue) => dropGoalContinuations(queue))
+      cancelConfirmations()
+      if (planApprovalState) {
+        setPlanApprovalState(null)
+        planApprovalState.reject('aborted')
+      }
+      drainQueuedMessagesRef.current()
+      return
+    }
+
+    if (revisedObjective !== null) {
+      if (!revisedObjective) {
+        setMessages((m) => [...m, { role: 'assistant', content: 'Usage: /revise <new objective>' }])
+        return
+      }
+      const currentGoal = getGoal()
+      if (!currentGoal || currentGoal.status === 'complete') {
+        setMessages((m) => [...m, { role: 'assistant', content: 'No unfinished goal to revise. Use /goal <objective> to start one.' }])
+        return
+      }
+      if (!sessionId) {
+        setMessages((m) => [...m, { role: 'assistant', content: 'This goal has no saved session, so its revision cannot be durably recorded. Save or resume the session before using /revise.' }])
+        return
+      }
+
+      const revisedGoal = reviseGoal(revisedObjective)
+      const revision = revisedGoal.objectiveRevision ?? 1
+      const objectiveEpoch = agent.reviseObjective()
+      const prompt = buildObjectiveRevisionPrompt(revisedGoal)
+      const label = `Objective revision ${revision}`
+      let resolveReady!: (value: boolean) => void
+      const ready = new Promise<boolean>((resolve) => { resolveReady = resolve })
+      const previousPending = pendingObjectivePromptRef.current
+      if (previousPending) {
+        previousPending.cancelled = true
+        previousPending.resolveReady(false)
+      }
+      const pending: PendingObjectivePrompt = {
+        input: { text, images },
+        revision,
+        objectiveEpoch,
+        label,
+        prompt,
+        mode: interactionMode,
+        ready,
+        resolveReady,
+        dispatching: false,
+        cancelled: false,
+      }
+      pendingObjectivePromptRef.current = pending
+
+      if (goalContinuationTimerRef.current) {
+        clearTimeout(goalContinuationTimerRef.current)
+        goalContinuationTimerRef.current = null
+      }
+      cancelQueuedSubmit(true)
+      setQueuedMessages((queue) => dropGoalContinuations(queue))
+
+      cancelConfirmations()
+      if (planApprovalState) {
+        setPlanApprovalState(null)
+        planApprovalState.reject('aborted')
+      }
+      const now = new Date().toISOString()
+      const correctionMessages: Message[] = [
+        { role: 'user', content: text },
+        { role: 'assistant', content: `Objective revision ${revision} requested. The previous turn is being interrupted; replacement work will start only after the revised goal is saved.` },
+      ]
+      const uiMessages = [...messagesRef.current, ...correctionMessages]
+      messagesRef.current = uiMessages
+      setMessages(uiMessages)
+
+      try {
+        await queueSessionCheckpoint({
+          id: sessionId,
+          title: sessionTitleRef.current ?? undefined,
+          createdAt: sessionCreatedAtRef.current,
+          updatedAt: now,
+          cwd: agent.getWorkingDirectory(),
+          model: agent.model,
+          provider: agent.provider,
+          language: language ?? null,
+          activeAgent: agent.activeAgent,
+          agentMessages: agent.getRawMessages(),
+          uiMessages,
+          filesModified: agent.getFilesModified(),
+          goal: { ...revisedGoal, timeUsedSeconds: getElapsedSeconds(revisedGoal), startedAt: now, updatedAt: now },
+        })
+        pending.resolveReady(true)
+        if (!isLoading) drainQueuedMessagesRef.current()
+      } catch (error) {
+        pending.cancelled = true
+        pending.resolveReady(false)
+        const durableRevision = durableGoalRef.current?.objectiveRevision ?? -1
+        const wasCurrentRevisionRolledBack = rollbackFailedGoalRevision(revision, durableGoalRef.current)
+        if (pendingObjectivePromptRef.current === pending) pendingObjectivePromptRef.current = null
+        if (wasCurrentRevisionRolledBack) {
+          setMessages((m) => [...m, { role: 'assistant', content: `⚠ Could not durably save objective revision ${revision}; the previous objective remains active and replacement work was not started. ${(error as Error).message}` }])
+        } else if (durableRevision < revision && (getGoal()?.objectiveRevision ?? -1) <= revision) {
+          setMessages((m) => [...m, { role: 'assistant', content: `⚠ Could not durably save objective revision ${revision}; replacement work was not started. ${(error as Error).message}` }])
+        }
+        if (!isLoading) drainQueuedMessagesRef.current()
+      }
+      return
+    }
+
+    if (pendingObjectivePromptRef.current) {
+      handleQueue(text, images)
+      return
+    }
+
     const cmd = await resolveCommand(text, agent.getWorkingDirectory())
+    if (agent.getObjectiveEpoch() !== acceptedObjectiveEpoch) {
+      handleQueue(text, images)
+      return
+    }
     const liveWorkflowControl = cmd?.type === 'config' || cmd?.type === 'workflows' || cmd?.type === 'background' || cmd?.type === 'browser' || (cmd?.type === 'workflow' && ['pause', 'resume', 'stop'].includes(cmd.action))
     if (isLoading && !liveWorkflowControl) {
       if (images.length > 0) handleQueue(text, images)
@@ -1698,9 +2120,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setMessages((m) => [...m, { role: 'assistant', content: `Model switched to ${cmd.model}` }])
           return
         case 'models': {
-          setIsLoading(true)
-          const models = await agent.getAvailableModels()
-          setIsLoading(false)
+          const result = await loadModelCatalog(() => agent.getAvailableModels(), setIsLoading)
+          if ('error' in result) {
+            setMessages((m) => [...m, { role: 'assistant', content: `⚠ Could not load models: ${result.error}` }])
+            return
+          }
+          const { models } = result
           setAvailableModels(models)
           // Generate descriptions for unknown models (background, non-blocking)
           agent.generateDescriptions(models).then(setModelDescriptions)
@@ -1806,7 +2231,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           return
         }
         case 'verify': {
-          const { detectVerificationCommand, runVerification } = await import('../agent/verify.js')
+          const { detectVerificationCommand } = await import('../agent/verify.js')
+          const { runProjectVerificationReadOnly } = await import('../tools/Shell/Shell.js')
           const command = await detectVerificationCommand(agent.getWorkingDirectory())
           if (!command) {
             setMessages((m) => [...m, { role: 'assistant', content: 'No supported project test command found.' }])
@@ -1818,7 +2244,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           if (!approved) return
           setIsLoading(true)
           try {
-            const result = await runVerification(command, agent.getWorkingDirectory())
+            const result = await runProjectVerificationReadOnly(command, agent.getWorkingDirectory())
             setMessages((m) => [...m, { role: 'assistant', content: `${result.ok ? '✓' : '✗'} ${command.display}\n\n${result.output}` }])
           } catch (error) {
             setMessages((m) => [...m, { role: 'assistant', content: `✗ ${command.display}\n\n${(error as Error).message}` }])
@@ -1965,9 +2391,12 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         case 'plan': {
           if (isLoading) return
           const { mkdir } = await import('fs/promises')
+          if (agent.getObjectiveEpoch() !== acceptedObjectiveEpoch) { handleQueue(text, images); return }
           const { dirname } = await import('path')
+          if (agent.getObjectiveEpoch() !== acceptedObjectiveEpoch) { handleQueue(text, images); return }
           const planPath = newPlanPath(cmd.task, agent.getWorkingDirectory())
           await mkdir(dirname(planPath), { recursive: true })
+          if (agent.getObjectiveEpoch() !== acceptedObjectiveEpoch) { handleQueue(text, images); return }
           // Set plan mode synchronously on both agent and React state
           planReturnModeRef.current = agent.interactionMode === 'auto' ? 'auto' : 'build'
           agent.interactionMode = 'plan'
@@ -1980,7 +2409,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           setAgentPhase(agent.promptRefinerEnabled ? 'refining' : 'executing')
           setStreamText('')
           try {
-            await runAgent(injection)
+            await runAgent(injection, [], acceptedObjectiveEpoch)
           } finally {
             // The plan file stays assigned so feedback turns revise the same plan; approval clears it.
             setIsLoading(false)
@@ -1992,7 +2421,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           const prompt = REVIEW_PROMPT(cmd.target)
           agent.interactionMode = 'review'
           setInteractionMode('review')
-          await runWithPrompt(label, prompt, 'review')
+          await runWithPrompt(label, prompt, 'review', [], acceptedObjectiveEpoch)
           return
         }
         case 'permissions': {
@@ -2309,6 +2738,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         }
         case 'goal': {
           const { getGoal, createGoal, setGoal, resumeGoal, updateGoal, buildContinuationPrompt, GOAL_MAX_CONTINUATIONS } = await import('../agent/goal.js')
+          if (agent.getObjectiveEpoch() !== acceptedObjectiveEpoch) { handleQueue(text, images); return }
           const goal = getGoal()
 
           if (cmd.action === 'show') {
@@ -2328,7 +2758,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
                 `Tokens: ${goal.tokensUsed}${budgetLine}`,
                 `Turns: ${goal.continuations}/${maxTurns}`,
                 '',
-                `Commands: /goal edit, /goal pause, /goal resume, /goal clear`,
+                `Commands: /goal edit, /goal pause, /goal resume, /goal clear, /revise <new objective>`,
               ].join('\n') }])
             }
             return
@@ -2343,7 +2773,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             const maxContinuations = cmd.maxContinuations ?? agent.settings.goal?.maxContinuations
             const newGoal = createGoal(cmd.objective, undefined, maxContinuations)
             const injection = `Execute the following goal: "${cmd.objective}". When every part is achieved, call update_goal with status "complete" and completion_summary that explicitly says the whole goal is done and gives evidence for each part. A separate reviewer using the current model will check the claim; if it rejects completion, continue working. If you are stuck on the same blocker for 3 consecutive turns, call update_goal with status "blocked" and describe the blocker.`
-            await runWithPrompt(`/goal ${cmd.objective}`, injection, interactionMode)
+            await runWithPrompt(`/goal ${cmd.objective}`, injection, interactionMode, images, acceptedObjectiveEpoch)
             return
           }
 
@@ -2351,7 +2781,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             if (!goal) {
               setMessages((m) => [...m, { role: 'assistant', content: 'No goal to edit. Use /goal <objective> to set one.' }])
             } else {
-              setMessages((m) => [...m, { role: 'assistant', content: `Current goal: "${goal.objective}"\nTo edit, use /goal <new objective> to replace it.` }])
+              setMessages((m) => [...m, { role: 'assistant', content: `Current goal: "${goal.objective}"\nUse /revise <new objective> to correct it and interrupt current work.` }])
             }
             return
           }
@@ -2403,8 +2833,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
                 goalContinuationTimerRef.current = null
                 setQueuedMessages((q) => {
                   const next = enqueue(q, { text: prompt })
-                  if (q.length === 0 && next.length > 0) {
-                    if (queuedSubmitTimerRef.current) clearTimeout(queuedSubmitTimerRef.current)
+                  if (q.length === 0 && next.length > 0 && !queuedSubmitTimerRef.current) {
                     queuedSubmitTimerRef.current = setTimeout(() => {
                       queuedSubmitTimerRef.current = null
                       void handleSubmitRef.current!(next[0]!.text, next[0]!.images)
@@ -2491,10 +2920,15 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           return
         }
         case 'custom':
-          await runWithPrompt(text, cmd.prompt, interactionMode, images)
+          await runWithPrompt(text, cmd.prompt, interactionMode, images, acceptedObjectiveEpoch)
           return
         case 'task': {
-          const result = await agent.controlTask(cmd.id, cmd.action, 'message' in cmd ? cmd.message : undefined)
+          const result = await agent.controlTask(
+            cmd.id,
+            cmd.action,
+            'message' in cmd ? cmd.message : 'evidence' in cmd ? cmd.evidence : undefined,
+            'resolution' in cmd ? cmd.resolution : undefined,
+          )
           setMessages(m => [...m, { role: 'assistant', content: result }])
           return
         }
@@ -2646,8 +3080,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       return
     }
 
-    await runWithPrompt(text, text, interactionMode, images)
-  }, [agent, isLoading, onExit, runWithPrompt, runAgent, runBtw, interactionMode, focusedSubagent, handleQueue])
+    await runWithPrompt(text, text, interactionMode, images, acceptedObjectiveEpoch)
+  }, [agent, isLoading, onExit, runWithPrompt, runAgent, runBtw, interactionMode, focusedSubagent, handleQueue, sessionId, language, cancelConfirmations, cancelQueuedSubmit, planApprovalState])
 
   // Keep ref in sync so the init effect always calls the latest handleSubmit
   handleSubmitRef.current = handleSubmit
@@ -2997,8 +3431,47 @@ function ConfirmPrompt({ message, onConfirm }: { message: string; onConfirm: (ye
   )
 }
 
-/** Numbered choices for a permission request: workflow requests get run once / view code / always allow script / deny; others get allow once, a session- or directory-scoped allow, deny, and (for plain permission requests) always allow. Origin-scoped tools name the origin they apply to. */
+function requiresOneCallRiskApproval(request: ToolPermissionRequest): boolean {
+  if (request.reason !== 'risk') return false
+  return ['write_file', 'edit_file', 'patch_file'].includes(request.toolName) ||
+    request.toolName === 'browser' && browserActionKind(request.args as Record<string, unknown>) === 'type'
+}
+
+/** Explanation shown for a tool permission request. */
+export function toolPermissionReason(request: ToolPermissionRequest): string {
+  if (request.reason === 'outside_workspace') {
+    return `This action accesses a directory outside the project.${request.riskDescription ? ` ${request.riskDescription}` : ''}`
+  }
+  if (requiresOneCallRiskApproval(request)) {
+    const detail = request.riskDescription ?? (request.toolName === 'browser'
+      ? 'This sends text or files to a public page.'
+      : 'This high-risk file change can replace existing content.')
+    const args = request.args as Record<string, unknown>
+    const uploads = args.action === 'upload' || args.action === 'batch' && Array.isArray(args.steps) &&
+      args.steps.some(step => step && typeof step === 'object' && !Array.isArray(step) && (step as Record<string, unknown>).action === 'upload')
+    return request.toolName === 'browser'
+      ? `${detail} Approval covers this invocation only.${uploads ? ' Uploads are sent only if file contents still match the digest captured before confirmation.' : ''}`
+      : `${detail} Approval covers this invocation only; even identical file arguments need a new approval.`
+  }
+  return request.riskDescription ?? {
+    permission: 'The current permission policy requires confirmation for this action.',
+    agent_config: 'The current agent configuration requires confirmation for this action.',
+    workflow: 'Running this workflow requires confirmation.',
+    risk: 'This action requires confirmation because it is high risk.',
+    outside_workspace: 'This action accesses a directory outside the project.',
+    interrupted_replay: 'The previous session result for this exact call was lost. Its effects may already have occurred, so retrying requires a fresh one-call approval.',
+  }[request.reason]
+}
+
+/** Numbered choices for a permission request: the UI distinguishes skipping one action from stopping the turn; workflow requests keep their separate run/view/allow/deny choices. */
 export function permissionOptions(request: ToolPermissionRequest) {
+  if (request.reason === 'interrupted_replay') {
+    return [
+      { key: '1', label: 'Retry this exact action once', result: 'once' as ToolPermissionResult },
+      { key: '2', label: 'Deny this action and continue', result: 'reject' as ToolPermissionResult },
+      { key: '3', label: 'Deny and stop this turn', result: 'deny' as ToolPermissionResult },
+    ]
+  }
   if (request.reason === 'workflow') {
     return [
       { key: '1', label: 'Execute this workflow once', result: 'once' as ToolPermissionResult },
@@ -3007,25 +3480,36 @@ export function permissionOptions(request: ToolPermissionRequest) {
       { key: '4', label: 'Deny', result: 'deny' as ToolPermissionResult },
     ]
   }
+  if (requiresOneCallRiskApproval(request)) {
+    return [
+      { key: '1', label: 'Allow this action once', result: 'once' as ToolPermissionResult },
+      { key: '2', label: 'Deny this action and continue', result: 'reject' as ToolPermissionResult },
+      { key: '3', label: 'Deny and stop this turn', result: 'deny' as ToolPermissionResult },
+    ]
+  }
   const externalDirectory = request.reason === 'outside_workspace' ? request.externalDirectory : undefined
   const origin = approvalOrigin(request.toolName, request.args as Record<string, unknown>)
-  const sessionLabel = externalDirectory
-    ? `Allow file actions in ${externalDirectory} this session`
-    : origin
-      ? `Allow ${request.toolName} on ${origin} this session`
-      : request.toolName === 'dev_server'
-        ? 'Allow starting this server this session (asks again if its launch.json entry changes)'
-        : request.reason === 'risk'
-          ? 'Do not ask again for this action this session'
-        : `Allow ${request.toolName} in this project this session`
+  const gitPull = request.toolName === 'git' && (request.args as Record<string, unknown>).action === 'pull'
+  const sessionLabel = gitPull
+    ? 'Allow git pull from the configured upstream this session (remote contents may change)'
+    : externalDirectory
+      ? `Allow file actions in ${externalDirectory} this session`
+      : origin
+        ? `Allow ${request.toolName} on ${origin} this session`
+        : request.toolName === 'dev_server'
+          ? 'Allow starting this server this session (asks again if its launch.json entry changes)'
+          : request.reason === 'risk'
+            ? 'Do not ask again for this action this session'
+            : `Allow ${request.toolName} in this project this session`
   const options = [
     { key: '1', label: 'Allow this action', result: 'once' as ToolPermissionResult },
     { key: '2', label: sessionLabel, result: (externalDirectory ? 'directory' : 'session') as ToolPermissionResult },
-    { key: '3', label: 'Deny (tell DeepSeek what to do instead)', result: 'deny' as ToolPermissionResult },
+    { key: '3', label: 'Deny and stop this turn', result: 'deny' as ToolPermissionResult },
   ]
   if (request.reason === 'permission') {
     options.push({ key: '4', label: origin ? `Always allow ${request.toolName} on ${origin}` : `Always allow ${request.toolName}`, result: 'always' as ToolPermissionResult })
   }
+  options.push({ key: request.reason === 'permission' ? '5' : '4', label: 'Deny this action and continue', result: 'reject' as ToolPermissionResult })
   return options
 }
 
@@ -3053,7 +3537,7 @@ export function toolPermissionSummary({ toolName, args }: ToolPermissionRequest)
 }
 
 /** Confirmation box for a tool call that needs approval, with keyboard-selectable options (number keys, arrows + Enter) and an inline workflow-code viewer; Esc and Ctrl+C deny. */
-function ToolPermissionPrompt({
+export function ToolPermissionPrompt({
   request,
   onDecide,
 }: {
@@ -3064,6 +3548,7 @@ function ToolPermissionPrompt({
   const [selected, setSelected] = useState(0)
   const [showWorkflowCode, setShowWorkflowCode] = useState(false)
   const options = permissionOptions(request)
+  const rejectKey = options.find(option => option.result === 'reject')?.key
 
   const choose = (option: typeof options[number]) => {
     if (!('result' in option) || !option.result) { setShowWorkflowCode(value => !value); return }
@@ -3080,12 +3565,8 @@ function ToolPermissionPrompt({
     if (key.escape) { onDecide('deny'); return }
   })
 
-  const cols = Math.max((process.stdout.columns ?? 80) - 10, 30)
   const summary = toolPermissionSummary(request)
-  const preview = summary.length > cols ? summary.slice(0, cols) + '…' : summary
-  const reason = request.reason === 'outside_workspace'
-    ? 'This action accesses a directory outside the project.'
-    : request.riskDescription ?? 'This action needs your confirmation.'
+  const reason = toolPermissionReason(request)
 
   return (
     <Box flexDirection="column" marginTop={1} marginBottom={1}>
@@ -3097,7 +3578,7 @@ function ToolPermissionPrompt({
         </Box>
         <Box flexDirection="row" gap={1}>
           <Text color={colors.textDim}>action:</Text>
-          <Text color={colors.textDim}>{preview}</Text>
+          <Text color={colors.textDim} wrap="truncate-middle">{summary}</Text>
         </Box>
         <Text color={colors.warning}>{reason}</Text>
       </Box>
@@ -3120,7 +3601,7 @@ function ToolPermissionPrompt({
         </Box>
       )}
       <Box marginLeft={2}>
-        <Text color={colors.textDim}>{'  ↑↓ navigate  ·  Enter confirm  ·  Esc deny  ·  [3] aborts agent'}</Text>
+        <Text color={colors.textDim}>{`  ↑↓ navigate  ·  Enter confirm  ·  Esc stop turn  ·  [3] stop turn${rejectKey ? `  ·  [${rejectKey}] skip action and continue` : ''}`}</Text>
       </Box>
     </Box>
   )

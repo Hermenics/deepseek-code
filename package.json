@@ -99,6 +99,7 @@
     "@types/three": "0.184.0",
     "react-devtools-core": "^7.0.1",
     "three": "0.184.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-language-server": "4.4.1"
   }
 }

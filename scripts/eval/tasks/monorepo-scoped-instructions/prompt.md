@@ -1,0 +1,1 @@
+Fix `formatAccountId` in the billing package and update its callers to follow the applicable package contract. Inspect the instruction files at each scope before editing. If instructions conflict, the narrowest applicable path scope takes precedence for that subject; parent instructions continue to apply elsewhere. Preserve the public API and do not modify the web package.

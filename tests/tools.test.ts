@@ -99,6 +99,7 @@ describe('Individual Tool Validation', () => {
 
     it('should read an existing file', async () => {
       const result = await tool.execute({ path: 'package.json' })
+      expect(result).toMatch(/showing 1–\d+\]/)
       expect(result).toContain('deepseek-code')
     })
 
@@ -118,8 +119,14 @@ describe('Individual Tool Validation', () => {
 
     it('should list directory contents', async () => {
       const result = await tool.execute({ path: '.' })
+      expect(result).toStartWith('Directory scope: .\nRecursion: disabled\n')
       expect(result).toContain('src')
       expect(result).toContain('package.json')
+    })
+
+    it('reports the effective recursion limit when recursion is enabled', async () => {
+      const result = await tool.execute({ path: 'src', recursive: true })
+      expect(result).toStartWith('Directory scope: src\nRecursion: enabled (max depth 5)\n')
     })
 
     it('lists several directories in one call', async () => {
@@ -149,7 +156,8 @@ describe('Individual Tool Validation', () => {
     })
 
     it('should find pattern in files', async () => {
-      const result = await tool.execute({ pattern: 'deepseek-code', path: '.' })
+      const result = await tool.execute({ pattern: 'deepseek-code' })
+      expect(result).toStartWith('Search scope: .\n')
       expect(result.length).toBeGreaterThan(0)
     })
 
@@ -171,6 +179,7 @@ describe('Individual Tool Validation', () => {
 
     it('should find TypeScript files', async () => {
       const result = await tool.execute({ pattern: 'src/**/*.ts' })
+      expect(result).toStartWith('Search scope: .\n')
       expect(result).toContain('.ts')
     })
   })

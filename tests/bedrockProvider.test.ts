@@ -2,13 +2,13 @@ import { describe, it, expect, beforeEach, mock } from 'bun:test'
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 
-const mockSend = mock(async () => ({
+const mockSend = mock(async (_command?: unknown, _options?: { abortSignal?: AbortSignal }) => ({
   modelSummaries: [
     { modelId: 'us.deepseek.r1-v1:0' },
     { modelId: 'deepseek.deepseek-v3-0324:0' },
-    { modelId: 'amazon.titan-text-express-v1:0' },         // deve ser filtrado
-    { modelId: 'meta.llama3-8b-instruct-v1:0' },           // deve ser filtrado
-    { modelId: 'anthropic.claude-3-sonnet-20240229-v1:0' }, // deve ser filtrado
+    { modelId: 'amazon.titan-text-express-v1:0' },         // should be filtered
+    { modelId: 'meta.llama3-8b-instruct-v1:0' },           // should be filtered
+    { modelId: 'anthropic.claude-3-sonnet-20240229-v1:0' }, // should be filtered
   ],
 }))
 
@@ -25,20 +25,20 @@ mock.module('@aws-sdk/credential-providers', () => ({
   fromEnv: () => ({}),
 }))
 
-// ── Importa DEPOIS dos mocks ───────────────────────────────────────────────
+// ── Import AFTER the mocks ──────────────────────────────────────────────────
 const { listBedrockDeepSeekModels } = await import('../src/agent/providers/bedrock.js')
 
-// ── Testes ─────────────────────────────────────────────────────────────────
+// ── Tests ───────────────────────────────────────────────────────────────────
 
 describe('listBedrockDeepSeekModels', () => {
   beforeEach(() => {
-    // Garante que resolveCredentials sempre use fromIni nos testes
+    // Ensure resolveCredentials always uses fromIni in tests.
     delete process.env.AWS_ACCESS_KEY_ID
     delete process.env.AWS_SECRET_ACCESS_KEY
     delete process.env.AWS_SESSION_TOKEN
 
     mockSend.mockClear()
-    // Restaura implementação padrão após cada teste
+    // Restore the default implementation after each test.
     mockSend.mockImplementation(async () => ({
       modelSummaries: [
         { modelId: 'us.deepseek.r1-v1:0' },
@@ -50,7 +50,7 @@ describe('listBedrockDeepSeekModels', () => {
     }))
   })
 
-  it('retorna apenas modelos com "deepseek" no ID', async () => {
+  it('returns only models with "deepseek" in the ID', async () => {
     const models = await listBedrockDeepSeekModels('us-east-1', 'default')
     expect(models).toEqual([
       'deepseek.deepseek-v3-0324:0',
@@ -58,7 +58,7 @@ describe('listBedrockDeepSeekModels', () => {
     ])
   })
 
-  it('retorna lista ordenada', async () => {
+  it('returns a sorted list', async () => {
     mockSend.mockImplementationOnce(async () => ({
       modelSummaries: [
         { modelId: 'deepseek.deepseek-v3-0324:0' },
@@ -72,13 +72,28 @@ describe('listBedrockDeepSeekModels', () => {
     ])
   })
 
-  it('retorna [] quando a API falha', async () => {
+  it('returns [] when the API fails', async () => {
     mockSend.mockImplementationOnce(async () => { throw new Error('AccessDeniedException') })
     const models = await listBedrockDeepSeekModels('us-east-1', 'default')
     expect(models).toEqual([])
   })
 
-  it('retorna [] quando não há modelos DeepSeek disponíveis', async () => {
+  it('passes the optional abort signal to the cancellable SDK request', async () => {
+    const controller = new AbortController()
+    let receivedSignal: AbortSignal | undefined
+    mockSend.mockImplementationOnce((_command, options) => new Promise((_, reject) => {
+      receivedSignal = options?.abortSignal
+      options?.abortSignal?.addEventListener('abort', () => reject(options.abortSignal?.reason), { once: true })
+    }))
+
+    const pending = listBedrockDeepSeekModels('us-east-1', 'default', controller.signal)
+    await Bun.sleep(0)
+    expect(receivedSignal).toBe(controller.signal)
+    controller.abort(new Error('cancelled'))
+    await expect(pending).rejects.toThrow('cancelled')
+  })
+
+  it('returns [] when no DeepSeek models are available', async () => {
     mockSend.mockImplementationOnce(async () => ({
       modelSummaries: [
         { modelId: 'amazon.titan-text-express-v1:0' },
@@ -89,7 +104,7 @@ describe('listBedrockDeepSeekModels', () => {
     expect(models).toEqual([])
   })
 
-  it('lida com modelSummaries undefined', async () => {
+  it('handles undefined modelSummaries', async () => {
     mockSend.mockImplementationOnce(async () => ({ modelSummaries: undefined } as any))
     const models = await listBedrockDeepSeekModels('us-east-1', 'default')
     expect(models).toEqual([])

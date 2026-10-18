@@ -1,0 +1,11 @@
+{
+  "project": "deepseek-code",
+  "facts": [
+    {
+      "key": "web_port",
+      "value": 3000,
+      "source": "sessions/01-port.md",
+      "status": "current"
+    }
+  ]
+}

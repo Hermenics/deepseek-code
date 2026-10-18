@@ -1,5 +1,5 @@
-// Design System centralizado do DeepSeek Code
-// Baseado na arquitetura do Claude Code, adaptado com identidade visual DeepSeek (azul)
+// Centralized DeepSeek Code design system.
+// Based on Claude Code's architecture, adapted with DeepSeek's blue visual identity.
 
 export type ThemeName = 'dark' | 'light' | 'dark-daltonized' | 'light-daltonized' | 'dark-ansi' | 'light-ansi'
 

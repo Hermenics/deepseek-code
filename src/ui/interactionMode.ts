@@ -6,7 +6,7 @@ export const MODES: InteractionMode[] = ['plan', 'review', 'build', 'auto']
 
 export const DEFAULT_MODE: InteractionMode = 'build'
 
-// Ciclo: plan → build → auto → plan
+// Cycle through the available interaction modes.
 export function nextMode(current: InteractionMode): InteractionMode {
   const index = MODES.indexOf(current)
   return MODES[(index + 1) % MODES.length]
@@ -24,9 +24,9 @@ export function isReviewMode(mode: InteractionMode): boolean {
   return mode === 'review'
 }
 
-// Ferramentas read-only permitidas em todos os modos
+// Observation and session bookkeeping tools available in every mode.
 const READ_ONLY_TOOLS = new Set([
-  'read_file', 'read_folder', 'glob', 'grep', 'lsp',
+  'read_file', 'read_folder', 'glob', 'grep', 'lsp', 'session_evidence', 'record_claim', 'discover_tools',
   'web_fetch', 'introspect', 'todo', 'step', 'memory',
   'git', 'workflow', 'get_goal', 'ask_user_questions', 'skill',
 ])
@@ -40,7 +40,7 @@ const BUILD_TOOLS = new Set([
 // Persistent workers inject this scoped tool at runtime; it is not registered in ordinary CLI sessions.
 const CONTEXT_TOOLS = new Set(['bot_control'])
 
-// Permissões por modo. Auto names every native tool so /permissions remains
+// Mode permissions. Auto names every native tool so /permissions remains
 // accurate; canUseTool still permits dynamically discovered MCP tools there.
 const TOOL_PERMISSIONS: Record<InteractionMode, Set<string>> = {
   build: BUILD_TOOLS,
@@ -80,12 +80,12 @@ export const MODE_COLORS: Record<InteractionMode, string> = {
   'auto': 'red',
 }
 
-// Modelo pode ativar build e plan, mas NÃO auto (só usuário via Shift+Tab)
+// The model can activate build and plan, but only the user can activate auto via Shift+Tab.
 export function canModelActivateMode(mode: InteractionMode): boolean {
   return mode !== 'auto'
 }
 
-// ── Helpers para Build mode: detecção de shell destrutivo e write em .deepseek ──
+// Helpers for Build mode: detect destructive shell commands and writes to .deepseek.
 
 const DESTRUCTIVE_PATTERNS = [
   /\brm\s+(-\w*r|-\w*f)/,        // rm -rf, rm -r, rm -f with recursive

@@ -1,0 +1,98 @@
+{
+  "scope": "Deterministic mechanics, no model-quality measurement",
+  "runtime": "1.3.13",
+  "checked_at": "2026-10-17",
+  "results": [
+    {
+      "id": "L1",
+      "observed": "center sample retains the diagnostic while disclosing truncation",
+      "inputChars": 4019,
+      "outputCodePoints": 1000,
+      "nominalContentCap": 1000
+    },
+    {
+      "id": "L2",
+      "observed": "single-line input is bounded by the byte-range and response caps",
+      "returnedChars": 16133,
+      "inputBytes": 1000000
+    },
+    {
+      "id": "L3",
+      "observed": "target-scoped loading includes workspace and nested AGENTS.md; the compatibility helper remains cwd-local"
+    },
+    {
+      "id": "L4",
+      "observed": "recognized natural-language constraints are retained; relevance beyond lexical cues is not inferred"
+    },
+    {
+      "id": "L5",
+      "observed": "export in an isolated subprocess is not available in the next subprocess; shell state is per-call"
+    },
+    {
+      "id": "L6",
+      "observed": "patch normalizes LF snippet to CRLF and rejects duplicate matches without a write"
+    },
+    {
+      "id": "L7",
+      "observed": "unique substring patch succeeds despite changed surrounding assumption; not a demonstrated data-loss race"
+    },
+    {
+      "id": "L8",
+      "observed": "joining completed streams loses order; Shell capture retains observed-arrival order",
+      "concatenated": "before\nafter\n\nmiddle",
+      "captured": "before\nmiddle\nafter"
+    },
+    {
+      "id": "L9",
+      "observed": "bounded Shell truncation preserves a retained emoji as one code point",
+      "inputCodePoints": 301,
+      "outputCodePoints": 60
+    }
+  ],
+  "initial_snapshot": {
+    "runtime": "1.3.13",
+    "results": [
+      {
+        "id": "L1",
+        "observed": "middle root cause omitted, truncation disclosed",
+        "inputChars": 4019,
+        "outputChars": 1104,
+        "nominalContentCap": 1000
+      },
+      {
+        "id": "L2",
+        "observed": "default 500-line limit does not bound single-line output",
+        "returnedChars": 1000087
+      },
+      {
+        "id": "L3",
+        "observed": "loader reads only AGENTS.md at supplied cwd, no inheritance in this function"
+      },
+      {
+        "id": "L4",
+        "observed": "read-only micro-compaction ranks by recency, not active semantic importance"
+      },
+      {
+        "id": "L5",
+        "observed": "export in isolated subprocess is not available in next subprocess; platform experiment"
+      },
+      {
+        "id": "L6",
+        "observed": "patch normalizes LF snippet to CRLF and rejects duplicate matches without a write"
+      },
+      {
+        "id": "L7",
+        "observed": "unique substring patch succeeds despite changed surrounding assumption; not a demonstrated data-loss race"
+      },
+      {
+        "id": "L8",
+        "observed": "joining completed stdout then stderr loses original write order",
+        "combined": "before\nafter\n\nmiddle"
+      },
+      {
+        "id": "L9",
+        "observed": "UTF-16 character slicing can split surrogate pair at truncation boundary"
+      }
+    ]
+  }
+}

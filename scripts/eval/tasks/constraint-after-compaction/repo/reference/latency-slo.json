@@ -1,0 +1,5 @@
+{
+  "service": "synthetic-checkout",
+  "p95TargetMs": 240,
+  "ownerNote": "Reference contract; do not edit during the latency helper task."
+}

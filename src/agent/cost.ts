@@ -1,4 +1,5 @@
 import DEEPSEEK from './deepseekModels.json'
+import { normalizeBaseUrl } from './llmClient.js'
 
 // DeepSeek models, limits and pricing (USD per 1M tokens) come from deepseekModels.json, synced from
 // https://api-docs.deepseek.com/quick_start/pricing by scripts/update-deepseek-models.ts.
@@ -8,6 +9,21 @@ const DEFAULT_PRICED_MODEL = DEEPSEEK_MODELS.get('deepseek-flash') ?? DEEPSEEK.m
 /** Looks up a DeepSeek model entry by id, resolving legacy aliases. */
 function deepseekModel(id: string) {
   return DEEPSEEK_MODELS.get(id) ?? DEEPSEEK_MODELS.get((DEEPSEEK.legacyAliases as Record<string, string>)[id] ?? '')
+}
+
+/** True only when this is a catalogued model sent to the official DeepSeek API. */
+export function hasVerifiedDeepSeekPricing(provider: { provider: string; baseURL?: string }, model: string): boolean {
+  if (provider.provider !== 'deepseek') return false
+  const configuredBaseUrl = provider.baseURL ?? process.env.DEEPSEEK_BASE_URL
+  if (configuredBaseUrl) {
+    try {
+      const url = new URL(normalizeBaseUrl(configuredBaseUrl))
+      if (url.protocol !== 'https:' || url.hostname !== 'api.deepseek.com') return false
+    } catch {
+      return false
+    }
+  }
+  return deepseekModel(model.split('/').pop() ?? model) !== undefined
 }
 
 // Context windows for non-DeepSeek models reachable through OpenAI-compatible endpoints.

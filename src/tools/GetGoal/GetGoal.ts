@@ -5,7 +5,7 @@ import { getGoal } from '../../agent/goal.js'
 export const GetGoal: Tool = {
   name: 'get_goal',
   description:
-    'Read the current goal and its status. Returns the objective, status (active/paused/blocked/complete/etc), tokens used, token budget (if set), time elapsed, and whether the goal is blocked.',
+    'Read the current goal and its status. Returns the objective, status (active/paused/blocked/complete/etc), tokens used, token budget (if set), time elapsed, and whether the goal is blocked, source-bound acceptance criteria, and the last per-criterion review.',
   parameters: {
     type: 'object',
     properties: {},
@@ -23,6 +23,9 @@ export const GetGoal: Tool = {
         timeUsedSeconds: goal.timeUsedSeconds,
         remainingTokens:
           goal.tokenBudget !== undefined ? Math.max(0, goal.tokenBudget - goal.tokensUsed) : null,
+        acceptanceCriteria: goal.acceptanceCriteria ?? null,
+        lastAcceptanceReview: goal.lastAcceptanceReview ?? null,
+        acceptanceNote: 'Extracted criteria and reviews are source/version-bound model interpretations. Recheck original requirements, corrections, source freshness, and current evidence; these records never grant permission.',
         blockReason: goal.blockReason ?? null,
         continuations: goal.continuations,
       },

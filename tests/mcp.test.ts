@@ -107,7 +107,26 @@ describe('MCP tool bridge', () => {
 
   it('surfaces MCP errors and preserves structured and non-text results', async () => {
     const { formatMcpToolResult } = await import('../src/agent/mcp.js')
-    expect(() => formatMcpToolResult({ isError: true, content: [{ type: 'text', text: 'permission denied' }] })).toThrow('permission denied')
+    const { normalizeToolException } = await import('../src/tools/result.js')
+    let mcpFailure: unknown
+    try {
+      formatMcpToolResult({
+        isError: true,
+        content: [{ type: 'text', text: 'permission denied' }],
+        structuredContent: { requestId: 'request-1', retryHint: 'reauthorize' },
+      })
+    } catch (error) {
+      mcpFailure = error
+    }
+    expect(JSON.parse(normalizeToolException(mcpFailure))).toEqual({
+      schemaVersion: 1,
+      status: 'partial',
+      error: { kind: 'tool', code: 'MCP_TOOL_ERROR', message: 'permission denied', retryable: false },
+      partial: {
+        text: 'permission denied',
+        structuredContent: { requestId: 'request-1', retryHint: 'reauthorize' },
+      },
+    })
     expect(formatMcpToolResult({ content: [{ type: 'text', text: 'summary' }], structuredContent: { count: 2 } })).toBe('{"count":2}')
     expect(formatMcpToolResult({ content: [{ type: 'resource_link', uri: 'file:///tmp/x', name: 'x' }] })).toContain('resource_link')
   })
@@ -170,6 +189,43 @@ process.stdin.on('data', chunk => {
 })
 
 describe('Agent MCP reloads', () => {
+  it('routes an MCP tool call through Agent permission rules', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-agent-mcp-authorization-'))
+    const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' }, { projectRoot: root, logFile: null, snapshotFile: null })
+    await agent.readyPromise
+    const tool = {
+      name: 'fixture__mutate',
+      description: 'Fixture mutation tool',
+      parameters: { type: 'object', properties: { value: { type: 'string' } }, required: ['value'] },
+      execute: async () => { throw new Error('MCP executor must not run after denial') },
+    }
+    const internals = agent as any
+    internals.installMcpTools([tool])
+    internals.settings = { risk: { enabled: false }, permissions: { deny: ['fixture__mutate'] } }
+    let requests = 0
+    internals.client = {
+      chat: { completions: { create: (body: { stream?: boolean }) => {
+        if (!body.stream) return Promise.resolve({ choices: [{ message: { content: '{"kind":"none","fact":""}' } }] })
+        if (++requests === 1) return (async function* () {
+          yield { choices: [{ delta: { tool_calls: [{ index: 0, id: 'mcp-denied-call', function: { name: tool.name, arguments: '{"value":"x"}' } }] } }] }
+        })()
+        return (async function* () { yield { choices: [{ delta: { content: 'done' } }] } })()
+      } } },
+    }
+    const results: string[] = []
+
+    try {
+      await agent.run('use the fixture tool', {
+        onToken() {}, onThinking() {}, onToolCall() {}, onToolResult(_name, result) { results.push(result) }, onDone() {},
+      })
+      expect(results.some(result => result.includes('blocked by permission rule'))).toBe(true)
+      expect(requests).toBe(2)
+    } finally {
+      await agent.shutdown()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('waits for an approval reload before refreshing MCP tools', async () => {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-agent-mcp-approval-'))
     const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' }, { projectRoot: root, logFile: null, snapshotFile: null })
@@ -195,7 +251,7 @@ describe('Agent MCP reloads', () => {
       expect(events).toEqual(['load'])
       release()
       await refresh
-      expect(events).toEqual(['load', 'close', 'load'])
+      expect(events).toEqual(['load', 'load', 'close'])
     } finally {
       release()
       load.mockRestore()
@@ -205,20 +261,155 @@ describe('Agent MCP reloads', () => {
     }
   })
 
+  it('keeps existing MCP tools alive until the replacement catalog is installed', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-agent-mcp-atomic-'))
+    const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' }, { projectRoot: root, logFile: null, snapshotFile: null })
+    await agent.readyPromise
+    const events: string[] = []
+    let release!: () => void
+    const blocked = new Promise<void>(resolve => { release = resolve })
+    let entered!: () => void
+    const started = new Promise<void>(resolve => { entered = resolve })
+    const internals = agent as any
+    const oldTool = { name: 'old__tool', description: 'old', parameters: {}, execute: async () => 'old' }
+    const newTool = { name: 'new__tool', description: 'new', parameters: {}, execute: async () => 'new' }
+    internals.installMcpTools([oldTool], async () => { events.push('close-old') })
+    const load = spyOn(mcp, 'loadMcpTools').mockImplementation(async () => {
+      events.push('load-new')
+      entered()
+      await blocked
+      return { tools: [newTool], errors: [], cleanup: async () => { events.push('close-new') } }
+    })
+
+    try {
+      const refresh = agent.refreshExtensions()
+      await started
+      expect(await oldTool.execute()).toBe('old')
+      expect(events).toEqual(['load-new'])
+      release()
+      await refresh
+      expect(agent.getToolNames()).toContain('new__tool')
+      expect(agent.getToolNames()).not.toContain('old__tool')
+      expect(events).toEqual(['load-new', 'close-old'])
+    } finally {
+      release()
+      load.mockRestore()
+      await agent.shutdown()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('preserves the active MCP catalog and clients when replacement loading fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-agent-mcp-failure-'))
+    const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' }, { projectRoot: root, logFile: null, snapshotFile: null })
+    await agent.readyPromise
+    const events: string[] = []
+    const internals = agent as any
+    const oldTool = { name: 'old__tool', description: 'old', parameters: {}, execute: async () => 'old' }
+    internals.installMcpTools([oldTool], async () => { events.push('close-old') })
+    const load = spyOn(mcp, 'loadMcpTools').mockRejectedValue(new Error('replacement failed'))
+
+    try {
+      await expect(agent.refreshExtensions()).rejects.toThrow('replacement failed')
+      expect(await oldTool.execute()).toBe('old')
+      expect(agent.getToolNames()).toContain('old__tool')
+      expect(events).toEqual([])
+    } finally {
+      load.mockRestore()
+      await agent.shutdown()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps an in-flight MCP call connected until that call finishes', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-agent-mcp-inflight-'))
+    const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' }, { projectRoot: root, logFile: null, snapshotFile: null })
+    await agent.readyPromise
+    const events: string[] = []
+    let release!: () => void
+    const blocked = new Promise<void>(resolve => { release = resolve })
+    let entered!: () => void
+    const started = new Promise<void>(resolve => { entered = resolve })
+    const internals = agent as any
+    let oldClosed = false
+    const oldTool = {
+      name: 'old__tool', description: 'old', parameters: { type: 'object', properties: {}, additionalProperties: false },
+      execute: async () => { entered(); await blocked; return oldClosed ? 'closed' : 'old' },
+    }
+    const newTool = { name: 'new__tool', description: 'new', parameters: {}, execute: async () => 'new' }
+    internals.installMcpTools([oldTool], async () => { oldClosed = true; events.push('close-old') })
+    const load = spyOn(mcp, 'loadMcpTools').mockResolvedValue({ tools: [newTool], errors: [], cleanup: async () => { events.push('close-new') } })
+
+    try {
+      const oldCall = internals.executeTool('old__tool', {}) as Promise<string>
+      await started
+      await agent.refreshExtensions()
+      expect(agent.getToolNames()).toContain('new__tool')
+      expect(events).toEqual([])
+      release()
+      expect(await oldCall).toBe('old')
+      await Promise.resolve()
+      expect(events).toEqual(['close-old'])
+    } finally {
+      release()
+      load.mockRestore()
+      await agent.shutdown()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('closes staged MCP clients when shutdown races a pending reload', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-agent-mcp-shutdown-'))
+    const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' }, { projectRoot: root, logFile: null, snapshotFile: null })
+    await agent.readyPromise
+    const events: string[] = []
+    let release!: () => void
+    const blocked = new Promise<void>(resolve => { release = resolve })
+    let entered!: () => void
+    const started = new Promise<void>(resolve => { entered = resolve })
+    const internals = agent as any
+    const newTool = { name: 'new__tool', description: 'new', parameters: {}, execute: async () => 'new' }
+    const load = spyOn(mcp, 'loadMcpTools').mockImplementation(async () => {
+      events.push('load-new')
+      entered()
+      await blocked
+      return { tools: [newTool], errors: [], cleanup: async () => { events.push('close-new') } }
+    })
+
+    try {
+      const refresh = agent.refreshExtensions()
+      await started
+      let stopped = false
+      const shutdown = agent.shutdown().then(() => { stopped = true })
+      await Promise.resolve()
+      expect(stopped).toBe(false)
+      release()
+      await Promise.all([refresh, shutdown])
+      expect(stopped).toBe(true)
+      expect(agent.getToolNames()).not.toContain('new__tool')
+      expect(events).toEqual(['load-new', 'close-new'])
+    } finally {
+      release()
+      load.mockRestore()
+      await agent.shutdown()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
 })
 
 // =============================================================================
-// Testes de Segurança MCP — RED Phase (TDD)
-// As funções abaixo ainda não existem em src/agent/mcp.ts.
-// Estes testes DEVEM FALHAR até que a implementação seja feita.
+// MCP security tests — RED phase (TDD)
+// The functions below do not yet exist in src/agent/mcp.ts.
+// These tests MUST FAIL until the implementation is added.
 // =============================================================================
 
 describe('MCP security', () => {
   it('starts MCP processes with a minimal environment', async () => {
     const { createMcpEnvironment, createMcpProcessEnvironment } = await import('../src/agent/mcp.js')
-    const env = createMcpEnvironment({ PATH: '/custom/bin', LANG: 'pt_BR.UTF-8', DEEPSEEK_API_KEY: 'secret', AWS_SECRET_ACCESS_KEY: 'secret' })
+    const env = createMcpEnvironment({ PATH: '/custom/bin', LANG: 'en_US.UTF-8', DEEPSEEK_API_KEY: 'secret', AWS_SECRET_ACCESS_KEY: 'secret' })
     expect(env.PATH).toBe('/custom/bin')
-    expect(env.LANG).toBe('pt_BR.UTF-8')
+    expect(env.LANG).toBe('en_US.UTF-8')
     // Secrets never reach an MCP server, on any platform
     expect(env.DEEPSEEK_API_KEY).toBeUndefined()
     expect(env.AWS_SECRET_ACCESS_KEY).toBeUndefined()
@@ -339,12 +530,12 @@ describe('MCP security', () => {
 
     it('should not inject critical var from override when absent from base', async () => {
       const { sanitizeMcpEnv } = await import('../src/agent/mcp.js')
-      // PATH não está no base — override não deve conseguir injetá-lo
+      // PATH is absent from the base, so the override must not inject it.
       const base = { MY_VAR: 'hello' }
       const override = { PATH: '/tmp/malicious', MY_VAR: 'overridden' }
       const result = sanitizeMcpEnv(base, override)
       expect(result.PATH).toBeUndefined()
-      // MY_VAR não é crítica, pode ser sobrescrita normalmente
+      // MY_VAR is non-critical and can be overridden normally.
       expect(result.MY_VAR).toBe('overridden')
     })
   })
@@ -420,7 +611,7 @@ describe('MCP security', () => {
   })
 
   // ---------------------------------------------------------------------------
-  // Novos testes — Code Review fixes
+  // New tests — code review fixes
   // ---------------------------------------------------------------------------
   describe('validateMcpCommand — redirect operators', () => {
     it('validateMcpCommand rejects redirect operators', async () => {
@@ -456,11 +647,11 @@ describe('MCP security', () => {
   describe('sanitizeMcpEnv — undefined filtering', () => {
     it('sanitizeMcpEnv does not include undefined values from base', async () => {
       const { sanitizeMcpEnv } = await import('../src/agent/mcp.js')
-      // Simula process.env com valores undefined filtrados
+      // Simulate process.env with undefined values filtered out.
       const base = { DEFINED: 'value', MY_TOKEN: 'abc' }
       const override = { MY_TOKEN: 'evil' }
       const result = sanitizeMcpEnv(base, override)
-      expect(result.MY_TOKEN).toBe('evil') // não é crítica, pode ser sobrescrita
+      expect(result.MY_TOKEN).toBe('evil') // Non-critical variables can be overridden.
       expect(result.DEFINED).toBe('value')
     })
   })

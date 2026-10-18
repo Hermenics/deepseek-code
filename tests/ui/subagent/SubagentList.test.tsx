@@ -4,9 +4,9 @@ import { SubagentList } from '../../../src/ui/subagent/SubagentList.js'
 import { SubagentLine } from '../../../src/ui/subagent/SubagentLine.js'
 import type { SubagentState } from '../../../src/ui/subagent/types.js'
 
-// SubagentList é um componente React puro (sem hooks).
-// Podemos chamá-lo como função e inspecionar o React element tree resultante.
-// Isso verifica: quantos SubagentLines são criados e quais props recebem.
+// SubagentList is a pure React component (no hooks).
+// We can call it as a function and inspect the resulting React element tree.
+// This verifies how many SubagentLines are created and which props they receive.
 
 function makeAgent(id: string, overrides: Partial<SubagentState> = {}): SubagentState {
   return {
@@ -30,7 +30,7 @@ function makeAgent(id: string, overrides: Partial<SubagentState> = {}): Subagent
   }
 }
 
-// Extrai os SubagentLine elements da árvore de Box wrappers
+// Extract SubagentLine elements from the Box wrapper tree.
 function extractSubagentLineProps(element: React.ReactElement | null): Array<{ agent: SubagentState; isLast: boolean; theme: string }> {
   if (!element) return []
   const boxes = (element.props as { children: React.ReactElement[] }).children

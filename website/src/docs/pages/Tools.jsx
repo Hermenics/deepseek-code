@@ -20,7 +20,7 @@ const READ = [
   ["read_file", "path or paths", "start_line, end_line", "Read one or several files. Defaults to a 500-line window from start_line."],
   ["read_folder", "path or paths", "recursive", "List one or several directories."],
   ["glob", "pattern", "cwd", "Find files matching a glob pattern."],
-  ["grep", "pattern or patterns", "path, include", "Regex search. include filters by file glob, e.g. \"*.ts\"."],
+  ["grep", "pattern or patterns", "path, include", "Regex search. Pattern batches preserve successful matches and return typed per-pattern failures; include filters by file glob, e.g. \"*.ts\"."],
   ["web_fetch", "url", "—", "Fetch a URL and return the page text."],
 ];
 
@@ -31,7 +31,7 @@ const WRITE = [
 ];
 
 const SHELL = [
-  ["shell", "command", "timeout", "Run a shell command. Default timeout 5 minutes. Worker tasks are sandboxed."],
+  ["shell", "command", "timeout", "Run a shell command. Default timeout 5 minutes. Worker tasks are sandboxed; output previews retain a bounded excerpt for recognized diagnostics, incomplete process or pipe outcomes are reported as unknown, and supervisor loss may preserve only a recoverable preview."],
   ["git", "action", "operations, message, files, file, staged, n, create, switch, pop, force", "Structured Git operations; batch accepts only read-only status, diff, and log actions."],
 ];
 
@@ -216,6 +216,21 @@ export default function Tools() {
             <code className="inline">shell</code> has a <b>five-minute default timeout</b>. Pass an explicit{" "}
             <code className="inline">timeout</code> for a command with a known shorter or longer bound, and use
             an observable background workflow for a service that is meant to keep running.
+          </p>
+          <p>
+            Bounded output previews retain one extra line neighborhood for recognized diagnostics such as language
+            runtime exceptions, test failures, Rust panics, and linker errors. Selection is heuristic, so read the
+            saved output when the preview does not show the relevant cause.
+          </p>
+          <p>
+            If process settlement or pipe draining cannot be confirmed, <code className="inline">shell</code>
+            reports an unknown outcome and preserves recoverable output when available. Do not treat that result as
+            success or replay the command automatically.
+          </p>
+          <p>
+            If a detached supervisor exits before saving its final log, the last redacted progress preview is
+            recoverable through <code className="inline">output_id</code> when storage succeeds. The retained artifact
+            identifies itself as a preview; the complete output remains unavailable.
           </p>
           <p>
             When a worker task runs <code className="inline">shell</code>, it is sandboxed — cleared

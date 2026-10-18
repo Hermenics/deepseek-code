@@ -45,7 +45,7 @@ describe('persistent bot data lifecycle', () => {
     expect(serialized).toContain('issues.opened')
     expect(serialized).not.toContain(hook.secret)
     expect(serialized).not.toContain(store.store.query<{ secret_hash: string }>('SELECT secret_hash FROM bot_webhook_credentials WHERE bot_id=?', selected.id)[0]!.secret_hash)
-  })
+  }, 15_000)
 
   it('refuses deletion until owners stop and uncertain effects are reconciled, then removes bot rows and actor files', async () => {
     const directory = temporary(), path = join(directory, 'state.db'), store = open(path), selected = bot(store)

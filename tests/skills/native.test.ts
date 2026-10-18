@@ -45,6 +45,31 @@ describe('native image skill', () => {
     }
   })
 
+  it('preserves same-name skills and requires an explicit selector when names collide', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsk-skills-'))
+    try {
+      const first = join(root, '.deepseek', 'skills', 'first')
+      const second = join(root, '.deepseek', 'skills', 'second')
+      await mkdir(first, { recursive: true })
+      await mkdir(second, { recursive: true })
+      await writeFile(join(first, 'SKILL.md'), '---\nname: shared\ndescription: First shared skill.\n---\n\n# First shared skill')
+      await writeFile(join(second, 'SKILL.md'), '---\nname: shared\ndescription: Second shared skill.\n---\n\n# Second shared skill')
+
+      const skills = (await listAvailableSkills(root)).filter(skill => skill.name === 'shared')
+      expect(skills).toHaveLength(2)
+      expect(new Set(skills.map(skill => skill.selector)).size).toBe(2)
+      const prompt = await loadSkillPrompt(root)
+      for (const skill of skills) expect(prompt).toContain(skill.selector)
+
+      const tool = createSkillTool(root)
+      expect(await tool.execute({ name: 'shared' })).toContain('ambiguous')
+      expect(await tool.execute({ name: skills[0]!.selector })).toContain(skills[0]!.content)
+      expect(await tool.execute({ name: skills[1]!.selector })).toContain(skills[1]!.content)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it('loads installed plugin skills and keeps their names separate from project skills', async () => {
     const root = await mkdtemp(join(tmpdir(), 'dsk-skills-'))
     const plugins = join(root, 'plugins')

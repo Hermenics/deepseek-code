@@ -37,6 +37,10 @@ bun test             # Run test suite
 
 ## Guidelines
 
+### Language
+
+Use English for all repository content, including `docs/`, code comments, tests, fixtures, and user-facing strings. Portuguese is fine in conversations about the project; do not write it into project files.
+
 ### Code style
 
 - TypeScript, functional where possible

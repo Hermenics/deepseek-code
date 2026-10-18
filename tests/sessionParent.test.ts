@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'bun:test'
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Testa a lógica de updateSessionParent / getSessionParent diretamente.
-// Não importa o módulo — replica a implementação (um Map simples) para evitar
-// contaminação de mock.module global do Bun (proxy-deepseek-api.test.ts mocka
-// sessionParent.js globalmente, tornando imports do módulo no-ops).
+// Test updateSessionParent / getSessionParent directly.
+// Do not import the module; replicate its implementation (a simple Map) to avoid
+// Bun's global mock.module contamination (proxy-deepseek-api.test.ts mocks
+// sessionParent.js globally, making imports of the module no-ops).
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ponytail: replica intencionalmente para isolamento de mock — não é duplicata acidental
+// ponytail: intentionally replicated to isolate mocks; this is not an accidental duplicate.
 const sessionParents = new Map<string, number | null>()
 function updateSessionParent(sessionId: string, parentId: number | null): void {
   sessionParents.set(sessionId, parentId)

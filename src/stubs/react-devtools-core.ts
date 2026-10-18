@@ -1,6 +1,6 @@
-// Stub vazio para react-devtools-core
-// O ink importa este módulo apenas quando DEV=true.
-// Em produção, substituímos por um no-op para evitar erro de módulo não encontrado.
+// Empty stub for react-devtools-core.
+// Ink imports this module only when DEV=true.
+// In production, replace it with a no-op to avoid a module-not-found error.
 export default {
   connectToDevTools: () => {},
 }

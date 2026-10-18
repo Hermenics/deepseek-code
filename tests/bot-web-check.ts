@@ -563,7 +563,7 @@ try {
           await tab.settle()
           await tab.navigate(url + '/?token=' + encodeURIComponent(token))
           await until("!document.getElementById('login').hidden && document.getElementById('app').hidden && !refreshing")
-          assert.equal(await evaluate("fetch('/api/bots').then(response=>response.status)"), 401, 'Token query não autentica o painel')
+          assert.equal(await evaluate("fetch('/api/bots').then(response=>response.status)"), 401, 'Token query must not authenticate the dashboard')
           await evaluate(`document.getElementById('token').value=${JSON.stringify(token)};document.getElementById('login-form').requestSubmit();true`)
           await until("!document.getElementById('app').hidden && document.getElementById('bot-name').textContent === 'engineer'")
           await evaluate("document.getElementById('message').value='draft before logout';document.getElementById('routine-dialog').showModal();true")

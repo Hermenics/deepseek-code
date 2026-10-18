@@ -1,0 +1,1 @@
+A generated build log is too long to fit in the normal preview. Diagnose the actual root cause from the complete saved log and fix the diagnostic helper so it selects the causal failure rather than a noisy head or tail message. Preserve the existing test behavior and do not hardcode this fixture's exact log line.

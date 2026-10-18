@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'bun:test'
-import { parseCommand } from '../src/commands.js'
+import { COMMAND_DESCRIPTIONS, COMMAND_SUGGESTIONS, parseCommand } from '../src/commands.js'
+import { getMatches } from '../src/ui/input/commandMatches.js'
+import { getArgumentHint } from '../src/ui/input/ghost/argumentHints.js'
 
 describe('parseCommand', () => {
   it('returns null for non-commands', () => {
@@ -22,6 +24,20 @@ describe('parseCommand', () => {
 
   it('parses /agents', () => {
     expect(parseCommand('/agents')).toEqual({ type: 'agents' })
+  })
+
+  it('parses /revise with its replacement objective', () => {
+    expect(parseCommand('/revise Replace the current objective')).toEqual({
+      type: 'revise',
+      objective: 'Replace the current objective',
+    })
+  })
+
+  it('offers /revise in slash-command autocomplete', () => {
+    expect(COMMAND_SUGGESTIONS).toContain('/revise')
+    expect(COMMAND_DESCRIPTIONS['/revise']).toBeString()
+    expect(getMatches('/rev')).toContain('/revise')
+    expect(getArgumentHint('/revise')).toMatchObject({ text: '<new objective>', fullCommand: '/revise' })
   })
 
   it('parses /config', () => {
@@ -100,11 +116,15 @@ describe('parseCommand — task orchestration', () => {
     expect(parseCommand('/task abc')).toEqual({ type: 'task', id: 'abc', action: 'status' })
     expect(parseCommand('/task abc cancel')).toEqual({ type: 'task', id: 'abc', action: 'cancel' })
     expect(parseCommand('/task abc integrate')).toEqual({ type: 'task', id: 'abc', action: 'integrate' })
+    expect(parseCommand('/task abc reconcile no-effect I checked the remote state and no effect occurred')).toEqual({
+      type: 'task', id: 'abc', action: 'reconcile', resolution: 'no-effect', evidence: 'I checked the remote state and no effect occurred',
+    })
   })
 
   it('parses structured mailbox messages and rejects incomplete actions', () => {
     expect(parseCommand('/task abc message need permission')).toEqual({ type: 'task', id: 'abc', action: 'message', message: 'need permission' })
     expect(parseCommand('/task abc message')?.type).toBe('unknown')
+    expect(parseCommand('/task abc reconcile no-effect')?.type).toBe('unknown')
     expect(parseCommand('/task')?.type).toBe('unknown')
   })
 })

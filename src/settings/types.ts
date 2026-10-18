@@ -103,6 +103,8 @@ export interface AgentsSettings {
   retryBackoffMs?: number
   maxTokens?: number
   maxCostUsd?: number
+  maxAggregateTokens?: number
+  maxAggregateCostUsd?: number
   /**
    * Shell command a subagent's changes must survive, e.g. `bun run typecheck`.
    * Runs in the subagent's workspace whenever it changed a file, and a
@@ -137,6 +139,7 @@ export interface LspServerSettings {
   args?: string[]
   extensions: string[]
   languageId?: string
+  initializationOptions?: Record<string, unknown>
 }
 
 export interface LspSettings {

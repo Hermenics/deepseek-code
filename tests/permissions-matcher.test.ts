@@ -26,4 +26,10 @@ describe('default capability permissions', () => {
     expect(resolvePermission({ deny: ['Shell(curl *)'] }, 'shell', { command: 'curl https://example.invalid' })).toBe('deny')
     expect(resolvePermission({ deny: ['Shell(curl *)'] }, 'shell', { command: 'git status' })).toBe('ask')
   })
+
+  it('matches documented PascalCase aliases to snake_case tool names', () => {
+    expect(resolvePermission({ deny: ['WriteFile(*)'] }, 'write_file', { path: 'secret.txt' })).toBe('deny')
+    expect(resolvePermission({ allow: ['ReadFile(src/*)'] }, 'read_file', { path: 'src/index.ts' })).toBe('allow')
+    expect(resolvePermission({ deny: ['MoA'] }, 'moa', {})).toBe('deny')
+  })
 })

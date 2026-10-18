@@ -1,0 +1,1 @@
+Fix the API package's `formatId` behavior to preserve leading zeroes while accepting only exactly 8 digits. Follow the root, package, and file scoped instructions. Do not modify the web package. Add or update tests for the API behavior.

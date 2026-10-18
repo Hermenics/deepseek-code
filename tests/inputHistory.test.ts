@@ -4,64 +4,71 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 
 let testDir: string
+let previousHome: string | undefined
 
 beforeEach(async () => {
+  previousHome = process.env.HOME
   testDir = await mkdtemp(join(tmpdir(), 'dsk-history-test-'))
   process.env.HOME = testDir
 })
 
 afterEach(async () => {
-  await rm(testDir, { recursive: true, force: true })
+  try {
+    await rm(testDir, { recursive: true, force: true })
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME
+    else process.env.HOME = previousHome
+  }
 })
 
 describe('loadInputHistory', () => {
-  it('retorna [] se arquivo não existe', async () => {
+  it('returns an empty list when the file does not exist', async () => {
     const { loadInputHistory } = await import('../src/agent/inputHistory.js')
     expect(await loadInputHistory()).toEqual([])
   })
 
-  it('retorna entradas salvas', async () => {
+  it('returns saved entries', async () => {
     const fs = await import('fs/promises')
     const historyPath = join(testDir, '.deepseek', 'input_history.json')
     await fs.mkdir(join(testDir, '.deepseek'), { recursive: true })
-    await fs.writeFile(historyPath, JSON.stringify(['entrada1', 'entrada2']), 'utf-8')
+    await fs.writeFile(historyPath, JSON.stringify(['entry1', 'entry2']), 'utf-8')
     const { loadInputHistory } = await import('../src/agent/inputHistory.js')
-    expect(await loadInputHistory()).toEqual(['entrada1', 'entrada2'])
+    expect(await loadInputHistory()).toEqual(['entry1', 'entry2'])
   })
 })
 
 describe('appendInputHistory', () => {
-  it('persiste nova entrada', async () => {
+  it('persists a new entry', async () => {
     const { appendInputHistory, loadInputHistory } = await import('../src/agent/inputHistory.js')
-    await appendInputHistory('nova entrada')
+    await appendInputHistory('new entry')
     const history = await loadInputHistory()
-    expect(history).toContain('nova entrada')
+    expect(history).toContain('new entry')
   })
 
-  it('não duplica entrada consecutiva igual', async () => {
+  it('does not duplicate identical consecutive entries', async () => {
     const fs = await import('fs/promises')
     const historyPath = join(testDir, '.deepseek', 'input_history.json')
     await fs.mkdir(join(testDir, '.deepseek'), { recursive: true })
-    await fs.writeFile(historyPath, JSON.stringify(['entrada repetida']), 'utf-8')
+    await fs.writeFile(historyPath, JSON.stringify(['repeated entry']), 'utf-8')
     const { appendInputHistory, loadInputHistory } = await import('../src/agent/inputHistory.js')
-    await appendInputHistory('entrada repetida')
+    await appendInputHistory('repeated entry')
     const history = await loadInputHistory()
-    expect(history.filter(e => e === 'entrada repetida').length).toBe(1)
+    expect(history.filter(e => e === 'repeated entry').length).toBe(1)
   })
 
-  it('respeita limite de 200 entradas', async () => {
+  it('respects the 200-entry limit', async () => {
     const fs = await import('fs/promises')
     const historyPath = join(testDir, '.deepseek', 'input_history.json')
-    const entries = Array.from({ length: 250 }, (_, i) => `entrada-${i}`)
+    const entries = Array.from({ length: 250 }, (_, i) => `entry-${i}`)
     await fs.mkdir(join(testDir, '.deepseek'), { recursive: true })
     await fs.writeFile(historyPath, JSON.stringify(entries), 'utf-8')
     const { appendInputHistory, loadInputHistory } = await import('../src/agent/inputHistory.js')
-    await appendInputHistory('nova')
+    await appendInputHistory('new entry')
     const history = await loadInputHistory()
     expect(history.length).toBeLessThanOrEqual(200)
   })
 
-  it('não salva comandos que começam com /', async () => {
+  it('does not save commands that start with /', async () => {
     const { appendInputHistory, loadInputHistory } = await import('../src/agent/inputHistory.js')
     await appendInputHistory('/help')
     await appendInputHistory('/clear')
@@ -70,7 +77,7 @@ describe('appendInputHistory', () => {
     expect(history.filter(e => e.startsWith('/'))).toHaveLength(0)
   })
 
-  it('não salva comandos shell que começam com !', async () => {
+  it('does not save shell commands that start with !', async () => {
     const { appendInputHistory, loadInputHistory } = await import('../src/agent/inputHistory.js')
     await appendInputHistory('!ls -la')
     await appendInputHistory('! git status')
@@ -78,22 +85,22 @@ describe('appendInputHistory', () => {
     expect(history.filter(e => e.trimStart().startsWith('!'))).toHaveLength(0)
   })
 
-  it('salva mensagens normais que não são comandos', async () => {
+  it('saves normal messages that are not commands', async () => {
     const { appendInputHistory, loadInputHistory } = await import('../src/agent/inputHistory.js')
-    await appendInputHistory('explica esse código')
+    await appendInputHistory('explain this code')
     const history = await loadInputHistory()
-    expect(history).toContain('explica esse código')
+    expect(history).toContain('explain this code')
   })
 
-  it('aprende estatísticas simples do estilo do usuário', async () => {
+  it('learns basic user writing-style statistics', async () => {
     const { appendInputHistory, loadWritingStyle, describeWritingStyle } = await import('../src/agent/inputHistory.js')
-    await appendInputHistory('sim, faca isso.')
+    await appendInputHistory('yes, do this.')
     const style = await loadWritingStyle()
     expect(style.samples).toBe(1)
     expect(style.lowercase).toBe(1)
     expect(style.noAccents).toBe(1)
     expect(style.comma).toBe(1)
     expect(style.period).toBe(1)
-    expect(describeWritingStyle(style)).toContain('minúsculas')
+    expect(describeWritingStyle(style)).toContain('lowercase')
   })
 })

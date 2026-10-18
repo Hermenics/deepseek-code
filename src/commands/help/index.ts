@@ -37,6 +37,8 @@ export const HELP_TEXT = `Commands:
   /system                show the system prompt
   /permissions           show tool permissions
   /btw <question>        ask a side question
+  /steer <instruction>   interrupt current work and correct the task
+  /revise <objective>    revise an unfinished persistent goal
   /stats                 show session statistics
   /memory (or /mem) [clear [agent|user]]
   /effort [low|high|max|auto]
@@ -44,7 +46,7 @@ export const HELP_TEXT = `Commands:
   /plugin (or /plugins)  manage plugins
   /context (or /ctx)     show context usage
   /tasks                 show session tasks
-  /task <id> <action>    inspect or control a task
+  /task <id> <action>    inspect or control a task; reconcile <resolution> <evidence> records your effect review
   /workflows             monitor Dynamic Workflow runs
   /workflow <action>     run, pause, resume, stop, restart or save a workflow
   /branch [title]        create a derived session without changing this one

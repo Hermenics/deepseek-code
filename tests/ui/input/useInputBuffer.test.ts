@@ -9,9 +9,9 @@ import { createInputBuffer } from '../../../src/ui/input/hooks/useInputBuffer.js
 // ---------------------------------------------------------------------------
 
 /**
- * Simula a chamada do hook fora do contexto React.
- * O hook deve ser uma função pura que retorna UseInputBufferResult
- * (ou aceitar ser chamado diretamente em testes sem renderHook).
+ * Simulate calling the hook outside the React context.
+ * The hook should be a pure function that returns UseInputBufferResult
+ * (or allow direct calls in tests without renderHook).
  */
 function createBuffer() {
   return createInputBuffer()
@@ -159,7 +159,7 @@ describe('useInputBuffer', () => {
       buf.pushToBuffer('second', 6)
       buf.undo()
 
-      // Nova entrada descarta o redo stack
+      // A new entry discards the redo stack.
       buf.pushToBuffer('third', 5)
 
       expect(buf.canRedo).toBe(false)

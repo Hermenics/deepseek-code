@@ -91,15 +91,65 @@ export async function acquireFileLease(
         throw error
       }
       let released = false
+      let releaseInFlight: Promise<void> | undefined
+      const releaseOnce = async (): Promise<void> => {
+        if (released) return
+        let current: Partial<LeaseOwner>
+        try {
+          current = JSON.parse(await readFile(join(path, 'owner.json'), 'utf8')) as Partial<LeaseOwner>
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+          try {
+            await stat(path)
+          } catch (directoryError) {
+            if ((directoryError as NodeJS.ErrnoException).code !== 'ENOENT') throw directoryError
+            released = true
+            return
+          }
+          throw error
+        }
+        if (current.token !== token) {
+          released = true
+          return
+        }
+
+        try {
+          if (await moveAside(path, 'released')) {
+            released = true
+            return
+          }
+        } catch (error) {
+          try {
+            await stat(path)
+          } catch (directoryError) {
+            if ((directoryError as NodeJS.ErrnoException).code !== 'ENOENT') throw directoryError
+            released = true
+            return
+          }
+          throw error
+        }
+
+        try {
+          await stat(path)
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+          released = true
+          return
+        }
+        throw new Error('Lease directory could not be moved aside')
+      }
       return {
         token,
         path,
-        async release() {
-          if (released) return
-          released = true
-          const current = JSON.parse(await readFile(join(path, 'owner.json'), 'utf8').catch(() => '{}')) as Partial<LeaseOwner>
-          if (current.token !== token) return
-          await moveAside(path, 'released')
+        release() {
+          if (released) return Promise.resolve()
+          if (releaseInFlight) return releaseInFlight
+          let attempt: Promise<void>
+          attempt = releaseOnce().finally(() => {
+            if (releaseInFlight === attempt) releaseInFlight = undefined
+          })
+          releaseInFlight = attempt
+          return attempt
         },
       }
     } catch (error) {

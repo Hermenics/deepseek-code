@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test'
-import { mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Agent, type AgentCallbacks } from '../src/agent/agent.js'
@@ -198,6 +198,38 @@ describe('output limit and repeated failures', () => {
     expect(note('3 pass')).toBe('3 pass')
     expect(note(failing)).toBe(failing)
   })
+
+  it('counts repeated failures when JSON object keys are reordered', async () => {
+    const agent = new Agent()
+    await agent.readyPromise.catch(() => {})
+    const note = (args: Record<string, unknown>) => (agent as unknown as {
+      noteRepeatedFailure(tool: string, args: Record<string, unknown>, result: string): string
+    }).noteRepeatedFailure('shell', args, 'Command exited with code 1.\n1 fail')
+
+    expect(note({ command: 'bun test', cwd: '/repo' })).not.toContain('[Repeated failure]')
+    expect(note({ cwd: '/repo', command: 'bun test' })).not.toContain('[Repeated failure]')
+    expect(note({ command: 'bun test', cwd: '/repo' })).toContain('[Repeated failure] This exact call has failed 3 times')
+    await agent.shutdown()
+  })
+
+  it('blocks an unchanged fourth tool call after three identical failures', async () => {
+    let id = 0
+    const readMissing = () => (async function* () {
+      yield { choices: [{ delta: { tool_calls: [{ index: 0, id: `missing-${++id}`, type: 'function', function: { name: 'read_file', arguments: JSON.stringify({ path: `__missing_retry_${process.pid}.txt` }) } }] }, finish_reason: 'tool_calls' }] }
+    })()
+    const { agent, requests } = await scriptedAgent([readMissing, readMissing, readMissing, readMissing, () => textResponse('Stopped repeating the failed read.')])
+    const toolMap = (agent as unknown as { toolMap: Map<string, { execute: (...args: any[]) => Promise<string> }> }).toolMap
+    const readTool = toolMap.get('read_file')!
+    const execute = readTool.execute.bind(readTool)
+    let executions = 0
+    readTool.execute = async (...args) => { executions++; return execute(...args) }
+
+    await agent.run('read the same missing file', trackedCallbacks())
+
+    expect(executions).toBe(3)
+    expect(JSON.stringify(requests[4])).toContain('REPEATED_FAILURE_BLOCKED')
+    expect(JSON.stringify(requests[4])).toContain('not executed')
+  })
 })
 
 describe('plan tools outside /plan', () => {
@@ -260,23 +292,58 @@ describe('read before edit', () => {
       await agent.readyPromise.catch(() => {})
       const internals = agent as unknown as {
         readBeforeEditError(tool: string, args: Record<string, unknown>): Promise<string | null>
-        recordFileSeen(tool: string, args: Record<string, unknown>, result: string): Promise<void>
+        executeTool(tool: string, args: Record<string, unknown>): Promise<string>
       }
       await writeFile(join(dir, 'a.ts'), 'one\n')
 
-      expect(await internals.readBeforeEditError('patch_file', { path: 'a.ts' })).toContain('read a.ts with read_file before editing it')
+      expect(JSON.parse((await internals.readBeforeEditError('patch_file', { path: 'a.ts' }))!)).toMatchObject({
+        schemaVersion: 1,
+        status: 'error',
+        error: { kind: 'validation', code: 'READ_BEFORE_EDIT_REQUIRED', retryable: false },
+      })
       expect(await internals.readBeforeEditError('write_file', { path: 'new.ts' })).toBeNull()
       expect(await internals.readBeforeEditError('read_file', { path: 'a.ts' })).toBeNull()
 
-      await internals.recordFileSeen('read_file', { path: 'a.ts' }, '[a.ts  2 lines total  showing 1–2]')
+      await internals.executeTool('read_file', { path: 'a.ts' })
       expect(await internals.readBeforeEditError('edit_file', { path: './a.ts' })).toBeNull()
 
-      const later = new Date(Date.now() + 5_000)
-      await utimes(join(dir, 'a.ts'), later, later)
-      expect(await internals.readBeforeEditError('edit_file', { path: 'a.ts' })).toContain('changed on disk since you last read it')
+      await writeFile(join(dir, 'a.ts'), 'one\n// independent human change\n')
+      const result = await internals.executeTool('patch_file', { path: 'a.ts', old_content: 'one', new_content: 'two' })
+      expect(result).toContain('changed')
+      expect(await readFile(join(dir, 'a.ts'), 'utf8')).toBe('one\n// independent human change\n')
+      await internals.executeTool('read_file', { path: 'a.ts' })
+      expect(await internals.executeTool('patch_file', { path: 'a.ts', old_content: 'one', new_content: 'two' })).not.toContain('Error:')
+    } finally {
+      await agent.shutdown()
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 
-      await internals.recordFileSeen('read_file', { path: 'a.ts' }, 'Error: permission denied')
-      expect(await internals.readBeforeEditError('edit_file', { path: 'a.ts' })).toContain('changed on disk')
+  it('preserves an independent edit across the core file tools', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'dsk-cross-tool-file-edit-'))
+    const agent = new Agent(undefined, { projectRoot: dir })
+    try {
+      await agent.readyPromise.catch(() => {})
+      const internals = agent as unknown as { executeTool(tool: string, args: Record<string, unknown>): Promise<string> }
+      const original = '// preserve this comment\nexport const value = "before"\n'
+      const humanEdit = `${original}// independent human change\n`
+      const cases = [
+        { name: 'write', tool: 'write_file', args: (path: string) => ({ path, content: '// rewritten\nexport const value = "after"\n' }) },
+        { name: 'edit', tool: 'edit_file', args: (path: string) => ({ path, edits: [{ line: 2, old: ['before'], new: ['after'] }] }) },
+        { name: 'patch', tool: 'patch_file', args: (path: string) => ({ path, old_content: 'value = "before"', new_content: 'value = "after"' }) },
+      ]
+
+      for (const entry of cases) {
+        const relativePath = `${entry.name}.ts`
+        const filePath = join(dir, relativePath)
+        await writeFile(filePath, original)
+        await internals.executeTool('read_file', { path: relativePath })
+        await writeFile(filePath, humanEdit)
+
+        const result = await internals.executeTool(entry.tool, entry.args(relativePath))
+        expect(result).toContain('changed')
+        expect(await readFile(filePath, 'utf8')).toBe(humanEdit)
+      }
     } finally {
       await agent.shutdown()
       await rm(dir, { recursive: true, force: true })
@@ -285,6 +352,8 @@ describe('read before edit', () => {
 })
 
 describe('outside-workspace refusal (A5)', () => {
+  // /mnt is now the shell workspace alias; use a genuinely external host path.
+  const outsidePath = join(process.cwd(), '..', 'outside-workspace-gates', 'src', 'a.ts')
   /** Model response that makes one tool call. */
   const toolCallResponse = (name: string, args: object) => () => (async function* () {
     yield { choices: [{ delta: { tool_calls: [{ index: 0, id: `call-${name}`, function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: 'tool_calls' }] }
@@ -300,7 +369,7 @@ describe('outside-workspace refusal (A5)', () => {
   }
 
   it("'deny' still ends the turn silently, but the denied call is now reported", async () => {
-    const { agent, requests } = await scriptedAgent([toolCallResponse('read_file', { path: '/mnt/x/src/a.ts' })])
+    const { agent, requests } = await scriptedAgent([toolCallResponse('read_file', { path: outsidePath })])
     agent.setToolPermissionHandler(async () => 'deny')
     const cb = denyTracking()
 
@@ -311,9 +380,9 @@ describe('outside-workspace refusal (A5)', () => {
     expect(cb.calls).toEqual(['read_file'])
   })
 
-  it("'reject' hands the model a path error and the turn continues to a final answer", async () => {
+  it("'reject' skips an outside-workspace action with a typed result and continues the turn", async () => {
     const { agent, requests } = await scriptedAgent([
-      toolCallResponse('read_file', { path: '/mnt/x/src/a.ts' }),
+      toolCallResponse('read_file', { path: outsidePath }),
       () => textResponse('Used the workspace path instead.'),
     ])
     agent.setToolPermissionHandler(async (request) => (request.reason === 'outside_workspace' ? 'reject' : 'session'))
@@ -322,12 +391,13 @@ describe('outside-workspace refusal (A5)', () => {
     await agent.run('read the file', cb)
 
     expect(requests).toHaveLength(2)
-    expect(lastMessage(requests[1])).toContain('outside the workspace')
+    expect(lastMessage(requests[1])).toContain('USER_DENIED')
+    expect(lastMessage(requests[1])).toContain('Do not retry it')
     expect(cb.denyAborted).toBe(0)
     expect(cb.done).toBe(1)
   })
 
-  it("'reject' for any other reason fails closed like 'deny'", async () => {
+  it("'reject' skips permission, risk, and agent-config actions while workflow refusal stays closed", async () => {
     const reasons: string[] = []
     /** Permission handler that records the reason and answers 'reject'. */
     const rejectAll = async (request: { reason: string }) => { reasons.push(request.reason); return 'reject' as const }
@@ -337,13 +407,15 @@ describe('outside-workspace refusal (A5)', () => {
       ['shell', { command: 'rm -rf ./__never_exists__' }, () => {}],
       ['read_file', { path: 'package.json' }, (i: Record<string, unknown>) => { i.allowedTools = '*' }],
     ] as const) {
-      const { agent, requests } = await scriptedAgent([toolCallResponse(name, args)])
+      const { agent, requests } = await scriptedAgent([toolCallResponse(name, args), () => textResponse('Skipped the denied action.')])
       setup(agent as unknown as Record<string, unknown>)
       agent.setToolPermissionHandler(rejectAll)
       const cb = denyTracking()
       await agent.run('go', cb)
-      expect(requests).toHaveLength(1)
-      expect(cb.denyAborted).toBe(1)
+      expect(requests).toHaveLength(2)
+      expect(lastMessage(requests[1])).toContain('USER_DENIED')
+      expect(cb.denyAborted).toBe(0)
+      expect(cb.done).toBe(1)
     }
     expect(reasons).toEqual(['permission', 'risk', 'agent_config'])
 

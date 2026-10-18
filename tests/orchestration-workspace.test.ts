@@ -1,7 +1,9 @@
-import { afterEach, describe, expect, it } from 'bun:test'
+import { afterEach, describe, expect, it, spyOn } from 'bun:test'
+import { existsSync } from 'node:fs'
 import { access, mkdtemp, mkdir, readFile, realpath, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
+import * as os from 'node:os'
 import { join } from 'node:path'
 import { execa } from 'execa'
 import { OrchestratorSession } from '../src/orchestration/index.js'
@@ -51,6 +53,39 @@ describe('task workspace isolation', () => {
     expect(await session.workspaces.cleanup('writer-one')).toBe(true)
     await second.release()
   })
+
+  it.skipIf(process.platform === 'win32')('cancels the WorktreeCreate hook before it can leave effects or acquire a fallback workspace', async () => {
+    const root = await gitRepo()
+    const fakeHome = await tempRoot('deepseek-worktree-hook-home-')
+    const started = join(root, 'hook-started')
+    const late = join(root, 'hook-late-effect')
+    const child = `setTimeout(() => require('node:fs').writeFileSync(${JSON.stringify(late)}, 'late'), 500)`
+    const parent = `const fs = require('node:fs'); const { spawn } = require('node:child_process'); fs.writeFileSync(${JSON.stringify(started)}, 'started'); spawn(process.execPath, ['-e', ${JSON.stringify(child)}], { stdio: 'ignore' }); setInterval(() => {}, 1000)`
+    const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`
+    const hookCommand = `${quote(process.execPath)} -e ${quote(parent)}`
+    await mkdir(join(fakeHome, '.deepseek'), { recursive: true })
+    await writeFile(join(fakeHome, '.deepseek', 'settings.json'), JSON.stringify({
+      hooks: { WorktreeCreate: [{ type: 'command', command: hookCommand, timeout: 1 }] },
+    }))
+    const homedirSpy = spyOn(os, 'homedir').mockReturnValue(fakeHome)
+    const session = new OrchestratorSession({ projectRoot: root, logFile: null, snapshotFile: null })
+    const controller = new AbortController()
+    const pending = session.workspaces.acquire('cancelled-writer', 'writer-worktree', controller.signal)
+    try {
+      const deadline = Date.now() + 2_000
+      while (!existsSync(started) && Date.now() < deadline) await Bun.sleep(10)
+      expect(existsSync(started)).toBe(true)
+      controller.abort(new Error('cancelled hook'))
+      await expect(pending).rejects.toThrow('cancelled hook')
+      await Bun.sleep(600)
+      expect(existsSync(late)).toBe(false)
+      expect(session.workspaces.get('cancelled-writer')).toBeUndefined()
+    } finally {
+      controller.abort()
+      await session.shutdown()
+      homedirSpy.mockRestore()
+    }
+  }, 4_000)
 
   it('reports integration conflicts and preserves the worktree', async () => {
     const root = await gitRepo()
@@ -244,7 +279,7 @@ describe('task workspace isolation', () => {
     expect(await Git.execute({ action: 'branch', create: 'review-fix' }, context)).toContain('Created')
     expect(await Git.execute({ action: 'branch', switch: initialBranch }, context)).toContain('Switched')
     expect((await execa('git', ['rev-parse', 'HEAD'], { cwd: root })).stdout).toBe(initial)
-    expect(await Git.execute({ action: 'branch', switch: '--evil' }, context)).toContain('Error')
+    expect(JSON.parse(await Git.execute({ action: 'branch', switch: '--evil' }, context))).toMatchObject({ status: 'error', error: { code: 'GIT_OPERATION_FAILED' } })
   })
 
   it('batches only read-only git queries', async () => {
@@ -297,4 +332,63 @@ describe('task workspace isolation', () => {
     expect(shell).toContain('blocked')
     await expect(access(join(root, 'shell-effect.txt'))).rejects.toThrow()
   })
+})
+
+it.skipIf(process.platform === 'win32')('integrates the real patch without executing configured diff helpers', async () => {
+  const root = await gitRepo()
+  const session = new OrchestratorSession({ projectRoot: root, logFile: null, snapshotFile: null })
+  const lease = await session.workspaces.acquire('safe-diff-integration', 'writer-worktree')
+  try {
+    const helper = join(root, '.git', 'empty-diff-helper')
+    const marker = join(root, '.git', 'diff-helper-started')
+    await writeFile(helper, `#!${process.execPath}\nawait Bun.write(${JSON.stringify(marker)}, 'executed')\n`, { mode: 0o700 })
+    await execa('git', ['config', 'diff.external', helper], { cwd: root })
+    await writeFile(join(lease.workspace.path, 'file.txt'), 'worker change must survive\n')
+    const integrated = await session.workspaces.integrate('safe-diff-integration')
+    expect(integrated.integrated).toBe(true)
+    expect(await readFile(join(root, 'file.txt'), 'utf8')).toBe('worker change must survive\n')
+    await expect(access(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await session.workspaces.cleanup('safe-diff-integration')).toBe(true)
+    expect(await readFile(join(root, 'file.txt'), 'utf8')).toBe('worker change must survive\n')
+  } finally { await lease.release(); await session.shutdown() }
+})
+
+it('refuses integration when the worktree index cannot be inspected', async () => {
+  const root = await gitRepo()
+  const session = new OrchestratorSession({ projectRoot: root, logFile: null, snapshotFile: null })
+  const lease = await session.workspaces.acquire('failed-inspection', 'writer-worktree')
+  try {
+    await writeFile(join(lease.workspace.path, 'file.txt'), 'preserve this work\n')
+    const index = (await execa('git', ['rev-parse', '--git-path', 'index'], { cwd: lease.workspace.path })).stdout.trim()
+    await writeFile(index, 'corrupted fixture index')
+    await expect(session.workspaces.integrate('failed-inspection')).rejects.toThrow()
+    expect(await readFile(join(root, 'file.txt'), 'utf8')).toBe('base\n')
+    expect(await readFile(join(lease.workspace.path, 'file.txt'), 'utf8')).toBe('preserve this work\n')
+    expect(await session.workspaces.cleanup('failed-inspection')).toBe(false)
+  } finally { await lease.release(); await session.shutdown() }
+})
+
+it.skipIf(process.platform === 'win32')('keeps managed worktree creation on the selected repository without Git checkout hooks', async () => {
+  const root = await gitRepo()
+  const other = await gitRepo()
+  const marker = join(root, '.git', 'checkout-hook-started')
+  await writeFile(join(root, '.git', 'hooks', 'post-checkout'), `#!${process.execPath}\nawait Bun.write(${JSON.stringify(marker)}, 'executed')\n`, { mode: 0o700 })
+  const session = new OrchestratorSession({ projectRoot: root, logFile: null, snapshotFile: null })
+  const previousDir = process.env.GIT_DIR
+  const previousTree = process.env.GIT_WORK_TREE
+  try {
+    process.env.GIT_DIR = join(other, '.git')
+    process.env.GIT_WORK_TREE = other
+    const lease = await session.workspaces.acquire('selected-repository', 'writer-worktree')
+    expect(lease.workspace.isolation).toBe('git-worktree')
+    expect(await readFile(join(lease.workspace.path, 'file.txt'), 'utf8')).toBe('base\n')
+    await expect(access(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+    await lease.release()
+  } finally {
+    if (previousDir === undefined) delete process.env.GIT_DIR
+    else process.env.GIT_DIR = previousDir
+    if (previousTree === undefined) delete process.env.GIT_WORK_TREE
+    else process.env.GIT_WORK_TREE = previousTree
+    await session.shutdown()
+  }
 })

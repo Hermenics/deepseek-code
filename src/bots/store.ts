@@ -314,7 +314,7 @@ function text(value: unknown, field: string, max = 100_000): string {
 function bot(row: Row): Bot {
   let appearance: PodAppearance | undefined
   try { if (typeof row.appearance === 'string') appearance = validatePodAppearance(JSON.parse(row.appearance)) }
-  catch { /* Aparências antigas ou inválidas usam o padrão do painel. */ }
+  catch { /* Missing or invalid legacy appearances use the panel default. */ }
   return { id: String(row.id), name: String(row.name), projectRoot: String(row.project_root), instructions: String(row.instructions), agentConfig: row.agent_config ? String(row.agent_config) : undefined, ...(typeof row.reviewer_model === 'string' ? { reviewerModel: row.reviewer_model } : {}), ...(appearance ? { appearance } : {}), enabled: row.enabled === 1, deleting: row.deleting === 1, retentionDays: row.retention_days === null ? null : Number(row.retention_days), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }
 }
 function run(row: Row): BotRun {
@@ -1082,11 +1082,18 @@ export class BotStore {
     while (true) {
       signal?.throwIfAborted()
       try {
-        return this.transaction(() => {
-          signal?.throwIfAborted()
-          this.assertOwner(runId, owner)
-          return operation()
-        })
+        const timeout = this.store.query<{ timeout: number }>('PRAGMA busy_timeout')[0]!.timeout
+        // Synchronous SQLite waiting would block the abort signal and the async retry loop.
+        this.store.exec('PRAGMA busy_timeout = 0')
+        try {
+          return this.transaction(() => {
+            signal?.throwIfAborted()
+            this.assertOwner(runId, owner)
+            const result = operation()
+            signal?.throwIfAborted()
+            return result
+          })
+        } finally { this.store.exec(`PRAGMA busy_timeout = ${timeout}`) }
       } catch (error) { if (!isSqliteBusy(error)) throw error }
       this.assertOwner(runId, owner)
       await delay(100, undefined, { signal })

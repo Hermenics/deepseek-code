@@ -36,7 +36,7 @@
 - **Settings center** — fullscreen, searchable User/Project/Local configuration with visible origins
 - **MCP support** — connect to any Model Context Protocol server for extended tooling
 - **Project guidance** — loads a root `AGENTS.md` alongside `DEEPSEEK.md`
-- **Optional LSP navigation** — user-configured language servers expose definitions, references, hover, and symbols to the agent
+- **Optional code navigation** — session-owned language servers expose definitions, references, hover, symbols, one-document diagnostics and rename previews with source/version provenance; rename proposals apply separately through hash-checked `edit_file` ranges. `lsp` with `operation: "dependency_graph"` queries bounded local TS/JS imports and package.json workspace declarations without a server
 - **Extensible** — slash commands, custom tools, memory, sessions, themes
 
 ## Quick start
@@ -122,6 +122,8 @@ The agent has access to these tools out of the box:
 
 `ReadFile` · `WriteFile` · `EditFile` · `PatchFile` · `Shell` · `Glob` · `Grep` · `Lsp` · `Git` · `ReadFolder` · `WebFetch` · `Skill` · `SubAgent` · `AskAgent` · `Workflow` · `Memory` · `Todo` · `Introspect` · `MoA` · `AskUserQuestions`
 
+Shell command execution currently requires Linux with a working bubblewrap sandbox. On macOS, Windows, or a Linux host where the sandbox cannot start, commands fail closed before execution.
+
 Skills are listed by origin and loaded on demand through the read-only `skill` tool. Plugins can contribute skills, slash commands, and MCP servers. Plugin MCP configs require workspace approval before their servers start. See [the extension architecture study](docs/skills-plugins-mcp-research.md).
 
 ### Experimental browser
@@ -180,6 +182,49 @@ bun run build        # Production build
 bun run typecheck    # Type check (tsc --noEmit)
 bun test             # Run tests
 ```
+
+### Background task recovery
+
+`/tasks` and `/task <id> status` distinguish task-attempt state from recorded process observations. Background shell tasks capture their native process identity. On Linux, status checks revalidate boot, PID namespace and process start time, rather than trusting a saved PID. `alive` only describes the recorded leader; it does not establish useful progress, descendant cleanup or completed effects. Native exit events retain their actual exit code/signal; a later kernel observation cannot reconstruct a lost result.
+
+For process-backed tasks without an eligible recovery runner, an interrupted attempt remains interrupted even when its recorded leader is alive. Process-backed failures are not automatically retried or replayed through `/task resume`. Inspect status/artifacts, reconcile possible effects and submit a newly authorized command when appropriate. Eligible Linux background Shell tasks are an exception: their detached supervisor can survive a CLI restart and reattach from the persisted task snapshot without replaying the command. Generic task runners, raw stream reconnection and cross-platform process supervision are not supported.
+
+### LSP text edit proposals
+
+With a user-configured server, `lsp` supports `rename_preview`, `code_actions` and `code_action_preview`. All three are read-only. List actions using a file and 1-based UTF-16 range, then select the returned native ID:
+
+```json
+{"operation":"code_actions","path":"src/example.ts","line":1,"character":1,"kind":"source.organizeImports"}
+{"operation":"code_action_preview","path":"src/example.ts","action_id":"<id from the listing>"}
+```
+
+Optional `end_line`/`end_character` default to the starting coordinates. Kinds include matching subkinds. Listings label disabled, command-dependent and deferred actions, and report omissions. Opaque server data remains inside the native session. IDs expire after another listing, observed source changes, configuration changes or server disposal.
+
+Read each proposed target with `read_file`, then pass its returned `arguments` to `edit_file`. The writer checks the base hash and the runtime read version before committing. Multi-file application remains atomic per file. Command-dependent actions, resource operations and annotated edits are refused rather than partially applied. Deferred edit-only actions use `codeAction/resolve` when advertised; preview re-queries and requires a unique matching action with unchanged metadata. Actions with unstable provider identities may require a new listing.
+
+Source hashes and diagnostic hints do not prove complete semantic indexes or build correctness; verify the resulting change separately.
+
+### Real TypeScript LSP check
+
+`tests/lsp-real-server.test.ts` uses a temporary project and the repository's `typescript-language-server` development dependency by default. Set `DEEPSEEK_LSP_TEST_SERVER` to override its executable. The fixture runs on Node.js >= 18, uses the repository's TypeScript version, and currently skips Windows. It exercises navigation, diagnostic provenance, rename and code action application, version refresh, and independent compiler checks.
+
+```bash
+bun test tests/lsp-real-server.test.ts
+```
+
+Set `DEEPSEEK_LSP_TEST_NODE` to select another Node executable. Unversioned publications remain outside the version-bound diagnostic items; their bounded messages appear under `unverified.items` as investigation hints. Compiler/test verification remains separate.
+
+User-scoped `lsp.servers` entries accept an `initializationOptions` JSON object (up to 64 KiB). For the tested TypeScript adapter, this option selects a single semantic server and avoids syntax-only startup routing:
+
+```json
+{
+  "initializationOptions": {
+    "tsserver": { "useSyntaxServer": "never" }
+  }
+}
+```
+
+The fixture also checks a fresh server's first rename request with this configuration. Each server defines its own initialization options; changing them restarts its session connection.
 
 ### Project structure
 

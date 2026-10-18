@@ -1,6 +1,6 @@
 /**
- * Smoke test real com AWS Bedrock — requer .env.test.bedrock
- * Uso: bun run --env-file .env.test.bedrock tests/smoke-bedrock.ts
+ * Live smoke test for AWS Bedrock — requires .env.test.bedrock
+ * Usage: bun run --env-file .env.test.bedrock tests/smoke-bedrock.ts
  */
 import { createLLMClient } from '../src/agent/llmClient.js'
 
@@ -15,16 +15,16 @@ async function smokeTest(model: string, label: string) {
   const start = Date.now()
   const res = await client.chat.completions.create({
     model,
-    messages: [{ role: 'user', content: 'Responda apenas: OK' }],
+    messages: [{ role: 'user', content: 'Reply with only: OK' }],
     max_tokens: 512,
     stream: false,
   } as any)
 
   const elapsed = Date.now() - start
   const msg = res.choices[0]?.message
-  const content = msg?.content ?? (msg as any)?.reasoning_content ?? '(vazio)'
-  console.log(`✅ Resposta (${elapsed}ms): ${content}`)
-  if (!content || content === '(vazio)') {
+  const content = msg?.content ?? (msg as any)?.reasoning_content ?? '(empty)'
+  console.log(`✅ Response (${elapsed}ms): ${content}`)
+  if (!content || content === '(empty)') {
     console.log('🔍 Raw response:', JSON.stringify(res, null, 2))
   }
 }
@@ -35,7 +35,7 @@ async function smokeToolsR1() {
 
   const client = createLLMClient({ provider: 'bedrock', awsRegion: region, awsProfile: profile }, model)
 
-  // Simula o system prompt com tool embutida (igual ao buildBedrockToolsPrompt)
+  // Simulate the system prompt with an embedded tool (matching buildBedrockToolsPrompt).
   const systemPrompt = `You have access to the following tools. To use a tool, respond with a <tool_call> block:
 
 <tool_call>
@@ -76,9 +76,9 @@ Available tools:
     const argsMatch = /<args>([\s\S]*?)<\/args>/.exec(toolCallMatch[1]!)
     const name = nameMatch?.[1]?.trim() ?? '?'
     const args = argsMatch?.[1]?.trim() ?? '{}'
-    console.log(`✅ Tool call detectada (${elapsed}ms): ${name}(${args})`)
+    console.log(`✅ Tool call detected (${elapsed}ms): ${name}(${args})`)
   } else {
-    console.log(`⚠️  Sem tool_call no response (${elapsed}ms). Raw:\n${raw}`)
+    console.log(`⚠️  No tool_call in response (${elapsed}ms). Raw:\n${raw}`)
   }
 }
 
@@ -88,7 +88,7 @@ await smokeTest('us.deepseek.r1-v1:0', 'Bedrock R1 InvokeModel')
 // DeepSeek V3.2 via bedrock-mantle Chat Completions
 await smokeTest('deepseek.v3.2', 'Bedrock V3.2 Mantle')
 
-// R1 com tool emulation via prompt
+// R1 with tool emulation via prompt
 await smokeToolsR1()
 
-console.log('\n🚀 Smoke test concluído!')
+console.log('\n🚀 Smoke test complete!')

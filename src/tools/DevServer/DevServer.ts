@@ -1,7 +1,8 @@
 import { Tool } from '../types.js'
 import type { ToolExecutionContext } from '../../orchestration/types.js'
 import { isEnabled, loadFeatures } from '../../features.js'
-import { devServers, launchCommand, launchHash, readLaunchConfigs, type LaunchConfig } from '../../browser/devServer.js'
+import { devServers, DevServerNotReadyError, launchCommand, launchHash, readLaunchConfigs, type LaunchConfig } from '../../browser/devServer.js'
+import { formatToolError } from '../result.js'
 
 export const DevServer: Tool = {
   name: 'dev_server',
@@ -18,6 +19,7 @@ export const DevServer: Tool = {
       lines: { type: 'number', description: 'logs: how many recent lines (default 40, max 500)' },
       filter: { type: 'string', description: 'logs: only lines containing this text' },
     },
+    allOf: [{ if: { properties: { action: { const: 'logs' } }, required: ['action'] }, then: { properties: { lines: { default: 40 } } } }],
     required: ['action'],
   },
 
@@ -34,7 +36,7 @@ export function pickConfig(configs: LaunchConfig[], name: unknown): LaunchConfig
   return `name is required: ${configs.map(c => c.name).join(', ')}`
 }
 
-export async function runDevServer(args: Record<string, unknown>, context?: ToolExecutionContext): Promise<string> {
+export async function runDevServer(args: Record<string, unknown>, context?: ToolExecutionContext, options?: { readinessTimeoutMs?: number }): Promise<string> {
   if (context?.taskId) return 'Error: subagents cannot manage dev servers; report back and let the main agent do it.'
   const root = context?.projectRoot ?? process.cwd()
   const owner = context?.sessionId ?? 'default'
@@ -72,14 +74,19 @@ export async function runDevServer(args: Record<string, unknown>, context?: Tool
     if (typeof config === 'string') return `Error: ${config}`
     // The user approved the entry the agent resolved before asking (`__launch`); refuse if it changed since.
     if (args.__launch !== launchHash(config)) return `Error: ${config.name} in ${config.source} changed after it was approved; call start again to re-approve.`
-    return devServers.start(root, config, owner, context?.signal)
+    try {
+      return await devServers.start(root, config, owner, context?.signal, options?.readinessTimeoutMs)
+    } catch (error) {
+      if (error instanceof DevServerNotReadyError) return formatToolError('tool', error.code, error.message, false, error.partial)
+      throw error
+    }
   }
   return `Error: unknown action "${action}"`
 }
 
 /**
  * Arguments as the permission gates see them: for `start`, the resolved entry's hash (`__launch`, what an
- * approval covers) and its command line (`__command`, what the prompt shows). Model-supplied `__` keys are dropped.
+ * approval covers) and a safe command summary (`__command`, with configured env keys but no values). Model-supplied `__` keys are dropped.
  */
 export async function withLaunchApproval(root: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
   const rest = Object.fromEntries(Object.entries(args).filter(([key]) => !key.startsWith('__')))

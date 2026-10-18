@@ -37,6 +37,7 @@ const SESSION = [
   ["/sessions", "export <id> md|json", "List sessions, or export one sanitized."],
   ["/checkpoint", "save [label] · list · restore <id>", "Snapshot or restore the conversation."],
   ["/branch", "[title]", "Fork the conversation into a derived session while keeping this one."],
+  ["/steer", "<instruction>", "Interrupt the current turn and prioritize a generic correction, even without a goal or saved session."],
   ["/quit", "—", "Exit the application."],
 ];
 
@@ -74,6 +75,7 @@ const WORKFLOWS = [
   ["/workflow", "run <name> [args-json] · save <run-id> <name> · pause|resume|stop|restart <run-id>", "Run or control a dynamic workflow."],
   ["/workflows", "—", "Monitor workflow runs."],
   ["/goal", "[<objective> [--turns <n>]] · clear · edit · pause · resume", "Set, view or manage a persistent goal."],
+  ["/revise", "<objective>", "Durably revise an unfinished persistent goal; requires a saved session."],
 ];
 
 const EXTEND = [
@@ -138,7 +140,7 @@ export default function SlashCommands() {
         <div className="hero">
           <h1>Slash commands</h1>
           <p className="tagline">
-            45 built-in commands that act on the session rather than prompting the model — plus saved workflows and
+            46 built-in commands that act on the session rather than prompting the model — plus saved workflows and
             custom prompt commands — with their arguments,
             subcommands and aliases.
           </p>
@@ -249,6 +251,9 @@ Inspect the current diff and focus on $ARGUMENTS.`}</CodeBlock>
         <section id="session">
           <h2><span className="anchor">#</span>Session & conversation</h2>
           <CmdTable rows={SESSION} />
+          <p>
+            <code className="inline">/steer</code> advances the task revision immediately, waits for the active agent run to settle, then puts the correction ahead of ordinary queued prompts. It leaves the persistent goal unchanged. Use <code className="inline">/revise</code> to durably change an unfinished saved goal. By contrast, <code className="inline">/btw</code> answers immediately without aborting or replacing the active run.
+          </p>
           <p>
             <code className="inline">/clear</code> and <code className="inline">/compact</code> both free
             context and are not interchangeable. Compaction spends a model call to <b>preserve</b> what

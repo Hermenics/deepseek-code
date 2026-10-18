@@ -40,7 +40,7 @@ describe('logout', () => {
     })
   })
 
-  describe('nenhum arquivo', () => {
+  describe('no file', () => {
     it('should not throw when file does not exist', async () => {
       const deleted = await logout(configPath)
       expect(deleted).toEqual([])
@@ -52,7 +52,7 @@ describe('logout', () => {
     })
   })
 
-  describe('idempotência', () => {
+  describe('idempotency', () => {
     it('should not throw when called twice in a row', async () => {
       await writeFile(configPath, JSON.stringify({ model: 'deepseek-chat' }))
 
@@ -72,7 +72,7 @@ describe('logout', () => {
     })
   })
 
-  describe('erro de permissão', () => {
+  describe('permission error', () => {
     it('should throw when file exists but cannot be deleted', async () => {
       if (process.platform === 'win32') return
       await writeFile(configPath, '{}')

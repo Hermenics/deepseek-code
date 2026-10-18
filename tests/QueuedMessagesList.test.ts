@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test'
-// truncateMessage e buildQueueItems ainda não existem — RED phase
+// RED phase: truncateMessage and buildQueueItems do not exist yet.
 import { truncateMessage, buildQueueItems, MAX_MSG_LEN } from '../src/ui/input/QueuedMessagesList.js'
 
 describe('QueuedMessagesList', () => {

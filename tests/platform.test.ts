@@ -148,6 +148,37 @@ describe('jsGrep', () => {
     const controller = new AbortController()
     controller.abort()
     const cancelled = await jsGrep({ dir: root, pattern: 'needle', workspaceRoot: root, ignoreDirs: ['node_modules'], limit: 100, signal: controller.signal })
-    expect(cancelled).toEqual({ lines: [] })
+    expect(cancelled).toEqual({ lines: [], matches: [] })
   })
+
+  it('bounds catastrophic BRE matching and keeps cancellation responsive', () => {
+    const moduleUrl = new URL('../src/tools/Grep/jsGrep.ts', import.meta.url).href
+    const script = `
+      import * as fs from 'node:fs';
+      import * as os from 'node:os';
+      import * as path from 'node:path';
+      const { jsGrep } = await import(${JSON.stringify(moduleUrl)});
+      const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dsk-jsgrep-redos-'));
+      fs.writeFileSync(path.join(root, 'input.txt'), 'a'.repeat(40000) + '!');
+      const options = { dir: root, pattern: String.raw\`\\(a\\|a\\?\\)\\+$\`, workspaceRoot: root, ignoreDirs: [], limit: 10 };
+      const timed = await jsGrep(options);
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 100);
+      const cancelled = await jsGrep({ ...options, signal: controller.signal });
+      process.stdout.write(JSON.stringify({ timeout: timed.error, aborted: controller.signal.aborted, cancelError: cancelled.error }));
+      fs.rmSync(root, { recursive: true, force: true });
+    `
+    const child = spawnSync(process.execPath, ['--eval', script], {
+      cwd: path.resolve('.'),
+      encoding: 'utf8',
+      timeout: 4000,
+    })
+
+    expect(child.error).toBeUndefined()
+    expect(child.status).toBe(0)
+    const result = JSON.parse(child.stdout)
+    expect(result.timeout).toContain('exceeded 1000 ms')
+    expect(result.aborted).toBe(true)
+    expect(result.cancelError).toBeUndefined()
+  }, 5000)
 })

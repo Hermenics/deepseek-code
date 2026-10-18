@@ -3,11 +3,13 @@ import { resolveSafePath } from '../shared/pathSafety.js'
 import type { ToolExecutionContext } from '../../orchestration/types.js'
 import { DurableExecutionError } from '../../orchestration/OrchestratorSession.js'
 import { isEnabled, loadFeatures } from '../../features.js'
+import { formatToolError } from '../result.js'
 import { browserService, contextKey } from '../../browser/service.js'
 import { clearRecording, exportPlaywright, locatorOf, record, recorded, stepFor } from '../../browser/record.js'
 import { baselineOf, collectNotes, describeChange, KEY_NAMES, MUTATING, performAction, type ActionEnv, type ActionResult } from '../../browser/actions.js'
 
 const ACTIONS = ['navigate', 'back', 'forward', 'reload', 'snapshot', 'find', 'click', 'hover', 'type', 'select', 'check', 'press', 'scroll', 'wait', 'expect', 'batch', 'screenshot', 'logs', 'network', 'tabs', 'dialog', 'emulate', 'upload', 'handoff', 'export', 'close']
+const BATCH_ACTIONS = ACTIONS.filter(action => !['batch', 'close', 'handoff', 'export'].includes(action))
 const MAX_BATCH_STEPS = 25
 
 /** Result text: `Error:` on failure (the TUI marks it), then the notes and the page-derived detail. */
@@ -38,27 +40,35 @@ async function runBatch(env: ActionEnv, args: Record<string, unknown>, context?:
   const before = await baselineOf(env.tab)
   const refsBefore = env.tab.refs
   const lines: string[] = []
+  const outcomes: Array<{ index: number; action: string; status: 'done' | 'failed'; summary: string }> = []
   let failure: string | null = null
+  let current: { index: number; action: string } | undefined
   try {
     for (const [index, raw] of steps.entries()) {
       const step = raw && typeof raw === 'object' ? raw as Record<string, unknown> : {}
       const action = String(step.action ?? '')
-      const result = ['batch', 'close', 'handoff', 'export'].includes(action) || !ACTIONS.includes(action)
+      current = { index: index + 1, action }
+      const result = !BATCH_ACTIONS.includes(action)
         ? { ok: false, summary: `${action || '(no action)'} cannot be a batch step` }
         : await executeRecorded({ ...env, inBatch: true }, action, step, context)
       lines.push(`${index + 1}. ${result.ok ? '✓' : '✗'} ${result.summary}`)
+      outcomes.push({ index: index + 1, action, status: result.ok ? 'done' : 'failed', summary: result.summary })
+      current = undefined
       if (!result.ok) {
         failure ??= `batch ${args.stopOnError === false ? 'finished with failure' : 'stopped'} at step ${index + 1} of ${steps.length}: ${result.summary}`
         if (args.stopOnError !== false) break
       }
     }
   } catch (error) {
-    if (env.signal?.aborted) return [`Cancelled: batch interrupted after ${lines.length} of ${steps.length} steps.`, ...lines].join('\n')
+    if (env.signal?.aborted) return formatToolError('tool', 'BROWSER_BATCH_CANCELLED', `Batch was interrupted after ${lines.length} of ${steps.length} steps.`, false, {
+      steps: current ? [...outcomes, { ...current, status: 'unknown' as const, summary: 'Interrupted; outcome unknown' }] : outcomes,
+      effects: 'unknown',
+    })
     throw error
   }
   const change = await describeChange(env, before, refsBefore)
-  const summary = failure ? { ok: false, summary: failure } : { ok: true, summary: `Batch: ${steps.length} step${steps.length === 1 ? '' : 's'} done` }
-  return format(summary, `${lines.join('\n')}\n${change}`, collectNotes(env))
+  if (failure) return formatToolError('tool', 'BROWSER_BATCH_FAILED', failure, false, { steps: outcomes, pageChange: change, notes: collectNotes(env) })
+  return format({ ok: true, summary: `Batch: ${steps.length} step${steps.length === 1 ? '' : 's'} done` }, `${lines.join('\n')}\n${change}`, collectNotes(env))
 }
 
 export const Browser: Tool = {
@@ -102,7 +112,7 @@ export const Browser: Tool = {
       failedOnly: { type: 'boolean' },
       errorsOnly: { type: 'boolean' },
       paths: { type: 'array', items: { type: 'string' }, description: 'upload: workspace file paths' },
-      steps: { type: 'array', items: { type: 'object' }, description: 'batch: actions (same fields as above) run in order' },
+      steps: { type: 'array', minItems: 1, maxItems: MAX_BATCH_STEPS, items: { type: 'object', properties: { action: { type: 'string', enum: BATCH_ACTIONS } }, required: ['action'] }, description: 'batch: actions (same fields as above) run in order' },
       stopOnError: { type: 'boolean' },
       device: { type: 'string', enum: ['mobile', 'tablet', 'desktop'] },
       width: { type: 'number' },
@@ -112,6 +122,7 @@ export const Browser: Tool = {
       reason: { type: 'string', description: 'handoff: what the user should do, e.g. "log in as an admin"' },
     },
     required: ['action'],
+    allOf: [{ if: { properties: { action: { const: 'batch' } }, required: ['action'] }, then: { required: ['steps'] } }],
   },
 
   async execute(args, context) {

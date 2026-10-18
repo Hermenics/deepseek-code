@@ -41,12 +41,12 @@ afterEach(() => {
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('createBedrockFetch', () => {
-  it('retorna uma função', () => {
+  it('returns a function', () => {
     const bedrockFetch = createBedrockFetch('us-east-1', 'default')
     expect(typeof bedrockFetch).toBe('function')
   })
 
-  it('adiciona headers SigV4 (Authorization e X-Amz-Date) ao request', async () => {
+  it('adds SigV4 headers (Authorization and X-Amz-Date) to the request', async () => {
     const bedrockFetch = createBedrockFetch('us-east-1', 'default')
 
     await bedrockFetch('https://bedrock-runtime.us-east-1.amazonaws.com/v1/chat/completions', {
@@ -67,7 +67,7 @@ describe('createBedrockFetch', () => {
     expect(dateHeader!).toMatch(/^\d{8}T\d{6}Z$/)
   })
 
-  it('funciona com URL string como input', async () => {
+  it('works with a URL string as input', async () => {
     const bedrockFetch = createBedrockFetch('us-west-2', 'default')
 
     await bedrockFetch('https://bedrock-runtime.us-west-2.amazonaws.com/v1/chat/completions', {
@@ -80,7 +80,7 @@ describe('createBedrockFetch', () => {
     expect(capturedRequest!.headers.get('authorization')).toStartWith('AWS4-HMAC-SHA256')
   })
 
-  it('funciona com Request object como input', async () => {
+  it('works with a Request object as input', async () => {
     const bedrockFetch = createBedrockFetch('us-east-1', 'default')
 
     const req = new Request('https://bedrock-runtime.us-east-1.amazonaws.com/v1/chat/completions', {
@@ -95,7 +95,7 @@ describe('createBedrockFetch', () => {
     expect(capturedRequest!.headers.get('authorization')).toStartWith('AWS4-HMAC-SHA256')
   })
 
-  it('passa a region correta no signing (presente no header Authorization)', async () => {
+  it('uses the correct region for signing (present in the Authorization header)', async () => {
     const bedrockFetch = createBedrockFetch('eu-west-1', 'myprofile')
 
     await bedrockFetch('https://bedrock-runtime.eu-west-1.amazonaws.com/v1/chat/completions', {
@@ -110,7 +110,7 @@ describe('createBedrockFetch', () => {
     expect(authHeader).toContain('bedrock')
   })
 
-  it('remove campos não suportados pelo Bedrock nativo (model, stream, tools) do body', async () => {
+  it('removes fields unsupported by native Bedrock (model, stream, tools) from the body', async () => {
     const bedrockFetch = createBedrockFetch('us-east-1', 'default')
     const body = JSON.stringify({ model: 'deepseek', messages: [{ role: 'user', content: 'hi' }] })
 
@@ -122,12 +122,12 @@ describe('createBedrockFetch', () => {
 
     const receivedBody = await capturedRequest!.text()
     const parsed = JSON.parse(receivedBody)
-    // model é removido (vai na URL) e messages é preservado
+    // model is removed (it goes in the URL) and messages are preserved.
     expect(parsed.model).toBeUndefined()
     expect(parsed.messages).toEqual([{ role: 'user', content: 'hi' }])
   })
 
-  it('sobrescreve header Authorization existente (ex: Bearer bedrock do OpenAI SDK)', async () => {
+  it('overwrites an existing Authorization header (e.g. Bearer bedrock from the OpenAI SDK)', async () => {
     const bedrockFetch = createBedrockFetch('us-east-1', 'default')
 
     await bedrockFetch('https://bedrock-runtime.us-east-1.amazonaws.com/v1/chat/completions', {
@@ -145,7 +145,7 @@ describe('createBedrockFetch', () => {
     expect(authHeader).toStartWith('AWS4-HMAC-SHA256')
   })
 
-  it('propaga o AbortSignal nos wrappers native e mantle', async () => {
+  it('passes the AbortSignal through the native and mantle wrappers', async () => {
     const controller = new AbortController()
     await createBedrockFetch('us-east-1', 'default')('https://unused.example', {
       method: 'POST', body: JSON.stringify({ model: 'deepseek', messages: [] }), signal: controller.signal,

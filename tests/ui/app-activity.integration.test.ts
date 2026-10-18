@@ -251,6 +251,25 @@ test('subagent status line timeout cancels a descendant that keeps stdout open',
   expect(Date.now() - started).toBeLessThan(500)
 })
 
+test('subagent status line timeout kills a group that ignores SIGTERM', async () => {
+  if (process.platform === 'win32') return
+  const directory = await mkdtemp(join(tmpdir(), 'deepseek-status-line-kill-'))
+  const marker = join(directory, 'late-effect')
+  const quotedMarker = `'${marker.replaceAll("'", "'\\''")}'`
+  try {
+    const started = Date.now()
+    const result = await runSubagentStatusLine(
+      { type: 'command', command: `trap '' TERM; (sleep 0.2; printf late > ${quotedMarker}) & wait` },
+      { columns: 80, tasks: [{ id: 'agent-1', status: 'running' }] },
+      { cwd: process.cwd(), trusted: true, timeoutMs: 30 },
+    )
+    expect(result.size).toBe(0)
+    expect(Date.now() - started).toBeLessThan(500)
+    await Bun.sleep(300)
+    await expect(access(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+  } finally { await rm(directory, { recursive: true, force: true }) }
+})
+
 test('subagent status line scheduler debounces notifications and refreshes until stopped', async () => {
   let calls = 0
   const updates: string[] = []

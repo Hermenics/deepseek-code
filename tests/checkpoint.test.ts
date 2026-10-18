@@ -4,14 +4,21 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 
 let testDir: string
+let previousHome: string | undefined
 
 beforeEach(async () => {
+  previousHome = process.env.HOME
   testDir = await mkdtemp(join(tmpdir(), 'dsk-checkpoint-test-'))
   process.env.HOME = testDir
 })
 
 afterEach(async () => {
-  await rm(testDir, { recursive: true, force: true })
+  try {
+    await rm(testDir, { recursive: true, force: true })
+  } finally {
+    if (previousHome === undefined) delete process.env.HOME
+    else process.env.HOME = previousHome
+  }
 })
 
 async function getModule() {
@@ -41,10 +48,10 @@ describe('checkpoint', () => {
     it('should save with custom label', async () => {
       const { saveCheckpoint, loadCheckpoint } = await getModule()
       const messages = [{ role: 'system' as const, content: 'test' }]
-      const id = await saveCheckpoint(messages, ['file1.ts'], 'meu checkpoint')
+      const id = await saveCheckpoint(messages, ['file1.ts'], 'my checkpoint')
       const loaded = await loadCheckpoint(id)
       expect(loaded).not.toBeNull()
-      expect(loaded!.label).toBe('meu checkpoint')
+      expect(loaded!.label).toBe('my checkpoint')
     })
 
     it('should preserve messages and filesModified', async () => {
@@ -62,6 +69,32 @@ describe('checkpoint', () => {
   })
 
   describe('loadCheckpoint', () => {
+    it('redacts secrets from legacy checkpoints without rewriting the file', async () => {
+      const { listCheckpoints, loadCheckpoint } = await getModule()
+      const id = '1700000000000-abcdef'
+      const checkpoint = {
+        id,
+        timestamp: '2023-11-14T22:13:20.000Z',
+        label: 'legacy checkpoint',
+        messages: [{ role: 'user', content: '{"api_key":"legacy-checkpoint-canary"}' }],
+        filesModified: [],
+      }
+      const checkpointDir = join(testDir, '.deepseek', 'checkpoints')
+      await mkdir(checkpointDir, { recursive: true })
+      const checkpointPath = join(checkpointDir, `${id}.json`)
+      const original = JSON.stringify(checkpoint)
+      await writeFile(checkpointPath, original)
+
+      const loaded = await loadCheckpoint(id)
+      const listed = (await listCheckpoints()).find(item => item.id === id)
+
+      expect(JSON.stringify(loaded)).not.toContain('legacy-checkpoint-canary')
+      expect(JSON.stringify(loaded)).toContain('[REDACTED]')
+      expect(JSON.stringify(listed)).not.toContain('legacy-checkpoint-canary')
+      expect(JSON.stringify(listed)).toContain('[REDACTED]')
+      expect(await Bun.file(checkpointPath).text()).toBe(original)
+    })
+
     it('should return null for non-existent checkpoint', async () => {
       const { loadCheckpoint } = await getModule()
       const result = await loadCheckpoint('non-existent-id-12345')

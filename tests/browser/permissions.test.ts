@@ -133,7 +133,7 @@ describe('browser uploads', () => {
     expect(browserActionKind(upload)).toBe('type')
     expect(browserApprovalKey(upload)).toBe('browser:interact@https://jobs.example.com')
     const risk = assessRisk('browser', upload, { isSubAgent: false, recentWriteCount: 0, config: {} })
-    expect(risk).toMatchObject({ level: 'high', matchedRule: 'browser:transmit', description: 'Uploading sends these files to https://jobs.example.com.' })
+    expect(risk).toMatchObject({ level: 'high', matchedRule: 'browser:transmit', description: 'Uploading sends file contents to https://jobs.example.com.' })
     expect(assessRisk('browser', { ...upload, __origin: 'http://localhost:3000' }, { isSubAgent: false, recentWriteCount: 0, config: {} })).toBeNull()
     expect(toolPermissionSummary({ toolName: 'browser', args: upload, reason: 'risk' } as ToolPermissionRequest)).toBe('browser → upload fixtures/cv.pdf on https://jobs.example.com')
   })

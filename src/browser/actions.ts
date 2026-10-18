@@ -1,4 +1,10 @@
-import { stat } from 'node:fs/promises'
+import { constants, createWriteStream, rmSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { Transform } from 'node:stream'
+import { basename, join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { mkdtemp, mkdir, open, realpath, rm, stat, type FileHandle } from 'node:fs/promises'
+import { pipeline } from 'node:stream/promises'
 import type { PromptImage } from '../types/input.js'
 import type { BrowserService } from './service.js'
 import { diffSnapshots, findLines, isSensitiveField, renderSnapshot, wrapUntrusted, type Snapshot } from './snapshot.js'
@@ -30,6 +36,129 @@ type Args = Record<string, unknown>
 export const MUTATING = new Set(['click', 'hover', 'type', 'select', 'check', 'press', 'scroll', 'dialog', 'back', 'forward', 'reload', 'emulate', 'upload'])
 export const KEY_NAMES = Object.keys(KEYS)
 const MAX_DETAIL = 20_000
+const uploadSnapshots = new Map<BrowserService, Map<string, Set<string>>>()
+const uploadSnapshotCleanupServices = new WeakSet<BrowserService>()
+
+async function digestStableFile(file: FileHandle, requestedPath: string, signal?: AbortSignal): Promise<string> {
+  const before = await file.stat({ bigint: true })
+  if (!before.isFile()) throw new Error(`Upload source '${requestedPath}' is not a file`)
+  const digest = createHash('sha256')
+  for await (const chunk of file.createReadStream({ autoClose: false, signal })) digest.update(chunk)
+  const after = await file.stat({ bigint: true })
+  if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs) {
+    throw new Error(`Upload source '${requestedPath}' changed while its content identity was captured`)
+  }
+  return digest.digest('hex')
+}
+
+async function uploadContentDigests(paths: string[], resolvePath: (path: string) => Promise<string>, signal?: AbortSignal): Promise<string[]> {
+  const digests: string[] = []
+  for (const path of paths) {
+    const resolved = await resolvePath(path)
+    if (!(await stat(resolved).catch(() => null))?.isFile()) throw new Error(`${path} is not a file`)
+    const canonical = await realpath(resolved)
+    await resolvePath(canonical)
+    const source = await open(canonical, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+    try { digests.push(await digestStableFile(source, path, signal)) } finally { await source.close() }
+  }
+  return digests
+}
+
+/** Captures file identity before the Agent asks approval; actions later verify these exact bytes. */
+export async function captureBrowserUploadContentDigests(
+  args: Record<string, unknown>,
+  resolvePath: (path: string) => Promise<string>,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> {
+  const bindStep = async (step: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const bound = { ...step }
+    delete bound.__uploadContentDigests
+    if (step.action !== 'upload' || !Array.isArray(step.paths)) return bound
+    const paths = step.paths.filter((path): path is string => typeof path === 'string')
+    if (paths.length === 0 || paths.length > 10 || paths.length !== step.paths.length) return bound
+    bound.__uploadContentDigests = await uploadContentDigests(paths, resolvePath, signal)
+    return bound
+  }
+
+  if (args.action === 'upload') return bindStep(args)
+  if (args.action !== 'batch' || !Array.isArray(args.steps)) return args
+  const steps: unknown[] = []
+  for (const step of args.steps) {
+    steps.push(step && typeof step === 'object' && !Array.isArray(step) && (step as Record<string, unknown>).action === 'upload'
+      ? await bindStep(step as Record<string, unknown>)
+      : step)
+  }
+  return { ...args, steps }
+}
+
+function retainUploadSnapshot(env: ActionEnv, directory: string): void {
+  const serviceSnapshots = uploadSnapshots.get(env.service) ?? new Map<string, Set<string>>()
+  const directories = serviceSnapshots.get(env.key) ?? new Set<string>()
+  directories.add(directory)
+  serviceSnapshots.set(env.key, directories)
+  uploadSnapshots.set(env.service, serviceSnapshots)
+  if (uploadSnapshotCleanupServices.has(env.service)) return
+  uploadSnapshotCleanupServices.add(env.service)
+  const service = env.service
+  env.service.subscribe(() => {
+    const live = new Set(service.status().contexts.map(context => context.key))
+    const snapshots = uploadSnapshots.get(service)
+    if (!snapshots) return
+    for (const [key, paths] of snapshots) {
+      if (live.has(key)) continue
+      snapshots.delete(key)
+      for (const path of paths) void rm(path, { recursive: true, force: true }).catch(() => {})
+    }
+    if (!snapshots.size) uploadSnapshots.delete(service)
+  })
+  process.once('exit', () => {
+    for (const snapshots of uploadSnapshots.values()) for (const paths of snapshots.values()) for (const path of paths) {
+      try { rmSync(path, { recursive: true, force: true }) } catch { /* Best-effort cleanup during process exit. */ }
+    }
+  })
+}
+
+/** Chromium takes paths and may read a selected File after the upload action returns. */
+async function snapshotUploadFiles(env: ActionEnv, requestedPaths: string[], sources: string[], expectedDigests: string[]): Promise<string[]> {
+  const directory = await mkdtemp(join(tmpdir(), 'deepseek-browser-upload-'))
+  const snapshots: string[] = []
+  try {
+    for (const [index, source] of sources.entries()) {
+      const canonical = await realpath(source)
+      await env.resolvePath!(canonical)
+      const sourceFile = await open(canonical, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0))
+      try {
+        const before = await sourceFile.stat({ bigint: true })
+        if (!before.isFile()) throw new Error(`Upload source '${requestedPaths[index]}' is not a file`)
+        const fileDirectory = join(directory, String(index))
+        await mkdir(fileDirectory, { mode: 0o700 })
+        const snapshotPath = join(fileDirectory, basename(source))
+        const digest = createHash('sha256')
+        await pipeline(sourceFile.createReadStream({ autoClose: false, signal: env.signal }), new Transform({
+          transform(chunk, _encoding, callback) {
+            digest.update(chunk)
+            callback(null, chunk)
+          },
+        }), createWriteStream(snapshotPath, { flags: 'wx', mode: 0o600 }), { signal: env.signal })
+        const after = await sourceFile.stat({ bigint: true })
+        if (before.dev !== after.dev || before.ino !== after.ino || before.size !== after.size || before.mtimeNs !== after.mtimeNs || before.ctimeNs !== after.ctimeNs) {
+          throw new Error(`Upload source '${requestedPaths[index]}' changed while it was being snapshotted`)
+        }
+        if (digest.digest('hex') !== expectedDigests[index]) {
+          throw new Error(`Upload source '${requestedPaths[index]}' changed after approval; review and approve the current contents`)
+        }
+        snapshots.push(snapshotPath)
+      } finally {
+        await sourceFile.close()
+      }
+    }
+  } catch (error) {
+    await rm(directory, { recursive: true, force: true })
+    throw error
+  }
+  retainUploadSnapshot(env, directory)
+  return snapshots
+}
 
 const fail = (summary: string): ActionResult => ({ ok: false, summary })
 const str = (value: unknown): string | undefined => typeof value === 'string' && value.trim() ? value : undefined
@@ -175,6 +304,10 @@ async function upload(env: ActionEnv, args: Args): Promise<ActionResult> {
   if (!ref) return fail('upload needs the ref of a file input')
   if (paths.length === 0 || paths.length > 10) return fail('upload needs 1-10 workspace file paths')
   if (!env.resolvePath) return fail('uploads are unavailable here')
+  const expectedDigests = args.__uploadContentDigests
+  if (!Array.isArray(expectedDigests) || expectedDigests.length !== paths.length || !expectedDigests.every(digest => typeof digest === 'string' && /^[a-f0-9]{64}$/.test(digest))) {
+    return fail('upload content identity is missing; retry through the approval flow')
+  }
   const files: string[] = []
   for (const path of paths) {
     const resolved = await env.resolvePath(path)
@@ -187,7 +320,8 @@ async function upload(env: ActionEnv, args: Args): Promise<ActionResult> {
   const { nodeName, attributes } = await tab.describe(backendNodeId)
   const typeIndex = attributes.findIndex((value, index) => index % 2 === 0 && value === 'type')
   if (nodeName !== 'INPUT' || attributes[typeIndex + 1]?.toLowerCase() !== 'file') return fail(`${ref} is not a file input`)
-  await tab.cdp.send('DOM.setFileInputFiles', { files, backendNodeId }, tab.sessionId)
+  const snapshots = await snapshotUploadFiles(env, paths, files, expectedDigests)
+  await tab.cdp.send('DOM.setFileInputFiles', { files: snapshots, backendNodeId }, tab.sessionId)
   await tab.settle(env.signal)
   return { ok: true, summary: `Attached ${files.length} file${files.length === 1 ? '' : 's'} to ${ref}: ${paths.join(', ')}` }
 }

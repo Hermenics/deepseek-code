@@ -32,15 +32,24 @@
  * from each other.
  */
 import { existsSync } from 'node:fs'
-import { appendFile, cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { appendFile, chmod, cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import { isAbsolute, join, relative, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { execa } from 'execa'
+import { attestCheckerTrees, fingerprint, fingerprintTree, transcriptForPersistence } from './protocol.js'
+import { assertCheckerSandboxAvailable, runIsolatedChecker } from './checker.js'
+import { selectEvalTasks } from './taskSelection.js'
+import { extractReadFileEvidence, extractReadFilePathAttempts } from './readFileEvidence.js'
+import { extractToolDiscoveryEvidence } from './toolDiscoveryEvidence.js'
+import { createToolDiscoveryFixture } from './tasks/tool-discovery-relevance/catalog.js'
+import { READ_FILE_CAPTURE_BYTE_LIMIT, READ_FILE_RESPONSE_CHAR_LIMIT } from '../../src/tools/ReadFile/ReadFile.js'
 
 const EVAL_DIR = import.meta.dir
 const TASKS_DIR = join(EVAL_DIR, 'tasks')
+const CANARY_TASKS = new Set(['untrusted-context-precedence', 'untrusted-canary'])
+const CANARY_TASK_TOOLS = new Set(['read_file', 'read_folder', 'grep', 'glob', 'write_file', 'edit_file', 'patch_file'])
 const ROOT = resolve(EVAL_DIR, '../..')
 const OFFICIAL_BASE_URL = 'https://api.deepseek.com'
 
@@ -60,9 +69,11 @@ const { values: opts } = parseArgs({
     browser: { type: 'string', default: 'native' },
     transcripts: { type: 'boolean', default: false },
     concurrency: { type: 'string', default: '1' },
+    seed: { type: 'string', default: '1' },
     worker: { type: 'boolean', default: false },
     'worker-run': { type: 'string' },
     'worker-result': { type: 'string' },
+    'planned-task-run-keys': { type: 'string' },
   },
 })
 if (!['native', 'playwright'].includes(opts.browser!)) throw new Error('--browser must be native or playwright')
@@ -73,9 +84,12 @@ const runs = Number(opts.runs)
 const timeoutMs = Number(opts.timeout) * 60_000
 if (!Number.isInteger(runs) || runs < 1 || !(timeoutMs > 0)) throw new Error('--runs must be a positive integer and --timeout a positive number of minutes')
 const label = opts.label!.replace(/[^\w.-]/g, '_')
+const scheduleSeed = Number(opts.seed)
+if (!Number.isSafeInteger(scheduleSeed)) throw new Error('--seed must be a safe integer')
 const budgetUsd = Number(opts.budget)
 const runBudgetUsd = Number(opts['run-budget'])
-if (!(budgetUsd > 0) || !(runBudgetUsd > 0)) throw new Error('--budget and --run-budget must be positive USD amounts')
+if (!Number.isFinite(budgetUsd) || budgetUsd <= 0 || !Number.isFinite(runBudgetUsd) || runBudgetUsd <= 0) throw new Error('--budget and --run-budget must be finite positive USD amounts')
+assertCheckerSandboxAvailable()
 const EFFORTS = ['low', 'high', 'max'] as const
 type Effort = typeof EFFORTS[number]
 if (opts.effort !== undefined && !EFFORTS.includes(opts.effort as Effort)) throw new Error(`--effort must be one of ${EFFORTS.join(', ')}`)
@@ -85,7 +99,6 @@ process.env.DEEPSEEK_HISTORY_PATH = join(tmpdir(), `deepseek-eval-history-${proc
 process.env.DEEPSEEK_DISABLE_MEMORY = '1'
 const { Agent } = await import('../../src/agent/agent.js')
 const { loadSavedConfig } = await import('../../src/ui/setup/ApiKeySetup.js')
-const { setShellConfirmHandler } = await import('../../src/tools/Shell/Shell.js')
 const { detectVerificationCommand, runVerification } = await import('../../src/agent/verify.js')
 const { classifyOutcome, fixedCostUsd } = await import('./compare.js')
 const { approveMcpConfig, loadMcpTools } = await import('../../src/agent/mcp.js')
@@ -161,8 +174,10 @@ const baseURLHost = (() => {
   const url = (providerConfig?.provider === 'local' ? providerConfig.localBaseUrl : undefined) ?? providerConfig?.baseURL ?? process.env.DEEPSEEK_BASE_URL
   try { return url ? new URL(url).host : 'default' } catch { return 'invalid' }
 })()
-setShellConfirmHandler(async () => false)
-
+const endpointIdentity = (() => {
+  const raw = (providerConfig?.provider === 'local' ? providerConfig.localBaseUrl : undefined) ?? providerConfig?.baseURL ?? process.env.DEEPSEEK_BASE_URL
+  try { const url = new URL(raw ?? OFFICIAL_BASE_URL); return `${url.protocol}//${url.host}${url.pathname}` } catch { return 'invalid' }
+})()
 /** Real account balance (free endpoint); undefined when not using --official or the call fails. */
 async function officialBalanceUsd(): Promise<number | undefined> {
   if (!opts.official) return undefined
@@ -177,16 +192,39 @@ async function officialBalanceUsd(): Promise<number | undefined> {
 }
 
 const allTasks = (await readdir(TASKS_DIR, { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name).sort()
-const tasks = opts.tasks ? opts.tasks.split(',').map((t) => t.trim()) : allTasks
-const unknown = tasks.filter((t) => !allTasks.includes(t))
-if (unknown.length > 0) throw new Error(`Unknown task(s): ${unknown.join(', ')}. Available: ${allTasks.join(', ')}`)
+const manifest = JSON.parse(await readFile(join(EVAL_DIR, '../../docs/research/harness-benchmark-2026-10-10.json'), 'utf8')) as {
+  existing_cases: Array<{ name: string }>
+  proposed_cases: Array<{ name: string }>
+}
+const tasks = selectEvalTasks(opts.tasks, allTasks, [
+  ...manifest.existing_cases.map(({ name }) => name),
+  ...manifest.proposed_cases.map(({ name }) => name),
+])
+const plannedTaskRunKeys = opts['planned-task-run-keys']
+  ? JSON.parse(opts['planned-task-run-keys']) as string[]
+  : tasks.flatMap(name => Array.from({ length: runs }, (_, index) => `${name}:${index + 1}`)).sort()
+if (!Array.isArray(plannedTaskRunKeys) || plannedTaskRunKeys.some(key => typeof key !== 'string') || new Set(plannedTaskRunKeys).size !== plannedTaskRunKeys.length) throw new Error('Invalid planned task/run matrix')
 
 const commit = (await execa('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT })).stdout
 const dirty = (await execa('git', ['status', '--porcelain'], { cwd: ROOT })).stdout.length > 0
 const resultsFile = join(EVAL_DIR, 'results', `${label}.jsonl`)
 await mkdir(join(EVAL_DIR, 'results'), { recursive: true })
 
-const tail = (text: string, lines = 40) => text.split('\n').slice(-lines).join('\n')
+/** Stages the shared checker parser beside task-local checks before hashing the frozen grader tree. */
+async function stageChecker(task: string, destination: string): Promise<string> {
+  await cp(join(TASKS_DIR, task, 'check'), destination, { recursive: true })
+  await cp(join(EVAL_DIR, 'testEvidence.ts'), join(destination, 'testEvidence.ts'))
+  return fingerprintTree(destination)
+}
+
+async function frozenCheckerHash(task: string): Promise<string> {
+  const stagingRoot = await mkdtemp(join(tmpdir(), 'deepseek-eval-grader-'))
+  try {
+    return await stageChecker(task, join(stagingRoot, '__eval_check__'))
+  } finally {
+    await rm(stagingRoot, { recursive: true, force: true })
+  }
+}
 
 async function runOnce(task: string, run: number) {
   const dir = await mkdtemp(join(tmpdir(), `deepseek-eval-${task}-`))
@@ -194,13 +232,15 @@ async function runOnce(task: string, run: number) {
   /** Runs git inside the task repository. */
   const git = (...args: string[]) => execa('git', args, { cwd: dir })
   const browserTask = existsSync(join(TASKS_DIR, task, 'serve.ts'))
+  const toolDiscoveryFixture = task === 'tool-discovery-relevance' ? createToolDiscoveryFixture() : undefined
   if (browserTask && opts.browser === 'playwright') {
     await mkdir(join(dir, '.deepseek'), { recursive: true })
-    await writeFile(join(dir, '.deepseek', 'mcp.json'), JSON.stringify({ servers: { playwright: { transport: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp@latest', '--headless', '--isolated', '--browser', 'chrome'] } } }, null, 2))
+    await writeFile(join(dir, '.deepseek', 'mcp.json'), JSON.stringify({ servers: { playwright: { transport: 'stdio', command: 'npx', args: ['-y', '@playwright/mcp@0.0.83', '--headless', '--isolated', '--browser', 'chrome'] } } }, null, 2))
   }
   await git('init', '-q')
   await git('add', '-A')
   await git('-c', 'user.name=eval', '-c', 'user.email=eval@localhost', 'commit', '-qm', 'initial')
+  const initialTreeHash = await fingerprintTree(dir)
   const fixture = await startFixture(task, dir)
   let ownedAgent: InstanceType<typeof Agent> | undefined
   let closeMcp: (() => Promise<void>) | undefined
@@ -208,21 +248,46 @@ async function runOnce(task: string, run: number) {
     const prompt = (await readFile(join(TASKS_DIR, task, 'prompt.md'), 'utf8')).trim()
       .replaceAll('{{URL}}', fixture?.url ?? '')
       .replace(/\{\{(\w+)\}\}/g, (match, key: string) => fixture?.state[key] ?? match)
+    const promptHash = fingerprint(prompt)
+    const graderHash = await frozenCheckerHash(task)
+    const schemaFingerprint = fingerprint({ package: await readFile(join(dir, 'package.json'), 'utf8').catch(() => ''), graderHash, browser: opts.browser, browserTask, toolCatalog: toolDiscoveryFixture?.catalogFingerprint })
+    const runtimeFingerprint = fingerprint({ bun: Bun.version, platform: process.platform, arch: process.arch, node: process.version })
+    const configFingerprint = fingerprint({
+      provider: providerConfig?.provider ?? 'environment', model: model ?? providerConfig?.model ?? '', mode: opts.mode,
+      effort: opts.effort ?? null, endpoint: endpointIdentity, browser: opts.browser,
+      profileId: providerConfig?.profileId ?? '', region: providerConfig?.awsRegion ?? providerConfig?.gcpLocation ?? '', profile: providerConfig?.awsProfile ?? '',
+      project: providerConfig?.gcpProject ?? '', vision: providerConfig?.vision ?? null,
+      toolCatalog: toolDiscoveryFixture?.catalogFingerprint,
+    })
     process.env.DEEPSEEK_FEATURES = browserTask && opts.browser === 'native' ? 'browser' : '-browser'
 
-    const agent = new Agent(providerConfig ?? undefined, { projectRoot: dir })
+    const canaryPath = CANARY_TASKS.has(task) ? join(dir, 'canary.txt') : undefined
+    const agent = new Agent(providerConfig ?? undefined, {
+      projectRoot: dir,
+      protectedPaths: canaryPath ? [canaryPath] : undefined,
+      simulationMode: Boolean(canaryPath),
+    })
     ownedAgent = agent
     await agent.readyPromise
+    if (toolDiscoveryFixture) (agent as unknown as { installMcpTools(tools: unknown[]): void }).installMcpTools(toolDiscoveryFixture.tools)
+    if (canaryPath) {
+      // Canary tasks expose only path-aware file tools; unrestricted processes cannot inspect the protected fixture.
+      const internal = agent as unknown as { tools: Array<{ name: string }>; toolMap: Map<string, unknown> }
+      internal.tools = internal.tools.filter(tool => CANARY_TASK_TOOLS.has(tool.name))
+      internal.toolMap = new Map(internal.tools.map(tool => [tool.name, tool]))
+    }
     closeMcp = browserTask && opts.browser === 'playwright' ? await installPlaywrightMcp(agent, dir) : undefined
   if (model) agent.setModel(model as Parameters<typeof agent.setModel>[0])
   agent.interactionMode = opts.mode as typeof agent.interactionMode
   if (opts.effort) agent.setEffortLevel(opts.effort as Effort)
   agent.setToolPermissionHandler(async (request) => (request.reason === 'outside_workspace' ? 'reject' : 'session'))
   // Headless stand-in for the TUI's "Run verification?" prompt, answered yes.
-  agent.setVerificationHandler(async () => {
-    const command = await detectVerificationCommand(dir)
-    return command ? runVerification(command, dir) : undefined
-  })
+  if (!canaryPath) {
+    agent.setVerificationHandler(async () => {
+      const command = await detectVerificationCommand(dir)
+      return command ? runVerification(command, dir) : undefined
+    })
+  }
 
   const tools: Record<string, number> = {}
   // Latest token breakdown per delegated task (subagents + their verifiers); the parent's stats only
@@ -255,18 +320,45 @@ async function runOnce(task: string, run: number) {
     })
     await Promise.race([finished, stuck])
   } catch (e) {
-    error = e instanceof Error ? e.message : String(e)
+    error = e instanceof Error ? e.name : 'Error'
   } finally {
     clearTimeout(timer)
     clearInterval(costWatch)
   }
-  const durationMs = Date.now() - started
+  const agentDurationMs = Date.now() - started
   const stats = agent.getSessionStats()
   const usedModel = agent.model
   const transcript = agent.getRawMessages()
   const finalMessage = transcript
     .flatMap((m) => ('role' in m && m.role === 'assistant' && typeof m.content === 'string' && m.content.trim() ? [m.content] : []))
     .at(-1)?.slice(-1500)
+  const toolDiscoveryEvidence = toolDiscoveryFixture ? {
+    catalogBytes: toolDiscoveryFixture.catalogBytes,
+    catalogFingerprint: toolDiscoveryFixture.catalogFingerprint,
+    discoveryCalls: extractToolDiscoveryEvidence(transcript),
+    toolCalls: transcript.flatMap(message => {
+      if (!('role' in message) || message.role !== 'assistant') return []
+      return (message.tool_calls ?? []).flatMap(call => {
+        if (call.type !== 'function' || !toolDiscoveryFixture.names.has(call.function.name)) return []
+        try { return [{ name: call.function.name, arguments: JSON.parse(call.function.arguments) as unknown }] }
+        catch { return [{ name: call.function.name, arguments: null }] }
+      })
+    }),
+    executions: structuredClone(toolDiscoveryFixture.state.executions),
+    state: structuredClone(toolDiscoveryFixture.state),
+    finalMessage: finalMessage ?? '',
+  } : undefined
+  const readFileEvidence = task === 'one-line-megabyte' ? {
+    workspaceRoot: '.',
+    readFileEvidence: extractReadFileEvidence(transcript, dir),
+    limits: {
+      responseChars: READ_FILE_RESPONSE_CHAR_LIMIT,
+      captureBytesPerCall: READ_FILE_CAPTURE_BYTE_LIMIT,
+    },
+  } : undefined
+  const readFilePathAttemptEvidence = ['untrusted-context-precedence', 'untrusted-canary'].includes(task) ? {
+    readFilePathAttempts: extractReadFilePathAttempts(transcript, dir),
+  } : undefined
   const effort = agent.effortLevel
   const budgetLevel = agent.settings.budget ?? 'default'
   unsubscribe()
@@ -280,39 +372,78 @@ async function runOnce(task: string, run: number) {
   const expectFile = join(TASKS_DIR, task, 'check', 'expect.json')
   const expected = existsSync(expectFile) ? (JSON.parse(await readFile(expectFile, 'utf8')) as { finalMessageIncludes?: string }).finalMessageIncludes : undefined
   const answer = expected ? fixture?.state[expected] : undefined
-  const answerOk = answer === undefined || (finalMessage ?? '').toLowerCase().includes(answer.toLowerCase())
+  const browserToolCallIds = new Set(transcript.flatMap((message) => {
+    if (!('role' in message) || message.role !== 'assistant') return []
+    return (message.tool_calls ?? [])
+      .filter((call) => 'function' in call && /browser|playwright/i.test(call.function.name))
+      .map((call) => call.id)
+  }))
+  const observedBrowserState = transcript.some((m) => {
+    if (!('role' in m) || m.role !== 'tool' || typeof m.content !== 'string' || answer === undefined || !answer.trim()) return false
+    return browserToolCallIds.has(m.tool_call_id) && m.content.toLowerCase().includes(answer.toLowerCase())
+  })
+  const answerOk = !browserTask || (answer !== undefined && observedBrowserState && !!finalMessage?.trim() && finalMessage.toLowerCase().includes(answer.toLowerCase()))
 
   // Hash of everything the agent changed, so identical outputs across runs are visible.
   await git('add', '-A')
   const diff = await git('diff', '--cached', '--binary', 'HEAD')
   const diffHash = createHash('sha256').update(diff.stdout).digest('hex').slice(0, 16)
   // Visible tests first, then the hidden checks alone, so neither suite runs twice.
-  const visible = await execa('bun', ['test'], { cwd: dir, reject: false, all: true, timeout: 120_000 })
-  await cp(join(TASKS_DIR, task, 'check'), join(dir, '__eval_check__'), { recursive: true })
-  const hidden = await execa('bun', ['test', './__eval_check__'], { cwd: dir, reject: false, all: true, timeout: 120_000 })
+  const checkerStarted = Date.now()
+  const finalTreeHash = await fingerprintTree(dir)
+  const checkerTree = () => fingerprintTree(dir, new Set(['.git', 'node_modules']))
+  const visibleTreeBefore = await checkerTree()
+  const visible = await runIsolatedChecker(['test'], dir, { allowNetwork: browserTask })
+  const visibleTreeAfter = await checkerTree()
+  const hiddenGraderCopyHash = await stageChecker(task, join(dir, '__eval_check__'))
+  const observedEvidence = toolDiscoveryEvidence ?? readFileEvidence ?? readFilePathAttemptEvidence
+  if (observedEvidence) await writeFile(join(dir, '__eval_check__', 'observed.json'), JSON.stringify(observedEvidence), { flag: 'wx', mode: 0o600 })
+  const hiddenTreeBefore = await checkerTree()
+  const hidden = await runIsolatedChecker(['test', './__eval_check__'], dir, { allowNetwork: browserTask, readOnlyPaths: ['__eval_check__'] })
+  const hiddenTreeAfter = await checkerTree()
+  const checkerDurationMs = Date.now() - checkerStarted
+  const checkerAttestation = attestCheckerTrees({ visibleBefore: visibleTreeBefore, visibleAfter: visibleTreeAfter, hiddenBefore: hiddenTreeBefore, hiddenAfter: hiddenTreeAfter, hiddenGraderCopyHash, graderHash })
+  const { checkerStable, hiddenGraderStable, checkerTreeBefore, checkerTreeAfter } = checkerAttestation
   const hiddenPass = hidden.exitCode === 0 && answerOk
   // Usage recorded after the last budget poll can still push a run over, so check both limits again.
   if (stats.costUsd > budgetUsd) overBudget = true
   const withinBudget = stats.costUsd <= runBudgetUsd && !overBudget
-  const pass = visible.exitCode === 0 && hiddenPass && !timedOut && !overBudget && withinBudget
-  // Failed runs keep the whole conversation (reasoning, tool calls and results) for diagnosis; --transcripts keeps every run's.
+  const integrityFailures = [
+    ...checkerAttestation.integrityFailures,
+    ...(visible.exitCode < 0 ? ['visible checker did not complete'] : []),
+    ...(hidden.exitCode < 0 ? ['hidden checker did not complete'] : []),
+    ...(!visible.positiveTestEvidence ? ['visible checker has no positive executed-test evidence'] : []),
+    ...(!hidden.positiveTestEvidence ? ['hidden checker has no positive executed-test evidence'] : []),
+    ...(visible.exitCode !== 0 ? ['visible checks failed'] : []),
+    ...(hidden.exitCode !== 0 ? ['hidden checks failed'] : []),
+    ...(!answerOk ? ['browser answer evidence failed'] : []),
+  ]
+  const pass = visible.exitCode === 0 && hiddenPass && checkerStable && integrityFailures.length === 0 && !timedOut && !overBudget && withinBudget
+  // Transcripts can contain prompts, tool output and user data, so persist them only by explicit opt-in.
   let transcriptPath: string | undefined
-  if (!pass || opts.transcripts) {
+  if (opts.transcripts) {
     transcriptPath = join(EVAL_DIR, 'results', label, `${task}-${run}.json`)
-    await mkdir(join(EVAL_DIR, 'results', label), { recursive: true })
-    await writeFile(transcriptPath, JSON.stringify(transcript, null, 2))
+    await mkdir(join(EVAL_DIR, 'results', label), { recursive: true, mode: 0o700 })
+    await writeFile(transcriptPath, JSON.stringify(transcriptForPersistence(transcript), null, 2), { mode: 0o600 })
+    await chmod(transcriptPath, 0o600)
   }
   const outcome = classifyOutcome({ pass, timedOut, overBudget, error, finalMessage, denyAborted })
   const record = {
-    label, task, run, pass, outcome, hiddenPass, answerOk, browserArm: browserTask ? opts.browser : undefined, modelCalls, timedOut, overBudget, denyAborted, error, durationMs,
-    model: usedModel, mode: opts.mode, effort, budgetLevel, baseURLHost, diffHash, finalMessage, commit, dirty, tools, ...stats,
+    protocolVersion: 2, label, task, run, pairId: `${task}:${run}`, pairSeed: Number.parseInt(createHash('sha256').update(`${scheduleSeed}:${task}:${run}`).digest('hex').slice(0, 8), 16), scheduleSeed, provider: providerConfig?.provider ?? 'environment', model: usedModel, modelSeedSupported: false, pass, outcome, hiddenPass, answerOk, browserArm: browserTask ? opts.browser : undefined, modelCalls, timedOut, overBudget, denyAborted, error, durationMs: agentDurationMs + checkerDurationMs, agentDurationMs, checkerDurationMs,
+    initialTreeHash, promptHash, graderHash, schemaFingerprint, runtimeFingerprint, configFingerprint,
+    finalTreeHash, checkerTreeBefore, checkerTreeAfter, checkerStable, visibleTreeBefore, visibleTreeAfter, hiddenTreeBefore, hiddenTreeAfter, hiddenGraderCopyHash, hiddenGraderStable, integrityFailures,
+    fixtureToolCatalog: toolDiscoveryFixture ? { catalogBytes: toolDiscoveryFixture.catalogBytes, catalogFingerprint: toolDiscoveryFixture.catalogFingerprint } : undefined,
+    plannedTaskRunKeys,
+    taskSetFingerprint: fingerprint(plannedTaskRunKeys),
+    mode: opts.mode, effort, budgetLevel, baseURLHost, diffHash, commit, dirty, tools, ...stats,
+    actualCostUsd: null, estimatedCostUsd: stats.costUsd, agentCostUsd: stats.costUsd, checkerCostUsd: 0,
     delegatedUsage,
     fixedCostUsd: fixedCostUsd({
       promptTokens: stats.promptTokens + delegatedUsage.promptTokens,
       completionTokens: stats.completionTokens + delegatedUsage.completionTokens,
       cachedTokens: stats.cachedTokens + delegatedUsage.cachedTokens,
     }),
-    checkOutput: pass ? undefined : tail(`${visible.all ?? ''}\n--- hidden checks ---\n${hidden.all ?? ''}${answerOk ? '' : `\n--- the final message did not quote the page value ${answer} ---`}`),
+    checkerFailures: pass ? undefined : { visibleExitCode: visible.exitCode, hiddenExitCode: hidden.exitCode, answerOk },
     transcriptPath,
   }
   if (opts.keep) console.log(`  kept ${dir}`)
@@ -352,6 +483,10 @@ const balanceBefore = await officialBalanceUsd()
 if (balanceBefore !== undefined) console.log(`DeepSeek balance $${balanceBefore.toFixed(2)} · budget $${budgetUsd} total, $${runBudgetUsd} per run · model ${model}`)
 const concurrency = Math.max(1, Math.trunc(Number(opts.concurrency)) || 1)
 const jobs = tasks.flatMap(task => Array.from({ length: runs }, (_, i) => ({ task, run: i + 1 })))
+// Seeded Fisher–Yates randomizes task/run order reproducibly; pairId marks scenario identity, not sampling equivalence.
+let scheduleState = scheduleSeed | 0
+const scheduleRandom = () => { scheduleState = (scheduleState + 0x6d2b79f5) | 0; let t = scheduleState; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296 }
+for (let i = jobs.length - 1; i > 0; i--) { const j = Math.floor(scheduleRandom() * (i + 1)); [jobs[i], jobs[j]] = [jobs[j]!, jobs[i]!] }
 let budgetHit = false
 
 async function runIsolated(task: string, run: number) {
@@ -363,8 +498,11 @@ async function runIsolated(task: string, run: number) {
     join(EVAL_DIR, 'run.ts'), '--worker', '--worker-run', String(run), '--worker-result', resultPath,
     '--tasks', task, '--runs', '1', '--label', label, '--mode', opts.mode!, '--timeout', opts.timeout!,
     '--budget', String(workerBudget), '--run-budget', String(runBudgetUsd), '--browser', opts.browser!, '--concurrency', '1',
+    '--seed', String(scheduleSeed),
+    '--planned-task-run-keys', JSON.stringify(plannedTaskRunKeys),
   ]
   if (opts.model) args.push('--model', opts.model)
+  // The model API does not receive pairSeed; it only controls schedule and pair metadata.
   if (opts.effort) args.push('--effort', opts.effort)
   if (opts.official) args.push('--official')
   if (opts.keep) args.push('--keep')

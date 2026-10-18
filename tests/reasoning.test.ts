@@ -8,7 +8,7 @@ import {
 import type { ChatCompletionMessageParam } from 'openai/resources/chat/completions'
 import * as historyModule from '../src/agent/history.js'
 
-// O OpenAI SDK não tem reasoning_content nos tipos — usamos cast
+// The OpenAI SDK types do not include reasoning_content, so cast it.
 type AssistantMessageWithReasoning = ChatCompletionMessageParam & {
   role: 'assistant'
   reasoning_content?: string
@@ -16,18 +16,18 @@ type AssistantMessageWithReasoning = ChatCompletionMessageParam & {
 
 beforeAll(() => {
   process.env.DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || 'test-key-for-unit-tests'
-  // Impede que os testes gravem no ~/.deepseek/history.json em disco
+  // Prevent tests from writing to ~/.deepseek/history.json.
   spyOn(historyModule, 'saveHistory').mockImplementation(async () => {})
 })
 
-// Helper: cria um async iterable a partir de chunks de streaming
+// Helper: create an async iterable from streaming chunks.
 async function* makeStream(chunks: object[]) {
   for (const chunk of chunks) {
     yield chunk
   }
 }
 
-// Helper: cria callbacks no-op para o Agent.run()
+// Helper: create no-op callbacks for Agent.run().
 function makeCallbacks() {
   return {
     onToken: mock(() => {}),
@@ -37,7 +37,7 @@ function makeCallbacks() {
   }
 }
 
-// Helper: injeta um client mockado no Agent via cast
+// Helper: inject a mocked client into Agent via a cast.
 function injectMockClient(agent: Agent, clientMock: object) {
   ;(agent as unknown as Record<string, unknown>).client = clientMock
 }
@@ -46,21 +46,21 @@ function injectMockClient(agent: Agent, clientMock: object) {
 
 describe('reasoning_content', () => {
 
-  describe('serialização round-trip', () => {
+  describe('serialization round-trip', () => {
     it('should preserve reasoning_content after JSON.stringify → JSON.parse', () => {
       // Arrange
       const original: AssistantMessageWithReasoning = {
         role: 'assistant',
-        content: 'Resposta final.',
-        reasoning_content: 'Pensei bastante sobre isso antes de responder.',
+        content: 'Final answer.',
+        reasoning_content: 'I thought carefully about this before responding.',
       }
 
       // Act
       const parsed = JSON.parse(JSON.stringify(original)) as AssistantMessageWithReasoning
 
       // Assert
-      expect(parsed.reasoning_content).toBe('Pensei bastante sobre isso antes de responder.')
-      expect(parsed.content).toBe('Resposta final.')
+      expect(parsed.reasoning_content).toBe('I thought carefully about this before responding.')
+      expect(parsed.content).toBe('Final answer.')
     })
 
     it('should preserve reasoning_content alongside tool_calls after round-trip', () => {
@@ -68,7 +68,7 @@ describe('reasoning_content', () => {
       const original = {
         role: 'assistant' as const,
         content: null,
-        reasoning_content: 'Raciocínio com tool call.',
+        reasoning_content: 'Reasoning with a tool call.',
         tool_calls: [
           { id: 'call_1', type: 'function' as const, function: { name: 'read_file', arguments: '{}' } },
         ],
@@ -78,7 +78,7 @@ describe('reasoning_content', () => {
       const parsed = JSON.parse(JSON.stringify(original)) as typeof original
 
       // Assert
-      expect(parsed.reasoning_content).toBe('Raciocínio com tool call.')
+      expect(parsed.reasoning_content).toBe('Reasoning with a tool call.')
       expect(parsed.tool_calls).toHaveLength(1)
     })
   })
@@ -89,11 +89,11 @@ describe('reasoning_content', () => {
     it('should preserve reasoning_content in messages after boundary', () => {
       // Arrange
       const systemMsg: ChatCompletionMessageParam = { role: 'system', content: 'System prompt.' }
-      const userMsg: ChatCompletionMessageParam = { role: 'user', content: 'Pergunta.' }
+      const userMsg: ChatCompletionMessageParam = { role: 'user', content: 'Question.' }
       const assistantMsg = {
         role: 'assistant' as const,
-        content: 'Resposta.',
-        reasoning_content: 'Raciocínio interno aqui.',
+        content: 'Answer.',
+        reasoning_content: 'Internal reasoning here.',
       }
 
       const messages: MessageOrBoundary[] = [
@@ -106,22 +106,22 @@ describe('reasoning_content', () => {
       // Act
       const result = getMessagesAfterBoundary(messages)
 
-      // Assert — reasoning_content deve sobreviver ao filtro de boundary
+      // Assert — reasoning_content must survive the boundary filter.
       const found = result.find((m) => m.role === 'assistant') as AssistantMessageWithReasoning | undefined
       expect(found).toBeDefined()
-      expect(found?.reasoning_content).toBe('Raciocínio interno aqui.')
+      expect(found?.reasoning_content).toBe('Internal reasoning here.')
     })
   })
 
   // ─────────────────────────────────────────────────────────────────────────
 
-  describe('Agent.runLoop: captura reasoning_content do streaming delta', () => {
+  describe('Agent.runLoop: capture reasoning_content from streaming deltas', () => {
     it('should include reasoning_content in assistant message when stream has tool calls', async () => {
-      // Arrange — simula chunks de streaming do deepseek-reasoner com tool call
+      // Arrange — simulate streaming chunks from deepseek-reasoner with a tool call.
       const streamChunks = [
-        // chunk com reasoning_content no delta (campo extra não tipado pelo SDK)
-        { choices: [{ delta: { reasoning_content: 'Preciso ler o arquivo primeiro.' } }] },
-        // chunk com tool_call
+        // Chunk with reasoning_content in the delta (an extra field not typed by the SDK).
+        { choices: [{ delta: { reasoning_content: 'I need to read the file first.' } }] },
+        // Chunk with tool_call.
         {
           choices: [{
             delta: {
@@ -133,14 +133,14 @@ describe('reasoning_content', () => {
             },
           }],
         },
-        // chunk final com usage
+        // Final chunk with usage.
         { choices: [{ delta: {} }], usage: { total_tokens: 20, prompt_tokens: 15, completion_tokens: 5 } },
       ]
 
-      // Mock do client: primeira chamada retorna stream com tool_call,
-      // segunda chamada (após executar a tool) retorna resposta final sem tool_calls
+      // Client mock: the first call returns a stream with a tool_call; the second
+      // call returns a final response without tool_calls after the tool runs.
       const finalStreamChunks = [
-        { choices: [{ delta: { content: 'Arquivo lido com sucesso.' } }] },
+        { choices: [{ delta: { content: 'File read successfully.' } }] },
         { choices: [{ delta: {} }], usage: { total_tokens: 10, prompt_tokens: 8, completion_tokens: 2 } },
       ]
 
@@ -152,44 +152,44 @@ describe('reasoning_content', () => {
       })
 
       const agent = new Agent()
-      // Usa deepseek-reasoner para que reasoning_content seja preservado no histórico
+      // Use deepseek-reasoner so reasoning_content is preserved in history.
       agent.setModel('deepseek-reasoner')
       injectMockClient(agent, {
         chat: { completions: { create: mockCreate } },
         models: { list: mock(async () => ({ [Symbol.asyncIterator]: async function* () {} })) },
       })
 
-      // Mock da tool read_file para não acessar disco
+      // Mock read_file so the test does not access the filesystem.
       const toolMap = (agent as unknown as Record<string, unknown>).toolMap as Map<string, { execute: (a: unknown) => Promise<string> }>
-      toolMap.set('read_file', { execute: mock(async () => 'conteúdo do arquivo') })
+      toolMap.set('read_file', { execute: mock(async () => 'file content') })
 
       const cb = makeCallbacks()
 
       // Act
-      await agent.run('Leia o arquivo x.txt', cb)
+      await agent.run('Read file x.txt', cb)
 
-      // Assert — a mensagem assistant do primeiro turno DEVE ter reasoning_content (modelo é o reasoner)
+      // Assert — the first-turn assistant message MUST include reasoning_content (the model is a reasoner).
       const messages = agent.getMessages()
       const assistantWithToolCall = messages.find(
         (m) => m.role === 'assistant' && (m as unknown as Record<string, unknown>).tool_calls
       ) as AssistantMessageWithReasoning | undefined
 
       expect(assistantWithToolCall).toBeDefined()
-      expect(assistantWithToolCall?.reasoning_content).toBe('Preciso ler o arquivo primeiro.')
+      expect(assistantWithToolCall?.reasoning_content).toBe('I need to read the file first.')
     })
 
     it('should include reasoning_content in assistant message without tool calls', async () => {
-      // Arrange — resposta final sem tool_calls, mas com reasoning_content
+      // Arrange — final response without tool_calls but with reasoning_content.
       const streamChunks = [
-        { choices: [{ delta: { reasoning_content: 'Analisei e a resposta é 42.' } }] },
-        { choices: [{ delta: { content: 'A resposta é 42.' } }] },
+        { choices: [{ delta: { reasoning_content: 'I analyzed it; the answer is 42.' } }] },
+        { choices: [{ delta: { content: 'The answer is 42.' } }] },
         { choices: [{ delta: {} }], usage: { total_tokens: 15, prompt_tokens: 10, completion_tokens: 5 } },
       ]
 
       const mockCreate = mock(() => makeStream(streamChunks))
 
       const agent = new Agent()
-      // Usa deepseek-reasoner para que reasoning_content seja preservado no histórico
+      // Use deepseek-reasoner so reasoning_content is preserved in history.
       agent.setModel('deepseek-reasoner')
       injectMockClient(agent, {
         chat: { completions: { create: mockCreate } },
@@ -199,21 +199,21 @@ describe('reasoning_content', () => {
       const cb = makeCallbacks()
 
       // Act
-      await agent.run('Qual a resposta?', cb)
+      await agent.run('What is the answer?', cb)
 
       // Assert
       const messages = agent.getMessages()
       const assistantMsg = messages.find((m) => m.role === 'assistant') as AssistantMessageWithReasoning | undefined
 
       expect(assistantMsg).toBeDefined()
-      expect(assistantMsg?.content).toBe('A resposta é 42.')
-      expect(assistantMsg?.reasoning_content).toBe('Analisei e a resposta é 42.')
+      expect(assistantMsg?.content).toBe('The answer is 42.')
+      expect(assistantMsg?.reasoning_content).toBe('I analyzed it; the answer is 42.')
     })
 
     it('should NOT add reasoning_content field when stream has no reasoning_content (non-reasoning model)', async () => {
-      // Arrange — modelo normal sem reasoning_content no delta
+      // Arrange — a regular model without reasoning_content in the delta.
       const streamChunks = [
-        { choices: [{ delta: { content: 'Resposta direta.' } }] },
+        { choices: [{ delta: { content: 'Direct answer.' } }] },
         { choices: [{ delta: {} }], usage: { total_tokens: 8, prompt_tokens: 5, completion_tokens: 3 } },
       ]
 
@@ -228,9 +228,9 @@ describe('reasoning_content', () => {
       const cb = makeCallbacks()
 
       // Act
-      await agent.run('Olá.', cb)
+      await agent.run('Hi.', cb)
 
-      // Assert — campo NÃO deve existir quando não há raciocínio
+      // Assert — the field must NOT exist when there is no reasoning.
       const messages = agent.getMessages()
       const assistantMsg = messages.find((m) => m.role === 'assistant') as AssistantMessageWithReasoning | undefined
 
@@ -239,12 +239,12 @@ describe('reasoning_content', () => {
     })
 
     it('should preserve reasoning_content in history for ALL models (DeepSeek-V4-Flash has built-in thinking mode)', async () => {
-      // DeepSeek-V4-Flash tem thinking mode embutido e pode retornar reasoning_content.
-      // A API EXIGE que o campo seja passado de volta nas mensagens seguintes.
-      // Portanto, reasoning_content deve ser preservado para TODOS os modelos.
+      // DeepSeek-V4-Flash has built-in thinking mode and may return reasoning_content.
+      // The API REQUIRES that field to be sent back in subsequent messages.
+      // Therefore, reasoning_content must be preserved for ALL models.
       const streamChunks = [
-        { choices: [{ delta: { reasoning_content: 'Raciocínio interno do v4-flash.' } }] },
-        { choices: [{ delta: { content: 'Resposta final.' } }] },
+        { choices: [{ delta: { reasoning_content: 'Internal v4-flash reasoning.' } }] },
+        { choices: [{ delta: { content: 'Final answer.' } }] },
         { choices: [{ delta: {} }], usage: { total_tokens: 15, prompt_tokens: 10, completion_tokens: 5 } },
       ]
 
@@ -258,32 +258,32 @@ describe('reasoning_content', () => {
       })
 
       const cb = makeCallbacks()
-      await agent.run('Olá.', cb)
+      await agent.run('Hi.', cb)
 
       const messages = agent.getMessages()
       const assistantMsg = messages.find((m) => m.role === 'assistant') as AssistantMessageWithReasoning | undefined
 
       expect(assistantMsg).toBeDefined()
-      expect(assistantMsg?.content).toBe('Resposta final.')
-      // reasoning_content DEVE ser preservado — a API exige que seja passado de volta
-      expect(assistantMsg?.reasoning_content).toBe('Raciocínio interno do v4-flash.')
+      expect(assistantMsg?.content).toBe('Final answer.')
+      // reasoning_content MUST be preserved because the API requires it to be sent back.
+      expect(assistantMsg?.reasoning_content).toBe('Internal v4-flash reasoning.')
     })
 
     it('should preserve reasoning_content in abort path when stream is interrupted', async () => {
-      // Arrange — stream que emite reasoning + content, depois simula abort
+      // Arrange — a stream that emits reasoning and content, then simulates an abort.
       const agent = new Agent()
-      // Usa deepseek-reasoner para que reasoning_content seja preservado no abort path
+      // Use deepseek-reasoner so reasoning_content is preserved on the abort path.
       agent.setModel('deepseek-reasoner')
 
-      // Captura o abortController que o runLoop cria internamente
+      // Capture the abortController created internally by runLoop.
       let internalAbort: AbortController | null = null
 
       async function* abortingStream() {
-        // Captura o abortController do agent (já foi setado pelo runLoop antes de iterar)
+        // Capture the agent's abortController (runLoop sets it before iterating).
         internalAbort = (agent as unknown as Record<string, unknown>).abortController as AbortController
-        yield { choices: [{ delta: { reasoning_content: 'Pensando antes do abort...' } }] }
-        yield { choices: [{ delta: { content: 'Parcial' } }] }
-        // Aborta o controller interno do agent e lança erro como o SDK faria
+        yield { choices: [{ delta: { reasoning_content: 'Thinking before abort...' } }] }
+        yield { choices: [{ delta: { content: 'Partial' } }] }
+        // Abort the agent's internal controller and throw an error as the SDK would.
         internalAbort.abort()
         const err = new Error('The operation was aborted')
         err.name = 'AbortError'
@@ -300,47 +300,47 @@ describe('reasoning_content', () => {
       const cb = makeCallbacks()
 
       // Act
-      await agent.run('Teste abort', cb)
+      await agent.run('Test abort', cb)
 
-      // Assert — a mensagem do assistant deve ter reasoning_content mesmo após abort (modelo é o reasoner)
+      // Assert — the assistant message must keep reasoning_content after abort (the model is a reasoner).
       const messages = agent.getMessages()
       const assistantMsg = messages.find((m) => m.role === 'assistant') as AssistantMessageWithReasoning | undefined
 
       expect(assistantMsg).toBeDefined()
-      expect(assistantMsg?.content).toBe('Parcial')
-      expect(assistantMsg?.reasoning_content).toBe('Pensando antes do abort...')
+      expect(assistantMsg?.content).toBe('Partial')
+      expect(assistantMsg?.reasoning_content).toBe('Thinking before abort...')
     })
   })
 
   // ─────────────────────────────────────────────────────────────────────────
 
-  describe('SubAgent: preservação de reasoning_content na resposta não-streaming', () => {
+  describe('SubAgent: preserve reasoning_content in a non-streaming response', () => {
     it('should include reasoning_content when pushing assistant message with tool_calls', async () => {
-      // Arrange — simula resposta da API com reasoning_content e tool_calls (deepseek-reasoner)
+      // Arrange — simulate an API response with reasoning_content and tool_calls (deepseek-reasoner).
       const fakeToolCall = {
         id: 'call_sub1',
         type: 'function' as const,
         function: { name: 'shell', arguments: '{"command":"echo ok"}' },
       }
 
-      // Primeira resposta: tem reasoning_content + tool_calls
+      // First response has reasoning_content + tool_calls.
       const firstResponse = {
         choices: [{
           message: {
             role: 'assistant' as const,
             content: null,
-            reasoning_content: 'Raciocínio do subagente antes de chamar a tool.',
+            reasoning_content: 'Subagent reasoning before calling the tool.',
             tool_calls: [fakeToolCall],
           },
         }],
       }
 
-      // Segunda resposta: resposta final sem tool_calls
+      // Second response is the final response without tool_calls.
       const secondResponse = {
         choices: [{
           message: {
             role: 'assistant' as const,
-            content: 'Tarefa concluída.',
+            content: 'Task complete.',
             tool_calls: undefined,
           },
         }],
@@ -352,23 +352,23 @@ describe('reasoning_content', () => {
         return callCount === 1 ? firstResponse : secondResponse
       })
 
-      // Injeta o client mockado no módulo SubAgent via setSubAgentProvider não é suficiente —
-      // precisamos interceptar createLLMClient. Usamos a abordagem de testar o comportamento
-      // da mensagem que seria construída pelo SubAgent com o fix aplicado.
+      // Injecting the mocked client with setSubAgentProvider is not enough; we need to
+      // intercept createLLMClient. Test the message behavior SubAgent would produce
+      // with the fix applied.
       //
-      // O fix em SubAgent.ts agora faz:
+      // The fix in SubAgent.ts now does this:
       //   const assistantMsg = { role, content, tool_calls }
       //   if (reasoning_content) assistantMsg.reasoning_content = reasoning_content
       //   messages.push(assistantMsg)
       //
-      // Verificamos que a lógica do fix produz o resultado correto:
+      // Verify that the fix logic produces the correct result:
       const msg = firstResponse.choices[0]!.message as Record<string, unknown> & {
         role: 'assistant'
         content: null
         tool_calls: typeof fakeToolCall[]
       }
 
-      // Replica exatamente o código corrigido do SubAgent
+      // Reproduce the corrected SubAgent code exactly.
       const assistantMsg: Record<string, unknown> = {
         role: 'assistant',
         content: msg.content ?? null,
@@ -377,8 +377,8 @@ describe('reasoning_content', () => {
       const msgReasoning = msg.reasoning_content
       if (typeof msgReasoning === 'string' && msgReasoning) assistantMsg.reasoning_content = msgReasoning
 
-      // Assert — após o fix, reasoning_content deve estar presente
-      expect(assistantMsg.reasoning_content).toBe('Raciocínio do subagente antes de chamar a tool.')
+      // Assert — reasoning_content must be present after the fix.
+      expect(assistantMsg.reasoning_content).toBe('Subagent reasoning before calling the tool.')
       expect(assistantMsg.tool_calls).toHaveLength(1)
       expect('reasoning_content' in assistantMsg).toBe(true)
     })
@@ -386,18 +386,18 @@ describe('reasoning_content', () => {
 
   // ─────────────────────────────────────────────────────────────────────────
 
-  describe('Regressão: bug 400 "reasoning_content must be passed back"', () => {
+  describe('Regression: bug 400 "reasoning_content must be passed back"', () => {
     it('should NOT throw 400 when deepseek-v4-flash returns reasoning_content in multi-turn with tool calls', async () => {
-      // Reproduz exatamente o bug original:
-      // 1. Usuário manda mensagem
-      // 2. Modelo retorna reasoning_content + tool_calls (ex: read_folder)
-      // 3. Tool executa e retorna resultado
-      // 4. Modelo faz segunda chamada — reasoning_content DEVE estar nas mensagens
-      //    senão a API retorna 400 "reasoning_content must be passed back"
+      // Reproduce the original bug:
+      // 1. The user sends a message.
+      // 2. The model returns reasoning_content + tool_calls (for example, read_folder).
+      // 3. The tool runs and returns a result.
+      // 4. The model makes a second call; reasoning_content MUST be in the messages,
+      //    otherwise the API returns 400 "reasoning_content must be passed back".
 
-      // Turno 1: modelo retorna reasoning_content + tool_call (simula deepseek-v4-flash)
+      // Turn 1: the model returns reasoning_content + tool_call (simulate deepseek-v4-flash).
       const turn1Chunks = [
-        { choices: [{ delta: { reasoning_content: 'Vou listar os arquivos do projeto.' } }] },
+        { choices: [{ delta: { reasoning_content: 'I will list the project files.' } }] },
         {
           choices: [{
             delta: {
@@ -412,13 +412,13 @@ describe('reasoning_content', () => {
         { choices: [{ delta: {} }], usage: { total_tokens: 30, prompt_tokens: 25, completion_tokens: 5 } },
       ]
 
-      // Turno 2: modelo responde com base no resultado da tool (sem tool_calls)
+      // Turn 2: the model responds based on the tool result (without tool_calls).
       const turn2Chunks = [
-        { choices: [{ delta: { content: 'O projeto tem os seguintes arquivos: package.json, src/, tests/.' } }] },
+        { choices: [{ delta: { content: 'The project has these files: package.json, src/, tests/.' } }] },
         { choices: [{ delta: {} }], usage: { total_tokens: 20, prompt_tokens: 15, completion_tokens: 5 } },
       ]
 
-      // Captura as mensagens enviadas em cada chamada para verificar que reasoning_content está presente
+      // Capture messages sent in each call to verify that reasoning_content is present.
       const capturedMessages: unknown[][] = []
       let callCount = 0
 
@@ -438,32 +438,32 @@ describe('reasoning_content', () => {
       await agent.readyPromise
       ;(agent as any).settings = { ...(agent as any).settings, promptRefiner: { enabled: false } }
 
-      // Mock da tool read_folder
+      // Mock read_folder.
       const toolMap = (agent as unknown as Record<string, unknown>).toolMap as Map<string, { execute: (a: unknown) => Promise<string> }>
       toolMap.set('read_folder', { execute: mock(async () => 'package.json\nsrc/\ntests/') })
 
       const cb = makeCallbacks()
 
-      // Act — não deve lançar erro 400
-      await expect(agent.run('O que podemos adicionar neste projeto?', cb)).resolves.toBeUndefined()
+      // Act — should not throw a 400 error.
+      await expect(agent.run('What can we add to this project?', cb)).resolves.toBeUndefined()
 
-      // Assert 1: pelo menos duas chamadas foram feitas (turno 1 + turno 2; syncTurn pode fazer extras)
+      // Assert 1: at least two calls were made (turn 1 + turn 2; syncTurn may make extra calls).
       expect(callCount).toBeGreaterThanOrEqual(2)
 
-      // Assert 2: na segunda chamada, a mensagem do assistente do turno 1
-      // DEVE conter reasoning_content — sem isso a API retorna 400
+      // Assert 2: the assistant message from turn 1 in the second call MUST
+      // contain reasoning_content; without it, the API returns 400.
       const turn2Messages = capturedMessages[1] as Array<Record<string, unknown>>
       const assistantMsgInTurn2 = turn2Messages.find(
         (m) => m.role === 'assistant' && (m as Record<string, unknown>).tool_calls
       ) as AssistantMessageWithReasoning | undefined
 
       expect(assistantMsgInTurn2).toBeDefined()
-      expect(assistantMsgInTurn2?.reasoning_content).toBe('Vou listar os arquivos do projeto.')
+      expect(assistantMsgInTurn2?.reasoning_content).toBe('I will list the project files.')
 
-      // Assert 3: resposta final está correta
+      // Assert 3: the final response is correct.
       const finalMessages = agent.getMessages()
       const lastAssistant = [...finalMessages].reverse().find((m) => m.role === 'assistant') as AssistantMessageWithReasoning | undefined
-      expect(lastAssistant?.content).toBe('O projeto tem os seguintes arquivos: package.json, src/, tests/.')
+      expect(lastAssistant?.content).toBe('The project has these files: package.json, src/, tests/.')
     })
   })
 })

@@ -1,6 +1,14 @@
 import { expect, it } from 'bun:test'
 import { readdirSync, readFileSync } from 'node:fs'
+import { findExecutableTestCallbacks, structuralTestBodyText } from './testEvidence.js'
 import { BatchLoader } from '../src/batchLoader'
+
+function testCallbacks() {
+  const sources = readdirSync('.', { recursive: true }).map(String)
+    .filter((file) => /\.(test|spec)\.[jt]sx?$/.test(file) && !file.includes('__eval_check__') && !file.includes('node_modules'))
+    .map((fileName) => ({ fileName, text: readFileSync(fileName, 'utf8') }))
+  return findExecutableTestCallbacks(sources)
+}
 
 /** A wrong implementation can leave a caller waiting forever; fail the check instead of hanging it. */
 function within<T>(promise: Promise<T>, ms = 1_000): Promise<T> {
@@ -63,10 +71,10 @@ it('still batches and caches successful loads', async () => {
 })
 
 it('adds tests for failed batches', () => {
-  const tests = readdirSync('.', { recursive: true })
-    .map(String)
-    .filter((file) => /\.(test|spec)\.[jt]sx?$/.test(file) && !file.includes('__eval_check__') && !file.includes('node_modules'))
-    .map((file) => readFileSync(file, 'utf8'))
-    .join('\n')
-  expect(tests).toMatch(/reject|throw|Error\(/)
+  expect(testCallbacks().some((callback) => {
+    const body = structuralTestBodyText(callback)
+    return /loader\.load\s*\(/.test(body)
+      && /(?:Promise\.allSettled|\.rejects|RejectedResult)/.test(body)
+      && /\bexpect\s*\(/.test(body)
+  })).toBe(true)
 })

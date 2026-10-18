@@ -54,12 +54,14 @@ for (const action of ['remember', 'update_note', 'forget', 'send', 'schedule', '
     const source = demonstration(store, bot.id), note = store.addNote(bot.id, 'Keep the project conventions', 'fixture')
     const routine = store.addRoutine(bot.id, { name: 'Existing', prompt: 'Existing work', schedule: { kind: 'event', topic: 'fixture' } })
     store.enqueue(bot.id, 'Use bot controls'); const claimed = store.claim(bot.id, 'owner')!, tool = botControl(store, () => claimed)
-    let locked!: () => void
-    const holding = new Promise<void>(done => { locked = done })
-    const code = `import { Database } from 'bun:sqlite';const db=new Database(process.env.DEEPSEEK_CONTROL_PATH);
-      db.exec('BEGIN IMMEDIATE');process.send('locked');setTimeout(()=>{db.exec('COMMIT');db.close();process.exit(0)},1000)`
-    writer = Bun.spawn([process.execPath, '-e', code], { env: { ...process.env, DEEPSEEK_CONTROL_PATH: path }, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe', ipc(message) { if (message === 'locked') locked() } })
-    await Promise.race([holding, writer.exited.then(() => { throw Error('Writer exited before its lock') })])
+    const locked = join(directory, 'writer-locked'), release = join(directory, 'writer-release')
+    const code = `import { Database } from 'bun:sqlite';import { existsSync, writeFileSync } from 'node:fs';
+      const db=new Database(process.env.DEEPSEEK_CONTROL_PATH);db.exec('BEGIN IMMEDIATE');writeFileSync(process.env.DEEPSEEK_CONTROL_LOCKED,'locked');
+      const deadline=Date.now()+5000;while(!existsSync(process.env.DEEPSEEK_CONTROL_RELEASE)){if(Date.now()>deadline)throw Error('Writer release not received');await Bun.sleep(10)}
+      db.exec('COMMIT');db.close()`
+    const child = Bun.spawn([process.execPath, '-e', code], { env: { ...process.env, DEEPSEEK_CONTROL_PATH: path, DEEPSEEK_CONTROL_LOCKED: locked, DEEPSEEK_CONTROL_RELEASE: release }, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe' })
+    writer = child
+    await waitForChildFile(locked, child, new Response(child.stderr).text(), 2000)
     const args = { action, content: 'Use current project conventions', source: 'fixture', id: ['forget','update_note'].includes(action) ? note.id : routine.id, version: note.version,
       bot: recipient.id, prompt: 'New work', name: 'new-method', runId: source.id, messageId: 'control-id', schedule: { kind: 'event', topic: 'new-work' } }
     let settled = false
@@ -68,6 +70,7 @@ for (const action of ['remember', 'update_note', 'forget', 'send', 'schedule', '
     expect(settled).toBe(false)
     expect(writer.exitCode).toBeNull()
     expect(existsSync(join(store.skillDirectory(bot.id), 'new-method', 'SKILL.md'))).toBe(false)
+    await writeFile(release, 'release')
     expect(await writer.exited).toBe(0)
     await attempt; await tool.execute(args)
     expect(store.notes(bot.id)).toHaveLength(action === 'remember' ? 2 : action === 'forget' ? 0 : 1)
@@ -94,12 +97,14 @@ for (const reason of ['cancel', 'context-cancel', 'expire']) it(`stops a contend
     const run = store.enqueue(bot.id, 'Use bot controls'), claimed = store.claim(bot.id, 'owner')!
     if (reason === 'expire') store.store.run('UPDATE bot_runs SET lease_until=? WHERE id=?', Date.now() + 300, run.id)
     const tool = botControl(store, () => claimed, reason === 'context-cancel' ? undefined : controller.signal)
-    let locked!: () => void
-    const holding = new Promise<void>(done => { locked = done })
-    const code = `import { Database } from 'bun:sqlite';const db=new Database(process.env.DEEPSEEK_CONTROL_PATH);
-      db.exec('BEGIN IMMEDIATE');process.send('locked');setTimeout(()=>{db.exec('COMMIT');db.close();process.exit(0)},1200)`
-    writer = Bun.spawn([process.execPath, '-e', code], { env: { ...process.env, DEEPSEEK_CONTROL_PATH: path }, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe', ipc(message) { if (message === 'locked') locked() } })
-    await Promise.race([holding, writer.exited.then(() => { throw Error('Writer exited before its lock') })])
+    const locked = join(directory, 'writer-locked'), release = join(directory, 'writer-release')
+    const code = `import { Database } from 'bun:sqlite';import { existsSync, writeFileSync } from 'node:fs';
+      const db=new Database(process.env.DEEPSEEK_CONTROL_PATH);db.exec('BEGIN IMMEDIATE');writeFileSync(process.env.DEEPSEEK_CONTROL_LOCKED,'locked');
+      const deadline=Date.now()+5000;while(!existsSync(process.env.DEEPSEEK_CONTROL_RELEASE)){if(Date.now()>deadline)throw Error('Writer release not received');await Bun.sleep(10)}
+      db.exec('COMMIT');db.close()`
+    const child = Bun.spawn([process.execPath, '-e', code], { env: { ...process.env, DEEPSEEK_CONTROL_PATH: path, DEEPSEEK_CONTROL_LOCKED: locked, DEEPSEEK_CONTROL_RELEASE: release }, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe' })
+    writer = child
+    await waitForChildFile(locked, child, new Response(child.stderr).text(), 2000)
     attempt = tool.execute({ action: 'remember', content: 'Must not be retained', source: 'fixture' }, reason === 'context-cancel' ? {
       signal: controller.signal, sessionId: 'fixture', workspacePath: directory, projectRoot: directory, permissionProfile: 'coordinator-integrator',
     } : undefined)
@@ -107,6 +112,7 @@ for (const reason of ['cancel', 'context-cancel', 'expire']) it(`stops a contend
     if (reason !== 'expire') { await Bun.sleep(100); controller.abort(new Error('stopping fixture')) }
     await expect(attempt).rejects.toThrow(reason === 'expire' ? 'ownership' : 'operation was aborted')
     expect(writer.exitCode).toBeNull()
+    await writeFile(release, 'release')
     expect(await writer.exited).toBe(0)
     expect(store.notes(bot.id)).toHaveLength(0)
   } finally {
@@ -167,18 +173,21 @@ for (const phase of ['before', 'completion']) it(`persists ${phase} procedure re
     store.addRoutine(bot.id, { name: 'Observed', prompt: 'Use observed work', schedule: { kind: 'event', topic: 'fixture' }, procedureId: procedure.id, procedureInputs: { expectedText2: 'Done' } })
     store.dispatchEvent('fixture', 'one', {})
     const claimed = store.claim(bot.id, 'owner')!, guard = procedureGuard(store, claimed, 'owner')
-    let locked!: () => void
-    const holding = new Promise<void>(done => { locked = done })
-    const code = `import { Database } from 'bun:sqlite';const db=new Database(process.env.DEEPSEEK_CONTROL_PATH);
-      db.exec('BEGIN IMMEDIATE');process.send('locked');setTimeout(()=>{db.exec('COMMIT');db.close();process.exit(0)},1000)`
-    writer = Bun.spawn([process.execPath, '-e', code], { env: { ...process.env, DEEPSEEK_CONTROL_PATH: path }, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe', ipc(message) { if (message === 'locked') locked() } })
-    await Promise.race([holding, writer.exited.then(() => { throw Error('Writer exited before its lock') })])
+    const locked = join(directory, 'writer-locked'), release = join(directory, 'writer-release')
+    const code = `import { Database } from 'bun:sqlite';import { existsSync, writeFileSync } from 'node:fs';
+      const db=new Database(process.env.DEEPSEEK_CONTROL_PATH);db.exec('BEGIN IMMEDIATE');writeFileSync(process.env.DEEPSEEK_CONTROL_LOCKED,'locked');
+      const deadline=Date.now()+5000;while(!existsSync(process.env.DEEPSEEK_CONTROL_RELEASE)){if(Date.now()>deadline)throw Error('Writer release not received');await Bun.sleep(10)}
+      db.exec('COMMIT');db.close()`
+    const child = Bun.spawn([process.execPath, '-e', code], { env: { ...process.env, DEEPSEEK_CONTROL_PATH: path, DEEPSEEK_CONTROL_LOCKED: locked, DEEPSEEK_CONTROL_RELEASE: release }, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe' })
+    writer = child
+    await waitForChildFile(locked, child, new Response(child.stderr).text(), 2000)
     let settled = false
     attempt = Promise.resolve().then(() => phase === 'before' ? guard.before({ action: 'click', ref: 'e1' }) : guard.assertComplete())
       .then(() => { settled = true; return new Error('Unexpected procedure acceptance') }, error => { settled = true; return error })
     await Bun.sleep(100)
     expect(settled).toBe(false)
     expect(writer.exitCode).toBeNull()
+    await writeFile(release, 'release')
     expect(await writer.exited).toBe(0)
     const error = await attempt as Error
     expect(error.message).toContain(phase === 'before' ? 'requires navigate' : 'did not finish')

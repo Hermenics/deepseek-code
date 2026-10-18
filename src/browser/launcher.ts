@@ -83,7 +83,7 @@ export function launchBrowser(options: LaunchOptions = {}): LaunchedBrowser {
   let proc: ReturnType<typeof Bun.spawn>
   try {
     const network = options.proxyServer && options.proxyBypassList && options.certificateSPKI ? { proxyServer: options.proxyServer, proxyBypassList: options.proxyBypassList, certificateSPKI: options.certificateSPKI } : undefined
-    proc = Bun.spawn([executable, ...chromeArgs(profileDir, visible, network)], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'], env })
+    proc = Bun.spawn([executable, ...chromeArgs(profileDir, visible, network)], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'], env, detached: true })
   } catch (error) {
     if (!persistent) rmSync(profileDir, { recursive: true, force: true })
     throw new Error(`Could not start ${executable}: ${(error as Error).message}`)
@@ -96,7 +96,9 @@ export function launchBrowser(options: LaunchOptions = {}): LaunchedBrowser {
     killed = true
     removeExitHook()
     // The exit hook is synchronous. Persistent callers use close() to flush before normal exit.
-    try { proc.kill('SIGKILL') } catch { /* already gone */ }
+    try { process.kill(-proc.pid, 'SIGKILL') } catch {
+      try { proc.kill('SIGKILL') } catch { /* already gone */ }
+    }
     if (!persistent) try { rmSync(profileDir, { recursive: true, force: true }) } catch { /* best effort */ }
   }
   removeExitHook = onExit(() => kill())

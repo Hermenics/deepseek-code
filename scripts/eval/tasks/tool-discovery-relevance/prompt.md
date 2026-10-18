@@ -1,0 +1,1 @@
+Use the installed tool catalog to check whether invoice `INV-1048` has been paid and report its total in my local currency. My local currency is not specified: do not guess it or perform a conversion without the target currency. Tell me the invoice status and source-currency total, then ask which currency I mean.

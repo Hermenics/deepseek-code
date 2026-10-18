@@ -51,6 +51,7 @@ export interface WorkflowJournal {
   scriptHash: string
   argsHash: string
   optionsHash: string
+  replayContextHash?: string
   entries: WorkflowJournalEntry[]
 }
 
@@ -175,7 +176,7 @@ export class WorkflowStore {
       privateText(this.scriptPath(run.runId), script),
       atomicJson(join(directory, 'args.json'), args ?? {}),
       this.writeRun(run),
-      this.writeJournal(run.runId, { schemaVersion: 1, scriptHash: run.scriptHash, argsHash: run.argsHash, optionsHash: run.optionsHash, entries: [] }),
+      this.writeJournal(run.runId, { schemaVersion: 1, scriptHash: run.scriptHash, argsHash: run.argsHash, optionsHash: run.optionsHash, replayContextHash: run.replayContextHash, entries: [] }),
     ])
   }
 
@@ -332,14 +333,14 @@ export class WorkflowStore {
     return (await this.scanRuns()).filter(isWorkflowRunActive)
   }
 
-  /** Finds the journal of a finished run with identical script, args and options hashes: a fully completed journal wins immediately, otherwise the one with the longest completed prefix. Active runs are never replayed. */
-  async findReplay(scriptHash: string, argsHash: string, optionsHash: string, excludeRunId?: string): Promise<WorkflowJournal | undefined> {
+  /** Finds a finished journal with identical script, args, options and execution context; a complete journal wins, otherwise the longest completed prefix does. */
+  async findReplay(scriptHash: string, argsHash: string, optionsHash: string, replayContextHash: string, excludeRunId?: string): Promise<WorkflowJournal | undefined> {
     let best: WorkflowJournal | undefined
     let bestPrefix = -1
     for (const run of await this.listRuns()) {
-      if (run.runId === excludeRunId || run.scriptHash !== scriptHash || run.argsHash !== argsHash || run.optionsHash !== optionsHash || isWorkflowRunActive(run)) continue
+      if (run.runId === excludeRunId || run.scriptHash !== scriptHash || run.argsHash !== argsHash || run.optionsHash !== optionsHash || run.replayContextHash !== replayContextHash || isWorkflowRunActive(run)) continue
       const journal = await this.readJournal(run.runId)
-      if (!journal || journal.scriptHash !== scriptHash || journal.argsHash !== argsHash || journal.optionsHash !== optionsHash) continue
+      if (!journal || journal.scriptHash !== scriptHash || journal.argsHash !== argsHash || journal.optionsHash !== optionsHash || journal.replayContextHash !== replayContextHash) continue
       const prefix = journal.entries.findIndex(entry => entry.status !== 'completed')
       const length = prefix < 0 ? journal.entries.length : prefix
       if (prefix < 0) return journal

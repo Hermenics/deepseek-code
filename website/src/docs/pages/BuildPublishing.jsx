@@ -62,7 +62,7 @@ export default function BuildPublishing() {
           <CodeBlock lang="bash">{`$ bun install --frozen-lockfile
 $ bun run typecheck
 $ bun run build
-Build concluído com sucesso!`}</CodeBlock>
+Build completed successfully!`}</CodeBlock>
           <p>
             A successful bundle is necessary but not sufficient. Type checking is separate, tests are
             separate, and npm package verification is separate. Run all three layers before treating the

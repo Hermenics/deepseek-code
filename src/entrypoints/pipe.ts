@@ -1,12 +1,11 @@
 /**
  * Pipe mode: reads from stdin, runs the agent headlessly, writes to stdout.
- * Usage: echo "refatora isso" | deepseek
- *        cat file.ts | deepseek "explica esse código"
+ * Usage: echo "refactor this" | deepseek
+ *        cat file.ts | deepseek "explain this code"
  */
 import { Agent } from '../agent/agent.js'
 import { loadSavedConfig } from '../ui/setup/ApiKeySetup.js'
 import { migrateConfigIfNeeded } from '../utils/credentials.js'
-import { setShellConfirmHandler } from '../tools/Shell/Shell.js'
 
 export interface PipeOptions {
   json: boolean
@@ -34,12 +33,9 @@ async function writeAndDrain(stream: typeof process.stdout | typeof process.stde
   await new Promise<void>((resolve) => stream.once('drain', resolve))
 }
 
-/** Runs one headless agent turn: the prompt comes from argv and/or stdin, tokens stream to stdout (or one JSON object with `--json`), tool names go to stderr. Shell confirmations are auto-denied since nobody can answer them. */
+/** Runs one headless agent turn: the prompt comes from argv and/or stdin, tokens stream to stdout (or one JSON object with `--json`), tool names go to stderr. */
 export default async function runPipe() {
   const options = parsePipeArgs()
-
-  // Pipe mode: deny destructive commands — user cannot interactively confirm
-  setShellConfirmHandler(async () => false)
 
   // Migrate legacy config.json → .env + config.json split
   await migrateConfigIfNeeded()

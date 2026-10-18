@@ -30,7 +30,7 @@ describe('step announcements', () => {
       async function* () {
         yield { choices: [{ delta: { tool_calls: [
           call(0, 'glob', { pattern: '*.md' }),
-          call(1, 'step', { active: 'Lendo a documentação', done: 'Leu a documentação' }),
+          call(1, 'step', { active: 'Reading the documentation', done: 'Read the documentation' }),
           call(2, 'glob', { pattern: '*.json' }),
         ] }, finish_reason: 'tool_calls' }] }
       },
@@ -59,7 +59,7 @@ describe('step announcements', () => {
 
     await agent.run('leia os docs', cb)
 
-    expect(events[0]).toBe('step:Lendo a documentação|Leu a documentação')
+    expect(events[0]).toBe('step:Reading the documentation|Read the documentation')
     expect(events.filter((event) => event.startsWith('step:'))).toHaveLength(1)
     const answered = streamed[1]!.filter((message) => message.role === 'tool').map((message) => message.tool_call_id).sort()
     expect(answered).toEqual(['call-0', 'call-1', 'call-2'])

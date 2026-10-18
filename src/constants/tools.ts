@@ -7,6 +7,12 @@ export const SHELL_TIMEOUT_MS = 300_000
 /** Max lines returned by grep */
 export const GREP_MAX_LINES = 200
 
+/** Max UTF-8 bytes returned by grep in one page */
+export const GREP_MAX_RESULT_BYTES = 50_000
+
+/** Max rendered characters from one matching line, including its path */
+export const GREP_MAX_MATCH_CHARS = 8_000
+
 /** Max files returned by glob */
 export const GLOB_MAX_FILES = 500
 

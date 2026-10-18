@@ -2,7 +2,7 @@ import { afterEach, describe, expect, setDefaultTimeout, spyOn, test } from 'bun
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { WorkflowManager } from '../../src/workflows/manager.js'
+import { WorkflowManager, type WorkflowAgentRequest } from '../../src/workflows/manager.js'
 import { WorkflowApprovalStore, renameReplacing } from '../../src/workflows/storage.js'
 
 setDefaultTimeout(15_000)
@@ -14,8 +14,10 @@ afterEach(async () => Promise.all(roots.splice(0).map(root => rm(root, { recursi
 async function setup(agentRunner?: ConstructorParameters<typeof WorkflowManager>[0]['agentRunner']) {
   const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-manager-'))
   roots.push(root)
+  const project = join(root, 'project')
+  await mkdir(project, { recursive: true })
   return new WorkflowManager({
-    sessionId: 'session-test', projectRoot: join(root, 'project'), baseDirectory: join(root, 'state'),
+    sessionId: 'session-test', projectRoot: project, baseDirectory: join(root, 'state'),
     providerConfig: { provider: 'deepseek' }, settings: { agents: { concurrency: 4 } }, agentRunner,
   })
 }
@@ -85,6 +87,37 @@ describe('WorkflowManager', () => {
     expect((await manager.get(second.runId))?.phaseHistory).toEqual(['one', 'two'])
   })
 
+  test('invalidates automatic replay when workspace content or execution configuration changes', async () => {
+    let calls = 0
+    const manager = await setup(async request => { calls++; return { value: request.prompt } })
+    const source = join(manager.options.projectRoot, 'source.ts')
+    await writeFile(source, 'const version = "one";\n')
+    const script = 'export const meta = {"name":"context-replay"}; return agent("same call");'
+
+    await (await manager.start({ script })).result
+    await writeFile(source, 'const version = "two";\n')
+    await (await manager.start({ script })).result
+    expect(calls).toBe(2)
+
+    manager.configure({ model: 'different-model' })
+    await (await manager.start({ script })).result
+    expect(calls).toBe(3)
+    await (await manager.start({ script })).result
+    expect(calls).toBe(3)
+  })
+
+  test('refuses explicit replay when the workspace has changed', async () => {
+    const manager = await setup(async request => ({ value: request.prompt }))
+    const source = join(manager.options.projectRoot, 'source.ts')
+    await writeFile(source, 'const version = "one";\n')
+    const script = 'export const meta = {"name":"stale-context"}; return agent("same call");'
+    const first = await manager.start({ script })
+    await first.result
+    await writeFile(source, 'const version = "two";\n')
+
+    await expect(manager.start({ script, resumeFromRunId: first.runId })).rejects.toThrow('workspace or execution configuration changed')
+  })
+
   test('persists a new phase without interrupting runtime delivery on a transient write failure', async () => {
     const manager = await setup(async request => ({ value: request.prompt }))
     const errors: string[] = []
@@ -124,9 +157,11 @@ describe('WorkflowManager', () => {
     let calls = 0
     const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-manager-'))
     roots.push(root)
+    const project = join(root, 'project')
+    await mkdir(project, { recursive: true })
     const state = join(root, 'state')
     const manager = new WorkflowManager({
-      sessionId: 'replay-divergence', projectRoot: join(root, 'project'), baseDirectory: state,
+      sessionId: 'replay-divergence', projectRoot: project, baseDirectory: state,
       providerConfig: { provider: 'deepseek' }, agentRunner: async request => { calls++; return { value: request.prompt } },
     })
     const script = 'export const meta = {"name":"divergence"}; return [await agent("a"), await agent("b")];'
@@ -146,9 +181,11 @@ describe('WorkflowManager', () => {
     let calls = 0
     const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-manager-'))
     roots.push(root)
+    const project = join(root, 'project')
+    await mkdir(project, { recursive: true })
     const state = join(root, 'state')
     const manager = new WorkflowManager({
-      sessionId: 'replay-corruption', projectRoot: join(root, 'project'), baseDirectory: state,
+      sessionId: 'replay-corruption', projectRoot: project, baseDirectory: state,
       providerConfig: { provider: 'deepseek' }, agentRunner: async request => { calls++; return { value: request.prompt } },
     })
     const script = 'export const meta = {"name":"corruption"}; return [await agent("a"), await agent("b")];'
@@ -165,9 +202,11 @@ describe('WorkflowManager', () => {
     let calls = 0
     const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-manager-'))
     roots.push(root)
+    const project = join(root, 'project')
+    await mkdir(project, { recursive: true })
     const state = join(root, 'state')
     const manager = new WorkflowManager({
-      sessionId: 'replay-incomplete', projectRoot: join(root, 'project'), baseDirectory: state,
+      sessionId: 'replay-incomplete', projectRoot: project, baseDirectory: state,
       providerConfig: { provider: 'deepseek' }, agentRunner: async request => { calls++; return { value: request.prompt } },
     })
     const script = 'export const meta = {"name":"incomplete"}; return [await agent("a"), await agent("b")];'
@@ -221,11 +260,13 @@ describe('WorkflowManager', () => {
   test('composes one child workflow and rejects deeper nesting', async () => {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-manager-'))
     roots.push(root)
+    const project = join(root, 'project')
+    await mkdir(project, { recursive: true })
     const scripts: Record<string, string> = {
       child: 'export const meta = {"name":"child"}; return agent("child-agent");',
     }
     const manager = new WorkflowManager({
-      sessionId: 'child-session', projectRoot: join(root, 'project'), baseDirectory: join(root, 'state'),
+      sessionId: 'child-session', projectRoot: project, baseDirectory: join(root, 'state'),
       providerConfig: { provider: 'deepseek' }, agentRunner: async request => ({ value: request.prompt }),
       workflowLoader: async name => scripts[name],
     })
@@ -291,6 +332,76 @@ describe('WorkflowManager', () => {
     expect(calls).toBe(1)
   })
 
+  test('shares an explicit workflow budget across parallel agents', async () => {
+    let active = 0
+    let peak = 0
+    const requests: WorkflowAgentRequest[] = []
+    const manager = await setup(async request => {
+      requests.push(request)
+      active++
+      peak = Math.max(peak, active)
+      await new Promise(resolve => setTimeout(resolve, 5))
+      active--
+      return { value: request.prompt, usage: { tokens: 3, costUsd: 0.02 } }
+    })
+
+    const result = await (await manager.start({
+      script: 'export const meta = {"name":"parallel-budget"}; return parallel([() => agent("one"), () => agent("two")]);',
+      maxTokens: 2,
+      maxCostUsd: 0.01,
+    })).result
+
+    expect(result.status).toBe('budget_exhausted')
+    expect(result.result).toEqual(['one', null])
+    expect(requests).toHaveLength(1)
+    expect(requests[0]?.options).toMatchObject({ maxTokens: 2, maxCostUsd: 0.01 })
+    expect(peak).toBe(1)
+  })
+
+  test('passes each worker only the remaining run budget and preserves lower worker caps', async () => {
+    const requests: WorkflowAgentRequest[] = []
+    const manager = await setup(async request => {
+      requests.push(request)
+      return { value: request.prompt, usage: { tokens: 10, costUsd: 0.1 } }
+    })
+
+    const result = await (await manager.start({
+      script: 'export const meta = {"name":"remaining-budget"}; await agent("one"); await agent("two"); return agent("three", { maxTokens: 5, maxCostUsd: 0.02 });',
+      maxTokens: 100,
+      maxCostUsd: 1,
+    })).result
+
+    expect(result.status).toBe('completed')
+    expect(requests.map(request => request.options)).toEqual([
+      { maxTokens: 100, maxCostUsd: 1 },
+      { maxTokens: 90, maxCostUsd: 0.9 },
+      { maxTokens: 5, maxCostUsd: 0.02 },
+    ])
+  })
+
+  test('does not start budget-queued workers after run cancellation', async () => {
+    let calls = 0
+    let markStarted!: () => void
+    const started = new Promise<void>(resolve => { markStarted = resolve })
+    const manager = await setup(async request => {
+      calls++
+      if (calls === 1) {
+        markStarted()
+        await new Promise<never>((_resolve, reject) => request.signal.addEventListener('abort', () => reject(request.signal.reason), { once: true }))
+      }
+      return { value: request.prompt, usage: { tokens: 1 } }
+    })
+
+    const handle = await manager.start({
+      script: 'export const meta = {"name":"cancel-budget-queue"}; return parallel([() => agent("one"), () => agent("two")]);',
+      maxTokens: 100,
+    })
+    await started
+    expect(await manager.cancel(handle.runId)).toBe(true)
+    expect((await handle.result).status).toBe('cancelled')
+    expect(calls).toBe(1)
+  })
+
   test('cancels a running workflow and terminates its worker', async () => {
     const manager = await setup(async request => ({ value: request.prompt }))
     const handle = await manager.start({ script: 'export const meta = {"name":"cancel"}; await new Promise(() => {});' })
@@ -312,8 +423,10 @@ describe('WorkflowManager', () => {
     let calls = 0
     const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-manager-'))
     roots.push(root)
+    const project = join(root, 'project')
+    await mkdir(project, { recursive: true })
     const manager = new WorkflowManager({
-      sessionId: 'plan-mode', projectRoot: join(root, 'project'), baseDirectory: join(root, 'state'),
+      sessionId: 'plan-mode', projectRoot: project, baseDirectory: join(root, 'state'),
       providerConfig: { provider: 'deepseek' }, interactionMode: () => 'plan',
       agentRunner: async request => { calls++; expect(request.interactionMode).toBe('plan'); return { value: request.prompt } },
     })
@@ -427,6 +540,8 @@ describe('WorkflowManager — budget replay', () => {
     expect(starved.status).toBe('budget_exhausted')
     expect(starved.error).toContain('Budget of 2 tokens exhausted')
     expect(starved.error).toContain('resumeFromRunId')
+    expect(starved.usage.agents).toBe(1)
+    expect(starved.usage.tokens).toBe(3)
 
     const roomy = await (await manager.start({ script, maxTokens: 100, resumeFromRunId: starved.runId })).result
     expect(roomy.status).toBe('completed')
@@ -442,9 +557,11 @@ describe('WorkflowManager — interrupted runs', () => {
     let calls = 0
     const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-manager-'))
     roots.push(root)
+    const project = join(root, 'project')
+    await mkdir(project, { recursive: true })
     const state = join(root, 'state')
     const manager = new WorkflowManager({
-      sessionId: 'interrupted', projectRoot: join(root, 'project'), baseDirectory: state,
+      sessionId: 'interrupted', projectRoot: project, baseDirectory: state,
       providerConfig: { provider: 'deepseek' }, agentRunner: async request => { calls++; return { value: request.prompt } },
     })
     const script = 'export const meta = {"name":"interrupted"}; return [await agent("a"), await agent("b")];'

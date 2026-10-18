@@ -18,7 +18,7 @@ class FakeTerminal extends PassThrough {
   setRawMode(enabled: boolean): this { this.isRaw = enabled; return this }
 }
 
-const paragraph = 'A inteligência artificial pode beneficiar a humanidade ao apoiar a saúde, a educação, a ciência e a acessibilidade. Contudo, também pode ampliar desigualdades, ameaçar a privacidade, reproduzir preconceitos, eliminar empregos e facilitar a circulação de falsidades. A diferença entre esses resultados depende de como a tecnologia é desenvolvida, regulamentada e utilizada. Governos devem criar regras que protejam direitos; empresas precisam agir com transparência; escolas devem preparar os estudantes para um mundo tecnológico; e cidadãos devem participar das discussões sobre essas mudanças.'
+const paragraph = 'Artificial intelligence can benefit humanity by supporting health, education, science, and accessibility. However, it can also widen inequalities, threaten privacy, reproduce bias, eliminate jobs, and spread misinformation. The difference between these outcomes depends on how the technology is developed, regulated, and used. Governments should create rules that protect rights; companies need to act transparently; schools should prepare students for a technological world; and citizens should take part in discussions about these changes.'
 
 describe('fullscreen long transcript resize', () => {
   it('keeps the streaming status after the entire response while width changes', async () => {
@@ -56,8 +56,8 @@ describe('fullscreen long transcript resize', () => {
         )
         const status = lines.findIndex(line => line.includes('∿ 50s'))
         expect(status).toBeGreaterThan(0)
-        expect(lines.slice(5, status).filter(line => line.includes('A inteligência artificial')).length).toBeGreaterThan(1)
-        expect(lines.slice(status + 1, -4).every(line => !line.includes('estudantes'))).toBe(true)
+        expect(lines.slice(5, status).filter(line => line.includes('Artificial intelligence')).length).toBeGreaterThan(1)
+        expect(lines.slice(status + 1, -4).every(line => !line.includes('students'))).toBe(true)
         if (width < 112) expect(scrollRef.current!.getFreshScrollHeight()).toBeGreaterThan(initialHeight)
       }
     } finally {

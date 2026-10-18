@@ -1,5 +1,6 @@
 import { Tool } from '../types.js'
 import * as fs from 'fs/promises'
+import { createHash } from 'node:crypto'
 import { assertExecutionActive, assertSafePath, atomicWriteFile } from '../shared/pathSafety.js'
 
 type DiffLine = { type: 'added' | 'removed' | 'context'; text: string; lineNo: number }
@@ -49,11 +50,18 @@ export const WriteFile: Tool = {
     const content = args.content as string
 
     let oldContent = ''
-    try { oldContent = await fs.readFile(filePath, 'utf-8') } catch (error) {
+    let existed = true
+    let oldHash = createHash('sha256').update('').digest('hex')
+    try {
+      const oldBytes = await fs.readFile(filePath)
+      oldContent = oldBytes.toString('utf8')
+      oldHash = createHash('sha256').update(oldBytes).digest('hex')
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      existed = false
     }
 
-    await atomicWriteFile(filePath, content, context)
+    await atomicWriteFile(filePath, content, context, context?.expectedFileVersion ?? { exists: existed, hash: oldHash })
 
     const oldLines = oldContent.split('\n')
     const newLines = content.split('\n')

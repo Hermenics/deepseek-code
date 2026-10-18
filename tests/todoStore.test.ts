@@ -12,37 +12,37 @@ beforeEach(() => {
 })
 
 describe('getTodos', () => {
-  it('retorna array vazio após clear', () => {
+  it('returns an empty array after clear', () => {
     expect(getTodos()).toEqual([])
   })
 
-  it('retorna todos adicionados', () => {
-    addTodo('tarefa 1')
-    addTodo('tarefa 2')
+  it('returns all added todos', () => {
+    addTodo('task 1')
+    addTodo('task 2')
     expect(getTodos()).toHaveLength(2)
   })
 })
 
 describe('addTodo', () => {
-  it('adiciona item com status pending', () => {
-    const item = addTodo('minha tarefa')
+  it('adds an item with pending status', () => {
+    const item = addTodo('my task')
     expect(item.status).toBe('pending')
   })
 
-  it('retorna item com id, title e status', () => {
-    const item = addTodo('teste')
+  it('returns an item with id, title, and status', () => {
+    const item = addTodo('test')
     expect(item.id).toBeDefined()
-    expect(item.title).toBe('teste')
+    expect(item.title).toBe('test')
     expect(item.status).toBe('pending')
   })
 
-  it('id é uma string não vazia', () => {
-    const item = addTodo('teste')
+  it('id is a non-empty string', () => {
+    const item = addTodo('test')
     expect(typeof item.id).toBe('string')
     expect(item.id.length).toBeGreaterThan(0)
   })
 
-  it('múltiplos todos têm ids únicos', async () => {
+  it('multiple todos have unique ids', async () => {
     const a = addTodo('a')
     await new Promise(r => setTimeout(r, 2))
     const b = addTodo('b')
@@ -51,25 +51,25 @@ describe('addTodo', () => {
 })
 
 describe('updateTodo', () => {
-  it('atualiza status e retorna true', () => {
-    const item = addTodo('tarefa')
+  it('updates status and returns true', () => {
+    const item = addTodo('task')
     const result = updateTodo(item.id, 'in_progress')
     expect(result).toBe(true)
     expect(getTodos()[0]?.status).toBe('in_progress')
   })
 
-  it('atualiza para done', () => {
-    const item = addTodo('tarefa')
+  it('updates to done', () => {
+    const item = addTodo('task')
     updateTodo(item.id, 'done')
     expect(getTodos()[0]?.status).toBe('done')
   })
 
-  it('id inexistente retorna false', () => {
-    const result = updateTodo('id-que-nao-existe', 'done')
+  it('returns false for a nonexistent id', () => {
+    const result = updateTodo('nonexistent-id', 'done')
     expect(result).toBe(false)
   })
 
-  it('não altera outros todos', () => {
+  it('does not change other todos', () => {
     const a = addTodo('a')
     const b = addTodo('b')
     updateTodo(a.id, 'done')
@@ -78,7 +78,7 @@ describe('updateTodo', () => {
 })
 
 describe('clearTodos', () => {
-  it('esvazia a lista', () => {
+  it('empties the list', () => {
     addTodo('a')
     addTodo('b')
     clearTodos()
@@ -87,16 +87,16 @@ describe('clearTodos', () => {
 })
 
 describe('subscribe', () => {
-  it('listener é chamado ao addTodo', () => {
+  it('calls the listener when addTodo runs', () => {
     const fn = mock(() => {})
     const unsub = subscribe(fn)
-    addTodo('teste')
+    addTodo('test')
     expect(fn).toHaveBeenCalledTimes(1)
     unsub()
   })
 
-  it('listener é chamado ao updateTodo', () => {
-    const item = addTodo('teste')
+  it('calls the listener when updateTodo runs', () => {
+    const item = addTodo('test')
     const fn = mock(() => {})
     const unsub = subscribe(fn)
     updateTodo(item.id, 'done')
@@ -104,7 +104,7 @@ describe('subscribe', () => {
     unsub()
   })
 
-  it('listener é chamado ao clearTodos', () => {
+  it('calls the listener when clearTodos runs', () => {
     const fn = mock(() => {})
     const unsub = subscribe(fn)
     clearTodos()
@@ -112,11 +112,11 @@ describe('subscribe', () => {
     unsub()
   })
 
-  it('unsubscribe remove o listener', () => {
+  it('unsubscribe removes the listener', () => {
     const fn = mock(() => {})
     const unsub = subscribe(fn)
     unsub()
-    addTodo('teste')
+    addTodo('test')
     expect(fn).not.toHaveBeenCalled()
   })
 })

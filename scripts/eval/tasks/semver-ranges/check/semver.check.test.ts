@@ -1,5 +1,7 @@
 import { expect, it } from 'bun:test'
 import { readdirSync, readFileSync } from 'node:fs'
+import ts from 'typescript'
+import { findExecutableTestCallbacks, structuralTestBodyText } from './testEvidence.js'
 import { satisfies } from '../src/semver'
 
 /** Checks each [range, version, expected] triple, reporting the failing case by name. */
@@ -39,9 +41,47 @@ it('prereleases only match a comparator on the same version tuple', () => cases(
   ['~1.2.3-rc.1', '1.2.3', true],
 ]))
 
-it('adds tests for the new ranges', () => {
+function testCallbacks() {
   const tests = readdirSync('.', { recursive: true }).map(String)
     .filter((f) => /\.(test|spec)\.[jt]sx?$/.test(f) && !f.includes('__eval_check__') && !f.includes('node_modules'))
-    .map((f) => readFileSync(f, 'utf8')).join('\n')
-  expect(tests).toMatch(/\^\d|~\d/)
+    .map((fileName) => ({ fileName, text: readFileSync(fileName, 'utf8') }))
+  return findExecutableTestCallbacks(tests)
+}
+
+function hasCaretOrTildeRange(callback: ReturnType<typeof findExecutableTestCallbacks>[number]): boolean {
+  const ranges = new Map<string, string>()
+  const literalString = (node: ts.Expression | undefined): string | undefined => {
+    if (!node) return undefined
+    if (ts.isStringLiteralLike(node)) return node.text
+    if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isTypeAssertionExpression(node)) {
+      return literalString(node.expression)
+    }
+    return undefined
+  }
+  const collectRanges = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      const value = literalString(node.initializer)
+      if (value !== undefined) ranges.set(node.name.text, value)
+    }
+    ts.forEachChild(node, collectRanges)
+  }
+  collectRanges(callback.body)
+
+  let foundRange = false
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'satisfies') {
+      const rangeArgument = node.arguments[1]
+      const range = literalString(rangeArgument)
+        ?? (rangeArgument && ts.isIdentifier(rangeArgument) ? ranges.get(rangeArgument.text) : undefined)
+      if (range && /[~^]\d/.test(range)) foundRange = true
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(callback.body)
+  const body = structuralTestBodyText(callback)
+  return foundRange && /\bsatisfies\s*\(/.test(body) && /\bexpect\s*\(/.test(body)
+}
+
+it('adds tests for the new ranges', () => {
+  expect(testCallbacks().some(hasCaretOrTildeRange)).toBe(true)
 })

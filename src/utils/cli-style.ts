@@ -1,6 +1,6 @@
 import terminalChalk from 'chalk'
 
-// Compartilha a detecção de cores com a TUI, inclusive em terminais Bun sem isTTY.
+// Share color detection with the TUI, including Bun terminals without isTTY.
 if (process.env.NO_COLOR !== undefined || process.env.FORCE_COLOR === '0' || process.env.FORCE_COLOR === 'false' || process.env.TERM === 'dumb') terminalChalk.level = 0
 else if (terminalChalk.level === 0) {
   const colorterm = process.env.COLORTERM

@@ -1,7 +1,14 @@
+import type { GoalCriteria, GoalAcceptanceReview } from './goalAcceptance.js'
+
 export type GoalStatus = 'active' | 'paused' | 'blocked' | 'budget_limited' | 'usage_limited' | 'complete'
 
 export interface Goal {
   objective: string
+  objectiveRevision?: number
+  objectiveSource?: 'user'
+  objectiveUpdatedAt?: string
+  acceptanceCriteria?: GoalCriteria
+  lastAcceptanceReview?: { workspaceDigest: string; sourceFingerprint: string; result: GoalAcceptanceReview }
   status: GoalStatus
   tokenBudget?: number
   maxContinuations?: number
@@ -29,8 +36,8 @@ export function getGoal(): Goal | null {
   return currentGoal
 }
 
-export function setGoal(g: Goal | null): void {
-  currentGoal = g
+export function setGoal(g: Goal | null | undefined): void {
+  currentGoal = g ?? null
 }
 
 /** Merges fields into the current goal, freezing accumulated elapsed time when it leaves the active state. Throws without a goal. */
@@ -49,6 +56,9 @@ export function createGoal(objective: string, tokenBudget?: number, maxContinuat
   const now = new Date().toISOString()
   const goal: Goal = {
     objective,
+    objectiveRevision: 0,
+    objectiveSource: 'user',
+    objectiveUpdatedAt: now,
     status: 'active',
     tokenBudget,
     maxContinuations,
@@ -62,6 +72,47 @@ export function createGoal(objective: string, tokenBudget?: number, maxContinuat
   }
   setGoal(goal)
   return goal
+}
+
+/** Applies an explicit user correction while preserving the goal's accumulated budget and progress. */
+export function reviseGoal(objective: string): Goal {
+  const next = objective.trim()
+  if (!next) throw new Error('The revised objective cannot be empty.')
+  if (!currentGoal) throw new Error('No active goal.')
+  const now = new Date().toISOString()
+  currentGoal = {
+    ...currentGoal,
+    objective: next,
+    objectiveRevision: (currentGoal.objectiveRevision ?? 0) + 1,
+    objectiveSource: 'user',
+    objectiveUpdatedAt: now,
+    acceptanceCriteria: undefined,
+    lastAcceptanceReview: undefined,
+    consecutiveBlockCount: 0,
+    idleTurns: 0,
+    blockReason: undefined,
+    status: 'active',
+    startedAt: now,
+    updatedAt: now,
+  }
+  return currentGoal
+}
+
+/** Restores the last durable goal only while the failed revision is still current. */
+export function rollbackFailedGoalRevision(revision: number, durableGoal: Goal | null): boolean {
+  if (!currentGoal || currentGoal.objectiveRevision !== revision) return false
+  currentGoal = durableGoal ? structuredClone(durableGoal) : null
+  return true
+}
+
+/** Builds the replacement prompt after a user explicitly revises the active goal. */
+export function buildObjectiveRevisionPrompt(goal: Goal): string {
+  return [
+    `[Objective revision ${goal.objectiveRevision ?? 0} from ${goal.objectiveSource ?? 'user'}]`,
+    'The user explicitly corrected the active objective. Treat the current objective below as authoritative and continue from the current workspace state. Preserve completed work only when it still serves this objective.',
+    '',
+    goal.objective,
+  ].join('\n')
 }
 
 /**
@@ -136,6 +187,7 @@ export function buildContinuationPrompt(goal: Goal, turnNumber: number): string 
     '',
     `${used}/${budget} tokens consumed. ${elapsed} elapsed.`,
     '',
+    `Use get_goal to inspect any extracted acceptance criteria and their last review. Original requests and later corrections remain authoritative.`,
     `When every part is achieved: call update_goal with status "complete" and completion_summary that explicitly says the whole goal is done and gives evidence for each part. A separate reviewer will check the claim; if it rejects completion, continue working.`,
     `If blocked (3+ consecutive same reason): call update_goal with status "blocked" + describe blocker.`,
   ].join('\n')

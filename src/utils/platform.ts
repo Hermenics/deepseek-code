@@ -284,6 +284,36 @@ export function scrubbedEnv(): NodeJS.ProcessEnv {
   return env
 }
 
+const INSTALLER_PROXY_VARIABLES = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy'] as const
+const INSTALLER_NO_PROXY_VARIABLES = ['NO_PROXY', 'no_proxy'] as const
+const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/
+const MAX_NO_PROXY_LENGTH = 2048
+
+function isUnauthenticatedHttpProxy(value: string): boolean {
+  if (!value || value !== value.trim() || CONTROL_CHARACTERS.test(value)) return false
+  try {
+    const proxy = new URL(value)
+    return (proxy.protocol === 'http:' || proxy.protocol === 'https:') && Boolean(proxy.hostname) &&
+      !proxy.username && !proxy.password && !proxy.search && !proxy.hash && proxy.pathname === '/'
+  } catch {
+    return false
+  }
+}
+
+/** Installer Git needs network proxy settings, but must not inherit credential-bearing proxy URLs or unrelated secrets. */
+export function gitInstallerEnv(): NodeJS.ProcessEnv {
+  const env = scrubbedEnv()
+  for (const key of INSTALLER_PROXY_VARIABLES) {
+    const value = process.env[key]
+    if (value !== undefined && isUnauthenticatedHttpProxy(value)) env[key] = value
+  }
+  for (const key of INSTALLER_NO_PROXY_VARIABLES) {
+    const value = process.env[key]
+    if (value !== undefined && value.length <= MAX_NO_PROXY_LENGTH && !CONTROL_CHARACTERS.test(value)) env[key] = value
+  }
+  return env
+}
+
 /**
  * True when bubblewrap OS-level sandboxing can be used. Linux only —
  * macOS `sandbox-exec` is deprecated and Windows has no equivalent.

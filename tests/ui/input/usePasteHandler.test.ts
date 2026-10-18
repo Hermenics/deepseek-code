@@ -1,8 +1,22 @@
 import { describe, it, expect, mock } from 'bun:test'
+import React from 'react'
+import { PassThrough } from 'node:stream'
+import { renderSync } from '../../../src/ink/root.js'
+import { InputBox } from '../../../src/ui/input/InputBox.js'
 
-// Contrato do hook usePasteHandler, usado pelo InputBox para decidir entre
-// paste inline (texto direto) e paste em bloco (placeholder [Text #n]).
+// Contract for the usePasteHandler hook, used by InputBox to choose between
+// inline paste (direct text) and block paste (placeholder [Text #n]).
 import { usePasteHandler } from '../../../src/ui/input/hooks/usePasteHandler.js'
+
+class FakeTerminal extends PassThrough {
+  isTTY = true
+  isRaw = false
+  columns = 100
+  rows = 24
+  setRawMode(enabled: boolean): this { this.isRaw = enabled; return this }
+  ref(): this { return this }
+  unref(): this { return this }
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -20,17 +34,17 @@ function createHandler(overrides: {
   })
 }
 
-// Limiar de bloco: > 3 linhas OU > 60 chars
+// Block threshold: > 3 lines OR > 60 characters.
 const MAX_INLINE_CHARS = 60
 
-// Texto curto: <= 3 linhas E <= 60 chars
+// Short text: <= 3 lines AND <= 60 characters.
 const SHORT_TEXT = 'hello world'
 const SHORT_MULTILINE = 'line one\nline two\nline three'  // exactly 3 lines
 
-// Texto longo por número de linhas: > 3 linhas
-const LONG_BY_LINES = 'a\nb\nc\nd'  // 4 linhas
+// Long text by line count: > 3 lines.
+const LONG_BY_LINES = 'a\nb\nc\nd'  // 4 lines.
 
-// Texto longo por tamanho: > 60 chars, 1 linha
+// Long text by size: > 60 characters, one line.
 const LONG_BY_SIZE = 'x'.repeat(MAX_INLINE_CHARS + 1)
 
 // ---------------------------------------------------------------------------
@@ -112,7 +126,7 @@ describe('usePasteHandler', () => {
       const onPasteBlock = mock(() => {})
       const handler = createHandler({ onPasteInline, onPasteBlock })
 
-      const fourShortLines = 'a\nb\nc\nd'  // 4 linhas, 7 chars
+      const fourShortLines = 'a\nb\nc\nd'  // 4 lines, 7 characters.
       handler.handlePaste(fourShortLines)
 
       expect(onPasteBlock).toHaveBeenCalledWith(fourShortLines)
@@ -131,12 +145,12 @@ describe('usePasteHandler', () => {
       let isPastingDuringCall = false
       const onPasteInline = mock((_text: string) => {})
 
-      // O hook deve expor isPasting=true enquanto handlePaste está em execução.
-      // Testamos via side-effect capturado dentro do callback.
+      // The hook should expose isPasting=true while handlePaste is running.
+      // Test this through a side effect captured inside the callback.
       const handler = usePasteHandler({
         onPasteInline: (text: string) => {
-          // Não temos acesso direto ao estado interno aqui,
-          // mas o hook deve ter setado isPasting=true antes de chamar o callback.
+          // The internal state is not directly accessible here, but the hook
+          // should set isPasting=true before invoking the callback.
           isPastingDuringCall = true
           onPasteInline(text)
         },
@@ -145,9 +159,9 @@ describe('usePasteHandler', () => {
 
       handler.handlePaste(SHORT_TEXT)
 
-      // Após o paste, isPasting deve voltar a false
+      // After pasting, isPasting should return to false.
       expect(handler.isPasting).toBe(false)
-      // E o callback foi chamado (confirmando que o paste ocorreu)
+      // The callback was called, confirming that the paste occurred.
       expect(isPastingDuringCall).toBe(true)
     })
   })
@@ -171,7 +185,7 @@ describe('usePasteHandler', () => {
       const onPasteBlock = mock(() => {})
       const handler = createHandler({ onPasteInline, onPasteBlock })
 
-      // 2 linhas com CRLF → deve ser inline
+      // Two lines with CRLF should be inline.
       const crlfText = 'line one\r\nline two'
       handler.handlePaste(crlfText)
 
@@ -184,11 +198,50 @@ describe('usePasteHandler', () => {
       const onPasteBlock = mock(() => {})
       const handler = createHandler({ onPasteInline, onPasteBlock })
 
-      const crlfLong = 'a\r\nb\r\nc\r\nd'  // 4 linhas com CRLF
+      const crlfLong = 'a\r\nb\r\nc\r\nd'  // 4 lines with CRLF.
       handler.handlePaste(crlfLong)
 
       expect(onPasteBlock).toHaveBeenCalled()
       expect(onPasteInline).not.toHaveBeenCalled()
     })
+  })
+})
+
+describe('InputBox bracketed paste round-trip', () => {
+  it('expands a long-paste placeholder back to the exact source text on submit', async () => {
+    const stdin = new FakeTerminal()
+    const stdout = new FakeTerminal()
+    const submitted: string[] = []
+
+    const instance = renderSync(
+      React.createElement(InputBox, {
+        onSubmit: text => { submitted.push(text) },
+        isLoading: false,
+        toolCallCount: 0,
+        workingDirectory: process.cwd(),
+      }),
+      {
+        stdin: stdin as unknown as NodeJS.ReadStream,
+        stdout: stdout as unknown as NodeJS.WriteStream,
+        stderr: stdout as unknown as NodeJS.WriteStream,
+        exitOnCtrlC: false,
+        patchConsole: false,
+      },
+    )
+
+    const source = 'const café = "🧪";  \n\n  preserve indentation\n\tand trailing spaces  '
+    try {
+      await Bun.sleep(50)
+      stdin.write(`\x1b[200~${source}\x1b[201~`)
+      await Bun.sleep(100)
+
+      stdin.write('\r')
+      await Bun.sleep(100)
+      expect(submitted).toEqual([source])
+    } finally {
+      stdout.isTTY = false
+      instance.unmount()
+      instance.cleanup()
+    }
   })
 })

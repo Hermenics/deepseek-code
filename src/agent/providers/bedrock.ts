@@ -12,14 +12,14 @@ function resolveCredentials(profile: string) {
 }
 
 /** Lists Bedrock foundation model ids containing "deepseek", sorted; logs to stderr and returns [] on failure. */
-export async function listBedrockDeepSeekModels(region: string, profile: string): Promise<string[]> {
+export async function listBedrockDeepSeekModels(region: string, profile: string, signal?: AbortSignal): Promise<string[]> {
   const client = new BedrockClient({
     region,
     credentials: resolveCredentials(profile),
   })
 
   try {
-    const response = await client.send(new ListFoundationModelsCommand({}))
+    const response = await client.send(new ListFoundationModelsCommand({}), { abortSignal: signal })
     const models = response.modelSummaries ?? []
     return models
       .filter((m) => m.modelId?.toLowerCase().includes('deepseek'))
@@ -27,6 +27,7 @@ export async function listBedrockDeepSeekModels(region: string, profile: string)
       .filter(Boolean)
       .sort()
   } catch (err) {
+    if (signal?.aborted) throw err
     process.stderr.write(`[bedrock] listBedrockDeepSeekModels error: ${(err as Error).message ?? err}\n`)
     return []
   }

@@ -29,6 +29,9 @@ if (!result.success) {
 
 chmodSync('dist/cli.mjs', 0o755)
 
+const shellSupervisor = await Bun.build({ entrypoints: ['src/tools/Shell/supervisorEntrypoint.ts'], outdir: 'dist', naming: 'shell-supervisor.mjs', target: 'bun', minify: true })
+if (!shellSupervisor.success) { for (const log of shellSupervisor.logs) console.error(log); process.exit(1) }
+
 const egress = await Bun.build({ entrypoints: ['src/browser/egressWorker.ts'], outdir: 'dist', naming: 'browser-egress-worker.mjs', target: 'node', minify: true })
 if (!egress.success) { for (const log of egress.logs) console.error(log); process.exit(1) }
 
@@ -37,4 +40,4 @@ chmodSync('dist/deepseek.mjs', 0o755)
 writeFileSync('dist/runtime.mjs', BUN_RUNNER_SOURCE)
 writeFileSync('dist/runtime.bunfig.toml', '# Empty Bun config and env file for the published CLI.\n')
 
-console.log('Build concluído com sucesso!')
+console.log('Build completed successfully!')

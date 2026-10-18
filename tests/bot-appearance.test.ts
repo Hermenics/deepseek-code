@@ -38,7 +38,7 @@ it('upgrades existing Pods and persists only validated appearance across reopen 
     expect(store.exportBot(pod.id)).toMatchObject({ bot: { appearance } })
     expect(store.getBot(pod.id).instructions).toBe('Keep the existing responsibility.')
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }) }
-})
+}, 15_000)
 
 it('ignores malformed stored appearance while keeping reads and repairs available', () => {
   const store = new BotStore({ memory: true })

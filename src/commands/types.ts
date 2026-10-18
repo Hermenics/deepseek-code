@@ -35,6 +35,8 @@ export type CommandResult =
   | { type: 'add-dir'; action: 'list' | 'add' | 'remove'; path?: string }
   | { type: 'permissions' }
   | { type: 'btw'; question: string }
+  | { type: 'steer'; instruction: string }
+  | { type: 'revise'; objective: string }
   | { type: 'vim' }
   | { type: 'stats' }
   | { type: 'memory'; action: 'show' }
@@ -62,6 +64,7 @@ export type CommandResult =
   | { type: 'custom'; name: string; prompt: string }
   | { type: 'task'; id: string; action: 'status' | 'cancel' | 'resume' | 'result' | 'integrate' | 'cleanup' }
   | { type: 'task'; id: string; action: 'message'; message: string }
+  | { type: 'task'; id: string; action: 'reconcile'; resolution: 'no-effect' | 'effect-observed' | 'compensated'; evidence: string }
   | { type: 'worktree'; action: 'create' }
   | { type: 'worktree'; action: 'enter'; name: string }
   | { type: 'worktree'; action: 'exit'; keep: boolean }

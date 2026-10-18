@@ -1,6 +1,14 @@
 import { expect, it } from 'bun:test'
 import { readdirSync, readFileSync } from 'node:fs'
+import { findExecutableTestCallbacks, structuralTestBodyText } from './testEvidence.js'
 import { UserCache, type User } from '../src/userCache'
+
+function testCallbacks() {
+  const sources = readdirSync('.', { recursive: true }).map(String)
+    .filter((file) => /\.(test|spec)\.[jt]sx?$/.test(file) && !file.includes('__eval_check__') && !file.includes('node_modules'))
+    .map((fileName) => ({ fileName, text: readFileSync(fileName, 'utf8') }))
+  return findExecutableTestCallbacks(sources)
+}
 
 function controlledFetcher() {
   const calls: string[] = []
@@ -65,10 +73,11 @@ it('rejects every waiting caller on failure and retries on the next call', async
 })
 
 it('adds tests for concurrent calls', () => {
-  const tests = readdirSync('.', { recursive: true })
-    .map(String)
-    .filter((file) => /\.(test|spec)\.[jt]sx?$/.test(file) && !file.includes('__eval_check__') && !file.includes('node_modules'))
-    .map((file) => readFileSync(file, 'utf8'))
-    .join('\n')
-  expect(tests).toMatch(/Promise\.all|concurren/i)
+  expect(testCallbacks().some((callback) => {
+    const body = structuralTestBodyText(callback)
+    return /Promise\.all\s*\(/.test(body)
+      && /cache\.get\s*\(/.test(body)
+      && /calls/.test(body)
+      && /\btoBe\s*\(\s*1\s*\)/.test(body)
+  })).toBe(true)
 })

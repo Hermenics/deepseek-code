@@ -412,7 +412,8 @@ export function InputBox({
 
     if (showDropdown && (action === 'acceptCompletion' || (key.return && !key.ctrl && !key.shift))) {
       const chosen = matches[selectedIdx]!
-      onSubmit(chosen)
+      if (isLoading) submitOrQueueWhileLoading(chosen)
+      else onSubmit(chosen)
       updateCursor(Cursor.fromText('', cursorCols))
       setPastedTexts([])
       setPastedImages([])

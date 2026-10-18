@@ -73,8 +73,8 @@ export async function checkForUpdate(): Promise<{ current: string; latest: strin
   }
 }
 
-// O arquivo guarda a DEADLINE (now + delay), não o timestamp do último check:
-// falhas ganham janela curta de retry em vez de silenciar o aviso por 1h.
+// The file stores the DEADLINE (now + delay), not the timestamp of the last check:
+// failures get a short retry window instead of silencing the notice for an hour.
 function saveCooldown(delayMs: number): void {
   try {
     mkdirSync(DEEPSEEK_DIR, { recursive: true })

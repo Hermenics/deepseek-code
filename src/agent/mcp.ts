@@ -2,7 +2,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { readFile, realpath } from 'node:fs/promises'
-import { isAbsolute, join, relative, resolve, sep } from 'path'
+import { realpathSync } from 'node:fs'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
 import type { Tool } from '../tools/types.js'
@@ -12,6 +13,7 @@ import { canonicalPath, hashTrustedContent, hashTrustedFile, WorkspaceTrustStore
 import pkg from '../../package.json' with { type: 'json' }
 import { loadInstalledPlugins } from '../plugins/loader.js'
 import { resolvePluginVariables } from '../plugins/variables.js'
+import { sandboxAvailable } from '../utils/platform.js'
 
 // Environment variables that cannot be overwritten by MCP servers
 const CRITICAL_ENV_VARS = new Set([
@@ -64,7 +66,16 @@ export function formatMcpToolResult(
 ): string {
   const blocks = Array.isArray(result.content) ? result.content : []
   const text = blocks.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('\n')
-  if (result.isError) throw new Error(text || 'MCP tool returned an error')
+  if (result.isError) {
+    const partial = {
+      ...(text ? { text } : {}),
+      ...(result.structuredContent === undefined ? {} : { structuredContent: result.structuredContent }),
+    }
+    throw Object.assign(new Error(text || 'MCP tool returned an error'), {
+      code: 'MCP_TOOL_ERROR',
+      ...(Object.keys(partial).length ? { partial } : {}),
+    })
+  }
   const images = blocks.filter(block => block?.type === 'image' && typeof block.data === 'string' && MCP_IMAGE_TYPES.has(block.mimeType))
   for (const block of images) attachImage?.({ mediaType: block.mimeType, data: block.data }, `image returned by ${toolName}`)
   const imageNote = images.length === 0 ? ''
@@ -148,10 +159,7 @@ export function createMcpProcessEnvironment(
   }
 }
 
-/**
- * Valida o campo `command` de um servidor MCP stdio.
- * Lança erro se o comando for vazio, contiver path traversal ou injeção de shell.
- */
+/** Validates the command field of an MCP stdio server. */
 export function validateMcpCommand(command: string): void {
   if (command.trim() === '') {
     throw new Error('MCP command cannot be empty')
@@ -162,6 +170,34 @@ export function validateMcpCommand(command: string): void {
   if (SHELL_INJECTION_RE.test(command)) {
     throw new Error(`MCP command contains shell injection characters: ${command}`)
   }
+}
+
+// shortcut: stdio MCP is read-only and network-isolated, upgrade when per-server capabilities can be enforced.
+/** Builds a read-only, network-isolated Bubblewrap launch for a local MCP server. */
+function buildMcpSandboxArgs(command: string, args: string[], cwd: string): string[] {
+  const root = resolve(cwd)
+  const runtimeExecutable = realpathSync(process.execPath)
+  const runtimeDirectory = dirname(runtimeExecutable)
+  let sandboxCommand = command
+  if (isAbsolute(command)) {
+    try {
+      const executable = realpathSync(command)
+      if (dirname(executable) === runtimeDirectory) sandboxCommand = `/opt/mcp-runtime/${basename(executable)}`
+    } catch { /* Let bubblewrap report missing commands through the normal MCP load error. */ }
+  }
+  return [
+    '--die-with-parent', '--new-session',
+    '--ro-bind', '/usr', '/usr',
+    '--ro-bind-try', '/bin', '/bin', '--ro-bind-try', '/lib', '/lib', '--ro-bind-try', '/lib64', '/lib64',
+    '--ro-bind', root, '/mnt',
+    '--ro-bind', runtimeDirectory, '/opt/mcp-runtime',
+    '--tmpfs', '/tmp',
+    ...(root === '/mnt' ? [] : ['--ro-bind', root, root]),
+    '--dev', '/dev', '--proc', '/proc', '--unshare-net', '--unshare-pid', '--unshare-ipc', '--unshare-uts',
+    '--setenv', 'PATH', '/opt/mcp-runtime:/usr/local/bin:/usr/bin:/bin',
+    '--setenv', 'HOME', '/tmp', '--setenv', 'TMPDIR', '/tmp', '--chdir', '/mnt',
+    '--', sandboxCommand, ...args,
+  ]
 }
 
 /**
@@ -343,6 +379,9 @@ export async function loadMcpTools(cwd = process.cwd(), options: McpLoadOptions 
       // Validate command before creating transport (stdio only)
       if (serverConfig.transport === 'stdio') {
         validateMcpCommand(serverConfig.command)
+        if (!sandboxAvailable()) {
+          throw new Error('MCP stdio servers require a working Linux bubblewrap sandbox')
+        }
       }
 
       const connectedClient = new Client({ name: 'deepseek-code', version: pkg.version })
@@ -350,8 +389,8 @@ export async function loadMcpTools(cwd = process.cwd(), options: McpLoadOptions 
 
       transport = serverConfig.transport === 'stdio'
         ? new StdioClientTransport({
-            command: serverConfig.command,
-            args: serverConfig.args ?? [],
+            command: 'bwrap',
+            args: buildMcpSandboxArgs(serverConfig.command, serverConfig.args ?? [], source.cwd),
             cwd: source.cwd,
             env: createMcpProcessEnvironment(options.environment, serverConfig.env ?? {}),
           })

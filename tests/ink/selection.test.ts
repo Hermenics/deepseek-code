@@ -76,6 +76,19 @@ describe('fullscreen text selection', () => {
     expect(selection.scrolledOffBelow).toEqual(['ero '])
   })
 
+  it('reconstructs source lines by joining soft wraps and retaining hard newlines', () => {
+    const selection = createSelectionState()
+    const screen = makeScreen(['hello', 'world', 'hard ', 'wrap ', 'up'])
+    // Positive entries mark continuation rows and carry the previous row's written end.
+    screen.softWrap[1] = 5
+    screen.softWrap[3] = 5
+    screen.softWrap[4] = 5
+    startSelection(selection, 0, 0)
+    updateSelection(selection, 1, 4)
+
+    expect(getSelectedText(selection, screen)).toBe('helloworld\nhard wrap up')
+  })
+
   it('clears a selection when both endpoints leave either viewport edge', () => {
     const selection = createSelectionState()
     startSelection(selection, 0, 0)

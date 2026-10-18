@@ -9,8 +9,8 @@ import { createInputHistory } from '../../../src/ui/input/hooks/useInputHistory.
 // ---------------------------------------------------------------------------
 
 /**
- * Cria uma instância do hook com histórico pré-carregado.
- * O hook deve aceitar um array inicial de entradas.
+ * Create a hook instance with preloaded history.
+ * The hook should accept an initial array of entries.
  */
 function createHistory(entries: string[] = []) {
   return createInputHistory(entries)

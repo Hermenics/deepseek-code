@@ -3,10 +3,10 @@ import React from 'react'
 import { SubagentLine } from '../../../src/ui/subagent/SubagentLine.js'
 import type { SubagentState } from '../../../src/ui/subagent/types.js'
 
-// SubagentLine usa hooks (useClock, useState). Não pode ser chamado como função
-// pura fora do React — chamar diretamente lança "invalid hook call".
-// Testamos o contrato via React.createElement: inspecionamos as props passadas
-// à árvore do elemento sem executar o corpo do componente (sem invocar hooks).
+// SubagentLine uses hooks (useClock, useState). It cannot be called as a pure
+// function outside React; calling it directly throws "invalid hook call".
+// Test the contract with React.createElement by inspecting the element tree's
+// props without executing the component body or invoking its hooks.
 
 function makeAgent(overrides: Partial<SubagentState> = {}): SubagentState {
   return {

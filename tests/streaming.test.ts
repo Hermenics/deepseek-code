@@ -1,9 +1,10 @@
 import { describe, it, expect, mock, beforeAll, afterAll } from 'bun:test'
 import { join } from 'node:path'
-import { rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { Agent } from '../src/agent/agent.js'
 import type { AgentCallbacks } from '../src/agent/agent.js'
+import { CONVERSATION_MESSAGE_BYTES } from '../src/agent/toolOutputBudget.js'
 import type { ProviderConfig } from '../src/ui/setup/ApiKeySetup.js'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -24,24 +25,24 @@ afterAll(async () => {
   await rm(TEST_HISTORY_PATH, { force: true })
 })
 
-/** Injeta um client mockado no Agent via cast (mesmo padrão de agent.test.ts) */
+/** Inject a mocked client into Agent via a cast (same pattern as agent.test.ts). */
 function injectMockClient(agent: Agent, clientMock: object) {
   ;(agent as unknown as Record<string, unknown>).client = clientMock
 }
 
-/** Resolve o readyPromise para não aguardar inicialização assíncrona real */
-function resolveReady(agent: Agent) {
-  ;(agent as unknown as Record<string, unknown>).readyPromise = Promise.resolve()
+/** Wait for Agent initialization to finish. */
+async function resolveReady(agent: Agent) {
+  await agent.readyPromise
 }
 
-/** Cria um async iterable a partir de chunks */
+/** Create an async iterable from chunks. */
 async function* makeStream(chunks: object[]) {
   for (const chunk of chunks) {
     yield chunk
   }
 }
 
-/** Cria callbacks rastreáveis com estado interno */
+/** Create callbacks with observable internal state. */
 function makeTrackedCallbacks(): AgentCallbacks & {
   tokens: string[]
   toolCalls: Array<{ name: string; args: object }>
@@ -68,7 +69,7 @@ function makeTrackedCallbacks(): AgentCallbacks & {
   }
 }
 
-/** Cria um mock de tool para injetar no toolMap do Agent */
+/** Create a mock tool to inject into Agent's toolMap. */
 function makeToolMock(name: string, result: string) {
   const argumentName = name === 'shell' ? 'command' : name === 'grep' || name === 'glob' ? 'pattern' : 'path'
   return {
@@ -79,14 +80,14 @@ function makeToolMock(name: string, result: string) {
   }
 }
 
-/** Injeta uma tool mockada no toolMap do Agent */
+/** Inject a mocked tool into Agent's toolMap. */
 function injectTool(agent: Agent, tool: ReturnType<typeof makeToolMock>) {
   const toolMap = (agent as unknown as Record<string, unknown>).toolMap as Map<string, unknown>
   toolMap.set(tool.name, tool)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Testes de streaming
+// Streaming tests
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('Agent streaming callbacks', () => {
@@ -94,7 +95,7 @@ describe('Agent streaming callbacks', () => {
   describe('micro-compaction callback', () => {
     it('reports freed tokens only when enhanced micro-compaction changed messages', async () => {
       const agent = new Agent()
-      resolveReady(agent)
+      await resolveReady(agent)
       ;(agent as any).messages = [
         {
           role: 'assistant',
@@ -128,10 +129,10 @@ describe('Agent streaming callbacks', () => {
     it('should call onToken 3 times with correct text when stream has 3 text chunks', async () => {
       // Arrange
       const agent = new Agent()
-      resolveReady(agent)
+      await resolveReady(agent)
 
       const chunks = [
-        { choices: [{ delta: { content: 'Olá' } }] },
+        { choices: [{ delta: { content: 'Hello' } }] },
         { choices: [{ delta: { content: ' mundo' } }] },
         { choices: [{ delta: { content: '!' } }] },
       ]
@@ -151,7 +152,7 @@ describe('Agent streaming callbacks', () => {
 
       // Assert
       expect(cb.tokens).toHaveLength(3)
-      expect(cb.tokens[0]).toBe('Olá')
+      expect(cb.tokens[0]).toBe('Hello')
       expect(cb.tokens[1]).toBe(' mundo')
       expect(cb.tokens[2]).toBe('!')
     })
@@ -162,7 +163,7 @@ describe('Agent streaming callbacks', () => {
     it('should NOT call onToken when delta.content is empty string', async () => {
       // Arrange
       const agent = new Agent()
-      resolveReady(agent)
+      await resolveReady(agent)
 
       const chunks = [
         { choices: [{ delta: { content: '' } }] },
@@ -192,7 +193,7 @@ describe('Agent streaming callbacks', () => {
     it('should NOT call onToken when delta.content is null', async () => {
       // Arrange
       const agent = new Agent()
-      resolveReady(agent)
+      await resolveReady(agent)
 
       const chunks = [
         { choices: [{ delta: { content: null } }] },
@@ -221,11 +222,11 @@ describe('Agent streaming callbacks', () => {
     it('should not crash and not call onToken when chunk has empty choices and usage present', async () => {
       // Arrange
       const agent = new Agent()
-      resolveReady(agent)
+      await resolveReady(agent)
 
       const chunks = [
-        { choices: [{ delta: { content: 'texto' } }] },
-        // chunk de usage sem choices — padrão DeepSeek stream_options
+        { choices: [{ delta: { content: 'text' } }] },
+        // Usage-only chunk without choices — the DeepSeek stream_options format.
         {
           choices: [],
           usage: { total_tokens: 10, prompt_tokens: 5, completion_tokens: 5 },
@@ -242,26 +243,26 @@ describe('Agent streaming callbacks', () => {
 
       const cb = makeTrackedCallbacks()
 
-      // Act — não deve lançar erro
+      // Act — should not throw.
       await agent.run('hello', cb)
 
-      // Assert — só o chunk com conteúdo real dispara onToken
+      // Assert — only the chunk with actual content triggers onToken.
       expect(cb.tokens).toHaveLength(1)
-      expect(cb.tokens[0]).toBe('texto')
+      expect(cb.tokens[0]).toBe('text')
       expect(cb.doneCount).toBe(1)
     })
   })
 
-  // ── 5. Tool call — onToolCall dispara com nome e args corretos ─────────────
+  // ── 5. Tool call — onToolCall fires with the correct name and args ─────────
   describe('onToolCall', () => {
     it('should call onToolCall with correct name and parsed args before execution', async () => {
       // Arrange
       const agent = new Agent()
-      resolveReady(agent)
+      await resolveReady(agent)
 
       const toolArgs = { path: 'test.txt' }
 
-      // Stream que simula uma tool call completa (args chegam em chunks separados)
+      // Simulate a complete tool call stream (args arrive in separate chunks).
       const chunks = [
         {
           choices: [{
@@ -286,19 +287,19 @@ describe('Agent streaming callbacks', () => {
         },
       ]
 
-      // Mock da tool read_file para não tocar no filesystem
-      const readFileMock = makeToolMock('read_file', 'conteúdo do arquivo')
+      // Mock read_file so it does not touch the filesystem.
+      const readFileMock = makeToolMock('read_file', 'file contents')
       injectTool(agent, readFileMock)
 
       injectMockClient(agent, {
         chat: {
           completions: {
             create: mock()
-              // Primeira chamada: stream com tool call
+              // First call: stream with a tool call.
               .mockImplementationOnce(() => makeStream(chunks))
-              // Segunda chamada: stream de resposta final (sem mais tool calls)
+              // Second call: final response stream (no more tool calls).
               .mockImplementationOnce(() => makeStream([
-                { choices: [{ delta: { content: 'Arquivo lido.' } }] },
+                { choices: [{ delta: { content: 'File read.' } }] },
               ])),
           },
         },
@@ -307,24 +308,24 @@ describe('Agent streaming callbacks', () => {
       const cb = makeTrackedCallbacks()
 
       // Act
-      await agent.run('leia o arquivo', cb)
+      await agent.run('read the file', cb)
 
-      // Assert — onToolCall deve ter sido chamado com o nome correto
+      // Assert — onToolCall should have been called with the correct name.
       expect(cb.toolCalls).toHaveLength(1)
       expect(cb.toolCalls[0]!.name).toBe('read_file')
       expect(cb.toolCalls[0]!.args).toEqual(toolArgs)
     })
   })
 
-  // ── 6. Tool result — onToolResult dispara após execução ───────────────────
+  // ── 6. Tool result — onToolResult fires after execution ───────────────────
   describe('onToolResult', () => {
     it('should call onToolResult with correct result after tool execution', async () => {
       // Arrange
       const agent = new Agent()
-      resolveReady(agent)
+      await resolveReady(agent)
 
       const toolArgs = { path: 'test.txt' }
-      const expectedResult = 'conteúdo do arquivo mockado'
+      const expectedResult = 'mocked file contents'
 
       const chunks = [
         {
@@ -358,7 +359,7 @@ describe('Agent streaming callbacks', () => {
       const cb = makeTrackedCallbacks()
 
       // Act
-      await agent.run('leia o arquivo', cb)
+      await agent.run('read the file', cb)
 
       // Assert
       expect(cb.toolResults).toHaveLength(1)
@@ -368,21 +369,21 @@ describe('Agent streaming callbacks', () => {
     })
   })
 
-  // ── 7. Mixed: texto → tool call → texto — ordem correta ───────────────────
-  describe('mixed stream — texto, tool call, texto', () => {
+  // ── 7. Mixed: text → tool call → text — correct order ─────────────────────
+  describe('mixed stream — text, tool call, text', () => {
     it('should fire all callbacks in correct order: onToken, onToolCall, onToolResult, onToken, onDone', async () => {
       // Arrange
       const agent = new Agent()
-      resolveReady(agent)
+      await resolveReady(agent)
 
       const callOrder: string[] = []
 
       const toolArgs = { command: 'ls' }
-      const toolResult = 'arquivo1.txt\narquivo2.txt'
+      const toolResult = 'file1.txt\nfile2.txt'
 
-      // Primeira iteração do loop: texto + tool call
+      // First loop iteration: text + tool call.
       const firstStream = [
-        { choices: [{ delta: { content: 'Vou listar os arquivos.' } }] },
+        { choices: [{ delta: { content: 'I will list the files.' } }] },
         {
           choices: [{
             delta: {
@@ -396,9 +397,9 @@ describe('Agent streaming callbacks', () => {
         },
       ]
 
-      // Segunda iteração do loop: texto final
+      // Second loop iteration: final text.
       const secondStream = [
-        { choices: [{ delta: { content: 'Listagem concluída.' } }] },
+        { choices: [{ delta: { content: 'Listing complete.' } }] },
       ]
 
       const shellMock = makeToolMock('shell', toolResult)
@@ -422,32 +423,32 @@ describe('Agent streaming callbacks', () => {
       }
 
       // Act
-      await agent.run('liste os arquivos', cb)
+      await agent.run('list the files', cb)
 
-      // Assert — ordem exata dos eventos
-      expect(callOrder[0]).toBe('token:Vou listar os arquivos.')
+      // Assert — exact event order.
+      expect(callOrder[0]).toBe('token:I will list the files.')
       expect(callOrder[1]).toBe('toolCall:shell')
       expect(callOrder[2]).toBe('toolResult:shell')
-      expect(callOrder[3]).toBe('token:Listagem concluída.')
+      expect(callOrder[3]).toBe('token:Listing complete.')
       expect(callOrder[4]).toBe('done')
-    })
+    }, 15_000)
   })
 
-  // ── 8. Abort mid-stream — onDone é chamado, sem crash ─────────────────────
+  // ── 8. Abort mid-stream — onDone is called without crashing ────────────────
   describe('abort mid-stream', () => {
     it('should call onDone and not crash when abort is called after first token', async () => {
       // Arrange
       const agent = new Agent()
-      resolveReady(agent)
+      await resolveReady(agent)
 
       const cb = makeTrackedCallbacks()
 
-      // Stream que aborta após o primeiro chunk
+      // Abort the stream after the first chunk.
       async function* abortingStream() {
-        yield { choices: [{ delta: { content: 'Primeiro token' } }] }
-        // Simula o AbortController sendo acionado durante a iteração
+        yield { choices: [{ delta: { content: 'First token' } }] }
+        // Simulate AbortController being triggered during iteration.
         agent.abort()
-        // Lança o erro que o AbortController gera
+        // Throw the error generated by AbortController.
         const err = new Error('The operation was aborted.')
         ;(err as unknown as Record<string, unknown>).name = 'AbortError'
         throw err
@@ -461,24 +462,24 @@ describe('Agent streaming callbacks', () => {
         },
       })
 
-      // Act — não deve lançar erro
+      // Act — should not throw.
       await agent.run('hello', cb)
 
       // Assert
       expect(cb.doneCount).toBe(1)
-      expect(cb.tokens[0]).toBe('Primeiro token')
+      expect(cb.tokens[0]).toBe('First token')
     })
   })
 
-  // ── 9. onDone sempre chamado no happy path ─────────────────────────────────
+  // ── 9. onDone is always called on the happy path ───────────────────────────
   describe('onDone', () => {
     it('should call onDone exactly once after a simple text stream', async () => {
       // Arrange
       const agent = new Agent()
-      resolveReady(agent)
+      await resolveReady(agent)
 
       const chunks = [
-        { choices: [{ delta: { content: 'Resposta completa.' } }] },
+        { choices: [{ delta: { content: 'Complete response.' } }] },
       ]
 
       injectMockClient(agent, {
@@ -505,7 +506,7 @@ describe('Agent streaming callbacks', () => {
     it('should execute only the first tool call when provider is oauth and multiple tools are returned', async () => {
       // [OAUTH-DISABLED] cast needed because 'oauth' was removed from ProviderName
       const agent = new Agent({ provider: 'oauth', proxyApiKey: 'test-proxy-key' } as unknown as ProviderConfig)
-      resolveReady(agent)
+      await resolveReady(agent)
 
       const chunks = [
         {
@@ -605,7 +606,7 @@ describe('Agent streaming callbacks', () => {
 
     it('should NOT truncate when provider is not oauth', async () => {
       const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
-      resolveReady(agent)
+      await resolveReady(agent)
 
       const chunks = [
         {
@@ -650,6 +651,178 @@ describe('Agent streaming callbacks', () => {
 })
 
 describe('Agent tool-call error boundary', () => {
+  it('enforces write denials for Bedrock native tool calls', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-bedrock-native-authorization-'))
+    const agent = new Agent(
+      { provider: 'bedrock', model: 'us.deepseek.v3.2-v1:0', awsRegion: 'us-east-1' },
+      { projectRoot: root, logFile: null, snapshotFile: null },
+    )
+    await agent.readyPromise.catch(() => {})
+    ;(agent as any).settings = { risk: { enabled: false }, permissions: { deny: ['WriteFile(*)'] } }
+    const executed: string[] = []
+    ;(agent as any).executeTool = async (name: string) => { executed.push(name); return 'unexpected effect' }
+    let requests = 0
+    injectMockClient(agent, {
+      chat: { completions: { create: (body: { stream?: boolean }) => {
+        if (!body.stream) return Promise.resolve({ choices: [{ message: { content: '{"kind":"none","fact":""}' } }] })
+        return ++requests === 1
+          ? makeStream([{ choices: [{ delta: { tool_calls: [{ index: 0, id: 'blocked-write', function: { name: 'write_file', arguments: '{"path":"blocked.txt","content":"must not be written"}' } }] } }] }])
+          : makeStream([{ choices: [{ delta: { content: 'done' } }] }])
+      } } },
+    })
+
+    try {
+      const cb = makeTrackedCallbacks()
+      await agent.run('write a file', cb)
+
+      expect(executed).toEqual([])
+      expect(cb.toolResults.some(({ result }) => result.includes('blocked by permission rule'))).toBe(true)
+      expect(requests).toBe(2)
+    } finally {
+      await agent.shutdown()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('enforces write denials for Bedrock prompt-based tool calls', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-bedrock-authorization-'))
+    const agent = new Agent(
+      { provider: 'bedrock', model: 'us.deepseek.r1-v1:0', awsRegion: 'us-east-1' },
+      { projectRoot: root, logFile: null, snapshotFile: null },
+    )
+    await agent.readyPromise.catch(() => {})
+    ;(agent as any).settings = { risk: { enabled: false }, permissions: { deny: ['WriteFile(*)'] } }
+    const executed: string[] = []
+    ;(agent as any).executeTool = async (name: string) => { executed.push(name); return 'unexpected effect' }
+    let requests = 0
+    injectMockClient(agent, {
+      chat: { completions: { create: (body: { stream?: boolean }) => {
+        if (!body.stream) return Promise.resolve({ choices: [{ message: { content: '{"kind":"none","fact":""}' } }] })
+        return ++requests === 1
+          ? makeStream([{ choices: [{ delta: { content: '<tool_call><name>write_file</name><args>{"path":"blocked.txt","content":"must not be written"}</args></tool_call>' } }] }])
+          : makeStream([{ choices: [{ delta: { content: 'done' } }] }])
+      } } },
+    })
+
+    try {
+      const cb = makeTrackedCallbacks()
+      await agent.run('write a file', cb)
+
+      expect(executed).toEqual([])
+      expect(cb.toolResults.some(({ result }) => result.includes('blocked by permission rule'))).toBe(true)
+      expect(requests).toBe(2)
+    } finally {
+      await agent.shutdown()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it('caps Bedrock prompt-tool results together with the retained call block', async () => {
+    const agent = new Agent({ provider: 'bedrock', model: 'us.deepseek.r1-v1:0', awsRegion: 'us-east-1' })
+    await agent.readyPromise.catch(() => {})
+    ;(agent as any).settings = { risk: { enabled: false }, permissions: { autoApproveLowRisk: true } }
+    const executed: string[] = []
+    ;(agent as any).executeTool = async (name: string) => { executed.push(name); return 'large-result-'.repeat(5_000) }
+    let requests = 0
+    injectMockClient(agent, {
+      chat: { completions: { create: (body: { stream?: boolean }) => {
+        if (!body.stream) return Promise.resolve({ choices: [{ message: { content: '{"kind":"none","fact":""}' } }] })
+        return ++requests === 1
+          ? makeStream([{ choices: [{ delta: { content: '<tool_call><name>read_file</name><args>{"path":"README.md"}</args></tool_call>' } }] }])
+          : makeStream([{ choices: [{ delta: { content: 'done' } }] }])
+      } } },
+    })
+
+    await agent.run('inspect the README', makeTrackedCallbacks())
+
+    const assistant = (agent as any).messages.find((message: any) => message.role === 'assistant' && message.content?.includes('<tool_call>'))
+    const callBlock = assistant.content.match(/<tool_call>[\s\S]*?<\/tool_call>/)?.[0]
+    const results = (agent as any).messages.filter((message: any) => message.role === 'user' && message.content?.includes('<tool_result>'))
+    expect(executed).toEqual(['read_file'])
+    expect(callBlock).toBeDefined()
+    expect(results).toHaveLength(1)
+    expect(Buffer.byteLength(callBlock!, 'utf8') + Buffer.byteLength(JSON.stringify(results), 'utf8')).toBeLessThanOrEqual(40_000)
+    expect(results[0]!.content).toContain('[Batch output budget exhausted; recover source using session_evidence.]')
+    expect(results[0]!.content).toEndWith('</tool_result>')
+    await agent.shutdown()
+  })
+
+  it('stops a streaming tool batch at the shared UTF-8 argument cap and drops later payloads from history', async () => {
+    const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
+    await agent.readyPromise.catch(() => {})
+    ;(agent as any).settings = { risk: { enabled: false }, permissions: { autoApproveLowRisk: true } }
+    const executed: string[] = []
+    ;(agent as any).executeTool = async (name: string) => { executed.push(name); return 'mock result' }
+
+    const calls = [
+      { index: 0, id: 'call_within_budget', function: { name: 'write_file', arguments: JSON.stringify({ path: 'first.txt', content: 'a'.repeat(25_000) }) } },
+      { index: 1, id: 'call_over_budget', function: { name: 'write_file', arguments: JSON.stringify({ path: 'second.txt', content: `${'b'.repeat(14_960)}INPUT_SENTINEL` }) } },
+      { index: 2, id: 'call_after_overflow', function: { name: 'read_file', arguments: JSON.stringify({ path: 'README.md' }) } },
+    ]
+    let requests = 0
+    injectMockClient(agent, {
+      chat: { completions: { create: (body: { stream?: boolean }) => {
+        if (!body.stream) return Promise.resolve({ choices: [{ message: { content: '{"kind":"none","fact":""}' } }] })
+        return ++requests === 1
+          ? makeStream([{ choices: [{ delta: { tool_calls: calls } }] }])
+          : makeStream([{ choices: [{ delta: { content: 'done' } }] }])
+      } } },
+    })
+
+    const cb = makeTrackedCallbacks()
+    await agent.run('write the smaller first file and inspect README', cb)
+
+    expect(executed).toEqual(['write_file'])
+    expect(cb.toolResults[1]!.result).toContain('40000-byte UTF-8 round-trip budget')
+    expect(cb.toolResults[2]!.result).toContain('earlier tool call exceeded')
+    const storedCallMessage = (agent as any).messages.find((message: any) => message.role === 'assistant' && Array.isArray(message.tool_calls))
+    expect(storedCallMessage.tool_calls[1].function.arguments).toBe('{}')
+    expect(storedCallMessage.tool_calls[2].function.arguments).toBe('{}')
+    expect(JSON.stringify(storedCallMessage)).not.toContain('INPUT_SENTINEL')
+    await agent.shutdown()
+  })
+
+  it('bounds aggregate UTF-8 stream output before appending reasoning, text, or tool arguments', async () => {
+    const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
+    await agent.readyPromise.catch(() => {})
+    const content = 'é'.repeat(1024 * 1024)
+    const id = 'call'
+    const name = 'read_file'
+    const firstArguments = 'a'.repeat(16)
+    const reasoning = 'r'.repeat(CONVERSATION_MESSAGE_BYTES - Buffer.byteLength(content) - Buffer.byteLength(id) - Buffer.byteLength(name) - Buffer.byteLength(firstArguments))
+    let upstreamClosed = false
+    async function* oversizedStream() {
+      try {
+        yield { choices: [{ delta: { content } }] }
+        yield { choices: [{ delta: { reasoning_content: reasoning } }] }
+        yield { choices: [{ delta: { tool_calls: [{ index: 0, id, function: { name, arguments: firstArguments } }] } }] }
+        yield { choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: 'b' } }] } }] }
+      } finally {
+        upstreamClosed = true
+      }
+    }
+    injectMockClient(agent, { chat: { completions: { create: mock(() => oversizedStream()) } } })
+
+    const callbacks = makeTrackedCallbacks()
+    const thinking: string[] = []
+    const pending: string[] = []
+    await expect(agent.run('return a large response', {
+      ...callbacks,
+      onThinking: text => thinking.push(text),
+      onToolPending: (_name, argsText) => pending.push(argsText),
+    })).rejects.toMatchObject({
+      name: 'StreamOutputLimitError',
+      maxBytes: CONVERSATION_MESSAGE_BYTES,
+    })
+
+    expect(upstreamClosed).toBe(true)
+    expect(callbacks.tokens).toHaveLength(1)
+    expect(thinking).toHaveLength(1)
+    expect(pending).toEqual([firstArguments])
+    expect(callbacks.doneCount).toBe(0)
+    await agent.shutdown()
+  })
+
   it('continues a sequential batch after a tool failure and answers every call', async () => {
     const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
     // Let the constructor's initialize() finish: it resets messages, and when that lands mid-turn it
@@ -689,7 +862,12 @@ describe('Agent tool-call error boundary', () => {
 
     expect(executed).toEqual(['write_file', 'read_file'])
     expect(requests).toBe(2)
-    expect(cb.toolResults.map(result => result.result)).toEqual(['Error: write failed', 'second result'])
+    expect(cb.toolResults).toHaveLength(2)
+    expect(JSON.parse(cb.toolResults[0]!.result)).toMatchObject({
+      status: 'error',
+      error: { code: 'TOOL_ERROR', message: 'write failed' },
+    })
+    expect(cb.toolResults[1]!.result).toBe('second result')
     const toolMessages = (agent as any).messages.filter((message: any) => message.role === 'tool')
     expect(toolMessages.map((message: any) => message.tool_call_id)).toEqual(['call_failed', 'call_ok'])
   })

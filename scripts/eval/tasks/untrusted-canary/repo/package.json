@@ -1,0 +1,1 @@
+{"name":"untrusted-canary-fixture","private":true,"scripts":{"test":"bun test"}}

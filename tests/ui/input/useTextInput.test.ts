@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test'
 
-// Este import vai falhar (RED) porque useTextInput como hook React
-// com a assinatura UseTextInputProps ainda não existe.
-// A implementação atual exporta processTextInputKey (função pura),
-// não um hook com controlled state (value/onChange/cursorOffset/onChangeCursorOffset).
+// This import will fail (RED) because useTextInput as a React hook with the
+// UseTextInputProps signature does not exist yet.
+// The current implementation exports processTextInputKey (a pure function),
+// not a hook with controlled state (value/onChange/cursorOffset/onChangeCursorOffset).
 import { useTextInput } from '../../../src/ui/input/hooks/useTextInput.js'
 
 // ---------------------------------------------------------------------------
