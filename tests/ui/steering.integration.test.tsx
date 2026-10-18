@@ -9,7 +9,7 @@ import { Agent, type AgentCallbacks } from '../../src/agent/agent.js'
 import { getGoal, setGoal } from '../../src/agent/goal.js'
 import { renderSync } from '../../src/ink/root.js'
 import { App } from '../../src/ui/App.js'
-import { writeIgnoreDefaults } from '../../src/tools/shared/deepseekignore.js'
+import * as ignoreSetup from '../../src/tools/shared/deepseekignore.js'
 
 class FakeTerminal extends PassThrough {
   isTTY = true
@@ -47,10 +47,13 @@ async function typeAndSubmit(stdin: FakeTerminal, text: string): Promise<void> {
 const roots: string[] = []
 const instances: Array<ReturnType<typeof renderSync>> = []
 let restoreHomedir: (() => void) | undefined
+let editorAssociationSpy: ReturnType<typeof spyOn> | undefined
 let priorHome: string | undefined
 let priorUserProfile: string | undefined
 
 afterEach(async () => {
+  editorAssociationSpy?.mockRestore()
+  editorAssociationSpy = undefined
   restoreHomedir?.()
   restoreHomedir = undefined
   for (const instance of instances.splice(0)) {
@@ -70,13 +73,15 @@ async function renderApp(initialMessage: string) {
   const home = join(root, 'home')
   const project = join(root, 'project')
   await Promise.all([mkdir(home, { recursive: true }), mkdir(project, { recursive: true })])
-  writeIgnoreDefaults(project)
+  ignoreSetup.writeIgnoreDefaults(project)
   priorHome = process.env.HOME
   priorUserProfile = process.env.USERPROFILE
   process.env.HOME = home
   process.env.USERPROFILE = home
   const homedirSpy = spyOn(os, 'homedir').mockReturnValue(home)
   restoreHomedir = () => homedirSpy.mockRestore()
+  // Editor onboarding must not capture this fixture's steering input.
+  editorAssociationSpy = spyOn(ignoreSetup, 'shouldOfferEditorAssociation').mockReturnValue(false)
 
   const stdin = new FakeTerminal()
   const stdout = new FakeTerminal()
