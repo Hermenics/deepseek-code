@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.13.0
 
 - Fixed: Primary turns and delegated worker trees now share a 16 MiB UTF-8 byte quota across complete provider requests, all primary/delegated model-facing tool results (including custom and MCP tools), and raw Shell captures. Foreground Shell bytes are charged as chunks arrive; detached Shell usage is reconciled from supervisor snapshots and final totals. Quota exhaustion does not stop a command or undo effects, and captured output retains a recoverable artifact when possible.
 - Fixed: Protected file paths now reject hard-link aliases into the workspace; file listing and search omit those aliases.
