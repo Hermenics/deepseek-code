@@ -45,6 +45,14 @@ describe('appendInputHistory', () => {
     expect(history).toContain('new entry')
   })
 
+  it('preserves concurrent prompt appends and writing-style samples', async () => {
+    const { appendInputHistory, loadInputHistory, loadWritingStyle } = await import('../src/agent/inputHistory.js')
+    await Promise.all([appendInputHistory('first message'), appendInputHistory('second message')])
+
+    expect((await loadInputHistory()).sort()).toEqual(['first message', 'second message'])
+    expect((await loadWritingStyle()).samples).toBe(2)
+  })
+
   it('does not duplicate identical consecutive entries', async () => {
     const fs = await import('fs/promises')
     const historyPath = join(testDir, '.deepseek', 'input_history.json')

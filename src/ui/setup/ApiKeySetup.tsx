@@ -1,10 +1,7 @@
 import { useState, useEffect } from 'react'
 import useInput from '../../ink/hooks/use-input.js'
 import type { Key } from '../../ink/events/input-event.js'
-import { homedir } from 'os'
-import { join } from 'path'
-import { mkdir } from 'fs/promises'
-import { saveFullConfig, loadFullConfig } from '../../utils/credentials.js'
+import { updateFullConfig, loadFullConfig } from '../../utils/credentials.js'
 import { loadMergedSettings, saveUserSettings } from '../../settings/index.js'
 import { WelcomeScreen } from '../layout/WelcomeScreen.js'
 import { getThemeColors } from '../theme.js'
@@ -15,7 +12,7 @@ export type { ThemeName, ProviderName, ProviderConfig } from '../../types/provid
 import type { ThemeName, ProviderName, ProviderConfig } from '../../types/provider.js'
 import { readClipboardSync } from '../../utils/platform.js'
 import { afterKeyCheck, checkOfficialDeepSeekApi, checkProviderModelCatalogConnectivity } from './deepseekHealth.js'
-import { loadProviderProfiles, migrateLegacyProviderProfile, saveProviderProfiles, type ProviderProfile } from '../../utils/providerProfiles.js'
+import { loadProviderProfiles, migrateLegacyProviderProfile, updateProviderProfiles, type ProviderProfile } from '../../utils/providerProfiles.js'
 
 export const PROVIDERS: { label: string; value: ProviderName; hint: string }[] = [
   { value: 'deepseek', label: 'DeepSeek API',          hint: 'platform.deepseek.com/api_keys' },
@@ -35,10 +32,7 @@ const THEMES: { label: string; value: ThemeName }[] = [
 
 /** Merges the given keys into the saved credentials config (creating `~/.deepseek` if needed) without dropping existing entries. */
 export async function saveConfig(data: Record<string, string>): Promise<void> {
-  const dir = join(homedir(), '.deepseek')
-  await mkdir(dir, { recursive: true })
-  const existing = await loadFullConfig().catch(() => ({}))
-  await saveFullConfig({ ...existing, ...data })
+  await updateFullConfig(existing => ({ ...existing, ...data }))
 }
 
 /** Loads the active provider profile (migrating a legacy single-provider config and picking the first profile when none is active) plus theme, language and prompt-refiner settings; providerConfig is null unless its required fields are set, and any failure yields safe defaults. */
@@ -49,8 +43,7 @@ export async function loadSavedConfig(): Promise<{ providerConfig: ProviderConfi
     if (profiles.length === 0) {
       const legacy = migrateLegacyProviderProfile(settings, cfg)
       if (legacy) {
-        profiles = [legacy]
-        await saveProviderProfiles(profiles)
+        profiles = await updateProviderProfiles(existing => existing.length === 0 ? [legacy] : existing)
       }
     }
     let profile = profiles.find(entry => entry.id === settings.provider?.activeProfileId)
@@ -139,7 +132,7 @@ export function ApiKeySetup({ onDone, probeProvider = checkProviderModelCatalogC
     }
     Promise.all([
       saveConfig(Object.fromEntries(Object.entries(updated).filter(([key]) => key === 'DEEPSEEK_API_KEY' || key === 'GCP_CREDENTIALS'))),
-      loadProviderProfiles().then(existing => saveProviderProfiles([...existing.filter(entry => entry.id !== profile.id), profile])),
+      updateProviderProfiles(existing => [...existing.filter(entry => entry.id !== profile.id), profile]),
       saveUserSettings({
         provider: {
           name: selectedProvider,

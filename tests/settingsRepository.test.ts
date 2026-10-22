@@ -61,6 +61,18 @@ describe('SettingsRepository', () => {
     expect(snapshot.levels.project.data.agents?.concurrency).toBe(16)
   })
 
+  it('preserves concurrent updates to the same settings file', async () => {
+    const cwd = await project()
+    await Promise.all([
+      new SettingsRepository(cwd).set('project', 'interface.vim', true),
+      new SettingsRepository(cwd).set('project', 'compaction.threshold', 0.8),
+    ])
+
+    const snapshot = await new SettingsRepository(cwd).reload()
+    expect(snapshot.levels.project.data.interface?.vim).toBe(true)
+    expect(snapshot.levels.project.data.compaction?.threshold).toBe(0.8)
+  })
+
   it('rejects secret-shaped keys nested inside a setting value', async () => {
     const repository = new SettingsRepository(await project())
     await expect(repository.set('project', 'future', { nested: { apiKey: 'secret' } })).rejects.toThrow('Secrets must be stored')

@@ -1,11 +1,9 @@
 import { useState } from 'react'
 import useInput from '../../ink/hooks/use-input.js'
 import type { Key } from '../../ink/events/input-event.js'
-import { homedir } from 'os'
-import { join } from 'path'
 import type { ThemeName } from '../../types/provider.js'
 import { getThemeColors } from '../theme.js'
-import { readJson, writeRaw } from '../../utils/fs.js'
+import { updateFullConfig } from '../../utils/credentials.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 
@@ -18,12 +16,9 @@ const THEMES: { label: string; value: ThemeName }[] = [
   { label: 'Light mode (ANSI colors only)', value: 'light-ansi' },
 ]
 
-const CONFIG_PATH = join(homedir(), '.deepseek', 'config.json')
-
 /** Writes the theme as `THEME` into ~/.deepseek/config.json, preserving the file's other keys. */
 async function saveTheme(theme: ThemeName): Promise<void> {
-  const existing = await readJson<Record<string, string>>(CONFIG_PATH).catch(() => ({}))
-  await writeRaw(CONFIG_PATH, JSON.stringify({ ...existing, THEME: theme }, null, 2))
+  await updateFullConfig(existing => ({ ...existing, THEME: theme }))
 }
 
 interface Props {

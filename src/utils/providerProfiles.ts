@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto'
 import { chmod, mkdir, readFile, rename, rm, writeFile } from 'fs/promises'
 import { homedir } from 'os'
-import { dirname, join } from 'path'
+import { dirname, join, resolve } from 'path'
+import { acquireFileLease } from '../orchestration/fileLease.js'
 import type { ProviderConfig, ProviderName } from '../types/provider.js'
 import type { DeepSeekSettings } from '../settings/types.js'
 
@@ -48,9 +49,14 @@ export async function loadProviderProfiles(path = getProviderProfilesPath()): Pr
   }
 }
 
+async function withProfilesLock<T>(path: string, action: () => Promise<T>): Promise<T> {
+  const lease = await acquireFileLease(`provider-profiles:${resolve(path)}`)
+  try { return await action() }
+  finally { await lease.release() }
+}
+
 /** Validates and atomically writes the profiles file with owner-only permissions (0700 dir, 0600 file). */
-export async function saveProviderProfiles(profiles: ProviderProfile[], path = getProviderProfilesPath()): Promise<void> {
-  const checked = validateProfiles(profiles)
+async function writeProviderProfiles(checked: ProviderProfile[], path: string): Promise<void> {
   const dir = dirname(path)
   await mkdir(dir, { recursive: true, mode: 0o700 })
   await chmod(dir, 0o700)
@@ -63,6 +69,35 @@ export async function saveProviderProfiles(profiles: ProviderProfile[], path = g
     await rm(temporary, { force: true }).catch(() => undefined)
     throw error
   }
+}
+
+/** Validates and atomically replaces the private profiles file while excluding concurrent updates. */
+export async function saveProviderProfiles(profiles: ProviderProfile[], path = getProviderProfilesPath()): Promise<void> {
+  const checked = validateProfiles(profiles)
+  await withProfilesLock(path, () => writeProviderProfiles(checked, path))
+}
+
+/** Applies a read-modify-write to the profiles file under its cross-process lease. */
+export async function updateProviderProfiles(
+  update: (profiles: ProviderProfile[]) => ProviderProfile[],
+  path = getProviderProfilesPath(),
+): Promise<ProviderProfile[]> {
+  return withProfilesLock(path, async () => {
+    const next = validateProfiles(update(await loadProviderProfiles(path)))
+    await writeProviderProfiles(next, path)
+    return next
+  })
+}
+
+/** Removes the private profiles file under the same lease used by profile writers. */
+export async function removeProviderProfiles(path = getProviderProfilesPath()): Promise<boolean> {
+  return withProfilesLock(path, async () => {
+    try { await rm(path); return true }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+      throw error
+    }
+  })
 }
 
 /** New empty profile for a provider with a random id and trimmed name. */

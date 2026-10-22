@@ -11,7 +11,6 @@ export const WORKFLOW_LEASE_TTL_MS = 15_000
 export const WORKFLOW_LEASE_HEARTBEAT_MS = 5_000
 export const WORKFLOW_ACTIVE_STATUSES: ReadonlySet<WorkflowRun['status']> = new Set(['queued', 'running', 'paused'])
 const WORKFLOW_LEASE_LOCK_PREFIX = 'workflow-run-lease:'
-const approvalFileLocks = new Map<string, Promise<void>>()
 
 export interface WorkflowRunLease {
   schemaVersion: 1
@@ -124,18 +123,11 @@ async function withLeaseLock<T>(path: string, action: () => Promise<T>): Promise
   finally { await lock.release() }
 }
 
-/** Serialises approval-file read/modify/write sequences within this process only; other processes are not excluded. */
+/** Serialises approval-file read/modify/write sequences across managers and OS processes. */
 async function withApprovalFileLock<T>(file: string, action: () => Promise<T>): Promise<T> {
-  const previous = approvalFileLocks.get(file) ?? Promise.resolve()
-  let release = () => {}
-  const gate = new Promise<void>(resolve => { release = resolve })
-  approvalFileLocks.set(file, gate)
-  await previous
+  const lock = await acquireFileLease(`workflow-approvals:${resolve(file)}`, { kind: 'workflow-approvals', file })
   try { return await action() }
-  finally {
-    release()
-    if (approvalFileLocks.get(file) === gate) approvalFileLocks.delete(file)
-  }
+  finally { await lock.release() }
 }
 
 /** Persists workflow runs (script, args, run.json, journal, lease) under ~/.deepseek/projects/<project>/<session>/workflows and reads runs from sibling sessions of the same project. `baseDirectory` replaces the whole layout with one flat root. */

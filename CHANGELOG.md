@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.1
+
+- Fixed: Concurrent settings, credential, provider-profile, workspace-trust, workflow-approval, and prompt-history updates no longer overwrite each other's data; conversation history snapshots now replace files atomically, and config migration keeps `.env` credentials when the replacement write fails.
+- Fixed: `/models` no longer prompts for the internally generated DuckDuckGo searches used to describe unknown models under default permissions; explicit denials, restricted allowlists, hooks, and other `web_fetch` calls retain their authorization checks.
+
 ## 0.13.0
 
 - Fixed: Primary turns and delegated worker trees now share a 16 MiB UTF-8 byte quota across complete provider requests, all primary/delegated model-facing tool results (including custom and MCP tools), and raw Shell captures. Foreground Shell bytes are charged as chunks arrive; detached Shell usage is reconciled from supervisor snapshots and final totals. Quota exhaustion does not stop a command or undo effects, and captured output retains a recoverable artifact when possible.

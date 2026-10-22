@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { mkdtemp, readFile, rm, stat } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import { createProviderProfile, loadProviderProfiles, migrateLegacyProviderProfile, saveProviderProfiles } from '../src/utils/providerProfiles.js'
+import { createProviderProfile, loadProviderProfiles, migrateLegacyProviderProfile, saveProviderProfiles, updateProviderProfiles } from '../src/utils/providerProfiles.js'
 import { Agent } from '../src/agent/agent.js'
 
 const temporary: string[] = []
@@ -33,6 +33,19 @@ describe('provider profiles', () => {
     const profile = createProviderProfile('One', 'deepseek')
     await expect(saveProviderProfiles([profile, { ...profile, name: 'Two' }], path)).rejects.toThrow('Duplicate')
     await expect(saveProviderProfiles([{ ...profile, provider: 'oauth' as never }], path)).rejects.toThrow('unsupported provider')
+  })
+
+  it('preserves concurrent updates from separate profile screens', async () => {
+    const path = join(await tempDir(), 'provider-profiles.json')
+    const first = createProviderProfile('Work', 'deepseek')
+    const second = createProviderProfile('Local', 'local')
+
+    await Promise.all([
+      updateProviderProfiles(profiles => [...profiles, first], path),
+      updateProviderProfiles(profiles => [...profiles, second], path),
+    ])
+
+    expect(await loadProviderProfiles(path)).toEqual([first, second])
   })
 
   it('migrates the selected legacy provider and model into a named profile', () => {

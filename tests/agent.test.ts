@@ -1,10 +1,11 @@
-import { describe, it, expect, mock, beforeEach, afterEach, beforeAll, afterAll } from 'bun:test'
+import { describe, it, expect, mock, spyOn, beforeEach, afterEach, beforeAll, afterAll } from 'bun:test'
 import { Agent, canonicalResearchUrl, evidenceUrls } from '../src/agent/agent.js'
 import type { AgentCallbacks, ToolPermissionResult } from '../src/agent/agent.js'
 import type { Tool } from '../src/tools/types.js'
 import type { OrchestratorSession } from '../src/orchestration/OrchestratorSession.js'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import * as os from 'node:os'
 import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { ReadFile } from '../src/tools/ReadFile/ReadFile.js'
 import { createHash } from 'node:crypto'
@@ -81,13 +82,17 @@ describe('Agent class', () => {
       expect(evidenceUrls('gpt-5.6 and e.g. Node.js')).toEqual(new Set())
     })
 
-    it('requires web-fetch approval before researching unknown model descriptions', async () => {
+    it('does not prompt for default web-fetch approval during model description research', async () => {
+      const fakeHome = await mkdtemp(join(tmpdir(), 'deepseek-agent-modelinfo-'))
+      const homedirSpy = spyOn(os, 'homedir').mockReturnValue(fakeHome)
       const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
       resolveReady(agent)
+      ;(agent as unknown as { settings: { permissions: { allow: string[]; deny: string[] } } }).settings.permissions = { allow: [], deny: [] }
       const toolMap = (agent as unknown as { toolMap: Map<string, Tool> }).toolMap
       const webFetch = toolMap.get('web_fetch')
       if (!webFetch) throw new Error('web_fetch tool is not installed')
-      const executeSearch = mock(async () => 'search should not run')
+      const source = 'https://docs.example.test/unlisted-model-auth-gate-test'
+      const executeSearch = mock(async () => `Model documentation: ${source}`)
       toolMap.set('web_fetch', { ...webFetch, execute: executeSearch })
 
       const createCompletion = mock(async () => ({ choices: [{ message: { content: '{}' } }] }))
@@ -101,11 +106,18 @@ describe('Agent class', () => {
       try {
         const descriptions = await agent.generateDescriptions(['unlisted-model-auth-gate-test'])
         expect(descriptions).toEqual({})
-        expect(requestPermission).toHaveBeenCalledWith(expect.objectContaining({ toolName: 'web_fetch', reason: 'risk' }))
-        expect(executeSearch).not.toHaveBeenCalled()
-        expect(createCompletion).not.toHaveBeenCalled()
+        expect(requestPermission).not.toHaveBeenCalled()
+        expect(executeSearch).toHaveBeenCalledTimes(1)
+        expect(createCompletion).toHaveBeenCalledTimes(1)
+
+        ;(agent as unknown as { settings: { permissions: { allow: string[]; deny: string[] } } }).settings.permissions = { allow: [], deny: ['web_fetch'] }
+        expect(await agent.generateDescriptions(['explicitly-denied-model'])).toEqual({})
+        expect(executeSearch).toHaveBeenCalledTimes(1)
+        expect(createCompletion).toHaveBeenCalledTimes(1)
       } finally {
         await agent.shutdown()
+        homedirSpy.mockRestore()
+        await rm(fakeHome, { recursive: true, force: true })
       }
     })
   })

@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from 'crypto'
 import { BUDGET_LEVELS, budgetProfile, DEFAULT_BUDGET_LEVEL, isBudgetLevel } from './budget.js'
 import { mkdir, readFile, rename, rm, writeFile } from 'fs/promises'
-import { dirname, join } from 'path'
+import { dirname, join, resolve } from 'path'
 import { homedir } from 'os'
+import { acquireFileLease } from '../orchestration/fileLease.js'
 import type {
   DeepSeekSettings,
   SettingOrigin,
@@ -515,14 +516,19 @@ async function atomicWrite(path: string, data: DeepSeekSettings): Promise<void> 
 
 /** Read-modify-write of one level: refuses invalid existing JSON, validates the result, writes atomically and returns a fresh snapshot. */
 async function mutateLevel(level: SettingsLevel, cwd: string | undefined, mutation: (data: Record<string, unknown>) => void): Promise<SettingsSnapshot> {
-  const current = await readLevel(level, cwd)
-  if (current.error) throw new Error(`Cannot update invalid JSON at ${current.path}: ${current.error}`)
-  const next = clone(current.data) as Record<string, unknown>
-  mutation(next)
-  const issues = validateSettings(next as DeepSeekSettings, level).filter(issue => issue.severity === 'error')
-  if (issues.length) throw new Error(issues.map(issue => `${issue.path}: ${issue.message}`).join('; '))
-  await atomicWrite(current.path, next as DeepSeekSettings)
-  return loadSettingsSnapshot(cwd)
+  const lease = await acquireFileLease(`settings-file:${resolve(getSettingsPath(level, cwd))}`)
+  try {
+    const current = await readLevel(level, cwd)
+    if (current.error) throw new Error(`Cannot update invalid JSON at ${current.path}: ${current.error}`)
+    const next = clone(current.data) as Record<string, unknown>
+    mutation(next)
+    const issues = validateSettings(next as DeepSeekSettings, level).filter(issue => issue.severity === 'error')
+    if (issues.length) throw new Error(issues.map(issue => `${issue.path}: ${issue.message}`).join('; '))
+    await atomicWrite(current.path, next as DeepSeekSettings)
+    return await loadSettingsSnapshot(cwd)
+  } finally {
+    await lease.release()
+  }
 }
 
 /** Sets one dot-path value at a level; rejects anything that looks like a secret. */
@@ -561,10 +567,7 @@ export async function unsetSetting(level: SettingsLevel, path: string, cwd?: str
 /** Clears a single path, or empties the whole level file when no path is given. */
 export async function resetSettings(level: SettingsLevel, path?: string, cwd?: string): Promise<SettingsSnapshot> {
   if (path) return unsetSetting(level, path, cwd)
-  const current = await readLevel(level, cwd)
-  if (current.error) throw new Error(`Cannot reset invalid JSON at ${current.path}: ${current.error}`)
-  await atomicWrite(current.path, {})
-  return loadSettingsSnapshot(cwd)
+  return mutateLevel(level, cwd, data => { for (const key of Object.keys(data)) delete data[key] })
 }
 
 /** Explains a setting: its effective value, the level it comes from and each level's override, omitting values that level is not allowed to set. */

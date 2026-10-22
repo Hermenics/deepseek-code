@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { chmod, mkdir, readFile, rename, rm, writeFile, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { acquireFileLease } from '../orchestration/fileLease.js'
 
 export interface TrustedArtifact {
   canonicalPath: string
@@ -75,6 +76,19 @@ export class WorkspaceTrustStore {
     return { key, state: await readTrustFile(this.file) }
   }
 
+  private async updateProject(key: string, update: (project: WorkspaceTrustFile['projects'][string]) => void): Promise<void> {
+    const lease = await acquireFileLease(`workspace-trust:${resolve(this.file)}`)
+    try {
+      const state = await readTrustFile(this.file)
+      const project = state.projects[key] ?? { agents: {} }
+      update(project)
+      state.projects[key] = project
+      await writeTrustFile(this.file, state)
+    } finally {
+      await lease.release()
+    }
+  }
+
   /** True if this exact agent file content was approved for the workspace. */
   async isAgentApproved(artifact: TrustedArtifact): Promise<boolean> {
     const { key, state } = await this.project()
@@ -83,11 +97,8 @@ export class WorkspaceTrustStore {
 
   /** Records approval of the agent file's current hash for the workspace. */
   async approveAgent(artifact: TrustedArtifact): Promise<void> {
-    const { key, state } = await this.project()
-    const project = state.projects[key] ?? { agents: {} }
-    project.agents[artifact.canonicalPath] = artifact.hash
-    state.projects[key] = project
-    await writeTrustFile(this.file, state)
+    const key = await canonicalPath(this.workspaceRoot)
+    await this.updateProject(key, project => { project.agents[artifact.canonicalPath] = artifact.hash })
   }
 
   /** True if the workspace's approved MCP config matches this path and hash. */
@@ -100,11 +111,10 @@ export class WorkspaceTrustStore {
 
   /** Records the workspace's MCP config approval, replacing any previous one. */
   async approveMcp(artifact: TrustedArtifact): Promise<void> {
-    const { key, state } = await this.project()
-    const project = state.projects[key] ?? { agents: {} }
-    project.mcpArtifacts ??= {}
-    project.mcpArtifacts[artifact.canonicalPath] = artifact.hash
-    state.projects[key] = project
-    await writeTrustFile(this.file, state)
+    const key = await canonicalPath(this.workspaceRoot)
+    await this.updateProject(key, project => {
+      project.mcpArtifacts ??= {}
+      project.mcpArtifacts[artifact.canonicalPath] = artifact.hash
+    })
   }
 }

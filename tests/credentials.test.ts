@@ -5,6 +5,7 @@ import { join } from 'path'
 import {
   loadFullConfig,
   saveFullConfig,
+  updateFullConfig,
   migrateConfigIfNeeded,
   logout,
 } from '../src/utils/credentials'
@@ -76,6 +77,20 @@ describe('saveFullConfig', () => {
     const content = JSON.parse(await readFile(nestedPath, 'utf-8'))
     expect(content).toEqual({ PROVIDER: 'local' })
   })
+
+  it('preserves concurrent partial updates', async () => {
+    await saveFullConfig({ PROVIDER: 'deepseek' }, configPath)
+    await Promise.all([
+      updateFullConfig(current => ({ ...current, THEME: 'light' }), configPath),
+      updateFullConfig(current => ({ ...current, LOCAL_MODEL: 'qwen-local' }), configPath),
+    ])
+
+    expect(await loadFullConfig(configPath)).toEqual({
+      PROVIDER: 'deepseek',
+      THEME: 'light',
+      LOCAL_MODEL: 'qwen-local',
+    })
+  })
 })
 
 // ─── migrateConfigIfNeeded ──────────────────────────────────────
@@ -97,6 +112,15 @@ describe('migrateConfigIfNeeded', () => {
     // .env should be deleted
     const envExists = await Bun.file(envPath).exists()
     expect(envExists).toBe(false)
+  })
+
+  it('preserves the legacy .env when the config write fails', async () => {
+    const envPath = join(configDir, '.env')
+    await mkdir(configPath)
+    await Bun.write(envPath, 'DEEPSEEK_API_KEY=sk-recoverable\n')
+
+    await expect(migrateConfigIfNeeded(configPath, envPath)).rejects.toThrow()
+    expect(await Bun.file(envPath).exists()).toBe(true)
   })
 
   it('should remove legacy AWS keys without migrating', async () => {

@@ -1157,6 +1157,16 @@ export function evidenceUrls(text: string): Set<string> {
   return urls
 }
 
+function isModelDescriptionSearchUrl(value: unknown): boolean {
+  if (typeof value !== 'string') return false
+  try {
+    const url = new URL(value)
+    return url.origin === 'https://html.duckduckgo.com' && url.pathname === '/html/' && !url.username && !url.password
+  } catch {
+    return false
+  }
+}
+
 interface PendingAgentNote {
   agentName: string
   text: string
@@ -2839,7 +2849,7 @@ export class Agent {
               id: randomUUID(),
               type: 'function',
               function: { name: 'web_fetch', arguments: JSON.stringify(args) },
-            }, args, callbacks)
+            }, args, callbacks, undefined, 'model_description_search')
             return { text: `${model}: ${result.slice(0, 6000)}`, urls: evidenceUrls(result) }
           } catch (error) {
             if (error instanceof DenyAbortError) throw error
@@ -2898,7 +2908,7 @@ export class Agent {
     // Merge validated into existing cache and persist
     const merged = Object.fromEntries(cache)
     for (const [k, v] of validated) merged[k] = v
-    saveCachedDescriptions(merged, Object.fromEntries(validatedSources))
+    await saveCachedDescriptions(merged, Object.fromEntries(validatedSources))
 
     return merged
   }
@@ -4735,6 +4745,7 @@ export class Agent {
     parsedArgs: Record<string, unknown>,
     cb: AgentCallbacks,
     batchSignal?: AbortSignal,
+    internalPurpose?: 'model_description_search',
   ): Promise<{ tc: typeof tc; result: string }> {
     let calledArgs: object = parsedArgs
     let emittedCall = false
@@ -4756,7 +4767,7 @@ export class Agent {
     const hookSnapshot: PrimaryToolHookSnapshot = { attemptCheckpointed: !this.options.checkpointHistory }
 
     try {
-      const completed = await this.executeToolWithChecks(tc, parsedArgs, guardedCallbacks, lifecycle, batchSignal, hookSnapshot)
+      const completed = await this.executeToolWithChecks(tc, parsedArgs, guardedCallbacks, lifecycle, batchSignal, hookSnapshot, internalPurpose)
       if (!['session_evidence', 'record_claim'].includes(tc.function.name)) {
         completed.result = redactSecrets(completed.result) as string
         const id = this.sessionEvidence.add('tool', `${tc.function.name}:${tc.id}`, completed.result)
@@ -4820,6 +4831,7 @@ export class Agent {
     lifecycle: { startedAt?: number },
     batchSignal?: AbortSignal,
     hookSnapshot?: PrimaryToolHookSnapshot,
+    internalPurpose?: 'model_description_search',
   ): Promise<{ tc: typeof tc; result: string }> {
     batchSignal?.throwIfAborted()
     const replayArgsDigest = toolReplayArgsDigest(parsedArgs)
@@ -5064,6 +5076,14 @@ export class Agent {
       config: this.settings.risk ?? {},
     }
     let riskResult = assessRisk(tc.function.name, effectiveArgs, riskContext)
+    const descriptionSearchPermission = internalPurpose === 'model_description_search'
+      ? resolvePermission(this.settings.permissions, tc.function.name, effectiveArgs)
+      : undefined
+    const autoApproveModelDescriptionSearch = internalPurpose === 'model_description_search' &&
+      tc.function.name === 'web_fetch' && isModelDescriptionSearchUrl(effectiveArgs.url) &&
+      riskResult?.matchedRule === 'shell:network' && riskResult.description === 'Network capability requires explicit approval.' &&
+      (descriptionSearchPermission === 'allow' || (this.settings.permissions?.allow?.length ?? 0) === 0) &&
+      this.allowedTools !== '*' && (this.allowedTools === null || this.allowedTools.includes('web_fetch'))
 
     let approvedThisCall = workflowApproved
     let riskApprovedThisCall = workflowApproved
@@ -5255,6 +5275,9 @@ export class Agent {
           return { tc, result: blockMsg }
         }
         if (hookDecision.approved) {
+          approvedThisCall = true
+          riskApprovedThisCall = true
+        } else if (autoApproveModelDescriptionSearch) {
           approvedThisCall = true
           riskApprovedThisCall = true
         } else if (!this.toolPermissionHandler) {

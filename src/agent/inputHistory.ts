@@ -1,7 +1,8 @@
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { homedir } from 'os'
 import { mkdir } from 'fs/promises'
 import { readJson, writeJson } from '../utils/fs.js'
+import { acquireFileLease } from '../orchestration/fileLease.js'
 
 function getHistoryPath(): string {
   return join(process.env.HOME || homedir(), '.deepseek', 'input_history.json')
@@ -83,11 +84,16 @@ export async function loadInputHistory(): Promise<string[]> {
 export async function appendInputHistory(entry: string): Promise<void> {
   const trimmed = entry.trim()
   if (trimmed.startsWith('/') || trimmed.startsWith('!')) return
-  const history = await loadInputHistory()
-  if (history[history.length - 1] === trimmed) return
-  history.push(trimmed)
   const historyPath = getHistoryPath()
-  await mkdir(join(process.env.HOME || homedir(), '.deepseek'), { recursive: true })
-  await writeJson(historyPath, history.slice(-MAX_ENTRIES))
-  await updateWritingStyle(trimmed)
+  const lease = await acquireFileLease(`input-history:${resolve(historyPath)}`)
+  try {
+    const history = await loadInputHistory()
+    if (history[history.length - 1] === trimmed) return
+    history.push(trimmed)
+    await mkdir(join(process.env.HOME || homedir(), '.deepseek'), { recursive: true })
+    await writeJson(historyPath, history.slice(-MAX_ENTRIES))
+    await updateWritingStyle(trimmed)
+  } finally {
+    await lease.release()
+  }
 }

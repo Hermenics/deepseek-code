@@ -6,7 +6,7 @@ import Text from '../../ink/components/Text.js'
 import { getThemeColors } from '../theme.js'
 import type { ProviderConfig, ProviderName, ThemeName } from '../../types/provider.js'
 import { SettingsRepository } from '../../settings/repository.js'
-import { createProviderProfile, loadProviderProfiles, saveProviderProfiles, type ProviderProfile } from '../../utils/providerProfiles.js'
+import { createProviderProfile, loadProviderProfiles, updateProviderProfiles, type ProviderProfile } from '../../utils/providerProfiles.js'
 
 const PROVIDERS: ProviderName[] = ['deepseek', 'bedrock', 'vertex', 'local']
 type Field = { key: keyof ProviderProfile; label: string; secret?: boolean; kind?: 'provider' | 'vision' }
@@ -110,10 +110,9 @@ export default function ProviderProfiles({ theme, activeProfileId, onBack, onAct
     if (!draft || !draft.name.trim()) { setStatus('Profile name is required'); return }
     setBusy(true)
     try {
-      const next = profiles.some(profile => profile.id === draft.id)
-        ? profiles.map(profile => profile.id === draft.id ? draft : profile)
-        : [...profiles, draft]
-      await saveProviderProfiles(next)
+      const next = await updateProviderProfiles(current => current.some(profile => profile.id === draft.id)
+        ? current.map(profile => profile.id === draft.id ? draft : profile)
+        : [...current, draft])
       setProfiles(next)
       setIndex(Math.max(0, next.findIndex(profile => profile.id === draft.id)))
       setDraft(null)
@@ -202,8 +201,8 @@ export default function ProviderProfiles({ theme, activeProfileId, onBack, onAct
       if (text.toLowerCase() === 'y' && selected) {
         void (async () => {
           try {
-            const next = profiles.filter(profile => profile.id !== selected.id)
-            await saveProviderProfiles(next); setProfiles(next); setIndex(Math.max(0, index - 1)); setStatus(`Deleted ${selected.name}`)
+            const next = await updateProviderProfiles(current => current.filter(profile => profile.id !== selected.id))
+            setProfiles(next); setIndex(Math.max(0, index - 1)); setStatus(`Deleted ${selected.name}`)
           } catch (error) { setStatus(`Error: ${(error as Error).message}`) }
           setConfirmDelete(false)
         })()
