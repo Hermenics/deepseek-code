@@ -109,7 +109,7 @@ describe('primary task effect reconciliation', () => {
 
   afterEach(async () => {
     await agent?.shutdown()
-    if (root) await rm(root, { recursive: true, force: true })
+    if (root) await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
     agent = undefined
     root = undefined
   })

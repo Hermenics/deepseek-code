@@ -7,11 +7,14 @@ import { redactSecrets, TaskEventSink } from '../src/orchestration/events.js'
 
 let tempHome: string | undefined
 let previousHome: string | undefined
+let previousUserProfile: string | undefined
 
 afterEach(async () => {
   if (tempHome) {
     if (previousHome === undefined) delete process.env.HOME
     else process.env.HOME = previousHome
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = previousUserProfile
     await rm(tempHome, { recursive: true, force: true })
   }
   tempHome = undefined
@@ -22,6 +25,8 @@ async function useTemporaryHome(): Promise<string> {
   previousHome = process.env.HOME
   tempHome = await mkdtemp(join(tmpdir(), 'deepseek-persistence-privacy-'))
   process.env.HOME = tempHome
+  previousUserProfile = process.env.USERPROFILE
+  process.env.USERPROFILE = tempHome
   return tempHome
 }
 
@@ -93,7 +98,7 @@ describe('persistent secret redaction', () => {
     expect(persistedSession.usage).toEqual({ promptTokens: 123, completionTokens: 45 })
     expect(session.agentMessages[0]!.content).toBe(sessionContent)
     expect(session.uiMessages[0]!.content).toBe(sessionContent)
-    expect((await stat(sessionPath)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(sessionPath)).mode & 0o777).toBe(0o600)
 
     const checkpointMessage = '{"authorization":"Bearer checkpoint-json-canary","ok":true}'
     const messages = [{ role: 'tool' as const, tool_call_id: 'call-1', content: checkpointMessage }]
@@ -105,7 +110,7 @@ describe('persistent secret redaction', () => {
     expect(checkpointRaw).not.toContain('checkpoint-label-canary')
     expect(persistedCheckpoint.messages[0].content).toBe('{"authorization":"[REDACTED]","ok":true}')
     expect(messages[0]!.content).toBe(checkpointMessage)
-    expect((await stat(checkpointPath)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(checkpointPath)).mode & 0o777).toBe(0o600)
   })
 
   it('writes redacted malformed credential history to event logs', async () => {
@@ -119,7 +124,7 @@ describe('persistent secret redaction', () => {
     const log = await readFile(logPath, 'utf8')
     expect(log).not.toContain('event-canary')
     expect(JSON.parse(log).payload.arguments).toContain('apiKey":"[REDACTED]')
-    expect((await stat(logPath)).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(logPath)).mode & 0o777).toBe(0o600)
   })
 
   it('redacts secrets when reading a legacy session without rewriting its file', async () => {

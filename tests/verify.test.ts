@@ -20,6 +20,14 @@ async function bunProject(files: Record<string, string>): Promise<string> {
   return dir
 }
 
+async function writeFakeExecutable(path: string, lines: string[]): Promise<void> {
+  const script = process.platform === 'win32'
+    ? `@echo off\r\n${lines.map(line => `echo ${line}`).join('\r\n')}\r\n`
+    : `#!/bin/sh\n${lines.map(line => `echo '${line}'`).join('\n')}\n`
+  await writeFile(path, script)
+  await chmod(path, 0o755)
+}
+
 afterEach(async () => {
   for (const dir of dirs.splice(0)) await rm(dir, { recursive: true, force: true })
 })
@@ -49,6 +57,7 @@ describe('runVerification', () => {
     expect(verificationTestCount('test result: ok. 2 passed; 0 failed; 1 ignored;')).toBe(2)
     expect(verificationTestCount('{"Action":"run","Test":"TestOne"}\n{"Action":"pass","Test":"TestOne"}')).toBe(1)
     expect(verificationTestCount('1 pass\n0 pass\n0 fail\n1 skip\n0 expect() calls\nRan 1 test across 1 file.')).toBe(0)
+    expect(verificationTestCount('1 pass\r\n0 fail\r\nRan 1 test across 1 file.\r\n', 'bun')).toBe(1)
     expect(verificationTestCount('1 pass')).toBeNull()
     expect(verificationTestCount('0 passed')).toBe(0)
     expect(verificationTestCount('1 passed\n1 skipped in 0.01s')).toBe(0)
@@ -84,9 +93,8 @@ describe('runVerification', () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsk-verify-script-shell-'))
     dirs.push(dir)
     await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'bun test' } }))
-    const fakeShell = join(dir, 'fake-shell')
-    await writeFile(fakeShell, '#!/bin/sh\nprintf "1 pass\\n0 fail\\nRan 1 test across 1 file.\\n"\n')
-    await chmod(fakeShell, 0o755)
+    const fakeShell = join(dir, process.platform === 'win32' ? 'fake-shell.cmd' : 'fake-shell')
+    await writeFakeExecutable(fakeShell, ['1 pass', '0 fail', 'Ran 1 test across 1 file.'])
     await writeFile(join(dir, '.npmrc'), `script-shell=${fakeShell}\n`)
     const command = await detectVerificationCommand(dir)
     expect(command?.display).toBe('npm test')
@@ -101,10 +109,9 @@ describe('runVerification', () => {
   it.skipIf(!Bun.which('npm'))('does not accept a passing footer from npm-prepended local runner shims', async () => {
     const dir = await bunProject({})
     await rm(join(dir, 'bun.lock'))
-    const localBun = join(dir, 'node_modules', '.bin', 'bun')
+    const localBun = join(dir, 'node_modules', '.bin', process.platform === 'win32' ? 'bun.cmd' : 'bun')
     await mkdir(join(dir, 'node_modules', '.bin'), { recursive: true })
-    await writeFile(localBun, '#!/bin/sh\nprintf "1 pass\\n0 fail\\nRan 1 test across 1 file.\\n"\n')
-    await chmod(localBun, 0o755)
+    await writeFakeExecutable(localBun, ['1 pass', '0 fail', 'Ran 1 test across 1 file.'])
     const command = await detectVerificationCommand(dir)
 
     const result = await runVerification(command!, dir)
@@ -119,10 +126,10 @@ describe('runVerification', () => {
     await rm(join(dir, 'bun.lock'))
     const fakeBin = join(dir, 'fakebin')
     await mkdir(fakeBin)
-    const fakeBun = join(fakeBin, 'bun')
-    await writeFile(fakeBun, '#!/bin/sh\nprintf "1 pass\\n"\n')
-    await chmod(fakeBun, 0o755)
-    await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'PATH=./fakebin bun test' } }))
+    const fakeBun = join(fakeBin, process.platform === 'win32' ? 'bun.cmd' : 'bun')
+    await writeFakeExecutable(fakeBun, ['1 pass'])
+    const script = process.platform === 'win32' ? `set "PATH=${fakeBin};%PATH%"&&bun test` : 'PATH=./fakebin bun test'
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { test: script } }))
 
     const result = await runVerification((await detectVerificationCommand(dir))!, dir)
 
@@ -216,6 +223,18 @@ describe('runVerification', () => {
       if (previous === undefined) delete process.env.FORCE_COLOR
       else process.env.FORCE_COLOR = previous
     }
+  })
+
+  it('recognizes the no-tests message with Windows line endings', async () => {
+    const dir = await bunProject({ 'src/a.ts': 'export const a = 1\n' })
+    const command = (await detectVerificationCommand(dir))!
+    const result = await runVerification(command, dir, {
+      execute: async () => ({ exitCode: 1, all: 'bun test v1.3.13\r\nNo tests found!\r\n' }),
+    })
+
+    expect(result.status).toBe('empty')
+    expect(result.testCount).toBe(0)
+    expect(result.ok).toBe(false)
   })
 
   it('reports a test file that fails to import as a failure', async () => {
@@ -515,9 +534,10 @@ it('recognizes the conventional pytest configuration files', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsk-verify-python-config-'))
     dirs.push(dir)
     await writeFile(join(dir, file), content)
-    const executable = join(dir, '.venv', 'bin', 'python')
-    await mkdir(join(dir, '.venv', 'bin'), { recursive: true })
-    await writeFile(executable, '#!/bin/sh\nexit 0\n')
+    const pythonDirectory = process.platform === 'win32' ? join(dir, '.venv', 'Scripts') : join(dir, '.venv', 'bin')
+    const executable = join(pythonDirectory, process.platform === 'win32' ? 'python.exe' : 'python')
+    await mkdir(pythonDirectory, { recursive: true })
+    await writeFile(executable, process.platform === 'win32' ? '' : '#!/bin/sh\nexit 0\n')
     await chmod(executable, 0o755)
     expect((await detectVerificationCommand(dir))?.command).toBe(executable)
   }

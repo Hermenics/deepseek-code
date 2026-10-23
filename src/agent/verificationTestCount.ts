@@ -54,7 +54,7 @@ function lastSummaryEvidence(lines: string[], runner?: SupportedTestRunner): Tes
 
 /** Count executed, non-skipped tests from supported runner summaries; absence remains unknown. */
 export function verificationTestCount(output: string, runner?: SupportedTestRunner): number | null {
-  const lines = output.split('\n')
+  const lines = output.replace(/\r\n/g, '\n').split('\n')
   const summary = lastSummaryEvidence(lines, runner)
   if (summary) return summary.testCount
   if (runner && runner !== 'go') return null
@@ -74,7 +74,7 @@ export function verificationTestCount(output: string, runner?: SupportedTestRunn
 
 /** Return explicit failures from the final supported summary, without changing the executed-test total. */
 export function verificationTestFailureCount(output: string, runner?: SupportedTestRunner): number | null {
-  const lines = output.split('\n')
+  const lines = output.replace(/\r\n/g, '\n').split('\n')
   const summary = lastSummaryEvidence(lines, runner)
   if (summary) return summary.failureCount
   if (runner && runner !== 'go') return null

@@ -79,6 +79,7 @@ it('denies a write prompted by a retrieved report through the headless --pipe CL
     !/^(DEEPSEEK_|LOCAL_|AWS_|GCP_|OPENAI_API_KEY|ANTHROPIC_API_KEY)/.test(key),
   )) as NodeJS.ProcessEnv
   env.HOME = home
+  env.USERPROFILE = home
   env.XDG_CONFIG_HOME = join(home, '.config')
   const child = Bun.spawn([
     process.execPath,
@@ -159,6 +160,7 @@ it('denies a write prompted by UserPromptSubmit hook output through the headless
     !/^(DEEPSEEK_|LOCAL_|AWS_|GCP_|OPENAI_API_KEY|ANTHROPIC_API_KEY)/.test(key),
   )) as NodeJS.ProcessEnv
   env.HOME = home
+  env.USERPROFILE = home
   env.XDG_CONFIG_HOME = join(home, '.config')
   const child = Bun.spawn([
     process.execPath,

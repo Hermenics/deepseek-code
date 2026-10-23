@@ -23,7 +23,7 @@ async function withAgent(run: (agent: Agent) => Promise<void>, sessionId?: strin
     await run(agent)
   } finally {
     await agent.shutdown()
-    await rm(root, { recursive: true, force: true })
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
   }
 }
 

@@ -14,6 +14,10 @@ function isIncompleteGitCapture(result: { isMaxBuffer?: boolean; timedOut?: bool
   return Boolean(result.isMaxBuffer || result.timedOut || result.isCanceled || result.failed && result.exitCode === 0)
 }
 
+function isIncompleteGitInventory(result: { isMaxBuffer?: boolean; timedOut?: boolean; isCanceled?: boolean; failed?: boolean; exitCode?: number; stdout: string }): boolean {
+  return isIncompleteGitCapture(result) || result.exitCode === 0 && !result.stdout.endsWith('\0')
+}
+
 export interface GitInspectionOptions {
   reject?: boolean
   timeout?: number
@@ -46,7 +50,7 @@ export async function runGitInspection(args: string[], cwd: string, options: Git
     const customCommands = await execa('git', gitInspectionArgs(['config', '--null', '--name-only', '--get-regexp', '^(remote\\..*\\.(uploadpack|receivepack|vcs)|core\\.gitproxy)$']), {
       ...executionOptions, reject: false, all: false, maxBuffer: 64_000,
     })
-    if (isIncompleteGitCapture(customCommands) || customCommands.exitCode !== 0 && customCommands.exitCode !== 1) {
+    if (isIncompleteGitInventory(customCommands) || customCommands.exitCode !== 0 && customCommands.exitCode !== 1) {
       throw new Error('Cannot inspect Git remote transport configuration; no remote operation was started')
     }
     const unsafeCommands = customCommands.stdout.split('\0').filter(Boolean)
@@ -57,7 +61,7 @@ export async function runGitInspection(args: string[], cwd: string, options: Git
     const configuredProtocols = await execa('git', gitInspectionArgs(['config', '--null', '--name-only', '--get-regexp', '^protocol\\..*\\.allow$']), {
       ...executionOptions, reject: false, all: false, maxBuffer: 64_000,
     })
-    if (isIncompleteGitCapture(configuredProtocols) || configuredProtocols.exitCode !== 0 && configuredProtocols.exitCode !== 1) {
+    if (isIncompleteGitInventory(configuredProtocols) || configuredProtocols.exitCode !== 0 && configuredProtocols.exitCode !== 1) {
       throw new Error('Cannot inspect Git protocol configuration; no remote operation was started')
     }
     const allowedProtocols = new Set(['file', 'git', 'http', 'https', 'ssh'])
@@ -80,7 +84,7 @@ export async function runGitInspection(args: string[], cwd: string, options: Git
     const configured = await execa('git', gitInspectionArgs(['config', '--null', '--name-only', '--get-regexp', '^filter\\..*\\.(clean|smudge|process|required)$']), {
       ...executionOptions, reject: false, all: false, maxBuffer: 64_000,
     })
-    if (isIncompleteGitCapture(configured) || configured.exitCode !== 0 && configured.exitCode !== 1) throw new Error('Cannot inspect Git content-filter configuration; no operation was started')
+    if (isIncompleteGitInventory(configured) || configured.exitCode !== 0 && configured.exitCode !== 1) throw new Error('Cannot inspect Git content-filter configuration; no operation was started')
     const drivers = new Set(configured.stdout.split('\0').filter(Boolean).map(key => key.replace(/^filter\./i, '').replace(/\.(clean|smudge|process|required)$/i, '')))
     for (const driver of drivers) {
       for (const phase of ['clean', 'smudge', 'process']) overrides.push('-c', `filter.${driver}.${phase}=`)
@@ -91,7 +95,7 @@ export async function runGitInspection(args: string[], cwd: string, options: Git
     const configured = await execa('git', gitInspectionArgs(['config', '--null', '--name-only', '--get-regexp', '^merge\\..*\\.driver$']), {
       ...executionOptions, reject: false, all: false, maxBuffer: 64_000,
     })
-    if (isIncompleteGitCapture(configured) || configured.exitCode !== 0 && configured.exitCode !== 1) throw new Error('Cannot inspect Git merge-driver configuration; no merge operation was started')
+    if (isIncompleteGitInventory(configured) || configured.exitCode !== 0 && configured.exitCode !== 1) throw new Error('Cannot inspect Git merge-driver configuration; no merge operation was started')
     // Report a conflict instead of substituting built-in merge semantics for a custom driver.
     for (const key of new Set(configured.stdout.split('\0').filter(Boolean))) overrides.push('-c', `${key}=false`)
   }

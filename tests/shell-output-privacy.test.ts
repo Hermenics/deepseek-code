@@ -198,7 +198,7 @@ describe('shell output artifact privacy', () => {
       expect((artifact.metadata as { storage: string }).storage).toBe('recovery-disk')
       expect(artifact.metadata.retentionWarning).toContain('primary storage failed')
       const path = join(recoveryRoot, createHash('sha256').update(sessionId).digest('hex'), artifact.id)
-      expect((await stat(path)).mode & 0o777).toBe(0o600)
+      if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600)
 
       const recovered = await readShellOutput(sessionId, artifact.id, 0, 512, primaryStorage, recoveryRoot, emergencyRoot)
       expect(recovered).toContain('recovery-disk fallback')
@@ -329,8 +329,10 @@ describe('shell output artifact privacy', () => {
       expect(saved.metadata.retentionWarning).toContain('primary storage failed')
       expect(saved.metadata.retentionWarning).toContain('recovery storage failed')
       const path = join(emergencyDirectory, saved.id)
-      expect((await stat(emergencyDirectory)).mode & 0o777).toBe(0o700)
-      expect((await stat(path)).mode & 0o777).toBe(0o600)
+      if (process.platform !== 'win32') {
+        expect((await stat(emergencyDirectory)).mode & 0o777).toBe(0o700)
+        expect((await stat(path)).mode & 0o777).toBe(0o600)
+      }
       expect(await readFile(path, 'utf8')).not.toContain('emergency-canary')
 
       const recovered = await readShellOutput(sessionId, saved.id, 0, 512, primaryStorage, recoveryRoot)
@@ -386,8 +388,10 @@ describe('shell output artifact privacy', () => {
       const sessionKey = createHash('sha256').update(sessionId).digest('hex')
       const primary = join(shellOutputDirectory(sessionId, primaryRoot), saved.id)
       const recovery = join(recoveryRoot, sessionKey, saved.id)
-      expect((await stat(primary)).mode & 0o777).toBe(0o600)
-      expect((await stat(recovery)).mode & 0o777).toBe(0o600)
+      if (process.platform !== 'win32') {
+        expect((await stat(primary)).mode & 0o777).toBe(0o600)
+        expect((await stat(recovery)).mode & 0o777).toBe(0o600)
+      }
       expect(await readFile(recovery, 'utf8')).not.toContain('mirror-canary')
 
       await writeFile(primary, '{truncated')
@@ -414,7 +418,7 @@ describe('shell output artifact privacy', () => {
       const output = await saveShellOutput(sessionId, 'recoverable output', 18, primaryStorage, undefined, undefined, emergencyRoot)
       expect(output.metadata.storage).toBe('recovery-disk')
       const path = join(root, 'primary-file-recovery', createHash('sha256').update(sessionId).digest('hex'), output.id)
-      expect((await stat(path)).mode & 0o777).toBe(0o600)
+      if (process.platform !== 'win32') expect((await stat(path)).mode & 0o777).toBe(0o600)
       expect(await readShellOutput(sessionId, output.id, 0, 512, primaryStorage, undefined, emergencyRoot)).toContain('recoverable output')
     } finally {
       await rm(root, { recursive: true, force: true })

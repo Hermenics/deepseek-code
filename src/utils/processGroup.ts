@@ -13,7 +13,7 @@ export function signalProcessGroup(child: ChildProcess, signal: NodeJS.Signals):
   if (child.pid && process.platform !== 'win32') {
     if (!signalProcessGroupId(child.pid, signal)) child.kill(signal)
   } else if (child.pid && process.platform === 'win32') {
-    try { execFileSync('taskkill', ['/PID', String(child.pid), '/T', ...(signal === 'SIGKILL' ? ['/F'] : [])], { stdio: 'ignore', timeout: 1000 }) }
+    try { execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', timeout: 1000 }) }
     catch { child.kill(signal) }
   } else child.kill(signal)
 }

@@ -10,13 +10,15 @@ import { redactSecrets } from '../src/orchestration/events.js'
 import { restoreBotTranscript } from '../src/bots/worker.js'
 
 const roots: string[] = []
-afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
+afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }))) })
 
 it('restores bot file receipts only when the checkpoint manifest verifies them', async () => {
   const root = await mkdtemp(join(tmpdir(), 'deepseek-bot-receipt-'))
   roots.push(root)
   const previousHome = process.env.HOME
+  const previousUserProfile = process.env.USERPROFILE
   process.env.HOME = join(root, 'home')
+  process.env.USERPROFILE = process.env.HOME
   const projectRoot = join(root, 'project')
   await mkdir(projectRoot, { recursive: true })
   const sessionId = `bot:fixture:${randomUUID()}`
@@ -68,5 +70,7 @@ it('restores bot file receipts only when the checkpoint manifest verifies them',
     await agent.shutdown()
     if (previousHome === undefined) delete process.env.HOME
     else process.env.HOME = previousHome
+    if (previousUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = previousUserProfile
   }
 })

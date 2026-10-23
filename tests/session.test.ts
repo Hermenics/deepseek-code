@@ -89,7 +89,7 @@ describe('session', () => {
     const projectDirectory = (await readdir(directory, { withFileTypes: true })).find(entry => entry.isDirectory())!
     const sessionDirectory = join(directory, projectDirectory.name)
     expect((await readdir(sessionDirectory)).sort()).toEqual([`${id}.json`])
-    expect((await stat(join(sessionDirectory, `${id}.json`))).mode & 0o777).toBe(0o600)
+    if (process.platform !== 'win32') expect((await stat(join(sessionDirectory, `${id}.json`))).mode & 0o777).toBe(0o600)
 
     const blockedHome = join(testDir, 'home-is-a-file')
     await writeFile(blockedHome, 'not a directory')

@@ -1120,7 +1120,7 @@ describe('TaskRegistry lifecycle', () => {
     const declarations: string[] = []
     for (const file of new Bun.Glob('src/**/*.{ts,tsx}').scanSync()) {
       const source = await readFile(file, 'utf8')
-      if (/effectPolicy\s*:\s*['"]tool-gated['"]/.test(source)) declarations.push(file)
+      if (/effectPolicy\s*:\s*['"]tool-gated['"]/.test(source)) declarations.push(file.replaceAll('\\', '/'))
     }
 
     expect(declarations).toEqual(['src/tools/SubAgent/SubAgent.ts'])

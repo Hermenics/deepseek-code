@@ -79,7 +79,7 @@ function loadMatcher(root: string): CacheEntry {
     const stat = fs.statSync(filePath, { bigint: true })
     stamp = [stat.dev, stat.ino, stat.mode, stat.size, stat.mtimeNs, stat.ctimeNs].join(':')
     const cached = cache.get(root)
-    if (cached?.stamp === stamp) return cached
+    if (process.platform !== 'win32' && cached?.stamp === stamp) return cached
     content = fs.readFileSync(filePath, 'utf8')
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error

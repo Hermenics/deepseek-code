@@ -565,7 +565,9 @@ function hasLocalRunnerOverride(cwd: string, runner: string): boolean {
 
 function isRuntimeBun(command: string, cwd: string, environment: NodeJS.ProcessEnv, executablePathMappings: Readonly<Record<string, string>>): boolean {
   try {
-    return resolveVerificationExecutable(command, cwd, environment, executablePathMappings) === realpathSync(process.execPath)
+    const resolved = resolveVerificationExecutable(command, cwd, environment, executablePathMappings)
+    const runtime = realpathSync(process.execPath)
+    return process.platform === 'win32' ? resolved.toLowerCase() === runtime.toLowerCase() : resolved === runtime
   } catch {
     return false
   }
@@ -680,9 +682,10 @@ export async function runVerification(command: VerificationCommand, cwd = proces
     const environment = options.environment ?? (executionEnvironment === 'linux-bwrap' ? LINUX_SANDBOX_TEST_ENV : scrubbedEnv())
     const executablePathMappings = options.executablePathMappings ?? (executionEnvironment === 'linux-bwrap' ? { '/opt/bin': dirname(realpathSync(process.execPath)) } : {})
     const testRunner = await supportedTestRunner(command, cwd, inputWorkspace.root, environment, executablePathMappings)
+    const normalizedOutput = output.replace(/\r\n/g, '\n')
     const counted = testRunner ? verificationTestCount(output, testRunner) : null
     const reportedFailures = testRunner ? verificationTestFailureCount(output, testRunner) : null
-    const empty = testRunner !== null && (counted === 0 || counted === null && (NO_TESTS_FOUND.some(pattern => pattern.test(output)) || /^\s*(?:0 tests? (?:ran|collected|passed)|Ran 0 tests|0 passed|.*\[no test files\])\s*$/im.test(output)))
+    const empty = testRunner !== null && (counted === 0 || counted === null && (NO_TESTS_FOUND.some(pattern => pattern.test(normalizedOutput)) || /^\s*(?:0 tests? (?:ran|collected|passed)|Ran 0 tests|0 passed|.*\[no test files\])\s*$/im.test(normalizedOutput)))
     const testCount = empty ? 0 : counted
     const finalWorkspace = await captureWorkspaceVersion(cwd, options.signal)
     const finalDigest = finalWorkspace.digest
