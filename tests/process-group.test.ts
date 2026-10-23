@@ -1,5 +1,5 @@
-import { expect, it } from 'bun:test'
-import { spawn } from 'node:child_process'
+import { expect, it, mock, spyOn } from 'bun:test'
+import { spawn, type ChildProcess } from 'node:child_process'
 import { once } from 'node:events'
 import { existsSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -11,6 +11,21 @@ it('rejects process-group IDs that could target the caller or init', () => {
   expect(signalProcessGroupId(0, 'SIGTERM')).toBe(false)
   expect(signalProcessGroupId(1, 'SIGTERM')).toBe(false)
   expect(signalProcessGroupId(1.5, 'SIGTERM')).toBe(false)
+})
+
+it.skipIf(process.platform === 'win32')('falls back to the child when process-group signaling is denied', () => {
+  const kill = spyOn(process, 'kill').mockImplementation((() => {
+    throw Object.assign(new Error('Permission denied'), { code: 'EPERM' })
+  }) as never)
+  const childKill = mock(() => true)
+  const child = { pid: 42, kill: childKill } as unknown as ChildProcess
+  try {
+    signalProcessGroup(child, 'SIGTERM')
+    expect(kill).toHaveBeenCalledWith(-42, 'SIGTERM')
+    expect(childKill).toHaveBeenCalledWith('SIGTERM')
+  } finally {
+    kill.mockRestore()
+  }
 })
 
 it.skipIf(process.platform !== 'linux')('falls back to the child when no matching owned group exists', async () => {

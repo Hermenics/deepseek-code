@@ -4,7 +4,7 @@ export function signalProcessGroupId(id: number, signal: NodeJS.Signals): boolea
   if (process.platform === 'win32' || !Number.isSafeInteger(id) || id < 2) return false
   try { process.kill(-id, signal); return true }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
+    if (['ESRCH', 'EPERM'].includes((error as NodeJS.ErrnoException).code ?? '')) return false
     throw error
   }
 }
