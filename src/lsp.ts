@@ -88,6 +88,7 @@ export function frameLspMessage(value: unknown): Buffer {
 class LspConnection {
   private readonly generation = randomUUID()
   private readonly process: ChildProcess
+  private readonly closed: Promise<void>
   private buffer = Buffer.alloc(0)
   private nextId = 1
   private failure: Error | null = null
@@ -109,6 +110,7 @@ class LspConnection {
 
   constructor(private readonly server: LspServerSettings, private readonly root: string) {
     this.process = spawn(server.command, server.args ?? [], { cwd: root, env: scrubbedEnv(), detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'ignore'] })
+    this.closed = new Promise(resolve => this.process.once('close', () => resolve()))
     this.process.stdout!.on('data', (chunk: Buffer) => {
       if (this.failure) return
       try {
@@ -425,27 +427,29 @@ class LspConnection {
       if (signal.aborted) abort()
     })
   }
-  close(reason = new Error('LSP session closed')): void {
-    if (this.failure) return
-    this.failure = reason
-    this.rejectActive?.(reason)
-    if (this.idle) clearTimeout(this.idle)
-    for (const pending of this.pending.values()) pending.reject(reason)
-    this.actions.clear(); this.pending.clear(); this.documents.clear(); this.diagnostics.clear(); this.diagnosticWait = undefined; this.buffer = Buffer.alloc(0)
-    if (this.process.pid && process.platform !== 'win32') {
-      try { process.kill(-this.process.pid, 'SIGKILL') } catch { /* already exited */ }
-    } else { try { this.process.kill('SIGKILL') } catch { /* already exited */ } }
-    this.process.stdin?.destroy(); this.process.stdout?.destroy()
+  close(reason = new Error('LSP session closed')): Promise<void> {
+    if (!this.failure) {
+      this.failure = reason
+      this.rejectActive?.(reason)
+      if (this.idle) clearTimeout(this.idle)
+      for (const pending of this.pending.values()) pending.reject(reason)
+      this.actions.clear(); this.pending.clear(); this.documents.clear(); this.diagnostics.clear(); this.diagnosticWait = undefined; this.buffer = Buffer.alloc(0)
+      if (this.process.pid && process.platform !== 'win32') {
+        try { process.kill(-this.process.pid, 'SIGKILL') } catch { /* already exited */ }
+      } else { try { this.process.kill('SIGKILL') } catch { /* already exited */ } }
+      this.process.stdin?.destroy(); this.process.stdout?.destroy()
+    }
+    return this.closed
   }
 }
 
 const sessions = new WeakMap<object, { configuration: string; connections: Map<string, LspConnection> }>()
-/** Synchronous termination also covers callers that exit without awaiting session shutdown. */
-export function closeLspSession(owner: object): void {
+/** Starts termination synchronously and resolves when the owned server processes close. */
+export function closeLspSession(owner: object): Promise<void> {
   const session = sessions.get(owner)
-  if (!session) return
-  for (const connection of session.connections.values()) connection.close()
+  if (!session) return Promise.resolve()
   sessions.delete(owner)
+  return Promise.all([...session.connections.values()].map(connection => connection.close())).then(() => undefined)
 }
 
 /** Configured servers are trusted executables, not filesystem/network-sandboxed plugins. */
@@ -461,7 +465,7 @@ export async function runLspRequest(settings: DeepSeekSettings, request: LspRequ
   options.signal?.throwIfAborted()
   const configuration = hash(JSON.stringify(lsp))
   let session = options.owner ? sessions.get(options.owner) : undefined
-  if (session && session.configuration !== configuration) { closeLspSession(options.owner!); session = undefined }
+  if (session && session.configuration !== configuration) { await closeLspSession(options.owner!); session = undefined }
   if (!session) {
     session = { configuration, connections: new Map() }
     if (options.owner) sessions.set(options.owner, session)

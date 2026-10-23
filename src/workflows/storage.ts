@@ -1,9 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
-import { mkdir, open, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, open, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
 import { acquireFileLease } from '../orchestration/fileLease.js'
 import type { WorkflowRpcUsage, WorkflowRun } from './types.js'
+import { renameReplacing } from '../utils/fs.js'
+export { renameReplacing } from '../utils/fs.js'
 
 const MAX_REPLAY_RUNS = 100
 /** A missing or expired lease is history, never a reason to mutate the recorded run. */
@@ -71,28 +73,6 @@ function stable(value: unknown): string {
 /** Stable SHA-256 of a workflow value, used to match approvals and replays. */
 export function hashWorkflowValue(value: unknown): string {
   return createHash('sha256').update(typeof value === 'string' ? value : stable(value)).digest('hex')
-}
-
-const WINDOWS_RENAME_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
-
-/**
- * On Windows a rename onto a file another handle is reading (a concurrent reader, an antivirus scan)
- * fails with EPERM/EACCES/EBUSY for a few milliseconds; POSIX never does. Retry briefly, as graceful-fs does.
- */
-export async function renameReplacing(
-  from: string,
-  to: string,
-  { platform = process.platform, renameFile = rename, attempts = 10 }: { platform?: string; renameFile?: (from: string, to: string) => Promise<void>; attempts?: number } = {},
-): Promise<void> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await renameFile(from, to)
-    } catch (error) {
-      const code = (error as NodeJS.ErrnoException).code ?? ''
-      if (platform !== 'win32' || !WINDOWS_RENAME_CODES.has(code) || attempt >= attempts) throw error
-      await new Promise((resolve) => setTimeout(resolve, attempt * 10))
-    }
-  }
 }
 
 /** Writes JSON through a temporary file and a rename, so readers never see a partial file. */

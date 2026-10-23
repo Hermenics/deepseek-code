@@ -1,10 +1,11 @@
 import { expect, it } from 'bun:test'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { closeLspSession } from '../src/lsp.js'
 import { Lsp } from '../src/tools/Lsp/Lsp.js'
 import { OrchestratorSession } from '../src/orchestration/OrchestratorSession.js'
+import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 
 const SERVER = String.raw`
 const {appendFileSync}=require('node:fs'); const log=process.argv[1],mode=process.argv[2];
@@ -45,7 +46,7 @@ async function fixture(mode: string, run: (value: any) => Promise<void>) {
   const preview = (id: string) => query({ operation: 'code_action_preview', action_id: id })
   const events = async () => (await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
   try { await run({ root, file, session, query, list, preview, events }) }
-  finally { await session.shutdown(); await rm(root, { recursive: true, force: true }) }
+  finally { await session.shutdown(); await removeTempDirectory(root) }
 }
 
 for (const mode of ['edit', 'resolve', 'multi']) it(`previews ${mode} actions through synchronized hash-bound text proposals`, async () => {
@@ -81,7 +82,7 @@ it('invalidates action IDs after source changes or a fresh connection', async ()
     await writeFile(file, 'const value = 3\n')
     await expect(preview(listing.result.actions[0].id)).rejects.toThrow('expired')
     const fresh = await list()
-    closeLspSession(session)
+    await closeLspSession(session)
     await expect(preview(fresh.result.actions[0].id)).rejects.toThrow('expired')
   })
 })

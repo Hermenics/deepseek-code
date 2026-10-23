@@ -200,7 +200,7 @@ export class OrchestratorSession {
     if (values.providerConfig) this.providerConfig = values.providerConfig
     if (values.model) this.model = values.model
     if (values.settings) {
-      if (JSON.stringify(values.settings.lsp) !== JSON.stringify(this.settings.lsp)) closeLspSession(this)
+      if (JSON.stringify(values.settings.lsp) !== JSON.stringify(this.settings.lsp)) void closeLspSession(this)
       this.settings = structuredClone(values.settings)
     }
     if (values.limits) this.registry.updateLimits(values.limits)
@@ -216,7 +216,7 @@ export class OrchestratorSession {
     )
     if (anchored.length > 0) throw new Error(`Cannot change project root while ${anchored.length} task workspace(s) remain anchored to the current project`)
     const previous = this.projectRoot
-    closeLspSession(this)
+    await closeLspSession(this)
     this.projectRoot = target
     this.registry.projectRoot = target
     this.workspaces.projectRoot = target
@@ -397,8 +397,9 @@ export class OrchestratorSession {
 
   /** Cancel all unfinished tasks, then flush snapshot and event-log writes. */
   async shutdown(reason = 'Session shutdown'): Promise<void> {
-    closeLspSession(this)
+    const lspClosed = closeLspSession(this)
     this.registry.cancelAll(reason)
+    await lspClosed
     await this.snapshotStore?.flush()
     await this.events.flush()
   }

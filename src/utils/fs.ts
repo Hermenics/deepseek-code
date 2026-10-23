@@ -1,4 +1,23 @@
-import { chmod, readFile, writeFile, readdir } from 'fs/promises'
+import { chmod, readFile, writeFile, readdir, rename } from 'node:fs/promises'
+
+const WINDOWS_RENAME_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
+
+/** Windows readers or antivirus scans can briefly lock a file being replaced. */
+export async function renameReplacing(
+  from: string,
+  to: string,
+  { platform = process.platform, renameFile = rename, attempts = 10 }: { platform?: string; renameFile?: (from: string, to: string) => Promise<void>; attempts?: number } = {},
+): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await renameFile(from, to)
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code ?? ''
+      if (platform !== 'win32' || !WINDOWS_RENAME_CODES.has(code) || attempt >= attempts) throw error
+      await new Promise(resolve => setTimeout(resolve, attempt * 10))
+    }
+  }
+}
 
 /** Reads and parses a UTF-8 JSON file; throws if it is missing or invalid. */
 export async function readJson<T = unknown>(path: string): Promise<T> {

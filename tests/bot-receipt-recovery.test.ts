@@ -1,6 +1,6 @@
 import { afterEach, expect, it } from 'bun:test'
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { Agent, fileCheckpointSessionKey } from '../src/agent/agent.js'
@@ -8,9 +8,10 @@ import { createFileCheckpoint, markFileCheckpointWritten } from '../src/agent/fi
 import { SessionEvidence } from '../src/agent/sessionEvidence.js'
 import { redactSecrets } from '../src/orchestration/events.js'
 import { restoreBotTranscript } from '../src/bots/worker.js'
+import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 
 const roots: string[] = []
-afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }))) })
+afterEach(async () => { await Promise.all(roots.splice(0).map(removeTempDirectory)) })
 
 it('restores bot file receipts only when the checkpoint manifest verifies them', async () => {
   const root = await mkdtemp(join(tmpdir(), 'deepseek-bot-receipt-'))

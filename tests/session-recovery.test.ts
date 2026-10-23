@@ -1,6 +1,6 @@
 import { expect, it } from 'bun:test'
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { Agent, type AgentOptions } from '../src/agent/agent.js'
@@ -8,6 +8,7 @@ import { createFileCheckpoint, listFileCheckpoints, markFileCheckpointWritten } 
 import { SessionEvidence, toolReplayArgsDigest } from '../src/agent/sessionEvidence.js'
 import { redactSecrets } from '../src/orchestration/events.js'
 import { approvalKey } from '../src/permissions/matcher.js'
+import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 
 function fileArgsDigest(args: Record<string, unknown>): string {
   const serialized = JSON.stringify(redactSecrets(args))
@@ -23,7 +24,7 @@ async function withAgent(run: (agent: Agent) => Promise<void>, sessionId?: strin
     await run(agent)
   } finally {
     await agent.shutdown()
-    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    await removeTempDirectory(root)
   }
 }
 

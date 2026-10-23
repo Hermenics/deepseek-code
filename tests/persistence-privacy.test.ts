@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { createHash } from 'node:crypto'
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { redactSecrets, TaskEventSink } from '../src/orchestration/events.js'
 
 let tempHome: string | undefined
@@ -86,7 +86,7 @@ describe('persistent secret redaction', () => {
       filesModified: [],
       usage: { promptTokens: 123, completionTokens: 45 },
     }
-    const workspaceHash = createHash('sha256').update(session.cwd).digest('hex').slice(0, 8)
+    const workspaceHash = createHash('sha256').update(resolve(session.cwd)).digest('hex').slice(0, 8)
     await saveSession(session)
     const sessionPath = join(home, '.deepseek', 'sessions', `${basename(session.cwd)}-${workspaceHash}`, `${session.id}.json`)
     const sessionRaw = await readFile(sessionPath, 'utf8')

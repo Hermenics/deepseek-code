@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, spyOn } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import * as os from 'node:os'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,6 +9,7 @@ import type { MessageOrBoundary } from '../src/agent/compactBoundary.js'
 import { SessionEvidence } from '../src/agent/sessionEvidence.js'
 import { redactSecrets } from '../src/orchestration/events.js'
 import { runScript } from './platform-commands.js'
+import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 
 function addAttempt(evidence: SessionEvidence, turnId: string, toolCallId: string, toolName: string, hooksMayHaveEffects = false): void {
   evidence.add('tool', `task-effect-attempt:${turnId}:${toolCallId}`, JSON.stringify({
@@ -109,7 +110,7 @@ describe('primary task effect reconciliation', () => {
 
   afterEach(async () => {
     await agent?.shutdown()
-    if (root) await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+    if (root) await removeTempDirectory(root)
     agent = undefined
     root = undefined
   })

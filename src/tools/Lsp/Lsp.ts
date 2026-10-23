@@ -83,7 +83,7 @@ export const Lsp: Tool = {
       }
       context?.signal?.throwIfAborted()
     } catch (error) {
-      if (context?.session) closeLspSession(context.session)
+      if (context?.session) await closeLspSession(context.session)
       throw error
     }
     const preview = operation === 'rename_preview' || operation === 'code_action_preview'

@@ -2323,12 +2323,13 @@ export class Agent {
   /** Closes this session's browser pages first (synchronously), aborts the turn, closes MCP servers, runs SessionEnd hooks once (ignoring hook errors), then shuts down workflows and the orchestrator. */
   async shutdown(): Promise<void> {
     this.mcpReloadClosed = true
-    closeLspSession(this.orchestrator)
+    const lspClosed = closeLspSession(this.orchestrator)
     // Synchronous and first: the App does not await shutdown, and process.exit may follow at once.
     browserService.releaseSession(this.options.browserSessionId ?? this.orchestrator.sessionId)
     // stop() signals synchronously before its first await, so servers get SIGTERM even if exit follows.
     void devServers.stopOwnedBy(this.orchestrator.sessionId)
     this.abortController?.abort(new Error('Agent shutdown'))
+    await lspClosed
     await this.mcpReload
     await this.mcpCleanup?.()
     this.mcpCleanup = null

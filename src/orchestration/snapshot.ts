@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { dirname, resolve, sep } from 'node:path'
 import { redactSecrets } from './events.js'
 import { TASK_MESSAGE_SCHEMA, TASK_RECORD_SCHEMA, validateSchema, validateTaskResultEnvelope } from './schema.js'
 import { TASK_STATES, type TaskMessageV1, type TaskRecordV1, type TaskSessionSnapshotV1 } from './types.js'
+import { renameReplacing } from '../utils/fs.js'
 
 const SNAPSHOT_SCHEMA = {
   type: 'object', additionalProperties: false,
@@ -86,7 +87,7 @@ export class TaskSnapshotStore {
       const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`
       await mkdir(dirname(target), { recursive: true })
       await writeFile(temporary, payload, { encoding: 'utf8', mode: 0o600 })
-      await rename(temporary, target)
+      await renameReplacing(temporary, target)
       this.lastError = undefined
     }).catch(error => { this.lastError = error instanceof Error ? error : new Error(String(error)) })
   }

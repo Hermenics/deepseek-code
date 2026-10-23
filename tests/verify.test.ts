@@ -92,10 +92,10 @@ describe('runVerification', () => {
   it.skipIf(!Bun.which('npm'))('does not accept a passing footer from a project npm script-shell override', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'dsk-verify-script-shell-'))
     dirs.push(dir)
-    await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'bun test' } }))
-    const fakeShell = join(dir, process.platform === 'win32' ? 'fake-shell.cmd' : 'fake-shell')
-    await writeFakeExecutable(fakeShell, ['1 pass', '0 fail', 'Ran 1 test across 1 file.'])
-    await writeFile(join(dir, '.npmrc'), `script-shell=${fakeShell}\n`)
+    await writeFile(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'echo 1 pass' } }))
+    const shell = process.platform === 'win32' ? process.env.ComSpec ?? process.env.COMSPEC : '/bin/sh'
+    if (!shell) throw new Error('Windows command processor is unavailable')
+    await writeFile(join(dir, '.npmrc'), `script-shell=${shell}\n`)
     const command = await detectVerificationCommand(dir)
     expect(command?.display).toBe('npm test')
 

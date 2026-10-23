@@ -85,6 +85,10 @@ describe('Agent class', () => {
 
     it('does not prompt for default web-fetch approval during model description research', async () => {
       const fakeHome = await mkdtemp(join(tmpdir(), 'deepseek-agent-modelinfo-'))
+      const previousHome = process.env.HOME
+      const previousUserProfile = process.env.USERPROFILE
+      process.env.HOME = fakeHome
+      process.env.USERPROFILE = fakeHome
       const homedirSpy = spyOn(os, 'homedir').mockReturnValue(fakeHome)
       const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
       resolveReady(agent)
@@ -118,7 +122,11 @@ describe('Agent class', () => {
       } finally {
         await agent.shutdown()
         homedirSpy.mockRestore()
-        await rm(fakeHome, { recursive: true, force: true })
+        if (previousHome === undefined) delete process.env.HOME
+        else process.env.HOME = previousHome
+        if (previousUserProfile === undefined) delete process.env.USERPROFILE
+        else process.env.USERPROFILE = previousUserProfile
+        await removeTempDirectory(fakeHome)
       }
     })
   })

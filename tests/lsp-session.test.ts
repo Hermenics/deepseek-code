@@ -61,7 +61,7 @@ async function fixture(run: (value: any) => Promise<void>, mode = '') {
   const settings = { memory: { enabled: false }, lsp: { timeoutMs: 1000, servers: [{ name: 'Fixture', command: process.execPath, args: ['-e', SERVER, log, mode], extensions: ['.ts'] }] } }
   const request = async (filePath = file, extra = {}, operation: LspOperation = 'hover') => runLspRequest(settings, { operation, workspacePath: root, filePath, fileContent: await readFile(filePath, 'utf8'), line: 1, character: 1 }, { owner, readDocument: (path: string) => readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error }), ...extra })
   try { await run({ root, file, owner, settings, request, diagnostics: (path = file) => request(path, {}, 'diagnostics'), events: async () => (await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line)) }) }
-  finally { closeLspSession(owner); await removeTempDirectory(root) }
+  finally { await closeLspSession(owner); await removeTempDirectory(root) }
 }
 
 it('reuses one server and synchronizes changed open files with increasing versions', async () => {
@@ -93,11 +93,11 @@ it('keeps owners and changed server settings separate and closes owned processes
     try {
       const second = await request(undefined, { owner: separate })
       expect(second.result.pid).not.toBe(first.result.pid)
-    } finally { closeLspSession(separate) }
+    } finally { await closeLspSession(separate) }
     settings.lsp.servers[0].name = 'Changed configuration'
     const changed = await request()
     expect(changed.result.pid).not.toBe(first.result.pid)
-    closeLspSession(owner)
+    await closeLspSession(owner)
     const restarted = await request()
     expect(restarted.result.pid).not.toBe(changed.result.pid)
     expect(restarted.generation).not.toBe(changed.generation)
@@ -296,7 +296,7 @@ it.skipIf(process.platform !== 'linux')('terminates helpers in the owned languag
         try { pid = JSON.parse(await readFile(ready, 'utf8')).pid; break } catch { await new Promise(resolve => setTimeout(resolve, 5)) }
       }
       expect(await alive()).toBe(true)
-      closeLspSession(owner)
+      await closeLspSession(owner)
       for (let attempt = 0; attempt < 100 && await alive(); attempt++) await new Promise(resolve => setTimeout(resolve, 5))
       expect(await alive()).toBe(false)
     } finally { if (await alive()) process.kill(pid!, 'SIGKILL') }
@@ -323,7 +323,7 @@ it('shutdown interrupts a pending document refresh without waiting for its callb
     const ready = new Promise<void>(resolve => { entered = resolve })
     const pending = request(other, { readDocument: () => { entered(); return new Promise(() => {}) } })
     await ready
-    closeLspSession(owner)
+    await closeLspSession(owner)
     await expect(pending).rejects.toThrow('LSP session closed')
     expect((await request()).result.contents.text).toContain('value')
   })
