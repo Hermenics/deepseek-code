@@ -18,7 +18,7 @@ function isIncompleteGitCapture(result: { isMaxBuffer?: boolean; timedOut?: bool
 }
 
 function isIncompleteGitInventory(result: { isMaxBuffer?: boolean; timedOut?: boolean; isCanceled?: boolean; failed?: boolean; exitCode?: number; stdout: string }): boolean {
-  const tooManyEntries = (result.stdout.match(/\0/g)?.length ?? 0) > GIT_INSPECTION_MAX_ENTRIES
+  const tooManyEntries = result.stdout.split('\0').length - 1 > GIT_INSPECTION_MAX_ENTRIES
   return isIncompleteGitCapture(result) || Buffer.byteLength(result.stdout, 'utf8') >= GIT_INSPECTION_MAX_BUFFER || tooManyEntries || result.exitCode === 0 && !result.stdout.endsWith('\0')
 }
 
