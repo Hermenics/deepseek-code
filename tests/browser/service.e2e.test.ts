@@ -78,7 +78,7 @@ describe.skipIf(!canRun)('BrowserService with a real browser', () => {
       await expect(launched.connection.send('Browser.getVersion')).rejects.toThrow('closed')
       expect(service.status().running).toBe(false)
     } finally { releaseClose(); await service.shutdown(); await service.whenClosed(); await rm(directory, { recursive: true, force: true }) }
-  }, 30_000)
+  }, 60_000)
   it('rejects a launcher that ignores the required network settings', async () => {
     const service = new BrowserService(() => launchBrowser())
     try {

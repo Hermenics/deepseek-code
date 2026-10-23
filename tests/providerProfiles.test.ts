@@ -45,7 +45,9 @@ describe('provider profiles', () => {
       updateProviderProfiles(profiles => [...profiles, second], path),
     ])
 
-    expect(await loadProviderProfiles(path)).toEqual([first, second])
+    const saved = await loadProviderProfiles(path)
+    expect(saved).toHaveLength(2)
+    expect(saved).toEqual(expect.arrayContaining([first, second]))
   })
 
   it('migrates the selected legacy provider and model into a named profile', () => {

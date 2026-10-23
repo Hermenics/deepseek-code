@@ -59,7 +59,7 @@ for (const changed of ['branch', 'index', 'config'] as const) for (const boundar
 
 for (const scenario of ['current', 'changed', 'legacy', 'denied'] as const) {
   it(`handles ${scenario} coordinator Git permission messages with version checks`, async () => {
-    const root = await mkdtemp(join(tmpdir(), 'deepseek-worker-git-mailbox-'))
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'deepseek-worker-git-mailbox-')))
     const git = (args: string[]) => execa('git', args, { cwd: root })
     let session: OrchestratorSession | undefined
     try {

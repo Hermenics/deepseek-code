@@ -28,14 +28,16 @@ test('grep returns bounded pages with a query-bound continuation cursor', async 
   } as ToolExecutionContext
 
   const complete = await Grep.execute({ pattern: 'needle', path: workspace }, context)
+  const extractMatches = (result: string) => [...result.matchAll(/^[ \t]+\d+:(needle .+)$/gm)].map(([, match]) => match!)
+  const completeMatches = extractMatches(complete)
   expect(complete).toContain('matches.ts\n  1:needle 1')
   expect(complete).toContain('  2:needle 2')
   expect(complete).toContain('  5:needle 5')
   expect(complete).toContain('other.ts\n  1:needle A\n  2:needle B')
+  expect([...completeMatches].sort()).toEqual(['needle 1', 'needle 2', 'needle 3', 'needle 4', 'needle 5', 'needle A', 'needle B'])
 
   const first = await Grep.execute({ pattern: 'needle', path: workspace, limit: 2 }, context)
-  expect(first).toContain('matches.ts\n  1:needle 1')
-  expect(first).toContain('  2:needle 2')
+  expect(extractMatches(first)).toEqual(completeMatches.slice(0, 2))
   expect(first).not.toContain('needle 3')
   const firstCursor = first.match(/Continue with grep cursor=([a-f0-9-]+)/)?.[1]
   expect(firstCursor).toBeTruthy()
@@ -44,20 +46,18 @@ test('grep returns bounded pages with a query-bound continuation cursor', async 
   expect(groupingMismatch).toContain('does not match the original search')
 
   const next = await Grep.execute({ pattern: 'needle', path: workspace, limit: 2, cursor: firstCursor }, context)
-  expect(next).toContain('matches.ts\n  3:needle 3')
-  expect(next).toContain('  4:needle 4')
+  expect(extractMatches(next)).toEqual(completeMatches.slice(2, 4))
   expect(next).not.toContain('needle 5')
   const nextCursor = next.match(/Continue with grep cursor=([a-f0-9-]+)/)?.[1]
   expect(nextCursor).toBeTruthy()
 
   const tail = await Grep.execute({ pattern: 'needle', path: workspace, limit: 2, cursor: nextCursor }, context)
-  expect(tail).toContain('matches.ts\n  5:needle 5')
-  expect(tail).toContain('other.ts\n  1:needle A')
+  expect(extractMatches(tail)).toEqual(completeMatches.slice(4, 6))
   const tailCursor = tail.match(/Continue with grep cursor=([a-f0-9-]+)/)?.[1]
   expect(tailCursor).toBeTruthy()
 
   const last = await Grep.execute({ pattern: 'needle', path: workspace, limit: 2, cursor: tailCursor }, context)
-  expect(last).toContain('other.ts\n  2:needle B')
+  expect(extractMatches(last)).toEqual(completeMatches.slice(6))
   expect(last).not.toContain('offset=')
 })
 

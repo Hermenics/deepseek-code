@@ -13,8 +13,7 @@ function historyPath(): string {
 }
 
 /** Writes the agent message history to disk, keeping the first (system) message plus the most recent messages up to MAX_HISTORY_MESSAGES. */
-export async function saveHistory(messages: MessageOrBoundary[]): Promise<void> {
-  const path = historyPath()
+export async function saveHistory(messages: MessageOrBoundary[], path = historyPath()): Promise<void> {
   await mkdir(dirname(path), { recursive: true })
   // Truncate to prevent unbounded growth — keep system prompt + last N messages
   const truncated = messages.length > MAX_HISTORY_MESSAGES
