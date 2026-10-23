@@ -1,6 +1,9 @@
 import { expect, test } from 'bun:test'
 import React from 'react'
 import { PassThrough } from 'node:stream'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { renderSync } from '../../../src/ink/root.js'
 import { InputBox } from '../../../src/ui/input/InputBox.js'
 
@@ -146,6 +149,37 @@ test('renders a suggested reply while the input is empty', async () => {
     stdout.isTTY = false
     instance.unmount()
     instance.cleanup()
+  }
+})
+
+test('renders file matches after @ with an empty query', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'dsk-inputbox-files-'))
+  await writeFile(join(directory, 'sample.ts'), '')
+  const stdin = new FakeTerminal()
+  const stdout = new FakeTerminal()
+  const chunks: string[] = []
+  stdout.on('data', chunk => chunks.push(String(chunk)))
+  const instance = renderSync(
+    <InputBox onSubmit={() => {}} isLoading={false} toolCallCount={0} workingDirectory={directory} />,
+    {
+      stdin: stdin as unknown as NodeJS.ReadStream,
+      stdout: stdout as unknown as NodeJS.WriteStream,
+      stderr: stdout as unknown as NodeJS.WriteStream,
+      exitOnCtrlC: false,
+      patchConsole: false,
+    },
+  )
+
+  try {
+    await Bun.sleep(100)
+    stdin.write('@')
+    await Bun.sleep(300)
+    expect(chunks.join('').replace(/\x1b\[[?0-9;]*[a-zA-Z]/g, '')).toContain('sample.ts')
+  } finally {
+    stdout.isTTY = false
+    instance.unmount()
+    instance.cleanup()
+    await rm(directory, { recursive: true, force: true })
   }
 })
 
