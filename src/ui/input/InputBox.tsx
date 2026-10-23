@@ -151,6 +151,7 @@ export function InputBox({
   const [vimState, setVimState] = useState<VimState>(createVimState)
   const [fileMatches, setFileMatches] = useState<string[]>([])
   const [fileSelectedIdx, setFileSelectedIdx] = useState(0)
+  const [fileSearchComplete, setFileSearchComplete] = useState(true)
 
   const historyRef = useRef(new InputHistory())
   /** Recalls the next history entry. As in Claude Code, ↑ lands on its first line and ↓ on its last, so pressing the same arrow again keeps walking history instead of moving through the entry's lines. */
@@ -165,9 +166,12 @@ export function InputBox({
   }, [cursor.text, onDraftChange])
 
   const updateCursor = (next: Cursor) => {
-    fileSearchRequestRef.current++
-    setFileMatches([])
-    setFileSelectedIdx(0)
+    if (!cursor.equals(next)) {
+      fileSearchRequestRef.current++
+      setFileMatches([])
+      setFileSelectedIdx(0)
+      setFileSearchComplete(false)
+    }
     setImageNotice(null)
     if (next.text.length > 0) onSuggestedReplyDismiss?.()
     setCursor(next)
@@ -206,14 +210,22 @@ export function InputBox({
     if (!mention) {
       setFileMatches([])
       setFileSelectedIdx(0)
+      setFileSearchComplete(true)
       return
     }
 
+    setFileSearchComplete(false)
     const timer = setTimeout(() => {
       void searchFiles(mention.query, workingDirectory, 8, fuzzyFileSearch).then((results) => {
         if (requestId !== fileSearchRequestRef.current) return
         setFileMatches(results)
+      }).catch(() => {
+        if (requestId !== fileSearchRequestRef.current) return
+        setFileMatches([])
+      }).finally(() => {
+        if (requestId !== fileSearchRequestRef.current) return
         setFileSelectedIdx(0)
+        setFileSearchComplete(true)
       })
     }, 100)
     return () => clearTimeout(timer)
@@ -276,7 +288,8 @@ export function InputBox({
 
   const matches = getMatches(cursor.text)
   const showDropdown = matches.length > 0
-  const showFileDropdown = fileMatches.length > 0 && !showDropdown
+  const activeMention = getAtMention(cursor.text, cursor.offset)
+  const showFileDropdown = activeMention !== null && !showDropdown
   const ghost = getSuggestedReplyGhost(cursor.text, suggestedReply) ?? computeGhostText(cursor.text, cursor.offset)
   const resolvedKeybindings = resolveKeybindings(keybindings)
 
@@ -375,7 +388,7 @@ export function InputBox({
     // Argument placeholders are display-only, so they never get accepted by
     // Tab/right-arrow or inserted into the input buffer.
 
-    if (showFileDropdown && (key.upArrow || key.downArrow)) {
+    if (showFileDropdown && fileMatches.length > 0 && (key.upArrow || key.downArrow)) {
       setFileSelectedIdx((i) =>
         key.upArrow
           ? (i - 1 + fileMatches.length) % fileMatches.length
@@ -390,7 +403,7 @@ export function InputBox({
       return
     }
 
-    if (showFileDropdown && (action === 'acceptCompletion' || (key.return && !key.ctrl && !key.shift))) {
+    if (showFileDropdown && fileMatches.length > 0 && (action === 'acceptCompletion' || (key.return && !key.ctrl && !key.shift))) {
       const chosen = fileMatches[fileSelectedIdx]
       if (chosen) {
         const mention = getAtMention(cursor.text, cursor.offset)
@@ -538,7 +551,8 @@ export function InputBox({
           files={fileMatches}
           selectedIdx={fileSelectedIdx}
           columns={cols}
-          query={getAtMention(cursor.text, cursor.offset)?.query ?? ''}
+          query={activeMention?.query ?? ''}
+          searching={!fileSearchComplete}
         />
       : null
 

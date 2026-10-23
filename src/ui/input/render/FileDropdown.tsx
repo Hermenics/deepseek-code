@@ -8,10 +8,11 @@ interface FileDropdownProps {
   selectedIdx: number
   columns: number
   query: string
+  searching: boolean
 }
 
-/** Renders the @-mention file completion list: up to 6 rows around the selection showing file name and truncated parent directory, or "No files found" when there are no matches. */
-export function FileDropdown({ files, selectedIdx, columns, query: _query }: FileDropdownProps) {
+/** Renders the @-mention file completion list, or its search/empty state. */
+export function FileDropdown({ files, selectedIdx, columns, query: _query, searching }: FileDropdownProps) {
   const colors = useThemeColors()
   const MAX_VISIBLE = 6
 
@@ -27,7 +28,7 @@ export function FileDropdown({ files, selectedIdx, columns, query: _query }: Fil
       <Box flexDirection="column">
         <Box flexDirection="row">
           <Text color={colors.rule}>{'│ '}</Text>
-          <Text color={colors.textDim}>No files found</Text>
+          <Text color={colors.textDim}>{searching ? 'Searching files…' : 'No files found'}</Text>
         </Box>
       </Box>
     )
