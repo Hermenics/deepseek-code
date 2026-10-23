@@ -2,7 +2,7 @@ import { devNull } from 'node:os'
 import { execa } from 'execa'
 import { scrubbedEnv } from './platform.js'
 
-const GIT_INSPECTION_MAX_BUFFER = 64_000
+const GIT_INSPECTION_MAX_BUFFER = 32_000
 
 /** Inspect Git data without launching repository-configured fsmonitor, diff, textconv or signature helpers. */
 export function gitInspectionArgs(args: string[]): string[] {
@@ -95,7 +95,7 @@ export async function runGitInspection(args: string[], cwd: string, options: Git
   }
   if (args[0] === 'pull' || args[0] === 'stash' && args[1] === 'pop') {
     const configured = await execa('git', gitInspectionArgs(['config', '--null', '--name-only', '--get-regexp', '^merge\\..*\\.driver$']), {
-      ...executionOptions, reject: false, all: false, maxBuffer: 64_000,
+      ...executionOptions, reject: false, all: false, maxBuffer: GIT_INSPECTION_MAX_BUFFER,
     })
     if (isIncompleteGitInventory(configured) || configured.exitCode !== 0 && configured.exitCode !== 1) throw new Error('Cannot inspect Git merge-driver configuration; no merge operation was started')
     // Report a conflict instead of substituting built-in merge semantics for a custom driver.

@@ -323,8 +323,12 @@ it('shutdown interrupts a pending document refresh without waiting for its callb
     const ready = new Promise<void>(resolve => { entered = resolve })
     const pending = request(other, { readDocument: () => { entered(); return new Promise(() => {}) } })
     await ready
+    const pendingResult = pending.then(
+      () => { throw new Error('LSP request unexpectedly resolved') },
+      (error: unknown) => error instanceof Error ? error : new Error(String(error)),
+    )
     await closeLspSession(owner)
-    await expect(pending).rejects.toThrow('LSP session closed')
+    expect((await pendingResult).message).toBe('LSP session closed')
     expect((await request()).result.contents.text).toContain('value')
   })
 })

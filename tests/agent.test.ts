@@ -91,7 +91,7 @@ describe('Agent class', () => {
       process.env.USERPROFILE = fakeHome
       const homedirSpy = spyOn(os, 'homedir').mockReturnValue(fakeHome)
       const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
-      resolveReady(agent)
+      await (agent as unknown as { readyPromise: Promise<void> }).readyPromise
       ;(agent as unknown as { settings: { permissions: { allow: string[]; deny: string[] } } }).settings.permissions = { allow: [], deny: [] }
       const toolMap = (agent as unknown as { toolMap: Map<string, Tool> }).toolMap
       const webFetch = toolMap.get('web_fetch')

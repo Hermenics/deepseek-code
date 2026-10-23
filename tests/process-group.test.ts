@@ -63,6 +63,8 @@ it.skipIf(process.platform !== 'linux')('signals descendants after the detached 
       Bun.sleep(2_000).then(() => { throw new Error('Detached group leader did not stop after SIGTERM') }),
     ])
     expect(signal).toBe('SIGTERM')
+    const terminationDeadline = Date.now() + 1_000
+    while (!existsSync(term) && Date.now() < terminationDeadline) await Bun.sleep(10)
     expect(existsSync(term)).toBe(true)
 
     signalProcessGroup(child, 'SIGKILL')

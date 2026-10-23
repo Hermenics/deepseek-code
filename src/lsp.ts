@@ -5,6 +5,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url'
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { DeepSeekSettings, LspServerSettings } from './settings/types.js'
 import { scrubbedEnv } from './utils/platform.js'
+import { signalProcessGroup } from './utils/processGroup.js'
 import { applyTextEdits, type TextEdit } from './tools/shared/textEdits.js'
 
 export type LspOperation = 'definition' | 'references' | 'hover' | 'document_symbols' | 'workspace_symbols' | 'diagnostics' | 'rename_preview' | 'code_actions' | 'code_action_preview'
@@ -110,7 +111,10 @@ class LspConnection {
 
   constructor(private readonly server: LspServerSettings, private readonly root: string) {
     this.process = spawn(server.command, server.args ?? [], { cwd: root, env: scrubbedEnv(), detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'ignore'] })
-    this.closed = new Promise(resolve => this.process.once('close', () => resolve()))
+    this.closed = new Promise(resolve => {
+      this.process.once('exit', () => resolve())
+      this.process.once('close', () => resolve())
+    })
     this.process.stdout!.on('data', (chunk: Buffer) => {
       if (this.failure) return
       try {
@@ -434,9 +438,7 @@ class LspConnection {
       if (this.idle) clearTimeout(this.idle)
       for (const pending of this.pending.values()) pending.reject(reason)
       this.actions.clear(); this.pending.clear(); this.documents.clear(); this.diagnostics.clear(); this.diagnosticWait = undefined; this.buffer = Buffer.alloc(0)
-      if (this.process.pid && process.platform !== 'win32') {
-        try { process.kill(-this.process.pid, 'SIGKILL') } catch { /* already exited */ }
-      } else { try { this.process.kill('SIGKILL') } catch { /* already exited */ } }
+      try { signalProcessGroup(this.process, 'SIGKILL') } catch { /* already exited */ }
       this.process.stdin?.destroy(); this.process.stdout?.destroy()
     }
     return this.closed
@@ -444,7 +446,7 @@ class LspConnection {
 }
 
 const sessions = new WeakMap<object, { configuration: string; connections: Map<string, LspConnection> }>()
-/** Starts termination synchronously and resolves when the owned server processes close. */
+/** Starts termination synchronously and resolves when the owned server process exits. */
 export function closeLspSession(owner: object): Promise<void> {
   const session = sessions.get(owner)
   if (!session) return Promise.resolve()
