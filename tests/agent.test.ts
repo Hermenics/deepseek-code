@@ -13,7 +13,6 @@ import { createHash } from 'node:crypto'
 
 const TEST_HISTORY_PATH = join(tmpdir(), `deepseek-code-agent-history-${process.pid}.json`)
 const ORIGINAL_HISTORY_PATH = process.env.DEEPSEEK_HISTORY_PATH
-if (process.platform === 'win32' && process.env.CI === 'true') process.env.DEEPSEEK_DEBUG_AGENT_INIT = '1'
 
 // Helper: injects a mocked client into Agent via cast (same pattern as reasoning.test.ts)
 function injectMockClient(agent: Agent, clientMock: object) {

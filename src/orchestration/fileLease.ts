@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { renameReplacing } from '../utils/fs.js'
 
 interface LeaseOwner {
   token: string
@@ -46,7 +47,7 @@ function processAlive(pid: number): boolean {
 async function moveAside(path: string, label: string): Promise<boolean> {
   const quarantine = `${path}.${label}-${randomUUID()}`
   try {
-    await rename(path, quarantine)
+    await renameReplacing(path, quarantine)
   } catch (error) {
     if (['ENOENT', 'EEXIST'].includes((error as NodeJS.ErrnoException).code ?? '')) return false
     throw error
