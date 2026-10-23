@@ -7,6 +7,8 @@ import { GetGoal } from '../src/tools/GetGoal/GetGoal.js'
 import { createGoal, getGoal, setGoal } from '../src/agent/goal.js'
 import type { SessionEvidence } from '../src/agent/sessionEvidence.js'
 
+if (process.platform === 'win32' && process.env.CI === 'true') process.env.DEEPSEEK_DEBUG_AGENT_INIT = '1'
+
 type Internals = {
   client: { chat: { completions: { create: (request: Record<string, unknown>) => Promise<unknown> } } }
   sessionEvidence: SessionEvidence

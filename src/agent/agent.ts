@@ -2047,6 +2047,10 @@ export class Agent {
    * to an empty project context.
    */
   private async initialize(restorePersisted = true): Promise<void> {
+    const traceInit = (stage: string) => {
+      if (process.env.DEEPSEEK_DEBUG_AGENT_INIT === '1') console.error(`[agent-init] ${stage}`)
+    }
+    traceInit('start')
     try {
       await this.mcpCleanup?.()
       this.mcpCleanup = null
@@ -2057,6 +2061,7 @@ export class Agent {
         loadSettingsSnapshot(this.workspacePath),
         loadSkillPrompt(this.workspacePath, this.options.skillDirectory),
       ])
+      traceInit('project sources')
       this.projectInstructions = new Map(instructions.map(entry => [entry.id, entry]))
       const settings = loadedSettings.effective
       if (this.options.simulationMode) {
@@ -2065,6 +2070,7 @@ export class Agent {
         settings.workflows = { ...settings.workflows, enabled: false }
       }
       const mcp = await loadMcpTools(this.workspacePath, { enabled: settings.mcp?.enabled === true })
+      traceInit('mcp')
       this.mcpErrors = mcp.errors
       this.mcpApprovalRequired = mcp.approval ?? null
       this.settings = settings
@@ -2087,14 +2093,18 @@ export class Agent {
         record, undefined, undefined,
         bytes => this.orchestrator.registry.recordAggregateOutputBytes(record.budgetGroupId, bytes),
       ))
+      traceInit('persisted state')
       setSessionRetention(settings.sessions?.retention ?? 50)
       await this.orchestrator.memory.configure(settings.memory ?? {}, this.orchestrator.projectRoot)
+      traceInit('memory configured')
 
       const memorySnapshot = await this.orchestrator.memory.snapshot()
+      traceInit('memory snapshot')
       const environment = formatEnvironmentInfo(await collectEnvironmentInfo({
         workingDirectory: this.workspacePath, additionalDirectories: this.listAdditionalDirectories(),
         model: this.model, provider: this.provider,
       }))
+      traceInit('environment')
       this.projectContextSections = [
         ['environment', environment],
         ['project-instructions', formatProjectInstructions([...this.projectInstructions.values()])],
@@ -2131,6 +2141,7 @@ export class Agent {
       if (this.settings.hooks) {
         await runSessionStartHooks(this.settings.hooks as HooksConfig, this.hookSessionId)
       }
+      traceInit('complete')
       if (this.mcpApprovalRequired) void this.resolveMcpApproval()
     } catch (e) {
       // Fall back to defaults — agent still works without steering/history

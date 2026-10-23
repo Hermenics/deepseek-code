@@ -236,6 +236,6 @@ it('refuses an oversized merge-driver inventory before restoring a stash', async
     expect(inventory.stdout.split('\0').filter(Boolean)).toHaveLength(driverCount)
     expect(await Git.execute({ action: 'stash', pop: true }, context(root))).toContain('Cannot inspect Git merge-driver configuration')
     expect((await git(['rev-parse', 'refs/stash'])).stdout).toBe(stash)
-    expect(await readFile(join(root, 'source.txt'), 'utf8')).toBe('original\n')
+    expect((await readFile(join(root, 'source.txt'), 'utf8')).replace(/\r\n/g, '\n')).toBe('original\n')
   } finally { await rm(parent, { recursive: true, force: true }) }
 })
