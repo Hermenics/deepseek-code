@@ -1,11 +1,12 @@
 import { expect, it } from 'bun:test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BotStore } from '../src/bots/store.js'
+import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 import { POD_APPEARANCE_OPTIONS, POD_TONE_COLORS, type PodAppearance } from '../src/bots/types.js'
 
-it('upgrades existing Pods and persists only validated appearance across reopen and export', () => {
+it('upgrades existing Pods and persists only validated appearance across reopen and export', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'pod-appearance-')), path = join(directory, 'state.db')
   const appearance: PodAppearance = { shape: 'cloud', tone: 'amber', eyes: 'curious', accessory: 'glasses' }
   let store = new BotStore({ path })
@@ -37,7 +38,7 @@ it('upgrades existing Pods and persists only validated appearance across reopen 
     expect(store.listBots().find(item => item.id === created.id)?.appearance).toEqual(appearance)
     expect(store.exportBot(pod.id)).toMatchObject({ bot: { appearance } })
     expect(store.getBot(pod.id).instructions).toBe('Keep the existing responsibility.')
-  } finally { store.close(); rmSync(directory, { recursive: true, force: true }) }
+  } finally { store.close(); await removeTempDirectory(directory) }
 }, 15_000)
 
 it('ignores malformed stored appearance while keeping reads and repairs available', () => {
@@ -57,7 +58,7 @@ it('ignores malformed stored appearance while keeping reads and repairs availabl
   } finally { store.close() }
 })
 
-it('saves every expanded appearance option without changing the Pod job', () => {
+it('saves every expanded appearance option without changing the Pod job', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'pod-options-')), path = join(directory, 'state.db')
   let store = new BotStore({ path })
   try {
@@ -73,5 +74,5 @@ it('saves every expanded appearance option without changing the Pod job', () => 
     for (const tone of POD_APPEARANCE_OPTIONS.tone) expect(POD_TONE_COLORS[tone]).toMatch(/^#[a-f0-9]{6}$/)
     store.close(); store = new BotStore({ path })
     expect(store.getBot(bot.id).appearance).toEqual(appearance)
-  } finally { store.close(); rmSync(directory, { recursive: true, force: true }) }
+  } finally { store.close(); await removeTempDirectory(directory) }
 })

@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'bun:test'
-import { mkdtemp, mkdir, rm, writeFile } from 'fs/promises'
+import { mkdtemp, mkdir, realpath, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { loadApplicableAgentsMd } from '../src/agent/steering.js'
 
 describe('target-scoped AGENTS.md loading', () => {
   it('loads filesystem ancestors, workspace and target directory in order, scoped to target and fresh per call', async () => {
-    const parent = await mkdtemp(join(tmpdir(), 'dsk-instructions-test-'))
+    const parent = await realpath(await mkdtemp(join(tmpdir(), 'dsk-instructions-test-')))
     try {
       const workspace = join(parent, 'workspace')
       const app = join(workspace, 'packages', 'app')
@@ -42,7 +42,7 @@ describe('target-scoped AGENTS.md loading', () => {
   })
 
   it('does not apply workspace instructions to a target outside the workspace', async () => {
-    const parent = await mkdtemp(join(tmpdir(), 'dsk-instructions-scope-'))
+    const parent = await realpath(await mkdtemp(join(tmpdir(), 'dsk-instructions-scope-')))
     try {
       const workspace = join(parent, 'workspace')
       const sibling = join(parent, 'sibling')

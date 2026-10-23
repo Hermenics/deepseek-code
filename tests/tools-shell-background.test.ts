@@ -48,7 +48,7 @@ async function waitFor(predicate: () => Promise<boolean>, timeoutMs = 2_000): Pr
 }
 
 describe('shell background execution', () => {
-  it('charges foreground output while the capture is still running without charging it twice', async () => {
+  itWithSandbox('charges foreground output while the capture is still running without charging it twice', async () => {
     const context = await createContext()
     const budgetGroupId = 'foreground-shell-progress'
     const output = 'metered output'

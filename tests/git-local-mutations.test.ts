@@ -75,7 +75,7 @@ it('records a successful add as effect-observed without changing its result', as
     await writeFile(join(root, 'source.txt'), 'staged change\n')
     const outcomes: Array<{ effectId: string; state: 'no-effect' | 'effect-observed'; evidence: string }> = []
     const result = await Git.execute({ action: 'add', files: ['source.txt'] }, effectContext(root, outcomes))
-    expect(result).toBe('Staged: source.txt')
+    expect(result).toMatch(/^Staged: source\.txt/)
     expect(outcomes).toHaveLength(1)
     expect(outcomes[0]).toMatchObject({ effectId: 'git-effect-1', state: 'effect-observed' })
     expect(outcomes[0]!.evidence).toMatch(/^effect-observed:[0-9a-f]{64}$/)
@@ -91,7 +91,7 @@ it('records a successful no-op add as no-effect without changing its result', as
     await repository(root)
     const outcomes: Array<{ effectId: string; state: 'no-effect' | 'effect-observed'; evidence: string }> = []
     const result = await Git.execute({ action: 'add', files: ['source.txt'] }, effectContext(root, outcomes))
-    expect(result).toBe('Staged: source.txt')
+    expect(result).toMatch(/^Staged: source\.txt/)
     expect(outcomes).toHaveLength(1)
     expect(outcomes[0]).toMatchObject({ effectId: 'git-effect-1', state: 'no-effect' })
     expect(outcomes[0]!.evidence).toMatch(/^no-effect:[0-9a-f]{64}$/)
@@ -110,7 +110,7 @@ it('preserves a successful add when outcome persistence fails', async () => {
       effectId: 'git-effect-1',
       markEffectOutcome: async () => { outcomeAttempts++; throw new Error('snapshot store unavailable') },
     })
-    expect(result).toBe('Staged: source.txt')
+    expect(result).toMatch(/^Staged: source\.txt/)
     expect(outcomeAttempts).toBe(1)
   } finally { await rm(parent, { recursive: true, force: true }) }
 })

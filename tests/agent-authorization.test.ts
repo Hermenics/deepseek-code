@@ -13,9 +13,11 @@ import { redactSecrets } from '../src/orchestration/events.js'
 import { WorkflowApprovalStore } from '../src/workflows/storage.js'
 import { browserService } from '../src/browser/service.js'
 import { printOutput } from './platform-commands.js'
+import { sandboxAvailable } from '../src/utils/platform.js'
 
 
 
+const sandboxTest = it.skipIf(!sandboxAvailable())
 const callbacks = () => ({
   onToken() {}, onThinking() {}, onToolCall() {}, onToolResult() {}, onDone() {}, onDenyAbort() {}, onAutoCompact() {},
 })
@@ -264,7 +266,7 @@ describe('agent authorization', () => {
     } finally { await agent.shutdown(); await rm(root, { recursive: true, force: true }) }
   })
 
-  it('persists settled primary-Agent Shell workspace changes as observed effects', async () => {
+  sandboxTest('persists settled primary-Agent Shell workspace changes as observed effects', async () => {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-primary-shell-effect-'))
     const checkpoints: string[] = []
     const file = join(root, 'changed.txt')

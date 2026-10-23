@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test'
 import { join } from 'path'
-import { chmod, mkdir, readFile, readdir, rm, stat, writeFile } from 'fs/promises'
+import { chmod, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { MemoryStore, loadMemory, addEntry, replaceEntry, removeEntry, getMemorySnapshot, setMemoryDir } from '../src/agent/memory.js'
 import { MemoryTool } from '../src/tools/Memory/MemoryTool.js'
@@ -233,7 +233,7 @@ describe('Memory System', () => {
     await writeFile(join(legacy, 'MEMORY.md'), old)
     const module = new URL('../src/agent/memory.ts', import.meta.url).href
     const script = `import {MemoryStore} from ${JSON.stringify(module)}; const store = new MemoryStore(); await store.configure({scope:'user'});`
-    const result = Bun.spawnSync([process.execPath, '-e', script], { env: { ...scrubbedEnv(), HOME: home }, stdout: 'pipe', stderr: 'pipe' })
+    const result = Bun.spawnSync([process.execPath, '-e', script], { env: { ...scrubbedEnv(), HOME: home, USERPROFILE: home }, stdout: 'pipe', stderr: 'pipe' })
     expect(result.exitCode).toBe(0)
     const destination = join(home, '.deepseek', 'memory', 'MEMORY.v1.json')
     const migrated = JSON.parse(await readFile(destination, 'utf8'))
@@ -298,7 +298,7 @@ describe('Memory System', () => {
 
     const [entry] = await store.review('agent')
     expect(entry?.status).toBe('active')
-    expect(entry?.scope.directory).toBe(project)
+    expect(entry?.scope.directory).toBe(await realpath(project))
     expect(entry?.createdAt).toMatch(/^\d{4}-\d\d-\d\dT/)
     expect(entry?.expiresAt).toBeDefined()
     expect(entry?.origin).toBe('project-file')

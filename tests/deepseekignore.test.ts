@@ -319,7 +319,7 @@ describe('Grep', () => {
     fs.writeFileSync(path.join(root, '.ENV'), 'PRIVATE_GREP_CANARY\n')
     fs.writeFileSync(path.join(root, '.aws', 'credentials'), 'PRIVATE_GREP_CANARY\n')
     fs.writeFileSync(path.join(root, '.aws', 'config'), 'PRIVATE_GREP_CANARY\n')
-    fs.mkdirSync(path.join(root, '.AWS'))
+    fs.mkdirSync(path.join(root, '.AWS'), { recursive: true })
     fs.writeFileSync(path.join(root, '.AWS', 'CONFIG'), 'PRIVATE_GREP_CANARY\n')
     fs.symlinkSync(path.join(root, '.env'), path.join(root, 'local-config.txt'))
 

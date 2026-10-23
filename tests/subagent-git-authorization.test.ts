@@ -1,5 +1,5 @@
 import { expect, it } from 'bun:test'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execa } from 'execa'
@@ -9,7 +9,7 @@ import type { Tool } from '../src/tools/types.js'
 
 for (const changed of ['branch', 'index', 'config'] as const) for (const boundary of ['consent', 'journal'] as const) {
   it(`refuses worker Git execution after ${changed} changes at the ${boundary} boundary`, async () => {
-    const root = await mkdtemp(join(tmpdir(), 'deepseek-worker-git-auth-'))
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'deepseek-worker-git-auth-')))
     const git = (args: string[]) => execa('git', args, { cwd: root })
     let session: OrchestratorSession | undefined
     try {

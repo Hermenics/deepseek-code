@@ -41,6 +41,10 @@ describe('hook child environment', () => {
       previousValues.set(key, process.env[key])
       process.env[key] = value
     }
+    if (!isWindows) {
+      previousValues.set('SHELL', process.env.SHELL)
+      process.env.SHELL = '/bin/sh'
+    }
 
     const pathCanary = 'hook-env-path-canary'
     previousValues.set('PATH', process.env.PATH)

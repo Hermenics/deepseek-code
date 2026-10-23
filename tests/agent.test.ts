@@ -3,6 +3,7 @@ import { Agent, canonicalResearchUrl, evidenceUrls } from '../src/agent/agent.js
 import type { AgentCallbacks, ToolPermissionResult } from '../src/agent/agent.js'
 import type { Tool } from '../src/tools/types.js'
 import type { OrchestratorSession } from '../src/orchestration/OrchestratorSession.js'
+import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import * as os from 'node:os'
@@ -253,7 +254,7 @@ describe('Agent class', () => {
         expect(String((raw[boundary + 1] as any)?.content)).toContain('COMPACT_CONTEXT_SENTINEL')
       } finally {
         await agent.shutdown()
-        await rm(root, { recursive: true, force: true })
+        await removeTempDirectory(root)
       }
     })
   })

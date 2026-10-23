@@ -1,11 +1,12 @@
 import { expect, it } from 'bun:test'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { closeLspSession, runLspRequest, type LspOperation } from '../src/lsp.js'
 import { Lsp } from '../src/tools/Lsp/Lsp.js'
 import { Grep } from '../src/tools/Grep/Grep.js'
 import { OrchestratorSession } from '../src/orchestration/OrchestratorSession.js'
+import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 
 const SERVER = String.raw`
 const {appendFileSync}=require('node:fs');
@@ -52,7 +53,7 @@ function handle(msg){
 }
 `
 async function fixture(run: (value: any) => Promise<void>, mode = '') {
-  const root = await mkdtemp(join(tmpdir(), 'deepseek-lsp-session-'))
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'deepseek-lsp-session-')))
   const owner = {}
   const log = join(root, 'server.jsonl')
   const file = join(root, 'entry.ts')
@@ -60,7 +61,7 @@ async function fixture(run: (value: any) => Promise<void>, mode = '') {
   const settings = { memory: { enabled: false }, lsp: { timeoutMs: 1000, servers: [{ name: 'Fixture', command: process.execPath, args: ['-e', SERVER, log, mode], extensions: ['.ts'] }] } }
   const request = async (filePath = file, extra = {}, operation: LspOperation = 'hover') => runLspRequest(settings, { operation, workspacePath: root, filePath, fileContent: await readFile(filePath, 'utf8'), line: 1, character: 1 }, { owner, readDocument: (path: string) => readFile(path, 'utf8').catch(error => { if (error.code === 'ENOENT') return null; throw error }), ...extra })
   try { await run({ root, file, owner, settings, request, diagnostics: (path = file) => request(path, {}, 'diagnostics'), events: async () => (await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line)) }) }
-  finally { closeLspSession(owner); await rm(root, { recursive: true, force: true }) }
+  finally { closeLspSession(owner); await removeTempDirectory(root) }
 }
 
 it('reuses one server and synchronizes changed open files with increasing versions', async () => {

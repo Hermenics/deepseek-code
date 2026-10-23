@@ -1,16 +1,17 @@
 import { afterEach, expect, it } from 'bun:test'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BotStore } from '../src/bots/store.js'
 import { executeBotRun } from '../src/bots/worker.js'
 import { loadMergedSettings } from '../src/settings/loader.js'
+import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 
 const stores: BotStore[] = []
 const directories: string[] = []
 afterEach(async () => {
   for (const store of stores.splice(0)) store.close()
-  for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true })
+  for (const directory of directories.splice(0)) await removeTempDirectory(directory)
 })
 
 it('keeps shared messages and legacy notes from authorizing a bot file write', async () => {

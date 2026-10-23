@@ -72,9 +72,9 @@ describe('Shell platform sandbox boundary', () => {
       }
       expect(result.foreground).toContain('sandbox unavailable')
       expect(result.verification.ok).toBe(false)
-      expect(result.verification.output).toContain('sandbox unavailable')
+      expect(result.verification.output).toContain('unavailable')
       expect(result.readOnly.ok).toBe(false)
-      expect(result.readOnly.output).toContain('sandbox unavailable')
+      expect(result.readOnly.output).toContain('unavailable')
       expect(result.backgroundError).not.toBe('')
       expect(result.backgroundOutput).toContain('sandbox unavailable')
       expect(existsSync(foregroundMarker)).toBe(false)

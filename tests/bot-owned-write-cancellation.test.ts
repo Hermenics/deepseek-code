@@ -1,9 +1,10 @@
 import { expect, it } from 'bun:test'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { BotStore } from '../src/bots/store.js'
 import { waitForChildFile } from './helpers/waitForChildFile.js'
+import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 
 it('cancels an owned write promptly despite a configured synchronous SQLite busy timeout', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'deepseek-owned-write-cancel-'))
@@ -60,6 +61,6 @@ it('cancels an owned write promptly despite a configured synchronous SQLite busy
     if (writer?.exitCode === null) writer.kill()
     if (writer) await writer.exited
     store.close()
-    await rm(directory, { recursive: true, force: true })
+    await removeTempDirectory(directory)
   }
 })

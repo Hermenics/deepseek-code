@@ -182,18 +182,18 @@ it('cancels an outstanding permission wait without recording a user denial', asy
   })
 })
 
-it('finishes the started batch action and skips the stale following action', async () => {
+it('finishes the started tool call and skips the stale following action', async () => {
   await withAgent(async agent => {
     const internal = agent as any
     const firstStarted = deferred()
     const finishFirst = deferred()
     const executeCalls: string[] = []
     let requestCount = 0
-    const shell = internal.toolMap.get('shell') as Tool
-    internal.toolMap.set('shell', {
-      ...shell,
+    const readFile = internal.toolMap.get('read_file') as Tool
+    internal.toolMap.set('read_file', {
+      ...readFile,
       execute: async (args: Record<string, unknown>) => {
-        executeCalls.push(String(args.command))
+        executeCalls.push(String(args.path))
         if (executeCalls.length === 1) {
           firstStarted.resolve()
           await finishFirst.promise
@@ -208,8 +208,8 @@ it('finishes the started batch action and skips the stale following action', asy
       return stream([{
         choices: [{
           delta: { tool_calls: [
-            { index: 0, id: 'started-shell-call', function: { name: 'shell', arguments: '{"command":"printf first"}' } },
-            { index: 1, id: 'stale-shell-call', function: { name: 'shell', arguments: '{"command":"printf second"}' } },
+            { index: 0, id: 'started-read-call', function: { name: 'read_file', arguments: '{"path":"first"}' } },
+            { index: 1, id: 'stale-read-call', function: { name: 'read_file', arguments: '{"path":"second"}' } },
           ] },
           finish_reason: 'tool_calls',
         }],
@@ -223,8 +223,8 @@ it('finishes the started batch action and skips the stale following action', asy
     finishFirst.resolve()
     await running
 
-    expect(executeCalls).toEqual(['printf first'])
-    expect(state.toolResults.find(result => result.result.includes('Objective revision changed'))).toMatchObject({ name: 'shell' })
+    expect(executeCalls).toEqual(['first'])
+    expect(state.toolResults.find(result => result.result.includes('Objective revision changed'))).toMatchObject({ name: 'read_file' })
     expect(requestCount).toBe(1)
     expect(state.done).toBe(1)
   })

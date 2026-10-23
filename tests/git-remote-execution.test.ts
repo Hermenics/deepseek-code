@@ -72,7 +72,7 @@ for (const action of ['push', 'pull'] as const) for (const approved of [false, t
       } else {
         expect(result).not.toMatch(/^Error:/)
         if (action === 'push') expect((await git(target, ['rev-parse', ref])).stdout).toBe(expectedHead)
-        else expect(await readFile(join(selected.repo, 'source.txt'), 'utf8')).toBe('published advance\n')
+        else expect((await readFile(join(selected.repo, 'source.txt'), 'utf8')).replace(/\r\n/g, '\n')).toBe('published advance\n')
         expect((await git(action === 'push' ? other.remote : other.repo, ['rev-parse', action === 'push' ? 'refs/heads/main' : 'HEAD'])).stdout).toBe(otherBefore)
       }
     } finally {
@@ -257,7 +257,7 @@ it('records a successful fast-forward pull as a positive local effect', async ()
     })
 
     expect(result).toContain('Fast-forward')
-    expect(await readFile(join(selected.repo, 'source.txt'), 'utf8')).toBe('published fast-forward\n')
+    expect((await readFile(join(selected.repo, 'source.txt'), 'utf8')).replace(/\r\n/g, '\n')).toBe('published fast-forward\n')
     expect(outcomes).toHaveLength(1)
     expect(outcomes[0]).toMatchObject({ effectId: 'successful-pull-1', state: 'effect-observed' })
     expect(outcomes[0]?.evidence).toMatch(/^effect-observed:[0-9a-f]{64}$/)
@@ -294,6 +294,6 @@ it('preserves a successful pull result when recording its changed-state evidence
     })
 
     expect(result).toContain('Fast-forward')
-    expect(await readFile(join(selected.repo, 'source.txt'), 'utf8')).toBe('published despite evidence failure\n')
+    expect((await readFile(join(selected.repo, 'source.txt'), 'utf8')).replace(/\r\n/g, '\n')).toBe('published despite evidence failure\n')
   } finally { await rm(root, { recursive: true, force: true }) }
 })

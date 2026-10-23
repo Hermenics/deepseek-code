@@ -100,7 +100,7 @@ sandboxTest('records a real sandboxed test receipt without a UI or inherited pro
   }, "import { it, expect } from 'bun:test'; it('provider keys absent', () => expect(process.env.DEEPSEEK_API_KEY).toBeUndefined())")
 })
 
-it('refuses arbitrary commands and background verification without running their effects', async () => {
+sandboxTest('refuses arbitrary commands and background verification without running their effects', async () => {
   await fixture(async (root, context, receipts) => {
     const result = JSON.parse(await Shell.execute({ command: 'touch /mnt/should-not-exist; echo "1 pass"', verification: true }, context))
     expect(result.ok).toBe(false)

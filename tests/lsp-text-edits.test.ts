@@ -1,5 +1,5 @@
 import { expect, it } from 'bun:test'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createHash } from 'node:crypto'
@@ -36,7 +36,7 @@ it('accepts only one edit mode and requires an explicit base hash for range edit
 })
 
 it('applies a range proposal through the existing file writer and refuses stale base/read versions', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'deepseek-lsp-edit-'))
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'deepseek-lsp-edit-')))
   const path = join(root, 'file.ts'); const source = 'const value = 1\r\n'
   const context = { sessionId: 'range-edit', workspacePath: root, projectRoot: root, permissionProfile: 'coordinator-integrator' as const }
   const args = { path, expected_hash: hash(source), text_edits: [edit(0, 6, 11, 'renamed')] }
@@ -56,7 +56,7 @@ it('applies a range proposal through the existing file writer and refuses stale 
 })
 
 it('keeps the BOM in read snapshots and applied range edits', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'deepseek-lsp-bom-'))
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'deepseek-lsp-bom-')))
   const path = join(root, 'file.ts'); const source = '\ufeffconst value = 1'
   const context = { sessionId: 'bom-edit', workspacePath: root, projectRoot: root, permissionProfile: 'coordinator-integrator' as const }
   try {

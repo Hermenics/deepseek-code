@@ -4,6 +4,9 @@ import { Agent } from '../src/agent/agent.js'
 import * as mcp from '../src/agent/mcp.js'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { sandboxAvailable } from '../src/utils/platform.js'
+
+const sandboxTest = it.skipIf(!sandboxAvailable())
 
 describe('MCP config', () => {
   let cwd: string
@@ -131,7 +134,7 @@ describe('MCP tool bridge', () => {
     expect(formatMcpToolResult({ content: [{ type: 'resource_link', uri: 'file:///tmp/x', name: 'x' }] })).toContain('resource_link')
   })
 
-  it('loads an approved plugin MCP server, calls its tool, and closes it', async () => {
+  sandboxTest('loads an approved plugin MCP server, calls its tool, and closes it', async () => {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-mcp-plugin-'))
     const pluginDir = join(root, 'plugins', 'echo-pack')
     const previous = process.env.DEEPSEEK_PLUGINS_DIR

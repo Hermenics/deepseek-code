@@ -40,7 +40,7 @@ async function checkpointWrite(path: string, before: string | null, after: strin
 }
 
 describe('fileCheckpoint', () => {
-  it('syncs backup and manifest contents before syncing their directory entries', async () => {
+  it.skipIf(process.platform === 'win32')('syncs backup and manifest contents before syncing their directory entries', async () => {
     const { createFileCheckpoint } = await getModule()
     const path = join(testDir, 'sync-order.ts')
     await writeFile(path, 'before')
@@ -63,7 +63,7 @@ describe('fileCheckpoint', () => {
     }
   })
 
-  it('propagates manifest directory-sync failure after rename and preserves the backup', async () => {
+  it.skipIf(process.platform === 'win32')('propagates manifest directory-sync failure after rename and preserves the backup', async () => {
     const { createFileCheckpoint, listFileCheckpoints } = await getModule()
     const path = join(testDir, 'manifest-sync-failure.ts')
     await writeFile(path, 'before')
@@ -295,7 +295,7 @@ describe('fileCheckpoint', () => {
     await expect(listFileCheckpoints('../outside')).rejects.toThrow('invalid checkpoint session ID')
   })
 
-  it('keeps checkpoint directories and files private, repairing existing directory modes', async () => {
+  it.skipIf(process.platform === 'win32')('keeps checkpoint directories and files private, repairing existing directory modes', async () => {
     const { createFileCheckpoint } = await getModule()
     const baseDirectory = join(testDir, '.deepseek-code', 'checkpoints')
     const sessionDirectory = join(baseDirectory, testSessionId)

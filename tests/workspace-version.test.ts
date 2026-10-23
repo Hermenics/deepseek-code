@@ -1,12 +1,12 @@
 import { describe, it, expect } from 'bun:test'
-import { lstat, mkdtemp, mkdir, rm, writeFile, symlink } from 'fs/promises'
+import { lstat, mkdtemp, mkdir, realpath, rm, writeFile, symlink } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { execa } from 'execa'
 import { assertCapturedWorkspaceInputsUnchanged, captureWorkspaceVersion, diffWorkspaceFileDigests, restoreWorkspaceFileDigests, serializeWorkspaceFileDigests } from '../src/agent/workspaceVersion.js'
 import { collectEnvironmentInfo } from '../src/agent/environment.js'
 
-async function tempDir(prefix: string): Promise<string> { return mkdtemp(join(tmpdir(), prefix)) }
+async function tempDir(prefix: string): Promise<string> { return realpath(await mkdtemp(join(tmpdir(), prefix))) }
 async function git(cwd: string, args: string[]) { return execa('git', args, { cwd }) }
 
 describe('captureWorkspaceVersion', () => {

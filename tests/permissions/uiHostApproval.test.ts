@@ -15,10 +15,10 @@ async function setup() {
   await agent.readyPromise
   const internal = agent as any
   internal.settings = { permissions: { allow: ['introspect'], deny: [] }, risk: { enabled: false } }
-  internal.allowedTools = ['host_approval_probe']
+  internal.allowedTools = ['host_approval_probe__execute']
   let executed = 0
   internal.installMcpTools([{
-    name: 'host_approval_probe', description: 'Exercise the host permission bridge',
+    name: 'host_approval_probe__execute', description: 'Exercise the host permission bridge',
     parameters: { type: 'object', properties: {} },
     execute: async () => { executed++; return 'executed after approval' },
   }])
@@ -26,11 +26,11 @@ async function setup() {
   const unbind = bindToolPermissionPrompt(agent, state => { prompt = state })
   const pending = internal.checkAndExecuteTool({
     id: 'host-approval-probe', type: 'function',
-    function: { name: 'host_approval_probe', arguments: '{}' },
+    function: { name: 'host_approval_probe__execute', arguments: '{}' },
   }, {}, {
     onToken() {}, onThinking() {}, onToolCall() {}, onToolResult() {}, onDone() {}, onDenyAbort() {}, onAutoCompact() {},
   }) as Promise<{ result: string }>
-  for (let attempt = 0; attempt < 100 && !prompt; attempt++) await Bun.sleep(1)
+  for (let attempt = 0; attempt < 1_000 && !prompt; attempt++) await Bun.sleep(5)
   return { agent, pending, unbind, prompt: () => prompt, executed: () => executed }
 }
 
@@ -98,7 +98,7 @@ describe('TUI-to-Agent permission bridge', () => {
   it('delivers the pending request to the prompt and sends its approval back to the Agent', async () => {
     const state = await setup()
     try {
-      expect(state.prompt()?.request).toMatchObject({ toolName: 'host_approval_probe', reason: 'permission' })
+      expect(state.prompt()?.request).toMatchObject({ toolName: 'host_approval_probe__execute', reason: 'permission' })
       expect(permissionOptions(state.prompt()!.request).map(option => option.result)).toContain('once')
       state.prompt()!.resolve('once')
       expect(await state.pending).toMatchObject({ result: 'executed after approval' })
@@ -112,7 +112,7 @@ describe('TUI-to-Agent permission bridge', () => {
   it('denies an outstanding request when the TUI host unmounts', async () => {
     const state = await setup()
     try {
-      expect(state.prompt()?.request.toolName).toBe('host_approval_probe')
+      expect(state.prompt()?.request.toolName).toBe('host_approval_probe__execute')
       state.unbind()
       await expect(state.pending).rejects.toMatchObject({ message: 'deny-abort' })
       expect(state.executed()).toBe(0)

@@ -1,5 +1,5 @@
 import { expect, it } from 'bun:test'
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createHash } from 'node:crypto'
@@ -7,7 +7,7 @@ import { loadProjectInstructions, formatProjectInstructions } from '../src/agent
 import { Agent } from '../src/agent/agent.js'
 
 it('versions and scopes all rule files, deduplicating canonical aliases without collapsing distinct origins', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'deepseek-rule-sources-'))
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'deepseek-rule-sources-')))
   try {
     const workspace = join(directory, 'workspace'), app = join(workspace, 'app')
     const steering = join(workspace, '.deepseek', 'steering')
@@ -42,7 +42,7 @@ it('versions and scopes all rule files, deduplicating canonical aliases without 
 })
 
 it('rejects project-rule links that escape the workspace', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'deepseek-rule-link-'))
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'deepseek-rule-link-')))
   try {
     const workspace = join(directory, 'workspace')
     await mkdir(workspace)
@@ -54,7 +54,7 @@ it('rejects project-rule links that escape the workspace', async () => {
 
 it('refreshes steering and DEEPSEEK rules before writing and rejects later journal mutations', async () => {
   for (const relative of ['DEEPSEEK.md', '.deepseek/DEEPSEEK.md', '.deepseek/steering/rules.md']) {
-    const directory = await mkdtemp(join(tmpdir(), 'deepseek-rule-refresh-'))
+    const directory = await realpath(await mkdtemp(join(tmpdir(), 'deepseek-rule-refresh-')))
     const rules = join(directory, relative)
     await mkdir(join(directory, '.deepseek', 'steering'), { recursive: true })
     await writeFile(rules, 'Original project convention')
