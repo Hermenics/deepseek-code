@@ -1,12 +1,12 @@
 import { describe, it, expect, mock, spyOn, beforeEach, afterEach, beforeAll, afterAll } from 'bun:test'
 import { Agent, canonicalResearchUrl, evidenceUrls } from '../src/agent/agent.js'
 import type { AgentCallbacks, ToolPermissionResult } from '../src/agent/agent.js'
+import * as modelInfo from '../src/agent/modelInfo.js'
 import type { Tool } from '../src/tools/types.js'
 import type { OrchestratorSession } from '../src/orchestration/OrchestratorSession.js'
 import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import * as os from 'node:os'
 import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { ReadFile } from '../src/tools/ReadFile/ReadFile.js'
 import { createHash } from 'node:crypto'
@@ -84,31 +84,27 @@ describe('Agent class', () => {
     })
 
     it('does not prompt for default web-fetch approval during model description research', async () => {
-      const fakeHome = await mkdtemp(join(tmpdir(), 'deepseek-agent-modelinfo-'))
-      const previousHome = process.env.HOME
-      const previousUserProfile = process.env.USERPROFILE
-      process.env.HOME = fakeHome
-      process.env.USERPROFILE = fakeHome
-      const homedirSpy = spyOn(os, 'homedir').mockReturnValue(fakeHome)
-      const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' })
-      await (agent as unknown as { readyPromise: Promise<void> }).readyPromise
-      ;(agent as unknown as { settings: { permissions: { allow: string[]; deny: string[] } } }).settings.permissions = { allow: [], deny: [] }
-      const toolMap = (agent as unknown as { toolMap: Map<string, Tool> }).toolMap
-      const webFetch = toolMap.get('web_fetch')
-      if (!webFetch) throw new Error('web_fetch tool is not installed')
-      const source = 'https://docs.example.test/unlisted-model-auth-gate-test'
-      const executeSearch = mock(async () => `Model documentation: ${source}`)
-      toolMap.set('web_fetch', { ...webFetch, execute: executeSearch })
-
-      const createCompletion = mock(async () => ({ choices: [{ message: { content: '{}' } }] }))
-      injectMockClient(agent, {
-        chat: { completions: { create: createCompletion } },
-        models: { list: mock(async () => ({ [Symbol.asyncIterator]: async function* () {} })) },
-      })
-      const requestPermission = mock(async () => 'deny' as ToolPermissionResult)
-      agent.setToolPermissionHandler(requestPermission)
-
+      const projectRoot = await mkdtemp(join(tmpdir(), 'deepseek-agent-modelinfo-'))
+      const agent = new Agent({ provider: 'deepseek', apiKey: 'test-key' }, { projectRoot, logFile: null, snapshotFile: null, simulationMode: true })
+      const saveCache = spyOn(modelInfo, 'saveCachedDescriptions').mockResolvedValue()
       try {
+        await (agent as unknown as { readyPromise: Promise<void> }).readyPromise
+        ;(agent as unknown as { settings: { permissions: { allow: string[]; deny: string[] } } }).settings.permissions = { allow: [], deny: [] }
+        const toolMap = (agent as unknown as { toolMap: Map<string, Tool> }).toolMap
+        const webFetch = toolMap.get('web_fetch')
+        if (!webFetch) throw new Error('web_fetch tool is not installed')
+        const source = 'https://docs.example.test/unlisted-model-auth-gate-test'
+        const executeSearch = mock(async () => `Model documentation: ${source}`)
+        toolMap.set('web_fetch', { ...webFetch, execute: executeSearch })
+
+        const createCompletion = mock(async () => ({ choices: [{ message: { content: '{}' } }] }))
+        injectMockClient(agent, {
+          chat: { completions: { create: createCompletion } },
+          models: { list: mock(async () => ({ [Symbol.asyncIterator]: async function* () {} })) },
+        })
+        const requestPermission = mock(async () => 'deny' as ToolPermissionResult)
+        agent.setToolPermissionHandler(requestPermission)
+
         const descriptions = await agent.generateDescriptions(['unlisted-model-auth-gate-test'])
         expect(descriptions).toEqual({})
         expect(requestPermission).not.toHaveBeenCalled()
@@ -120,13 +116,9 @@ describe('Agent class', () => {
         expect(executeSearch).toHaveBeenCalledTimes(1)
         expect(createCompletion).toHaveBeenCalledTimes(1)
       } finally {
+        saveCache.mockRestore()
         await agent.shutdown()
-        homedirSpy.mockRestore()
-        if (previousHome === undefined) delete process.env.HOME
-        else process.env.HOME = previousHome
-        if (previousUserProfile === undefined) delete process.env.USERPROFILE
-        else process.env.USERPROFILE = previousUserProfile
-        await removeTempDirectory(fakeHome)
+        await removeTempDirectory(projectRoot)
       }
     })
   })

@@ -3,6 +3,7 @@ import { execa } from 'execa'
 import { scrubbedEnv } from './platform.js'
 
 const GIT_INSPECTION_MAX_BUFFER = 32_000
+const GIT_INSPECTION_MAX_ENTRIES = 512
 
 /** Inspect Git data without launching repository-configured fsmonitor, diff, textconv or signature helpers. */
 export function gitInspectionArgs(args: string[]): string[] {
@@ -17,7 +18,8 @@ function isIncompleteGitCapture(result: { isMaxBuffer?: boolean; timedOut?: bool
 }
 
 function isIncompleteGitInventory(result: { isMaxBuffer?: boolean; timedOut?: boolean; isCanceled?: boolean; failed?: boolean; exitCode?: number; stdout: string }): boolean {
-  return isIncompleteGitCapture(result) || Buffer.byteLength(result.stdout, 'utf8') >= GIT_INSPECTION_MAX_BUFFER || result.exitCode === 0 && !result.stdout.endsWith('\0')
+  const tooManyEntries = (result.stdout.match(/\0/g)?.length ?? 0) > GIT_INSPECTION_MAX_ENTRIES
+  return isIncompleteGitCapture(result) || Buffer.byteLength(result.stdout, 'utf8') >= GIT_INSPECTION_MAX_BUFFER || tooManyEntries || result.exitCode === 0 && !result.stdout.endsWith('\0')
 }
 
 export interface GitInspectionOptions {

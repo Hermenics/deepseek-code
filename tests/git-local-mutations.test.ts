@@ -219,9 +219,10 @@ it.skipIf(process.platform === 'win32')('restores a nonconflicting stash without
   } finally { await rm(parent, { recursive: true, force: true }) }
 })
 
-it('refuses a truncated merge-driver inventory before restoring a stash', async () => {
+it('refuses an oversized merge-driver inventory before restoring a stash', async () => {
   const parent = await mkdtemp(join(tmpdir(), 'deepseek-git-merge-limit-'))
   const root = join(parent, 'repo')
+  const driverCount = 600
   try {
     await repository(root)
     const git = (args: string[]) => execa('git', args, { cwd: root, env: scrubbedEnv(), extendEnv: false })
@@ -229,8 +230,10 @@ it('refuses a truncated merge-driver inventory before restoring a stash', async 
     await git(['stash', 'push', '-m', 'preserve'])
     const stash = (await git(['rev-parse', 'refs/stash'])).stdout
     const config = join(root, '.git', 'config')
-    const drivers = Array.from({ length: 3500 }, (_, index) => `[merge "driver${index}"]\n driver = false\n`).join('')
+    const drivers = Array.from({ length: driverCount }, (_, index) => `[merge "driver${index}"]\n driver = false\n`).join('')
     await writeFile(config, `${await readFile(config, 'utf8')}\n${drivers}`)
+    const inventory = await git(['config', '--null', '--name-only', '--get-regexp', '^merge\\..*\\.driver$'])
+    expect(inventory.stdout.split('\0').filter(Boolean)).toHaveLength(driverCount)
     expect(await Git.execute({ action: 'stash', pop: true }, context(root))).toContain('Cannot inspect Git merge-driver configuration')
     expect((await git(['rev-parse', 'refs/stash'])).stdout).toBe(stash)
     expect(await readFile(join(root, 'source.txt'), 'utf8')).toBe('original\n')
