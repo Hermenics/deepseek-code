@@ -36,31 +36,17 @@ function handle(msg){
 }
 `
 async function fixture(mode: string, run: (value: any) => Promise<void>) {
-  const trace = (stage: string) => {
-    if (process.platform === 'win32' && process.env.CI === 'true') console.log(`[lsp-code-actions] ${mode} ${stage}`)
-  }
-  trace('fixture start')
   const root = await mkdtemp(join(tmpdir(), 'deepseek-code-actions-'))
   const file = join(root, 'entry.ts'), log = join(root, 'server.jsonl')
   await writeFile(file, 'const value = 1\n')
   await writeFile(join(root, 'other.ts'), 'const value = 2\n')
   const session = new OrchestratorSession({ projectRoot: root, logFile: null, snapshotFile: null, settings: { memory: { enabled: false }, lsp: { timeoutMs: 2000, servers: [{ name: 'Fixture', command: process.execPath, args: ['-e', SERVER, log, mode], extensions: ['.ts'] }] } } })
-  const query = async (args: Record<string, unknown>) => {
-    trace(`query ${String(args.operation)} start`)
-    try { return JSON.parse(await Lsp.execute({ path: file, ...args }, session.toolContext())) }
-    finally { trace(`query ${String(args.operation)} end`) }
-  }
+  const query = async (args: Record<string, unknown>) => JSON.parse(await Lsp.execute({ path: file, ...args }, session.toolContext()))
   const list = (args = {}) => query({ operation: 'code_actions', line: 1, character: 7, end_character: 12, ...args })
   const preview = (id: string) => query({ operation: 'code_action_preview', action_id: id })
   const events = async () => (await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
-  try { await run({ root, file, session, query, list, preview, events }); trace('run end') }
-  finally {
-    trace('shutdown start')
-    await session.shutdown()
-    trace('shutdown end')
-    await removeTempDirectory(root)
-    trace('cleanup end')
-  }
+  try { await run({ root, file, session, query, list, preview, events }) }
+  finally { await session.shutdown(); await removeTempDirectory(root) }
 }
 
 for (const mode of ['edit', 'resolve', 'multi']) it(`previews ${mode} actions through synchronized hash-bound text proposals`, async () => {
