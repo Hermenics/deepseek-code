@@ -38,7 +38,7 @@ jobs:
 
       - name: Test with coverage
         if: matrix.os == 'ubuntu-latest'
-        run: bun run test:coverage --timeout 15000
+        run: bun run test:coverage --timeout 15000 --parallel=1
 
       - name: Build CLI
         run: bun run build
