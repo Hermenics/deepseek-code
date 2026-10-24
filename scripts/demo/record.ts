@@ -68,7 +68,7 @@ try {
     .replace('$DEMO_COMMAND', tapeText(commandLine))
     .replace('$DEMO_PROMPT', tapeText(DEMO_PROMPT))
   await writeFile(tapePath, tape)
-  const env = {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: home,
     TERM: 'xterm-256color',
