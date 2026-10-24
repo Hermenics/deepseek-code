@@ -50,15 +50,15 @@ describe('hook child environment', () => {
     previousValues.set('PATH', process.env.PATH)
     process.env.PATH = `${process.env.PATH ?? ''}${isWindows ? ';' : ':'}${pathCanary}`
 
-    const variables = [...Object.keys(credentialCanaries), 'PATH', ...Object.keys(localeCanaries)]
-    const command = isWindows ? 'set' : variables
-      .map(key => `if [ "\${${key}+x}" = x ]; then printf '%s\\n' "${key}=\${${key}}"; fi`)
-      .join('; ')
+    // Use the runtime's absolute path because this test deliberately mutates PATH.
+    const command = isWindows ? 'set' : `'${process.execPath.replaceAll("'", "'\\''")}' -e 'process.stdout.write(JSON.stringify(process.env))'`
     const output = await runHookCommand({ type: 'command', command }, buildInput({ event: 'SessionStart', session_id: 'env-scrubbing-test' }))
-    const inherited = Object.fromEntries(output.split(/\r?\n/).flatMap((line) => {
-      const separator = line.indexOf('=')
-      return separator < 0 ? [] : [[line.slice(0, separator), line.slice(separator + 1)]]
-    }))
+    const inherited: Record<string, string> = isWindows
+      ? Object.fromEntries(output.split(/\r?\n/).flatMap((line) => {
+        const separator = line.indexOf('=')
+        return separator < 0 ? [] : [[line.slice(0, separator), line.slice(separator + 1)]]
+      }))
+      : JSON.parse(output)
 
     for (const key of Object.keys(credentialCanaries)) {
       const inheritedKey = Object.keys(inherited).find(candidate => candidate.toLowerCase() === key.toLowerCase())
