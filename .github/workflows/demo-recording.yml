@@ -1,0 +1,84 @@
+name: Record CLI demo
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - package.json
+
+permissions:
+  contents: write
+
+concurrency:
+  group: demo-recording-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+
+      - name: Check for a SemVer increase
+        id: version
+        run: bun scripts/demo/version-bump.ts
+        env:
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+
+      - name: Install dependencies
+        if: steps.version.outputs.record == 'true'
+        run: bun install --frozen-lockfile
+
+      - name: Build the CLI
+        if: steps.version.outputs.record == 'true'
+        run: bun run build
+
+      - name: Install the terminal font
+        if: steps.version.outputs.record == 'true'
+        run: sudo apt-get update && sudo apt-get install --yes bubblewrap fonts-dejavu-core
+
+      - name: Install VHS and its terminal recorder dependencies
+        if: steps.version.outputs.record == 'true'
+        uses: charmbracelet/vhs-action@f6d7db07a432fcd3b06772628d36a57f96d95dcf
+        with:
+          version: v0.12.1
+          path: ""
+
+      - name: Record and verify the demo
+        if: steps.version.outputs.record == 'true'
+        run: bun scripts/demo/record.ts
+
+      - name: Commit the refreshed media
+        if: steps.version.outputs.record == 'true'
+        run: |
+          DEMO_ASSETS="$RUNNER_TEMP/demo-assets"
+          mkdir -p "$DEMO_ASSETS"
+          cp src/public/demo.gif "$DEMO_ASSETS/demo.gif"
+          cp website/public/demo.mp4 "$DEMO_ASSETS/demo.mp4"
+          git restore --source=HEAD -- src/public/demo.gif src/bots/pod-avatar-runtime.ts
+          if git ls-files --error-unmatch website/public/demo.mp4 >/dev/null 2>&1; then
+            git restore --source=HEAD -- website/public/demo.mp4
+          else
+            rm -f website/public/demo.mp4
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git rebase origin/main
+          cp "$DEMO_ASSETS/demo.gif" src/public/demo.gif
+          cp "$DEMO_ASSETS/demo.mp4" website/public/demo.mp4
+          git add src/public/demo.gif website/public/demo.mp4
+          if git diff --cached --quiet -- src/public/demo.gif website/public/demo.mp4; then
+            echo "The recorded demo is unchanged."
+            exit 0
+          fi
+          version="$(node -p "require('./package.json').version")"
+          git commit -m "docs: refresh CLI demo for v${version}"
+          git push origin HEAD:main

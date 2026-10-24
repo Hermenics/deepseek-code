@@ -20,7 +20,7 @@
 <div align="center">
   <img src="https://raw.githubusercontent.com/Hermenics/deepseek-code/main/src/public/demo.gif" alt="DeepSeek Code demo" width="80%" />
   <br/>
-  <sub><i>Simulated output for demonstration purposes.</i></sub>
+  <sub><i>Real DeepSeek Code CLI with a deterministic local model and an isolated demo project.</i></sub>
 </div>
 
 ---

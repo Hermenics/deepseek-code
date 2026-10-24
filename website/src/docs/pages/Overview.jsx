@@ -1,7 +1,6 @@
 import { CodeBlock, Note, Toc, Icon } from "../Layout";
 import useNpmVersion from "../../lib/useNpmVersion";
 import { ModelTable } from "../deepseekModels";
-import TerminalDemo from "../../components/landing/TerminalDemo";
 
 const PROVIDERS = [
   { name: "DeepSeek API", badge: "default", auth: "API key from platform.deepseek.com", env: ["DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL"] },
@@ -104,9 +103,23 @@ export default function Overview() {
 
         </div>
 
-        <div style={{ margin: "0 0 32px" }}>
-          <TerminalDemo />
-        </div>
+        <figure style={{ margin: "0 0 32px", overflow: "hidden", border: "1px solid #34343e", borderRadius: 10, background: "#0d1117", boxShadow: "0 20px 60px rgba(0,0,0,.28)" }}>
+          <video
+            aria-label="DeepSeek Code working in its terminal interface"
+            controls
+            autoPlay
+            loop
+            muted
+            playsInline
+            preload="metadata"
+            style={{ display: "block", width: "100%", height: "auto" }}
+          >
+            <source src={`${process.env.PUBLIC_URL}/demo.mp4`} type="video/mp4" />
+          </video>
+          <figcaption style={{ padding: "10px 14px", color: "var(--text-muted)", fontSize: 12 }}>
+            Real CLI session with a deterministic local model and an isolated demo project.
+          </figcaption>
+        </figure>
 
         <section id="what-is">
           <h2><span className="anchor">#</span>What is DeepSeek Code?</h2>
