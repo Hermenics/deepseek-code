@@ -53,7 +53,7 @@ async function fixture(mode: string, run: (value: any) => Promise<void>) {
   const list = (args = {}) => query({ operation: 'code_actions', line: 1, character: 7, end_character: 12, ...args })
   const preview = (id: string) => query({ operation: 'code_action_preview', action_id: id })
   const events = async () => (await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line))
-  try { await run({ root, file, session, list, preview, events }); trace('run end') }
+  try { await run({ root, file, session, query, list, preview, events }); trace('run end') }
   finally {
     trace('shutdown start')
     await session.shutdown()
