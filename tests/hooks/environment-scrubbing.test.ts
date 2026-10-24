@@ -50,7 +50,8 @@ describe('hook child environment', () => {
     previousValues.set('PATH', process.env.PATH)
     process.env.PATH = `${process.env.PATH ?? ''}${isWindows ? ';' : ':'}${pathCanary}`
 
-    const command = isWindows ? 'set' : 'env'
+    // The test changes PATH, so resolve `env` through the POSIX default path.
+    const command = isWindows ? 'set' : 'command -p env'
     const output = await runHookCommand({ type: 'command', command }, buildInput({ event: 'SessionStart', session_id: 'env-scrubbing-test' }))
     const inherited = Object.fromEntries(output.split(/\r?\n/).flatMap((line) => {
       const separator = line.indexOf('=')

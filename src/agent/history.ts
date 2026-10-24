@@ -6,6 +6,7 @@ import type { MessageOrBoundary } from './compactBoundary.js'
 import { redactSecrets } from '../orchestration/events.js'
 
 const MAX_HISTORY_MESSAGES = 500
+const pendingWrites = new Map<string, Promise<void>>()
 
 /** History file location; DEEPSEEK_HISTORY_PATH overrides the default `~/.deepseek/history.json`. */
 function historyPath(): string {
@@ -14,17 +15,26 @@ function historyPath(): string {
 
 /** Writes the agent message history to disk, keeping the first (system) message plus the most recent messages up to MAX_HISTORY_MESSAGES. */
 export async function saveHistory(messages: MessageOrBoundary[], path = historyPath()): Promise<void> {
-  await mkdir(dirname(path), { recursive: true })
-  // Truncate to prevent unbounded growth — keep system prompt + last N messages
-  const truncated = messages.length > MAX_HISTORY_MESSAGES
-    ? [messages[0]!, ...messages.slice(-(MAX_HISTORY_MESSAGES - 1))]
-    : messages
-  const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
+  const previous = pendingWrites.get(path) ?? Promise.resolve()
+  const write = previous.catch(() => {}).then(async () => {
+    await mkdir(dirname(path), { recursive: true })
+    // Truncate to prevent unbounded growth — keep system prompt + last N messages
+    const truncated = messages.length > MAX_HISTORY_MESSAGES
+      ? [messages[0]!, ...messages.slice(-(MAX_HISTORY_MESSAGES - 1))]
+      : messages
+    const temporary = `${path}.${process.pid}.${randomUUID()}.tmp`
+    try {
+      await writeFile(temporary, JSON.stringify(redactSecrets(truncated), null, 2), { encoding: 'utf8', mode: 0o600 })
+      await rename(temporary, path)
+    } catch (error) {
+      await rm(temporary, { force: true }).catch(() => undefined)
+      throw error
+    }
+  })
+  pendingWrites.set(path, write)
   try {
-    await writeFile(temporary, JSON.stringify(redactSecrets(truncated), null, 2), { encoding: 'utf8', mode: 0o600 })
-    await rename(temporary, path)
-  } catch (error) {
-    await rm(temporary, { force: true }).catch(() => undefined)
-    throw error
+    await write
+  } finally {
+    if (pendingWrites.get(path) === write) pendingWrites.delete(path)
   }
 }
