@@ -21,7 +21,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.3.13"
+          bun-version: "1.4.0"
 
       # Fails (and GitHub notifies the maintainers) when the official page no longer parses.
       - name: Sync from the official pricing page
