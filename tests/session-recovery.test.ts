@@ -15,6 +15,7 @@ function fileArgsDigest(args: Record<string, unknown>): string {
   if (!serialized) throw new Error('Unable to serialize fixture arguments')
   return createHash('sha256').update(serialized).digest('hex')
 }
+const jsonEscapedString = (value: string) => JSON.stringify(value).slice(1, -1)
 
 async function withAgent(run: (agent: Agent) => Promise<void>, sessionId?: string, options: Pick<AgentOptions, 'checkpointHistory'> = {}) {
   const root = await mkdtemp(join(tmpdir(), 'deepseek-session-recovery-'))
@@ -425,7 +426,7 @@ it('recovers a committed primary file receipt without reconciling another interr
     const shellResult = String(recoveredShell?.content)
 
     expect(writeResult).toContain('effect-observed')
-    expect(writeResult).toContain(filePath)
+    expect(writeResult).toContain(jsonEscapedString(filePath))
     expect(writeResult).toContain(checkpoint.postVersion.hash)
     expect(writeResult).toMatch(/Do not replay(?: it)? automatically/i)
     expect(shellResult).toContain('may have executed')
@@ -467,7 +468,7 @@ it('recovers primary file receipts for native Bedrock V3.1 and V3.2 call IDs', a
 
       const recovered = String(agent.getMessages().find(message => message.role === 'tool' && message.tool_call_id === callId)?.content)
       expect(recovered).toContain('effect-observed')
-      expect(recovered).toContain(filePath)
+      expect(recovered).toContain(jsonEscapedString(filePath))
       expect(recovered).toContain(checkpoint.postVersion.hash)
       expect(recovered).toContain('Do not replay it automatically')
     })
@@ -506,7 +507,7 @@ it('recovers native Bedrock receipts after reopening a saved V3 session with R1 
 
     const recovered = String(agent.getMessages().find(message => message.role === 'tool' && message.tool_call_id === callId)?.content)
     expect(recovered).toContain('effect-observed')
-    expect(recovered).toContain(filePath)
+    expect(recovered).toContain(jsonEscapedString(filePath))
     expect(recovered).toContain(checkpoint.postVersion.hash)
     expect(recovered).toContain('Do not replay it automatically')
   })
@@ -575,7 +576,7 @@ it('matches a relative file receipt against the session workspace, not process c
 
     const recovered = String(agent.getMessages().find(message => message.role === 'tool' && message.tool_call_id === callId)?.content)
     expect(recovered).toContain('effect-observed')
-    expect(recovered).toContain(normalizedPath)
+    expect(recovered).toContain(jsonEscapedString(normalizedPath))
     expect(recovered).toContain('Do not replay it automatically')
   })
 })
