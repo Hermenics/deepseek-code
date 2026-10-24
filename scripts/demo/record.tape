@@ -2,7 +2,7 @@ Output "$DEMO_MP4"
 
 Set FontFamily "DejaVu Sans Mono"
 Set FontSize 18
-Set Columns 120
+Set Columns 144
 Set Rows 40
 Set Framerate 30
 Set TypingSpeed 35ms
@@ -22,7 +22,7 @@ Wait+Screen /What do you want me to do/
 Set TypingSpeed 80ms
 Type "$DEMO_PROMPT"
 Enter
-Wait+Screen@60s /full test suite passes/
+Wait+Screen@60s /isolated workspace/
 Sleep 3s
 Hide
 Type "/quit"
