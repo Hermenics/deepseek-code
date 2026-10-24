@@ -50,8 +50,10 @@ describe('hook child environment', () => {
     previousValues.set('PATH', process.env.PATH)
     process.env.PATH = `${process.env.PATH ?? ''}${isWindows ? ';' : ':'}${pathCanary}`
 
-    // The test changes PATH, so invoke env without resolving it through PATH.
-    const command = isWindows ? 'set' : '/usr/bin/env'
+    const variables = [...Object.keys(credentialCanaries), 'PATH', ...Object.keys(localeCanaries)]
+    const command = isWindows ? 'set' : variables
+      .map(key => `if [ "\${${key}+x}" = x ]; then printf '%s\\n' "${key}=\${${key}}"; fi`)
+      .join('; ')
     const output = await runHookCommand({ type: 'command', command }, buildInput({ event: 'SessionStart', session_id: 'env-scrubbing-test' }))
     const inherited = Object.fromEntries(output.split(/\r?\n/).flatMap((line) => {
       const separator = line.indexOf('=')
