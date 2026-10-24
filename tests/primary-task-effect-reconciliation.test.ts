@@ -1737,6 +1737,7 @@ describe('primary task effect reconciliation', () => {
     root = await mkdtemp(join(tmpdir(), 'deepseek-stop-failure-abort-'))
     const startedPath = join(root, 'stop-failure-started')
     const effectPath = join(root, 'stop-failure-effect')
+    const effectDelayMs = 6_000
     const checkpoints: MessageOrBoundary[][] = []
     agent = new Agent({ provider: 'local', localModel: 'test-model' }, {
       projectRoot: root,
@@ -1746,7 +1747,7 @@ describe('primary task effect reconciliation', () => {
     })
     await agent.readyPromise
     const internal = agent as any
-    const hookCommand = runScript(`const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(startedPath)}, 'started'); setTimeout(() => fs.writeFileSync(${JSON.stringify(effectPath)}, 'continued'), 700)`)
+    const hookCommand = runScript(`const fs = require('node:fs'); fs.writeFileSync(${JSON.stringify(startedPath)}, 'started'); setTimeout(() => fs.writeFileSync(${JSON.stringify(effectPath)}, 'continued'), ${effectDelayMs})`)
     internal.settings = {
       permissions: { allow: [], deny: [] },
       risk: { enabled: false },
@@ -1756,10 +1757,11 @@ describe('primary task effect reconciliation', () => {
 
     const runPromise = agent.run('Trigger a provider failure.', callbacks())
     await readFileEventually(startedPath)
+    const effectDeadline = Date.now() + effectDelayMs + 100
     agent.abort()
 
     await expect(runPromise).rejects.toThrow('provider connection failed')
-    await new Promise(resolve => setTimeout(resolve, 850))
+    await new Promise(resolve => setTimeout(resolve, Math.max(0, effectDeadline - Date.now())))
     await expect(readFile(effectPath, 'utf8')).rejects.toThrow()
 
     const latestMarkers = evidenceFromCheckpoint(checkpoints.at(-1)!)
