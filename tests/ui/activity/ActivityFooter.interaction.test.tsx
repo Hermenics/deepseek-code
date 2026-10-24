@@ -16,6 +16,16 @@ class FakeTerminal extends PassThrough {
   unref(): this { return this }
 }
 
+function captureTerminalOutput(stdout: FakeTerminal): () => string {
+  let output = ''
+  stdout.on('data', chunk => { output += String(chunk) })
+  return () => {
+    const captured = output
+    output = ''
+    return captured
+  }
+}
+
 function fakeAgent(overrides: Partial<SubagentState> = {}): SubagentState {
   return {
     id: 'agent-1', task: 'audit security', agentName: 'Coder', role: 'coder', mode: 'build',
@@ -327,6 +337,7 @@ test('task decoration replaces the closed agent row body without losing its labe
 test('renders agents pushed into the same array reference (in-place mutation)', async () => {
   const stdin = new FakeTerminal()
   const stdout = new FakeTerminal()
+  const readOutput = captureTerminalOutput(stdout)
   const agents: SubagentState[] = []
 
   const instance = renderSync(
@@ -354,7 +365,7 @@ test('renders agents pushed into the same array reference (in-place mutation)', 
     agents.push(fakeAgent({ status: 'running' }))
     // Wait for a useClock tick so the footer re-renders with the mutated array.
     await Bun.sleep(150)
-    const output = (stdout.read()?.toString() ?? '')
+    const output = readOutput()
       .replace(/\x1b\[\d*C/g, ' ')
       .replace(/\x1b\[[?0-9;]*[a-zA-Z]/g, '')
     expect(output).toContain('◯ Coder')
@@ -368,6 +379,7 @@ test('renders agents pushed into the same array reference (in-place mutation)', 
 test('open list shows ❯ ● main then ◯ main with ❯ ● on the selected agent', async () => {
   const stdin = new FakeTerminal()
   const stdout = new FakeTerminal()
+  const readOutput = captureTerminalOutput(stdout)
   const agent = fakeAgent({ status: 'running' })
   const normalize = (raw: string) => raw
     .replace(/\x1b\[\d*C/g, ' ')
@@ -395,7 +407,7 @@ test('open list shows ❯ ● main then ◯ main with ❯ ● on the selected ag
   try {
     await Bun.sleep(100)
     // Initially main is selected and the agent row uses the ◯ icon
-    const initial = normalize(stdout.read()?.toString() ?? '')
+    const initial = normalize(readOutput())
     expect(initial).toContain('❯ ● main')
     expect(initial).toContain('◯ Coder')
 
@@ -403,7 +415,7 @@ test('open list shows ❯ ● main then ◯ main with ❯ ● on the selected ag
     // Ink redraws only the changed cells, so assert the icon tokens in the delta.
     stdin.write('\x1b[B')
     await Bun.sleep(100)
-    const selected = normalize(stdout.read()?.toString() ?? '')
+    const selected = normalize(readOutput())
     expect(selected).toContain('◯')     // main switched to the non-selected ◯ icon
     expect(selected).toContain('❯ ●')   // agent row is now the selection
     expect(selected).toContain('x stop') // contextual hint for an active agent
