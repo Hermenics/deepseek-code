@@ -13,7 +13,8 @@ export function signalProcessGroup(child: ChildProcess, signal: NodeJS.Signals):
   if (child.pid && process.platform !== 'win32') {
     if (!signalProcessGroupId(child.pid, signal)) child.kill(signal)
   } else if (child.pid && process.platform === 'win32') {
-    try { execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', timeout: 5000 }) }
-    catch { child.kill(signal) }
+    const trace = (stage: string) => { if (process.env.CI === 'true') console.log(`[lsp-kill] ${child.pid} ${stage}`) }
+    try { trace('taskkill start'); execFileSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', timeout: 5000 }); trace('taskkill end') }
+    catch (error) { trace(`taskkill failed ${(error as NodeJS.ErrnoException).code ?? ''}`); child.kill(signal); trace('child.kill returned') }
   } else child.kill(signal)
 }

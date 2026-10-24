@@ -31,6 +31,9 @@ interface LspOptions {
 interface Document { path: string; text: string; version: number; hash: string }
 const LIMITS = { frameBytes: 1_048_576, headerBytes: 8192, documentBytes: 524_288, openBytes: 2_097_152, documents: 32, servers: 4, queued: 32, diagnostics: 200, diagnosticReportBytes: 65_536, diagnosticCacheBytes: 262_144 }
 const hash = (text: string) => createHash('sha256').update(text).digest('hex')
+const traceLspClose = (stage: string, pid?: number) => {
+  if (process.platform === 'win32' && process.env.CI === 'true') console.log(`[lsp-close] ${pid ?? ''} ${stage}`)
+}
 
 function diagnosticResult(mode: 'push' | 'pull', version: number | undefined, items: unknown, versionBinding: 'request' | 'server' | 'unverified') {
   if (!Array.isArray(items)) throw new Error('Invalid LSP diagnostic array')
@@ -112,8 +115,8 @@ class LspConnection {
   constructor(private readonly server: LspServerSettings, private readonly root: string) {
     this.process = spawn(server.command, server.args ?? [], { cwd: root, env: scrubbedEnv(), detached: process.platform !== 'win32', stdio: ['pipe', 'pipe', 'ignore'] })
     this.closed = new Promise(resolve => {
-      this.process.once('exit', () => resolve())
-      this.process.once('close', () => resolve())
+      this.process.once('exit', (code, signal) => { traceLspClose(`exit ${code ?? ''} ${signal ?? ''}`, this.process.pid); resolve() })
+      this.process.once('close', () => { traceLspClose('close event', this.process.pid); resolve() })
     })
     this.process.stdout!.on('data', (chunk: Buffer) => {
       if (this.failure) return
@@ -433,13 +436,15 @@ class LspConnection {
   }
   close(reason = new Error('LSP session closed')): Promise<void> {
     if (!this.failure) {
+      traceLspClose(`close start ${reason.message}`, this.process.pid)
       this.failure = reason
       this.rejectActive?.(reason)
       if (this.idle) clearTimeout(this.idle)
       for (const pending of this.pending.values()) pending.reject(reason)
       this.actions.clear(); this.pending.clear(); this.documents.clear(); this.diagnostics.clear(); this.diagnosticWait = undefined; this.buffer = Buffer.alloc(0)
-      try { signalProcessGroup(this.process, 'SIGKILL') } catch { /* already exited */ }
+      try { traceLspClose('signal start', this.process.pid); signalProcessGroup(this.process, 'SIGKILL'); traceLspClose('signal end', this.process.pid) } catch { traceLspClose('signal threw', this.process.pid) }
       this.process.stdin?.destroy(); this.process.stdout?.destroy()
+      traceLspClose('streams destroyed', this.process.pid)
     }
     return this.closed
   }
