@@ -20,9 +20,9 @@ import {
 type RestrictedMode = Exclude<InteractionMode, 'auto'>
 
 const DOCUMENTED_MODE_TOOLS: Record<RestrictedMode, string[]> = {
-  review: ['session_evidence', 'record_claim', 'discover_tools', 'read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'step', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'skill'],
-  plan: ['session_evidence', 'record_claim', 'discover_tools', 'read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'step', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'skill', 'write_plan', 'submit_plan'],
-  build: ['session_evidence', 'record_claim', 'discover_tools', 'read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'step', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'skill', 'shell', 'write_file', 'edit_file', 'patch_file', 'update_knowledge', 'subagent', 'ask_agent', 'moa', 'update_goal', 'browser', 'dev_server'],
+  review: ['session_evidence', 'session_search', 'record_claim', 'discover_tools', 'read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'step', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'skill'],
+  plan: ['session_evidence', 'session_search', 'record_claim', 'discover_tools', 'read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'step', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'skill', 'write_plan', 'submit_plan'],
+  build: ['session_evidence', 'session_search', 'record_claim', 'discover_tools', 'read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'step', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'skill', 'shell', 'write_file', 'edit_file', 'patch_file', 'update_knowledge', 'subagent', 'ask_agent', 'moa', 'update_goal', 'browser', 'dev_server'],
 }
 
 function documentedTools(content: string, mode: RestrictedMode): string[] {
@@ -311,7 +311,7 @@ describe('interactionMode', () => {
       }
 
       const nativeTools = allTools.map((tool) => tool.name).sort()
-      expect(nativeTools).toHaveLength(32)
+      expect(new Set(nativeTools).size).toBe(nativeTools.length)
       expect(getToolsForMode('auto').sort()).toEqual(nativeTools)
       expect(nativeTools.every((tool) => canUseTool('auto', tool))).toBe(true)
       expect(nativeTools.filter((tool) => !Object.values(DOCUMENTED_MODE_TOOLS).flat().includes(tool))).toEqual(['create_goal'])

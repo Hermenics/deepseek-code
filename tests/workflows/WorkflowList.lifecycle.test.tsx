@@ -1,3 +1,4 @@
+import { waitFor } from '../helpers/waitFor.js'
 import { afterEach, expect, test } from 'bun:test'
 import React, { useEffect } from 'react'
 import { PassThrough } from 'node:stream'
@@ -20,12 +21,6 @@ const terminals: FakeTerminal[] = []
 afterEach(() => {
   for (const terminal of terminals.splice(0)) terminal.isTTY = false
 })
-
-/** Waits for the next poll to land; a fixed sleep one tick past the interval flakes on a loaded CI runner. */
-async function until(condition: () => boolean, timeoutMs = 5_000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (!condition() && Date.now() < deadline) await Bun.sleep(25)
-}
 
 function workflow(runId: string): WorkflowRun {
   const now = new Date().toISOString()
@@ -69,9 +64,9 @@ test('active workflow hook refreshes external sessions and removes stale rows', 
   })
 
   try {
-    await Bun.sleep(100)
+    await waitFor(() => snapshots.at(-1)?.[0] === 'first', 'initial workflow snapshot')
     current = [workflow('second')]
-    await until(() => snapshots.at(-1)?.[0] === 'second')
+    await waitFor(() => snapshots.at(-1)?.[0] === 'second', 'external workflow refresh')
     expect(snapshots.at(-1)).toEqual(['second'])
   } finally {
     instance.unmount()
@@ -98,9 +93,9 @@ test('history workflow hook refreshes external sessions for the monitor', async 
   })
 
   try {
-    await Bun.sleep(100)
+    await waitFor(() => snapshots.at(-1)?.[0] === 'first', 'initial workflow snapshot')
     current = [workflow('second')]
-    await until(() => snapshots.at(-1)?.[0] === 'second')
+    await waitFor(() => snapshots.at(-1)?.[0] === 'second', 'external workflow refresh')
     expect(snapshots.at(-1)).toEqual(['second'])
   } finally {
     instance.unmount()

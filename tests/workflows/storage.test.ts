@@ -17,6 +17,28 @@ function run(projectRoot: string): WorkflowRun {
 }
 
 describe('workflow storage', () => {
+  test('prefers a useful completed prefix over a budget-exhausted journal', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-store-'))
+    roots.push(root)
+    const store = new WorkflowStore({ projectRoot: root, sessionId: 'session-1', baseDirectory: join(root, 'state') })
+    for (const exhausted of [false, true]) {
+      const record: WorkflowRun = {
+        ...run(root), runId: exhausted ? 'exhausted' : 'useful', status: 'completed', replayContextHash: 'context',
+        createdAt: exhausted ? '2026-10-25T01:00:00Z' : '2026-10-25T00:00:00Z',
+      }
+      await store.createRun(record, 'return 1', {})
+      await store.writeJournal(record.runId, {
+        schemaVersion: 1, scriptHash: 'script', argsHash: 'args', optionsHash: 'options', replayContextHash: 'context',
+        entries: [
+          { index: 0, method: 'agent', args: ['first'], fingerprint: record.runId, status: 'completed', result: exhausted ? null : 'ok', budgetExhausted: exhausted, timestamp: record.createdAt },
+          ...exhausted ? [] : [{ index: 1, method: 'agent' as const, args: ['second'], fingerprint: 'next', status: 'running' as const, timestamp: record.createdAt }],
+        ],
+      })
+    }
+    const journal = await store.findReplay('script', 'args', 'options', 'context')
+    expect(journal?.entries[0]?.fingerprint).toBe('useful')
+  })
+
   test('writes and restores a run atomically with private permissions', async () => {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-store-'))
     roots.push(root)

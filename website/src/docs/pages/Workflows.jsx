@@ -23,8 +23,8 @@ const LIMITS = [
 
 const HELPERS = [
   ["agent(prompt, options)", "Run one sub-agent; resolves to its text, or a validated object when options.schema is set (null on failure)"],
-  ["parallel(thunks)", "Run thunks concurrently and wait for all of them (a barrier); a failed thunk resolves to null"],
-  ["pipeline(items, ...stages)", "Push each item through every stage independently, no barrier; stages receive (previous, item, index)"],
+  ["parallel(thunks, options?)", "Run thunks with bounded concurrency and wait for all (a barrier); failures become null and results retain input order"],
+  ["pipeline(items, ...stages, options?)", "Run bounded item chains without a stage barrier; stages receive (previous, item, index). Final options may set concurrency: 1..16"],
   ["workflow(nameOrRef, args)", "Run a saved workflow by name or { scriptPath } as a child; its agents show under a ▸ name group"],
   ["log(value) / phase(value)", "Emit a log line / start a new progress group"],
   ["args", "The tool's args input, deep-frozen"],
@@ -95,6 +95,13 @@ export default function Workflows() {
             <code className="inline">maxCostUsd</code>; an agent that hits its own limit fails and resolves to{" "}
             <code className="inline">null</code>.
           </Note>
+          <p>
+            For a required agent, set <code className="inline">throwOnError: true</code> and await it
+            directly. The call rejects with the failure message after accounting for usage, so a
+            script can fail the run or handle the error with <code className="inline">try/catch</code>.
+            The default still returns <code className="inline">null</code>. Inside a parallel or pipeline
+            helper, rejections remain isolated to that item. Agents are never retried automatically.
+          </p>
         </section>
 
         <section id="isolation">
@@ -146,6 +153,13 @@ export default function Workflows() {
             truncating. The sync-execution limit is per synchronous segment inside the VM sandbox, not
             a cap on total run time; overall runtime is governed by <code className="inline">timeoutMs</code>.
           </p>
+          <p>
+            Both helpers default to configured agent concurrency, capped at 16. Pass a final
+            <code className="inline">{" { concurrency: 2 }"}</code> to set admission for that invocation
+            within 1–16; the host still enforces its agent execution limit. A pipeline slot covers
+            an entire item chain, and a new item starts when a slot becomes free. Nested helpers
+            have independent pools, so this is not a global semaphore or an agent-count limit.
+          </p>
         </section>
 
         <section id="replay">
@@ -163,6 +177,14 @@ export default function Workflows() {
             for the run entirely. Entries marked <code className="inline">budget_exhausted</code> are not replayed:
             execution continues fresh from that call, and the earlier exhaustion does not propagate into
             the new run.
+          </p>
+          <p>
+            Recoverable agent failures are stored as failed entries, even when the script receives
+            <code className="inline">null</code>; a successful null result is still replayable. Older
+            journals are reconciled with the run&apos;s failure records when read. A child workflow with
+            a failed agent is also excluded from successful replay; rerunning that child repeats its
+            entire body. Inspect partial effects before restarting writers: replay does not guarantee
+            exactly-once side effects, and completed calls after the first failure also run again.
           </p>
         </section>
 

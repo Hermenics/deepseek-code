@@ -14,7 +14,7 @@ const TOC = [
 ];
 
 const COMMANDS = [
-  ["bun test", "All automatically discovered CLI tests under tests/."],
+  ["bun run test", "Full CLI suite, isolated by file and serialized like CI."],
   ["bun test tests/agent.test.ts", "One test file."],
   ["bun test tests/workflows", "One subsystem directory."],
   ["bun run test:ink", "The terminal renderer contract suite under tests/ink/."],
@@ -106,7 +106,7 @@ export default function Testing() {
           </div>
           <Note>
             The package&apos;s <code className="inline">test</code> script is
-            <code className="inline">bun test tests</code>. Files that are not named as Bun tests, such
+            <code className="inline">bun test tests --parallel=1 --max-concurrency=1 --timeout=15000</code>. Files that are not named as Bun tests, such
             as the real Bedrock smoke script, are not part of the default suite.
           </Note>
         </section>
@@ -118,17 +118,17 @@ export default function Testing() {
             keeps feedback fast without weakening the final validation.
           </p>
           <CodeBlock lang="bash">{`# One contract
-$ bun test tests/settingsRepository.test.ts
+$ bun test tests/settingsRepository.test.ts --parallel=1 --max-concurrency=1 --timeout=15000
 
 # One subsystem
-$ bun test tests/workflows
+$ bun test tests/workflows --parallel=1 --max-concurrency=1 --timeout=15000
 
 # Terminal input and renderer areas
-$ bun test tests/ui/input
+$ bun test tests/ui/input --parallel=1 --max-concurrency=1 --timeout=15000
 $ bun run test:ink
 
 # Final CLI suite
-$ bun test`}</CodeBlock>
+$ bun run test`}</CodeBlock>
           <p>
             If your change crosses boundaries, run each relevant area. A settings UI change can require
             repository tests, UI behavior tests, type checking, and a manual interactive pass; passing
@@ -188,6 +188,28 @@ $ bun test`}</CodeBlock>
           </Note>
         </section>
 
+        <section>
+          <h2>Portable fixtures</h2>
+          <p>
+            The package scripts pass an explicit 15-second test ceiling to the runner. They
+            isolate files in a single worker and serialize concurrent cases, so module mocks and
+            process-global fixtures do not race. Explicit performance thresholds remain unchanged.
+          </p>
+          <p>
+            The preload assigns a temporary home and state/history directories per isolated file. It also replaces ambient global and system Git configuration with the
+            repository fixture config. Repository-local signing, hooks, filters, and line-ending
+            tests still exercise their explicit configuration. The user's Git files are never changed.
+          </p>
+          <p>
+            Wait for observable readiness with <code className="inline">waitFor(condition, description)</code>
+            or <code className="inline">waitForChildFile</code>, rather than assuming a fixed sleep or
+            number of timer ticks is enough. The child helper reports premature exits with stderr.
+            Start lease-expiration scenarios after child readiness and use a controlled clock instead
+            of including unpredictable process startup in the lease window.
+          </p>
+          <CodeBlock lang="bash">{`bun test tests/example.test.ts --parallel=1 --max-concurrency=1 --timeout=15000 --rerun-each=5`}</CodeBlock>
+        </section>
+
         <section id="terminal">
           <h2><span className="anchor">#</span>Terminal UI tests</h2>
           <p>
@@ -240,16 +262,16 @@ $ bun test tests/InputBox.test.ts tests/StatusBar.test.ts`}</CodeBlock>
             The repository does not declare a numeric coverage threshold; coverage is diagnostic evidence,
             not permission to skip a meaningful regression case.
           </p>
-          <p>The CLI CI job runs, in order:</p>
+          <p>The CLI CI job runs these checks (Linux also collects coverage and checks the package):</p>
           <CodeBlock lang="bash">{`$ bun install --frozen-lockfile
 $ bun run typecheck
 $ bun run test:coverage
 $ bun run build
 $ bun run pack:check`}</CodeBlock>
           <p>
-            CI currently pins Bun 1.3.13 while the published runtime contract remains Bun 1.1+. If you
-            touch a runtime-sensitive API, test the minimum supported version as well as the CI version
-            before claiming broad compatibility.
+            CI pins Bun 1.4.0 and runs on Linux, macOS, and Windows. The package requires Bun 1.4.0 or
+            newer. Each OS uploads a JUnit test report and records Bun, Node, and Git versions. A local
+            Linux pass does not prove native macOS or Windows behavior.
           </p>
         </section>
 

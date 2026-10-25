@@ -23,6 +23,155 @@ async function setup(agentRunner?: ConstructorParameters<typeof WorkflowManager>
 }
 
 describe('WorkflowManager', () => {
+  test('journals failed agent outcomes and reruns them after a successful prefix', async () => {
+    const calls: string[] = []
+    let fail = true
+    const manager = await setup(async request => {
+      calls.push(request.prompt)
+      return request.prompt === 'second' && fail
+        ? { value: null, error: 'temporary failure', usage: { tokens: 3 } }
+        : { value: request.prompt, usage: { tokens: 2 } }
+    })
+    const script = `export const meta = {name: 'failure-recovery'};
+      return [await agent('first'), await agent('second'), await agent('third')];`
+    const first = await (await manager.start({ script })).result
+    expect(first.result).toEqual(['first', null, 'third'])
+    const journal = JSON.parse(await readFile(first.journalPath!, 'utf8'))
+    expect(journal.entries[1]).toMatchObject({ status: 'failed', error: 'temporary failure', usage: { tokens: 3, agents: 1 } })
+    fail = false
+    const resumed = await (await manager.start({ script, resumeFromRunId: first.runId })).result
+    expect(resumed.result).toEqual(['first', 'second', 'third'])
+    expect(calls).toEqual(['first', 'second', 'third', 'second', 'third'])
+  })
+
+  test('strict agent failures fail the run while preserving spent tokens', async () => {
+    const manager = await setup(async () => ({ value: null, error: 'required agent failed', usage: { tokens: 9 } }))
+    const result = await (await manager.start({ script: `export const meta = {name: 'required-agent'};
+      return agent('required', {throwOnError: true});` })).result
+    expect(result.status).toBe('failed')
+    expect(result.error).toContain('required agent failed')
+    expect(result.usage.tokens).toBe(9)
+    expect(result.failures).toHaveLength(1)
+  })
+
+  test('runner exceptions remain failed journal entries instead of cached nulls', async () => {
+    let calls = 0
+    const manager = await setup(async () => { calls++; if (calls === 1) throw new Error('runner crashed'); return { value: 'recovered' } })
+    const script = `export const meta = {name: 'runner-recovery'}; return agent('read');`
+    const first = await (await manager.start({ script })).result
+    expect(first.result).toBeNull()
+    const second = await (await manager.start({ script, resumeFromRunId: first.runId })).result
+    expect(second.result).toBe('recovered')
+    expect(calls).toBe(2)
+  })
+
+  test('replays a successful null result without rerunning the agent', async () => {
+    let calls = 0
+    const manager = await setup(async () => { calls++; return { value: null } })
+    const script = `export const meta = {name: 'valid-null'}; return agent('read');`
+    await (await manager.start({ script })).result
+    expect((await (await manager.start({ script })).result).result).toBeNull()
+    expect(calls).toBe(1)
+  })
+
+  test('does not reuse a legacy completed entry whose run recorded an agent failure', async () => {
+    for (const explicit of [false, true]) {
+      let calls = 0
+      const manager = await setup(async () => {
+        calls++
+        return calls === 1 ? { value: null, error: 'legacy failure' } : { value: 'recovered' }
+      })
+      const script = `export const meta = {name: 'legacy-failure'}; return agent('read');`
+      const first = await (await manager.start({ script })).result
+      const journal = JSON.parse(await readFile(first.journalPath!, 'utf8'))
+      journal.entries[0].status = 'completed'
+      delete journal.entries[0].error
+      await writeFile(first.journalPath!, JSON.stringify(journal))
+      const result = await (await manager.start({ script, ...(explicit ? {resumeFromRunId: first.runId} : {}) })).result
+      expect(result.result).toBe('recovered')
+      expect(calls).toBe(2)
+    }
+  })
+
+  test('does not cache a child workflow that returned a failed agent result', async () => {
+    let calls = 0
+    const manager = await setup(async () => {
+      calls++
+      return calls === 1 ? { value: null, error: 'child failed' } : { value: 'child recovered' }
+    })
+    manager.options.interactionMode = () => 'auto'
+    manager.options.workflowLoader = async () => `export const meta = {name: 'child'}; return agent('read');`
+    const script = `export const meta = {name: 'parent-recovery'}; return workflow('child');`
+    const first = await (await manager.start({ script })).result
+    expect(first.result).toBeNull()
+    expect(JSON.parse(await readFile(first.journalPath!, 'utf8')).entries[0]).toMatchObject({ status: 'failed', error: 'child failed' })
+    expect((await (await manager.start({ script, resumeFromRunId: first.runId })).result).result).toBe('child recovered')
+    expect(calls).toBe(2)
+  })
+
+  test('does not cache a child that catches a thrown agent error', async () => {
+    const manager = await setup(async () => ({ value: 'recovered' }))
+    manager.options.interactionMode = () => 'auto'
+    const runAgent = spyOn(manager as any, 'runAgent').mockRejectedValueOnce(new Error('host agent callback failed'))
+    manager.options.workflowLoader = async () => `export const meta = {name: 'catching-child'};
+      try { return await agent('read'); } catch { return 'caught'; }`
+    const script = `export const meta = {name: 'catching-parent'}; return workflow('catching-child');`
+    const first = await (await manager.start({ script })).result
+    try {
+      expect(JSON.parse(await readFile(first.journalPath!, 'utf8')).entries[0]).toMatchObject({ status: 'failed', error: 'host agent callback failed' })
+      expect((await (await manager.start({ script, resumeFromRunId: first.runId })).result).result).toBe('recovered')
+    } finally { runAgent.mockRestore() }
+  })
+
+  test('attributes agent counts to each concurrent child instead of the shared run counter', async () => {
+    const manager = await setup(async request => { await Bun.sleep(15); return { value: request.prompt } })
+    manager.options.interactionMode = () => 'auto'
+    manager.options.workflowLoader = async () => `export const meta = {name: 'child'}; return agent('read');`
+    const result = await (await manager.start({ script: `export const meta = {name: 'child-counts'};
+      return parallel([() => workflow('child'), () => workflow('child')]);` })).result
+    const journal = JSON.parse(await readFile(result.journalPath!, 'utf8'))
+    expect(journal.entries.map((entry: {usage: {agents: number}}) => entry.usage.agents)).toEqual([1, 1])
+    expect(result.usage.agents).toBe(2)
+  })
+
+  test('retains child usage when strict failure is caught by the parent helper', async () => {
+    const manager = await setup(async () => ({value: null, error: 'child agent failed', usage: {tokens: 11, costUsd: 0.04}}))
+    manager.options.interactionMode = () => 'auto'
+    manager.options.workflowLoader = async () => `export const meta = {name: 'strict-child'};
+      return agent('read', {throwOnError: true});`
+    const result = await (await manager.start({script: `export const meta = {name: 'child-usage'};
+      return parallel([() => workflow('strict-child')]);`})).result
+    expect(result.result).toEqual([null])
+    expect(result.usage).toEqual({agents: 1, tokens: 11, costUsd: 0.04})
+    expect((await manager.get(result.runId))?.usage).toEqual(result.usage)
+  })
+
+  test('rejects non-boolean throwOnError before spawning an agent', async () => {
+    let calls = 0
+    const manager = await setup(async () => { calls++; return {value: 'unexpected'} })
+    const result = await (await manager.start({script: `export const meta = {name: 'invalid-strict'};
+      return parallel([() => agent('read', {throwOnError: 'yes'})]);`})).result
+    expect(result.status).toBe('failed')
+    expect(result.error).toContain('throwOnError')
+    expect(calls).toBe(0)
+  })
+
+  test('defaults helper admission to the configured agent concurrency', async () => {
+    let running = 0
+    let peak = 0
+    const manager = await setup(async request => {
+      running++
+      peak = Math.max(peak, running)
+      await Bun.sleep(20)
+      running--
+      return { value: request.prompt }
+    })
+    const result = await (await manager.start({ script: `export const meta = {name: 'configured-admission'};
+      return parallel(Array.from({length: 7}, (_, i) => () => agent(String(i))));` })).result
+    expect(result.result).toEqual(['0', '1', '2', '3', '4', '5', '6'])
+    expect(peak).toBe(4)
+  })
+
   test('runs agents, persists usage and exposes status', async () => {
     const requests: Array<{ prompt: string; options: object }> = []
     const manager = await setup(async request => {

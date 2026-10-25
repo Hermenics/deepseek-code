@@ -203,9 +203,9 @@ The parser treats the metadata object as JSON. Double-quoted string tracking is 
 
 | Global | Contract |
 | --- | --- |
-| `agent(prompt, options?)` | Execute one constrained agent call; return its text (or a schema-validated object) or `null` for a recoverable agent failure. Options: `label`, `phase`, `schema`, `model`, `effort` (`low`…`max`, Claude Code tiers accepted), `isolation`, `agentType`, `timeoutMs`, `maxTokens`, `maxCostUsd` |
-| `parallel(thunks)` | Run thunks concurrently as a barrier, preserve input order, represent individual recoverable failures as `null` |
-| `pipeline(items, ...stages)` | Apply stages per item with no barrier between stages; each stage receives `(previous, item, index)`; a failing stage drops that item to `null` |
+| `agent(prompt, options?)` | Execute one constrained agent call; return its text (or a schema-validated object) or `null` for a recoverable agent failure. Options: `label`, `phase`, `schema`, `model`, `effort` (`low`…`max`, Claude Code tiers accepted), `isolation`, `agentType`, `timeoutMs`, `maxTokens`, `maxCostUsd`, `throwOnError` (opt-in rejection after usage accounting) |
+| `parallel(thunks, options?)` | Bound thunk admission with `{ concurrency: 1..16 }` (default: configured agent concurrency capped at 16), preserve input order, and isolate failures as `null` |
+| `pipeline(items, ...stages, options?)` | Bound whole item chains with a final `{ concurrency: 1..16 }`, with no barrier between stages; each stage receives `(previous, item, index)`; a failing stage drops that item to `null` |
 | `workflow(nameOrRef, args?)` | Invoke one saved child workflow by name or `{ scriptPath }`, up to one composition layer; child agents are grouped under `▸ name` |
 | `log(value)` | Publish workflow diagnostic/progress information |
 | `phase(name)` | Update the observable phase |
@@ -344,6 +344,8 @@ Skills are validated `SKILL.md` bundles with frontmatter name/description and ke
 Both mechanisms require explicit management commands. The loader prevents name/path escape and retains source/commit metadata. Their role differs: a skill primarily carries procedural instructions and assets; a plugin can package broader reusable extension content.
 
 ## 17. Sessions, memory, and checkpoints
+
+Memory now has a 2,000-character core and a separate 200,000-character archive per target. The memory tool supports ranked lexical search, bounded get by stable ID, capacity status and unique-span patch. Only active notes with current source provenance or explicit review enter automatic recall. The read-only `session_search` tool recovers current-project saved conversations and bounded, redacted pre-compaction episodes. User-memory edit approval is pinned to reviewed contents. `/memory search` and `/memory status` expose recall and capacity in the TUI; clearing agent memory removes captured episodes but does not delete original saved sessions.
 
 Sessions are isolated by project identity and retain conversation, UI messages, provider/model, modified files, language, active agent, and goal state. Users can list/resume sessions, enable auto-resume behavior, and control retention.
 

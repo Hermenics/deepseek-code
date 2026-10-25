@@ -24,6 +24,8 @@ export const WORKFLOW_EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] 
 export type WorkflowEffort = typeof WORKFLOW_EFFORT_LEVELS[number]
 
 export interface WorkflowAgentOptions {
+  /** Reject on agent failure so the script can implement an explicit fallback. Defaults to false. */
+  throwOnError?: boolean
   label?: string
   phase?: string
   schema?: object
@@ -117,4 +119,6 @@ export interface WorkflowRpcUsage {
 export interface WorkflowRpcResult {
   value: unknown
   usage?: WorkflowRpcUsage
+  /** An agent failure remains distinct from a successful null result across the bridge. */
+  error?: string
 }

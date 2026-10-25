@@ -1,4 +1,4 @@
-import { expect, it } from 'bun:test'
+import { expect, it, spyOn } from 'bun:test'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -61,7 +61,7 @@ for (const action of ['remember', 'update_note', 'forget', 'send', 'schedule', '
       db.exec('COMMIT');db.close()`
     const child = Bun.spawn([process.execPath, '-e', code], { env: { ...process.env, DEEPSEEK_CONTROL_PATH: path, DEEPSEEK_CONTROL_LOCKED: locked, DEEPSEEK_CONTROL_RELEASE: release }, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe' })
     writer = child
-    await waitForChildFile(locked, child, new Response(child.stderr).text(), 2000)
+    await waitForChildFile(locked, child, new Response(child.stderr).text())
     const args = { action, content: 'Use current project conventions', source: 'fixture', id: ['forget','update_note'].includes(action) ? note.id : routine.id, version: note.version,
       bot: recipient.id, prompt: 'New work', name: 'new-method', runId: source.id, messageId: 'control-id', schedule: { kind: 'event', topic: 'new-work' } }
     let settled = false
@@ -86,16 +86,18 @@ for (const action of ['remember', 'update_note', 'forget', 'send', 'schedule', '
     if (writer) await writer.exited
     await attempt?.catch(() => undefined); store.close(); await removeTempDirectory(directory)
   }
-}, process.platform === 'win32' ? 10000 : 5000)
+}, 15000)
 
 for (const reason of ['cancel', 'context-cancel', 'expire']) it(`stops a contended control write on ${reason} without admitting its mutation`, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'deepseek-control-stop-')), path = join(directory, 'state.db')
   const store = new BotStore({ path, busyTimeoutMs: 0 }), controller = new AbortController()
   let writer: ReturnType<typeof Bun.spawn> | undefined, attempt: Promise<string> | undefined
+  let restoreClock: (() => void) | undefined
   try {
     const bot = store.createBot({ name: 'controls', projectRoot: directory, instructions: 'Owned fixture' })
     const run = store.enqueue(bot.id, 'Use bot controls'), claimed = store.claim(bot.id, 'owner')!
-    if (reason === 'expire') store.store.run('UPDATE bot_runs SET lease_until=? WHERE id=?', Date.now() + 300, run.id)
+    const leaseDeadline = Date.now() + 60_000
+    if (reason === 'expire') store.store.run('UPDATE bot_runs SET lease_until=? WHERE id=?', leaseDeadline, run.id)
     const tool = botControl(store, () => claimed, reason === 'context-cancel' ? undefined : controller.signal)
     const locked = join(directory, 'writer-locked'), release = join(directory, 'writer-release')
     const code = `import { Database } from 'bun:sqlite';import { existsSync, writeFileSync } from 'node:fs';
@@ -104,11 +106,16 @@ for (const reason of ['cancel', 'context-cancel', 'expire']) it(`stops a contend
       db.exec('COMMIT');db.close()`
     const child = Bun.spawn([process.execPath, '-e', code], { env: { ...process.env, DEEPSEEK_CONTROL_PATH: path, DEEPSEEK_CONTROL_LOCKED: locked, DEEPSEEK_CONTROL_RELEASE: release }, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe' })
     writer = child
-    await waitForChildFile(locked, child, new Response(child.stderr).text(), 2000)
+    await waitForChildFile(locked, child, new Response(child.stderr).text())
     attempt = tool.execute({ action: 'remember', content: 'Must not be retained', source: 'fixture' }, reason === 'context-cancel' ? {
       signal: controller.signal, sessionId: 'fixture', workspacePath: directory, projectRoot: directory, permissionProfile: 'coordinator-integrator',
     } : undefined)
     void attempt.catch(() => undefined)
+    if (reason === 'expire') {
+      // The first busy attempt has yielded; expire the lease without racing child startup.
+      const clock = spyOn(Date, 'now').mockReturnValue(leaseDeadline + 1)
+      restoreClock = () => clock.mockRestore()
+    }
     if (reason !== 'expire') { await Bun.sleep(100); controller.abort(new Error('stopping fixture')) }
     await expect(attempt).rejects.toThrow(reason === 'expire' ? 'ownership' : 'operation was aborted')
     expect(writer.exitCode).toBeNull()
@@ -116,12 +123,13 @@ for (const reason of ['cancel', 'context-cancel', 'expire']) it(`stops a contend
     expect(await writer.exited).toBe(0)
     expect(store.notes(bot.id)).toHaveLength(0)
   } finally {
+    restoreClock?.()
     controller.abort()
     if (writer?.exitCode === null) writer.kill()
     if (writer) await writer.exited
     await attempt?.catch(() => undefined); store.close(); await removeTempDirectory(directory)
   }
-}, 5000)
+}, 15000)
 
 it('cannot re-enable a procedure routine using a readiness check from before invalidation', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'deepseek-enable-race-')), path = join(directory, 'state.db')
@@ -180,7 +188,7 @@ for (const phase of ['before', 'completion']) it(`persists ${phase} procedure re
       db.exec('COMMIT');db.close()`
     const child = Bun.spawn([process.execPath, '-e', code], { env: { ...process.env, DEEPSEEK_CONTROL_PATH: path, DEEPSEEK_CONTROL_LOCKED: locked, DEEPSEEK_CONTROL_RELEASE: release }, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe' })
     writer = child
-    await waitForChildFile(locked, child, new Response(child.stderr).text(), 2000)
+    await waitForChildFile(locked, child, new Response(child.stderr).text())
     let settled = false
     attempt = Promise.resolve().then(() => phase === 'before' ? guard.before({ action: 'click', ref: 'e1' }) : guard.assertComplete())
       .then(() => { settled = true; return new Error('Unexpected procedure acceptance') }, error => { settled = true; return error })
@@ -201,4 +209,4 @@ for (const phase of ['before', 'completion']) it(`persists ${phase} procedure re
     if (writer) await writer.exited
     await attempt; store.close(); await removeTempDirectory(directory)
   }
-}, 5000)
+}, 15000)

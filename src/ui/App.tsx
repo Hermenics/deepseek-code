@@ -2464,22 +2464,40 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         }
         case 'memory': {
           await agent.readyPromise.catch(() => {})
-          if ((cmd as any).action === 'clear') {
+          if ((cmd as any).action === 'search') {
+            const query = String((cmd as any).query ?? '')
+            if (!query.trim() || query.length > 500) {
+              setMessages(m => [...m, { role: 'assistant', content: 'Usage: /memory search <1–500 character query>' }])
+              return
+            }
+            const results = (await Promise.all((['agent', 'user'] as const).map(async target =>
+              (await agent.orchestrator.memory.search(target, query)).map(entry => ({ ...entry, target }))))).flat()
+              .sort((a, b) => b.score - a.score).slice(0, 12)
+            setMessages(m => [...m, { role: 'assistant', content: results.length
+              ? results.map(entry => `[${entry.target}/${entry.tier}; ${entry.status}; ${entry.id}] ${entry.content.slice(0, 500)}`).join('\n\n')
+              : 'No active memory matches. Use the memory tool review action to inspect stale or unconfirmed notes.' }])
+          } else if ((cmd as any).action === 'status') {
+            const entries = await Promise.all((['agent', 'user'] as const).map(async target => {
+              const usage = await agent.orchestrator.memory.capacity(target)
+              return `${target}: core ${usage.core.used}/${usage.core.limit} chars; archive ${usage.archive.used}/${usage.archive.limit} chars; ${usage.entries} entries`
+            }))
+            setMessages(m => [...m, { role: 'assistant', content: entries.join('\n') }])
+          } else if ((cmd as any).action === 'clear') {
             const target = (cmd as any).target
             await agent.orchestrator.memory.clear(target)
             setMessages((m) => [...m, { role: 'assistant', content: `Memory cleared${target ? ` (${target})` : ''}.` }])
           } else {
             const [agentEntries, userEntries] = await Promise.all([
-              agent.orchestrator.memory.load('agent'),
-              agent.orchestrator.memory.load('user'),
+              agent.orchestrator.memory.review('agent'),
+              agent.orchestrator.memory.review('user'),
             ])
             const lines: string[] = []
             lines.push('**Agent Memory** (' + agentEntries.length + ' entries)')
-            if (agentEntries.length) agentEntries.forEach((e, i) => lines.push(`  ${i + 1}. ${e}`))
+            if (agentEntries.length) agentEntries.slice(0, 50).forEach((e, i) => lines.push(`  ${i + 1}. [${e.tier}; ${e.status}; ${e.id}] ${e.content.slice(0, 300)}`))
             else lines.push('  (empty)')
             lines.push('')
             lines.push('**User Preferences** (' + userEntries.length + ' entries)')
-            if (userEntries.length) userEntries.forEach((e, i) => lines.push(`  ${i + 1}. ${e}`))
+            if (userEntries.length) userEntries.slice(0, 50).forEach((e, i) => lines.push(`  ${i + 1}. [${e.tier}; ${e.status}; ${e.id}] ${e.content.slice(0, 300)}`))
             else lines.push('  (empty)')
             setMessages((m) => [...m, { role: 'assistant', content: lines.join('\n') }])
           }

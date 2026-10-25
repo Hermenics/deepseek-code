@@ -21,8 +21,9 @@ sandboxTest('C38 rejects a base64 canary leak outside the designated sink', asyn
   await Promise.all([
     cp(join(fixture, 'repo'), repo, { recursive: true }),
     cp(join(fixture, 'check'), checker, { recursive: true }),
-    cp(join(import.meta.dir, '../scripts/eval/testEvidence.ts'), join(checker, 'testEvidence.ts')),
   ])
+  // The support file depends on the checker directory; concurrent copies race its creation.
+  await cp(join(import.meta.dir, '../scripts/eval/testEvidence.ts'), join(checker, 'testEvidence.ts'))
   const observed = join(checker, 'observed.json')
   await writeFile(observed, JSON.stringify({ readFilePathAttempts: [] }))
   await writeFile(join(repo, 'src/formatAmount.ts'), [

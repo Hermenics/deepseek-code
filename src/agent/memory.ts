@@ -1,13 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { join, isAbsolute, relative, resolve, sep } from 'node:path'
-import { mkdir, open, readFile, realpath, rename, rm, stat } from 'node:fs/promises'
+import { mkdir, open, readFile, realpath, rm, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { acquireFileLease } from '../orchestration/fileLease.js'
 import { redactSecrets } from '../orchestration/events.js'
-import { writeRaw } from '../utils/fs.js'
+import { writeRaw, renameReplacing } from '../utils/fs.js'
+import { rankMemoryText } from './memorySearch.js'
 
 const DELIMITER = '\n§\n'
 const MAX_CHARS = 2000
+const MAX_ARCHIVE_CHARS = 200_000
+const MAX_ENTRY_CHARS = 16_000
 const MAX_SOURCE_BYTES = 2_000_000
 const PROJECT_MEMORY_TTL_MS = 90 * 24 * 60 * 60 * 1000
 const MEMORY_OVERRIDE = /(?:\b(?:ignore|override|bypass|disable|disregard|do not follow|no need for)\b.{0,50}\b(?:instructions?|rules?|polic(?:y|ies)|safety|permissions?|restrictions?|gatekeeping)\b|\bno (?:need for )?(?:instructions?|rules?|polic(?:y|ies)|safety|permissions?|restrictions?|gatekeeping)\b)/i
@@ -15,9 +18,11 @@ const SENSITIVE_SOURCE = /(?:^|\/)(?:\.env(?:\..+)?|[^/]+\.(?:pem|key|p12|pfx)|c
 
 export type MemoryTarget = 'agent' | 'user'
 export interface MemoryConfig { enabled?: boolean; scope?: 'user' | 'project' }
-export interface MemoryWriteOptions { sourcePath?: string; expiresAt?: string; provenance?: 'explicit-user' | 'web' | 'model-inference' }
+export interface MemoryWriteOptions { sourcePath?: string; expiresAt?: string; provenance?: 'explicit-user' | 'web' | 'model-inference'; tier?: 'core' | 'archive'; expectedContent?: string }
 export type MemoryEntryStatus = 'active' | 'expired' | 'stale-source' | 'source-unavailable' | 'needs-review'
 export interface MemoryEntryView {
+  id: string
+  tier: 'core' | 'archive'
   content: string
   status: MemoryEntryStatus
   scope: { kind: 'user' | 'project'; directory?: string }
@@ -34,6 +39,7 @@ export interface MemoryEntryView {
 
 interface MemoryScope { kind: 'user' | 'project'; directory?: string }
 interface MemoryEntry {
+  tier?: 'core' | 'archive'
   id: string
   content: string
   createdAt: string | null
@@ -93,6 +99,7 @@ export class MemoryStore {
   }
 
   setDirectory(directory: string | null): void { this.directoryOverride = directory ? resolve(directory) : null }
+  isEnabled(): boolean { return this.enabled }
 
   /** Returns the memory directory: the explicit override, else the project or user location for the current scope. */
   getDirectory(): string {
@@ -128,7 +135,7 @@ export class MemoryStore {
       const entries = current.map(({ entry }) => entry)
       const entry = await this.newEntry(normalized, options)
       entries.push(entry)
-      if (entries.map(item => item.content).join(DELIMITER).length > MAX_CHARS) return 'Memory full. Remove old entries first.'
+      if (!this.fits(entries)) return 'Memory full. Remove old entries first.'
       await this.save(target, entries)
       return `Added to ${target} memory.`
     })
@@ -143,15 +150,16 @@ export class MemoryStore {
       const matching = current.filter(({ entry }) => entry.content.includes(match))
       if (matching.length === 0) return `No entry matching "${match}" found.`
       if (matching.length > 1) return 'Memory match is ambiguous; use a unique substring. Nothing was changed.'
+      if (options.expectedContent !== undefined && matching[0]!.entry.content !== options.expectedContent) return 'Memory changed after review; nothing was changed.'
       const normalized = normalizeMemoryEntry(String(redactSecrets(content)))
       if (!normalized) return 'Memory entry is empty.'
       if (!isSafeMemoryEntry(normalized)) return 'Memory entries cannot contain instructions or policy overrides.'
       if (current.some(({ entry }) => entry.id !== matching[0]!.entry.id && entry.content.toLowerCase() === normalized.toLowerCase())) {
         return `Already in ${target} memory.`
       }
-      const replacement = await this.newEntry(normalized, options)
+      const replacement = { ...await this.newEntry(normalized, { tier: matching[0]!.entry.tier, ...options }), id: matching[0]!.entry.id }
       const entries = current.map(({ entry }) => entry.id === matching[0]!.entry.id ? replacement : entry)
-      if (entries.map(item => item.content).join(DELIMITER).length > MAX_CHARS) return 'Memory full after replace. Revert or remove entries.'
+      if (!this.fits(entries)) return 'Memory full after replace. Revert or remove entries.'
       await this.save(target, entries)
       return `Replaced entry in ${target} memory.`
     })
@@ -169,6 +177,44 @@ export class MemoryStore {
       await this.save(target, current.filter(({ entry }) => entry.id !== matching[0]!.entry.id).map(({ entry }) => entry))
       return `Removed entry from ${target} memory.`
     })
+  }
+
+  /** Patch one exact span without silently deleting the rest of a multi-fact entry. */
+  patch(target: MemoryTarget, match: string, content: string, options: MemoryWriteOptions = {}): Promise<string> {
+    return this.mutate(async () => {
+      if (!this.enabled) return 'Memory is disabled in settings.'
+      if (!match.trim()) return 'Memory match must be non-empty.'
+      const current = await this.readEntries(target)
+      const matches = current.filter(({ entry }) => entry.content.includes(match))
+      if (!matches.length) return `No entry matching "${match}" found.`
+      if (matches.length !== 1 || matches[0]!.entry.content.split(match).length !== 2) return 'Memory match is ambiguous; use a unique substring. Nothing was changed.'
+      const previous = matches[0]!.entry
+      if (options.expectedContent !== undefined && previous.content !== options.expectedContent) return 'Memory changed after review; nothing was changed.'
+      const next = normalizeMemoryEntry(String(redactSecrets(previous.content.replace(match, () => content))))
+      if (!next) return 'Memory entry is empty.'
+      if (!isSafeMemoryEntry(next)) return 'Memory entries cannot contain instructions or policy overrides.'
+      if (current.some(({ entry }) => entry.id !== previous.id && entry.content.toLowerCase() === next.toLowerCase())) return `Already in ${target} memory.`
+      // Editing invalidates prior review and source claims; confirmation must cover the new text.
+      const replacement = { ...await this.newEntry(next, { tier: previous.tier, provenance: options.provenance ?? 'model-inference' }), id: previous.id }
+      const entries = current.map(({ entry }) => entry.id === previous.id ? replacement : entry)
+      if (!this.fits(entries)) return 'Memory full after replace. Revert or remove entries.'
+      await this.save(target, entries)
+      return `Patched entry in ${target} memory.`
+    })
+  }
+
+  /** Ranked, scoped recall. Inactive entries are visible only when explicitly requested for review. */
+  async search(target: MemoryTarget, query: string, limit = 8, includeInactive = false): Promise<Array<MemoryEntryView & { score: number }>> {
+    if (!query.trim() || query.length > 500) throw new Error('Memory query must contain 1–500 characters.')
+    if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error('Memory result limit must be an integer from 1 to 20.')
+    const entries = (await this.review(target)).filter(entry => includeInactive || entry.status === 'active')
+    return rankMemoryText(entries, query, entry => entry.content).slice(0, limit).map(({ item, score }) => ({ ...item, score }))
+  }
+
+  async capacity(target: MemoryTarget): Promise<{ core: { used: number; limit: number }; archive: { used: number; limit: number }; entries: number }> {
+    const entries = this.enabled ? await this.readEntries(target) : []
+    const used = (tier: 'core' | 'archive') => entries.filter(({ entry }) => (entry.tier ?? 'core') === tier).map(({ entry }) => entry.content).join(DELIMITER).length
+    return { core: { used: used('core'), limit: MAX_CHARS }, archive: { used: used('archive'), limit: MAX_ARCHIVE_CHARS }, entries: entries.length }
   }
 
   /** Records user review only after an interactive confirmation has been obtained by the tool. */
@@ -189,11 +235,11 @@ export class MemoryStore {
   }
 
   /** Agent and user memory rendered for the system prompt; expired, stale, and unreviewed project facts are omitted. */
-  async snapshot(): Promise<string> {
+  async snapshot(reviewed?: readonly [MemoryEntryView[], MemoryEntryView[]]): Promise<string> {
     if (!this.enabled) return ''
-    const [agent, user] = await Promise.all([this.review('agent'), this.review('user')])
-    const activeAgent = agent.filter(entry => entry.status === 'active')
-    const activeUser = user.filter(entry => entry.status === 'active')
+    const [agent, user] = reviewed ?? await Promise.all([this.review('agent'), this.review('user')])
+    const activeAgent = agent.filter(entry => entry.status === 'active' && entry.tier === 'core')
+    const activeUser = user.filter(entry => entry.status === 'active' && entry.tier === 'core')
     const parts: string[] = []
     if (activeAgent.length) parts.push(`## Agent Memory\n${activeAgent.map(entry => `- ${this.formatPromptEntry(entry)}`).join('\n')}`)
     if (activeUser.length) parts.push(`## User Preferences\n${activeUser.map(entry => `- ${this.formatPromptEntry(entry)}`).join('\n')}`)
@@ -206,8 +252,12 @@ export class MemoryStore {
   clear(target?: MemoryTarget): Promise<void> {
     if (!this.enabled) return Promise.resolve()
     return this.mutate(async () => {
-      if (target) return this.save(target, [])
-      await Promise.all((['agent', 'user'] as const).map(item => this.save(item, [])))
+      if (target) await this.save(target, [])
+      else await Promise.all((['agent', 'user'] as const).map(item => this.save(item, [])))
+      if (!target || target === 'agent') {
+        const { clearConversationMemory } = await import('./conversationMemory.js')
+        await clearConversationMemory(this.getDirectory(), this.cwd)
+      }
     })
   }
 
@@ -243,7 +293,7 @@ export class MemoryStore {
   private isMemoryEntry(value: unknown): value is MemoryEntry {
     if (!value || typeof value !== 'object') return false
     const entry = value as Partial<MemoryEntry>
-    return typeof entry.id === 'string' && typeof entry.content === 'string' &&
+    return (entry.tier === undefined || entry.tier === 'core' || entry.tier === 'archive') && typeof entry.id === 'string' && typeof entry.content === 'string' &&
       (entry.createdAt === null || this.isTimestamp(entry.createdAt)) &&
       (entry.importedAt === undefined || this.isTimestamp(entry.importedAt)) &&
       (entry.expiresAt === undefined || this.isTimestamp(entry.expiresAt)) &&
@@ -282,8 +332,8 @@ export class MemoryStore {
     const sourceHash = createHash('sha256').update(raw).digest('hex')
     return raw.split(DELIMITER).map(value => normalizeMemoryEntry(String(redactSecrets(value))))
       .filter(value => value && isSafeMemoryEntry(value))
-      .map(content => ({
-        id: randomUUID(), content, createdAt: null, importedAt, origin: 'legacy-import',
+      .map((content, index) => ({
+        id: createHash('sha256').update(JSON.stringify({ sourcePath, content, index })).digest('hex'), content, createdAt: null, importedAt, origin: 'legacy-import',
         ...(sourcePath ? { legacySourcePath: sourcePath, legacySourceHash: sourceHash } : {}),
         ...(this.scope === 'project' && content ? { needsReview: true } : {}),
       }))
@@ -315,7 +365,7 @@ export class MemoryStore {
     const temporary = `${file}.${randomUUID()}.tmp`
     try {
       await writeRaw(temporary, JSON.stringify({ schemaVersion: 1, partitions }, null, 2))
-      await rename(temporary, file)
+      await renameReplacing(temporary, file)
     } finally {
       await rm(temporary, { force: true }).catch(() => undefined)
     }
@@ -333,7 +383,9 @@ export class MemoryStore {
   }
 
   private async newEntry(content: string, options: MemoryWriteOptions): Promise<MemoryEntry> {
+    if (options.tier !== undefined && options.tier !== 'core' && options.tier !== 'archive') throw new Error('Memory tier must be core or archive.')
     const entry: MemoryEntry = {
+      tier: options.tier ?? 'core',
       id: randomUUID(), content, createdAt: new Date().toISOString(), origin: 'unknown',
       ...(options.provenance === 'explicit-user' ? { reviewedAt: new Date().toISOString() } : {}),
       ...(this.scope === 'project'
@@ -400,6 +452,7 @@ export class MemoryStore {
 
   private async viewEntry(target: MemoryTarget, scope: MemoryScope, entry: MemoryEntry): Promise<MemoryEntryView> {
     return {
+      id: entry.id, tier: entry.tier ?? 'core',
       content: entry.content,
       status: await this.status(target, scope, entry),
       scope: { ...scope },
@@ -418,6 +471,12 @@ export class MemoryStore {
   private inside(root: string, target: string): boolean {
     const path = relative(root, target)
     return path === '' || (path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path))
+  }
+
+  private fits(entries: MemoryEntry[]): boolean {
+    return entries.length <= 1000 && entries.every(entry => entry.content.length <= MAX_ENTRY_CHARS) &&
+      (['core', 'archive'] as const).every(tier => entries.filter(entry => (entry.tier ?? 'core') === tier)
+        .map(entry => entry.content).join(DELIMITER).length <= (tier === 'core' ? MAX_CHARS : MAX_ARCHIVE_CHARS))
   }
 
   private isPrivateSourcePath(path: string): boolean {
@@ -456,5 +515,8 @@ export const addEntry = (target: MemoryTarget, content: string, options?: Memory
 export const replaceEntry = (target: MemoryTarget, match: string, content: string, options?: MemoryWriteOptions) => legacyStore.replace(target, match, content, options)
 export const removeEntry = (target: MemoryTarget, match: string) => legacyStore.remove(target, match)
 export const confirmEntry = (target: MemoryTarget, match: string, userConfirmed: boolean) => legacyStore.confirm(target, match, userConfirmed)
+export const patchEntry = (target: MemoryTarget, match: string, content: string, options?: MemoryWriteOptions) => legacyStore.patch(target, match, content, options)
+export const searchMemory = (target: MemoryTarget, query: string, limit?: number, includeInactive?: boolean) => legacyStore.search(target, query, limit, includeInactive)
+export const memoryCapacity = (target: MemoryTarget) => legacyStore.capacity(target)
 export const getMemorySnapshot = () => legacyStore.snapshot()
 export const clearMemory = (target?: MemoryTarget) => legacyStore.clear(target)

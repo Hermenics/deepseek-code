@@ -1,3 +1,4 @@
+import { waitFor } from './helpers/waitFor.js'
 import { describe, expect, it } from 'bun:test'
 import type { Tool } from '../src/tools/types.js'
 import { SUBAGENT_RESULT_SCHEMA } from '../src/orchestration/schema.js'
@@ -964,7 +965,7 @@ describe('subagent terminal protocol', () => {
         context: session.toolContext({ taskId: runContext.taskId, signal: runContext.signal, permissionProfile: 'writer-worktree' }),
       },
     ))
-    for (let index = 0; index < 100 && task.status().state !== 'blocked'; index++) await Bun.sleep(1)
+    await waitFor(() => task.status().state === 'blocked', 'subagent permission block')
     expect(task.status().state).toBe('blocked')
     expect(writes).toBe(0)
     expect(session.registry.mailbox.list('coordinator', 'pending')).toHaveLength(1)
@@ -988,7 +989,7 @@ describe('subagent terminal protocol', () => {
       },
     ))
     const completion = task.awaitResult()
-    for (let index = 0; index < 100 && task.status().state !== 'blocked'; index++) await Bun.sleep(1)
+    await waitFor(() => task.status().state === 'blocked', 'subagent permission block')
     expect(task.status().state).toBe('blocked')
     const [request] = session.registry.mailbox.list('coordinator', 'pending')
     session.registry.sendMessage(task.taskId, 'permission', { decision: 'allow', tool: 'read_file', requestId: request!.messageId })
@@ -1032,7 +1033,7 @@ describe('subagent terminal protocol', () => {
       },
     ))
     const completion = task.awaitResult()
-    for (let index = 0; index < 100 && task.status().state !== 'blocked'; index++) await Bun.sleep(1)
+    await waitFor(() => task.status().state === 'blocked', 'subagent permission block')
     expect(task.status().state).toBe('blocked')
     const [request] = session.registry.mailbox.list('coordinator', 'pending')
     session.registry.sendMessage(task.taskId, 'permission', { decision: 'allow', tool: 'read_file', requestId: request!.messageId })
@@ -1060,11 +1061,11 @@ describe('subagent terminal protocol', () => {
         context: session.toolContext({ taskId: runContext.taskId, signal: runContext.signal, permissionProfile: 'researcher-readonly' }),
       })
     })
-    for (let index = 0; index < 100 && task.status().state !== 'blocked'; index++) await Bun.sleep(1)
+    await waitFor(() => task.status().state === 'blocked', 'subagent permission block')
     const [request] = session.registry.mailbox.list('coordinator', 'pending')
     session.registry.sendMessage(task.taskId, 'permission', { decision: 'allow', tool: 'read_file', requestId: request!.messageId })
     expect(task.resume()).toBe(true)
-    for (let index = 0; index < 100 && !(task.status().state === 'blocked' && task.status().attempt === 2); index++) await Bun.sleep(1)
+    await waitFor(() => task.status().state === 'blocked' && task.status().attempt === 2, 'second permission attempt')
     expect(task.status().state).toBe('blocked')
     expect(reads).toBe(0)
     task.cancel()
@@ -1081,7 +1082,7 @@ describe('subagent terminal protocol', () => {
       context: session.toolContext({ taskId: runContext.taskId, signal: runContext.signal, permissionProfile: 'researcher-readonly' }),
     }))
     const completion = task.awaitResult()
-    for (let index = 0; index < 100 && task.status().state !== 'blocked'; index++) await Bun.sleep(1)
+    await waitFor(() => task.status().state === 'blocked', 'subagent permission block')
     expect(task.status().state).toBe('blocked')
     const request = session.registry.mailbox.list('coordinator', 'pending')[0]!
     session.registry.sendMessage(task.taskId, 'permission', { decision: 'allow', tool: 'read_file', requestId: request.messageId })
@@ -1221,7 +1222,7 @@ describe('subagent terminal protocol', () => {
       },
     ))
     // Wait for the first completion to be in flight, then post a question.
-    for (let index = 0; index < 100 && calls < 1; index++) await Bun.sleep(1)
+    await waitFor(() => calls >= 1, 'first provider request')
     session.registry.sendMessage(task.taskId, 'question', { text: 'hello' })
     releaseFirst()
     expect((await task.awaitResult()).status).toBe('done')
@@ -1258,7 +1259,7 @@ describe('subagent terminal protocol', () => {
         context: session.toolContext({ taskId: runContext.taskId, signal: runContext.signal }),
       },
     ))
-    for (let index = 0; index < 100 && calls < 1; index++) await Bun.sleep(1)
+    await waitFor(() => calls >= 1, 'first provider request')
     session.registry.sendMessage(task.taskId, 'question', { text: 'late' })
     releaseFirst()
     expect((await task.awaitResult()).status).toBe('done')

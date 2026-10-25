@@ -12,7 +12,7 @@ bun install
 
 ### Requirements
 
-- [Bun](https://bun.sh) >= 1.1
+- [Bun](https://bun.sh) >= 1.4.0 (matching `package.json` and CI)
 - Node.js >= 18 (for npm publishing only)
 
 ### Useful commands
@@ -22,7 +22,7 @@ bun run dev          # Dev mode with watch
 bun run start        # Run from source
 bun run build        # Production build
 bun run typecheck    # tsc --noEmit
-bun test             # Run test suite
+bun run test         # Isolated, serial test suite; same command as CI
 ```
 
 ## How to contribute
@@ -31,7 +31,7 @@ bun test             # Run test suite
 2. Make your changes
 3. Run checks before submitting:
    ```bash
-   bun run typecheck && bun test
+   bun run typecheck && bun run test
    ```
 4. Open a PR with a clear description of what changed and why
 
@@ -51,7 +51,16 @@ Use English for all repository content, including `docs/`, code comments, tests,
 
 - Tests live in `tests/`, never in `src/`
 - Write tests for new features and bug fixes
-- Run `bun test` to verify nothing breaks
+- Run `bun run test` to use the same isolated, serial runner as Linux, macOS, and Windows CI.
+- Focus one subsystem with `bun test tests/workflows --parallel=1 --max-concurrency=1 --timeout=15000`.
+- Repeat a suspect file with `bun test tests/example.test.ts --parallel=1 --max-concurrency=1 --timeout=15000 --rerun-each=5`; failures must be fixed, not retried until green.
+- The package scripts pass an explicit 15-second per-test ceiling to the worker runner. Long process/integration tests can declare their own timeout; performance assertions keep their separate thresholds.
+- The test preload assigns a temporary HOME/USERPROFILE and state/history directories per isolated file, preventing tests from reading or writing personal settings, credentials, sessions, or memories.
+- The test preload uses a repository-owned Git config instead of the machine's global/system config. Fixtures can still set repository-local Git options to test signing, filters, hooks, and line endings deliberately.
+- Use `waitFor(condition, description)` from `tests/helpers/waitFor.ts` for readiness. Prefer explicit promise/file barriers over fixed sleeps or a fixed number of timer ticks. `waitForChildFile` also reports early child exits with stderr.
+- Close sessions, databases, servers, and child processes before removing temporary directories. Restore environment variables and cwd in `finally`/cleanup hooks. Build child commands with argument arrays and use file URLs when importing fixture modules; do not assume a POSIX shell, path separator, or symlink privileges.
+- Platform-specific skips must describe a real capability boundary and retain coverage on supported systems. Do not skip an assertion just because the runner is slower.
+- CI uploads a JUnit report for each OS and records runtime versions. A Linux pass alone does not prove native macOS or Windows behavior.
 
 ### Commits
 

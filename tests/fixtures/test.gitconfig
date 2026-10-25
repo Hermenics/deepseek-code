@@ -1,0 +1,7 @@
+# A portable global config for test subprocesses, never written to the user's Git config.
+[core]
+    autocrlf = false
+[commit]
+    gpgsign = false
+[tag]
+    gpgsign = false

@@ -4,6 +4,7 @@ import { logForDebugging } from '../utils/debug.js'
 import type { WorkflowEvent, WorkflowRpcResult, WorkflowUsage } from './types.js'
 
 const MAX_PIPELINE_ITEMS = 4096
+const MAX_HELPER_CONCURRENCY = 16
 const DEFAULT_TIMEOUT_MS = 120_000
 const SYNC_EXECUTION_TIMEOUT_MS = 1_000
 
@@ -14,6 +15,7 @@ export interface WorkflowRuntimeOptions {
   timeoutMs?: number
   maxTokens?: number
   maxCostUsd?: number
+  concurrency?: number
   signal?: AbortSignal
   onCall(method: 'agent' | 'workflow', args: unknown[]): Promise<WorkflowRpcResult>
   onEvent?(event: WorkflowEvent): void
@@ -67,6 +69,7 @@ const workflowProgram = async function () {
     __agents += reply.usage?.agents ?? 1;
     __spentTokens += reply.usage?.tokens ?? 0;
     __spentCost += reply.usage?.costUsd ?? 0;
+    if (reply.error !== undefined && options.throwOnError) throw new Error(reply.error);
     return reply.value;
   };
   const workflow = async (ref, childArgs = {}) => {
@@ -79,12 +82,30 @@ const workflowProgram = async function () {
     __spentCost += reply.usage?.costUsd ?? 0;
     return reply.value;
   };
-  const parallel = async thunks => {
+  const __concurrency = (options, helper) => {
+    if (!options || typeof options !== 'object' || Array.isArray(options)) throw new Error(helper + ' options must be an object');
+    const count = options.concurrency === undefined ? __limits.concurrency : options.concurrency;
+    if (!Number.isInteger(count) || count < 1 || count > ${MAX_HELPER_CONCURRENCY}) throw new Error(helper + ' options.concurrency must be an integer from 1 to ${MAX_HELPER_CONCURRENCY}');
+    return count;
+  };
+  // A slot covers an entire item chain, rather than each stage, so pipelines retain no-barrier semantics.
+  const __map = async (items, run, concurrency) => {
+    const results = new Array(items.length);
+    let next = 0;
+    await Promise.all(Array.from({length: Math.min(concurrency, items.length)}, async () => {
+      while (next < items.length) {
+        const index = next++;
+        try { results[index] = await run(items[index], index); }
+        catch { results[index] = null; }
+      }
+    }));
+    return results;
+  };
+  const parallel = async (thunks, options = {}) => {
     if (!Array.isArray(thunks)) throw new Error('parallel expects an array of functions');
     if (thunks.length > ${MAX_PIPELINE_ITEMS}) throw new Error('parallel item limit exceeded');
     if (thunks.some(thunk => typeof thunk !== 'function')) throw new Error('parallel expects only functions');
-    const settled = await Promise.allSettled(thunks.map(thunk => Promise.resolve().then(thunk)));
-    return settled.map(item => item.status === 'fulfilled' ? item.value : null);
+    return __map(thunks, thunk => thunk(), __concurrency(options, 'parallel'));
   };
   // Every stage receives (previousResult, originalItem, index) so later stages can label work
   // without threading context through the first stage's return value. A throwing stage drops
@@ -92,14 +113,14 @@ const workflowProgram = async function () {
   const pipeline = async (items, ...stages) => {
     if (!Array.isArray(items)) throw new Error('pipeline expects an array');
     if (items.length > ${MAX_PIPELINE_ITEMS}) throw new Error('pipeline item limit exceeded');
+    const options = stages.length && typeof stages[stages.length - 1] !== 'function' ? stages.pop() : {};
+    const concurrency = __concurrency(options, 'pipeline');
     if (stages.some(stage => typeof stage !== 'function')) throw new Error('pipeline stages must be functions');
-    return Promise.all(items.map(async (item, index) => {
-      try {
-        let value = item;
-        for (const stage of stages) value = await stage(value, item, index);
-        return value;
-      } catch { return null; }
-    }));
+    return __map(items, async (item, index) => {
+      let value = item;
+      for (const stage of stages) value = await stage(value, item, index);
+      return value;
+    }, concurrency);
   };
   const log = value => { void __rpc('event', JSON.stringify(['log', String(value)])); };
   const phase = value => { void __rpc('event', JSON.stringify(['phase', String(value)])); };
@@ -255,7 +276,7 @@ export function executeWorkflowScript(options: WorkflowRuntimeOptions): Workflow
     worker.postMessage({
       type: 'start', body: parsed.body, args: options.args,
       syncTimeoutMs,
-      limits: { maxTokens: options.maxTokens, maxCostUsd: options.maxCostUsd },
+      limits: { maxTokens: options.maxTokens, maxCostUsd: options.maxCostUsd, concurrency: options.concurrency ?? MAX_HELPER_CONCURRENCY },
     })
   })
 

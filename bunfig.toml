@@ -12,3 +12,4 @@ peer = false
 
 [test]
 root = "tests"
+preload = ["./tests/setup.ts"]

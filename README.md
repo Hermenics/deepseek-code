@@ -69,7 +69,7 @@ The host account must have passwordless `sudo` for one-time OS package installat
 
 ### Requirements
 
-- [Bun](https://bun.sh) 1.1+
+- [Bun](https://bun.sh) 1.4.0+
 - Node.js 18+ (starts Bun without loading the current project's `.env` or `bunfig.toml`)
 - A supported LLM provider (see below)
 
@@ -162,7 +162,7 @@ The same `configurations` format works in either launch file. `.deepseek/launch.
 
 ### Prerequisites
 
-- [Bun](https://bun.sh) >= 1.1
+- [Bun](https://bun.sh) >= 1.4.0
 - Node.js >= 18
 
 ### Setup
@@ -180,7 +180,7 @@ bun run dev          # Start in dev mode (watch)
 bun run start        # Run from source
 bun run build        # Production build
 bun run typecheck    # Type check (tsc --noEmit)
-bun test             # Run tests
+bun run test         # Isolated serial suite, matching CI
 ```
 
 ### Background task recovery
@@ -252,7 +252,7 @@ Contributions are welcome! Here's how to get started:
 3. **Make your changes** — keep files under 500 lines
 4. **Run checks** before submitting:
    ```bash
-   bun run typecheck && bun test
+   bun run typecheck && bun run test
    ```
 5. **Open a PR** with a clear description of what changed and why
 

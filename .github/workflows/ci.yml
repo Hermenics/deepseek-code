@@ -29,16 +29,30 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      - name: Record runtime versions
+        run: |
+          bun --version
+          node --version
+          git --version
+
       - name: Type check
         run: bun run typecheck
 
       - name: Test
         if: matrix.os != 'ubuntu-latest'
-        run: bun test tests --timeout 15000 --parallel=1 --max-concurrency=1
+        run: bun run test --reporter=junit --reporter-outfile=test-results.xml
 
       - name: Test with coverage
         if: matrix.os == 'ubuntu-latest'
-        run: bun run test:coverage --timeout 15000 --parallel=1
+        run: bun run test:coverage --reporter=junit --reporter-outfile=test-results.xml
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-tests-${{ matrix.os }}
+          path: test-results.xml
+          if-no-files-found: ignore
 
       - name: Build CLI
         run: bun run build

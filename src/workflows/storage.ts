@@ -283,6 +283,13 @@ export class WorkflowStore {
     const directory = await this.findRunDirectory(runId)
     const journal = directory ? await readJson<WorkflowJournal>(join(directory, 'journal.json')) : undefined
     if (!journal || !Array.isArray(journal.entries) || !journal.entries.every(entry => entry && typeof entry === 'object')) return undefined
+    // Older managers recorded recoverable failures as completed nulls. Reconcile with run.json
+    // without rejecting legitimate successful null results or rewriting historical files.
+    const run = directory ? await readJson<WorkflowRun>(join(directory, 'run.json')) : undefined
+    for (const failure of Array.isArray(run?.failures) ? run.failures : []) {
+      const entry = journal.entries[failure.call]
+      if (entry?.status === 'completed') Object.assign(entry, { status: 'failed', error: failure.message })
+    }
     return journal
   }
 
@@ -313,7 +320,7 @@ export class WorkflowStore {
       if (run.runId === excludeRunId || run.scriptHash !== scriptHash || run.argsHash !== argsHash || run.optionsHash !== optionsHash || run.replayContextHash !== replayContextHash || isWorkflowRunActive(run)) continue
       const journal = await this.readJournal(run.runId)
       if (!journal || journal.scriptHash !== scriptHash || journal.argsHash !== argsHash || journal.optionsHash !== optionsHash || journal.replayContextHash !== replayContextHash) continue
-      const prefix = journal.entries.findIndex(entry => entry.status !== 'completed')
+      const prefix = journal.entries.findIndex(entry => entry.status !== 'completed' || entry.budgetExhausted || entry.error)
       const length = prefix < 0 ? journal.entries.length : prefix
       if (prefix < 0) return journal
       if (length > bestPrefix) { best = journal; bestPrefix = length }

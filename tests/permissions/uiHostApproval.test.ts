@@ -1,3 +1,4 @@
+import { waitFor } from '../helpers/waitFor.js'
 import { afterEach, describe, expect, it } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -30,7 +31,13 @@ async function setup() {
   }, {}, {
     onToken() {}, onThinking() {}, onToolCall() {}, onToolResult() {}, onDone() {}, onDenyAbort() {}, onAutoCompact() {},
   }) as Promise<{ result: string }>
-  for (let attempt = 0; attempt < 1_000 && !prompt; attempt++) await Bun.sleep(5)
+  try { await waitFor(() => prompt !== null, 'host permission prompt') }
+  catch (error) {
+    unbind()
+    await agent.shutdown().catch(() => undefined)
+    await pending.catch(() => undefined)
+    throw error
+  }
   return { agent, pending, unbind, prompt: () => prompt, executed: () => executed }
 }
 

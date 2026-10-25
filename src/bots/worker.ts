@@ -22,7 +22,7 @@ import { installBotBrowserControl } from './browser.js'
 import { clearRecording } from '../browser/record.js'
 import { materializeProcedure, procedureGuard, procedureSkill } from './procedures.js'
 
-const READ_TOOLS = new Set(['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'get_goal', 'ask_user_questions', 'step'])
+const READ_TOOLS = new Set(['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'get_goal', 'ask_user_questions', 'step', 'session_search'])
 const BROWSER_READ_ACTIONS = new Set(['snapshot', 'find', 'screenshot', 'logs', 'network', 'wait', 'expect', 'scroll'])
 const TEST_LOCAL_READ_TOOLS = new Set(['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'introspect', 'get_goal'])
 /** Only bounded local inspection can execute during a safe routine preview. */
@@ -38,7 +38,8 @@ export function botToolIsReadOnly(tool: string, args: Record<string, unknown>): 
     if (args.action === 'batch') return Array.isArray(args.steps) && args.steps.every(step => step && typeof step === 'object' && botToolIsReadOnly('browser', step as Record<string, unknown>))
     return BROWSER_READ_ACTIONS.has(String(args.action)) || args.action === 'tabs' && args.op === 'list'
   }
-  if (['git', 'todo', 'memory'].includes(tool)) return ['list', 'status', 'diff', 'log'].includes(String(args.action))
+  if (tool === 'memory') return ['list', 'review', 'search', 'get', 'status'].includes(String(args.action))
+  if (['git', 'todo'].includes(tool)) return ['list', 'status', 'diff', 'log'].includes(String(args.action))
   if (tool === 'skill') return true
   if (tool === 'bot_control') return ['list', 'status', 'history_search', 'notes', 'routines', 'procedures', 'procedure', 'group_context', 'artifacts', 'read_artifact'].includes(String(args.action))
   return false

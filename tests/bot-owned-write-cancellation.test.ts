@@ -29,7 +29,7 @@ it('cancels an owned write promptly despite a configured synchronous SQLite busy
     `, path, locked, release], { stdin: 'ignore', stdout: 'ignore', stderr: 'pipe' })
     writer = child
     const errors = new Response(child.stderr).text()
-    await waitForChildFile(locked, writer, errors, 2000)
+    await waitForChildFile(locked, writer, errors)
     let mutations = 0
     const started = Date.now()
     timer = setTimeout(() => controller.abort(new Error('cancel fixture')), 30)

@@ -26,7 +26,7 @@ export function isReviewMode(mode: InteractionMode): boolean {
 
 // Observation and session bookkeeping tools available in every mode.
 const READ_ONLY_TOOLS = new Set([
-  'read_file', 'read_folder', 'glob', 'grep', 'lsp', 'session_evidence', 'record_claim', 'discover_tools',
+  'read_file', 'read_folder', 'glob', 'grep', 'lsp', 'session_evidence', 'session_search', 'record_claim', 'discover_tools',
   'web_fetch', 'introspect', 'todo', 'step', 'memory',
   'git', 'workflow', 'get_goal', 'ask_user_questions', 'skill',
 ])

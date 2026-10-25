@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.13.3
+
+- Added: Persistent memory separates the 2,000-character core from a 200,000-character searchable archive, with local BM25 retrieval, stable IDs, bounded get pages, capacity reporting, and unique-span patch edits.
+- Added: Project-scoped `session_search` retrieves redacted saved conversations and bounded pre-compaction episodes; writable compaction preserves visible text before replacing history, and active verified archive notes can be recalled into a matching turn without extra model requests.
+- Fixed: User memory edit approval is bound to the reviewed entry contents; concurrent edits invalidate consent. Background project-fact extraction uses the unreviewed archive and skips read-only modes and project-switch races.
+- Docs: Added the Hermes/OpenClaw comparison, implementation contracts and limits in `docs/research/memory-hermes-openclaw-2026-10-25.md`; updated the memory tool, slash commands, introspection and user guide.
+
+- Tests: Local and CI commands now share isolated serial execution and a 15-second default ceiling; a test-only Git config prevents machine-level signing and CRLF settings from breaking fixtures without changing the user's Git files.
+- Tests: Subagent permission, workflow refresh, and child-process readiness fixtures wait for observable conditions with diagnostic deadlines; the contended lease-expiration fixture advances a controlled clock only after its first real busy attempt.
+- CI: Upload per-OS JUnit test reports and print runtime versions to diagnose native Linux, macOS, and Windows failures without automatic test retries.
+
+- Added: Dynamic Workflow `parallel(thunks, { concurrency })` and `pipeline(items, ...stages, { concurrency })` bound item admission from 1 to 16, default to configured agent concurrency, and preserve result order and per-item failure isolation.
+- Added: Workflow `agent()` accepts `throwOnError: true` for required steps and explicit fallbacks, preserving usage accounting and default null-on-failure behavior without automatic retries.
+- Fixed: Recoverable workflow agent failures and children containing failed agents are no longer journaled as successful results; legacy journals reconcile recorded failures before replay, while successful null results remain reusable. Concurrent children count only their own agents, and run usage retains tokens spent by children that throw.
+- Docs: Recorded primary-source research, implementation decisions, recovery limits, and validation coverage in `docs/research/dynamic-workflows-2026-10-25.md` and updated the workflow guide.
+
 ## 0.13.1
 
 - Fixed: Concurrent settings, credential, provider-profile, workspace-trust, workflow-approval, and prompt-history updates no longer overwrite each other's data; conversation history snapshots now replace files atomically, and config migration keeps `.env` credentials when the replacement write fails.

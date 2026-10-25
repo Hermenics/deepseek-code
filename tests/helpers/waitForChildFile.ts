@@ -1,16 +1,16 @@
 import { existsSync } from 'node:fs'
+import { waitFor } from './waitFor.js'
 
 /** Wait for a child process to publish a filesystem barrier without relying on IPC delivery. */
 export async function waitForChildFile(
   path: string,
   child: ReturnType<typeof Bun.spawn>,
   errors: Promise<string>,
-  timeoutMs: number,
+  timeoutMs = 5_000,
 ): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (!existsSync(path)) {
-    if (child.exitCode !== null) throw new Error(await errors)
-    if (Date.now() >= deadline) throw new Error(`Timed out waiting for child marker: ${path}`)
-    await Bun.sleep(10)
-  }
+  await waitFor(async () => {
+    if (existsSync(path)) return true
+    if (child.exitCode !== null) throw new Error(`Child exited with code ${child.exitCode} before publishing ${path}: ${await errors}`)
+    return false
+  }, `child marker: ${path}`, timeoutMs)
 }

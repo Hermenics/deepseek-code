@@ -40,6 +40,8 @@ describe('HookRuntime child environment', () => {
   })
 
   const environmentProbe = `
+    process.stdin.resume();
+    process.stdin.on('end', () => {
     const env = process.env;
     const observed = {
       secrets: ${JSON.stringify(SECRET_KEYS)}.map(key => env[key] ?? null),
@@ -47,6 +49,7 @@ describe('HookRuntime child environment', () => {
       home: Boolean(env.HOME ?? env.USERPROFILE),
     };
     process.stdout.write(JSON.stringify({ decision: 'allow', modified_input: observed }));
+    });
   `
 
   async function run(handlerType: 'command' | 'shell'): Promise<Record<string, unknown> | undefined> {
@@ -63,7 +66,7 @@ describe('HookRuntime child environment', () => {
     }
     runtime.register(definition)
     const result = await runtime.execute('PreToolUse', 'WriteFile', {}, { session_id: SESSION_ID, cwd: process.cwd() })
-    expect(result.decision).toBe('allow')
+    expect(result.decision, JSON.stringify(result.runs)).toBe('allow')
     return result.modifiedInput
   }
 

@@ -17,7 +17,7 @@ const ROOT_COMMANDS = [
   ["bun run dev", "Run the same entry point under Bun watch mode and restart after source changes."],
   ["bun run build", "Bundle the production CLI and create the executable launcher under dist/."],
   ["bun run typecheck", "Run strict TypeScript checking without emitting JavaScript."],
-  ["bun test", "Run the Bun test suite under tests/."],
+  ["bun run test", "Run the isolated serial CLI suite, matching CI."],
   ["bun run test:coverage", "Run the suite and write an LCOV report under coverage/."],
   ["bun run test:ink", "Run only the local terminal-renderer contract tests."],
   ["bun run test:plugins", "Run only plugin loader, registry, installer, and command tests."],
@@ -91,15 +91,15 @@ export default function Development() {
         <section id="setup">
           <h2><span className="anchor">#</span>Local setup</h2>
           <p>
-            Bun 1.1 or newer is the declared CLI runtime. CI currently exercises the project with a
-            pinned Bun version, while the package keeps the broader 1.1+ compatibility contract. Node and
+            Bun 1.4.0 or newer is the declared CLI runtime. CI pins Bun 1.4.0 and runs the isolated
+            serial CLI suite on Linux, macOS, and Windows. Node and
             npm are required for the website and npm packaging workflow.
           </p>
           <CodeBlock lang="bash">{`$ git clone https://github.com/Hermenics/deepseek-code.git
 $ cd deepseek-code
 $ bun install --frozen-lockfile
 $ bun run typecheck
-$ bun test`}</CodeBlock>
+$ bun run test`}</CodeBlock>
           <p>
             For day-to-day local dependency updates, <code className="inline">bun install</code> is fine.
             Use <code className="inline">--frozen-lockfile</code> when you want the same fail-on-lock-drift

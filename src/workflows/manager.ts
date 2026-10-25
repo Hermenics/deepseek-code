@@ -45,7 +45,6 @@ export interface WorkflowAgentRequest {
 export interface WorkflowAgentResponse extends WorkflowRpcResult {
   taskId?: string
   worktree?: string
-  error?: string
 }
 
 export type WorkflowAgentRunner = (request: WorkflowAgentRequest) => Promise<WorkflowAgentResponse>
@@ -144,6 +143,7 @@ function validateAgentOptions(value: unknown): WorkflowAgentOptions {
   if (value === undefined) return {}
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('agent options must be an object')
   const options = value as Record<string, unknown>
+  if (options.throwOnError !== undefined && typeof options.throwOnError !== 'boolean') throw new Error("agent option 'throwOnError' must be a boolean")
   for (const key of ['label', 'phase', 'model', 'agentType'] as const) {
     if (options[key] !== undefined && typeof options[key] !== 'string') throw new Error(`agent option '${key}' must be a string`)
   }
@@ -437,6 +437,7 @@ export class WorkflowManager {
       active.execution = executeWorkflowScript({
         script: active.script, name: input.name, args: active.args, timeoutMs: input.timeoutMs,
         maxTokens: input.maxTokens, maxCostUsd: input.maxCostUsd, signal: active.controller.signal,
+        concurrency: Math.min(this.options.settings?.agents?.concurrency ?? 5, MAX_CONCURRENCY),
         onEvent: event => {
           if (event.type === 'phase') this.setPhase(active, event.value)
           this.publish(active, event)
@@ -445,7 +446,8 @@ export class WorkflowManager {
       })
       const runtime = await active.execution.result
       active.record.result = runtime.value
-      active.record.usage = { ...runtime.usage, agents: active.record.usage.agents }
+      // Host accounting includes child agents that spent tokens before throwing; the worker
+      // only sees usage attached to successful RPC replies and must not overwrite that total.
       active.record.status = active.structuralError ? 'failed' : active.budgetExhausted ? 'budget_exhausted' : 'completed'
       if (active.structuralError) active.record.error = active.structuralError
       else if (active.budgetExhausted) {
@@ -505,7 +507,7 @@ export class WorkflowManager {
     const entry = active.replay?.entries[index]
     // A null produced by an exhausted budget is an artifact of the earlier run's limits, not a
     // result: replaying it would carry the exhaustion into a run that may have a larger budget.
-    if (!entry || entry.status !== 'completed' || entry.fingerprint !== fingerprint || entry.budgetExhausted) {
+    if (!entry || entry.status !== 'completed' || entry.fingerprint !== fingerprint || entry.budgetExhausted || entry.error) {
       active.replayValid = false
       return undefined
     }
@@ -539,7 +541,7 @@ export class WorkflowManager {
       // Concurrent calls admit agents while this one is in flight, so the run-level counter
       // cannot attribute agents per call; a plain agent() is exactly one agent.
       const usage = { ...reply.usage, agents: reply.usage?.agents ?? (method === 'agent' ? 1 : active.record.usage.agents - initialAgents) }
-      Object.assign(entry, { status: 'completed', result: reply.value, usage, budgetExhausted: active.budgetExhausted || undefined, timestamp: new Date().toISOString() })
+      Object.assign(entry, { status: reply.error ? 'failed' : 'completed', error: reply.error, result: reply.value, usage, budgetExhausted: active.budgetExhausted || undefined, timestamp: new Date().toISOString() })
       await this.persist(active)
       return reply
     } catch (error) {
@@ -623,9 +625,10 @@ export class WorkflowManager {
       this.publish(active)
       return reply.error ? { ...reply, value: null } : reply
     } catch (error) {
-      active.record.failures.push({ call: callIndex, method: 'agent', message: (error as Error).message })
+      const message = error instanceof Error ? error.message || String(error) : String(error)
+      active.record.failures.push({ call: callIndex, method: 'agent', message })
       this.publish(active)
-      return { value: null }
+      return { value: null, error: message }
     }
   }
 
@@ -645,7 +648,7 @@ export class WorkflowManager {
     const approved = autoMode || await new WorkflowApprovalStore(this.options.projectRoot).isApproved(hashWorkflowValue(source))
     const childName = byPath ? parseWorkflowSource(source).meta.name : ref as string
     if (!approved) throw new Error(`Child workflow '${childName}' requires approval before execution`)
-    const initialAgents = active.record.usage.agents
+    let childError: string | undefined
     // Child agents land under a `▸ name` group in the monitor, as Claude Code renders them.
     const group = `▸ ${childName}`
     this.setPhase(active, group)
@@ -653,6 +656,7 @@ export class WorkflowManager {
     const execution = executeWorkflowScript({
       script: source, args: args[1] ?? {}, timeoutMs: input.timeoutMs,
       maxTokens: input.maxTokens, maxCostUsd: input.maxCostUsd, signal: active.controller.signal,
+      concurrency: Math.min(this.options.settings?.agents?.concurrency ?? 5, MAX_CONCURRENCY),
       onEvent: event => {
         const scoped = event.type === 'phase' ? { ...event, value: `${group} · ${event.value}` } : event
         if (scoped.type === 'phase') this.setPhase(active, scoped.value)
@@ -660,11 +664,18 @@ export class WorkflowManager {
       },
       onCall: async (method, childArgs) => {
         if (method === 'workflow') throw new Error('Child workflows cannot start another workflow')
-        return this.runAgent(active, childArgs, input, callIndex)
+        try {
+          const reply = await this.runAgent(active, childArgs, input, callIndex)
+          childError ??= reply.error
+          return reply
+        } catch (error) {
+          childError ??= error instanceof Error ? error.message || String(error) : String(error)
+          throw error
+        }
       },
     })
     const result = await execution.result
-    return { value: result.value, usage: { agents: active.record.usage.agents - initialAgents, tokens: result.usage.tokens, costUsd: result.usage.costUsd } }
+    return { value: result.value, error: childError, usage: { agents: result.usage.agents, tokens: result.usage.tokens, costUsd: result.usage.costUsd } }
   }
 
   /** Loads a saved workflow's source by name through the injected loader or discovery; undefined when not found. */

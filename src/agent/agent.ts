@@ -77,6 +77,9 @@ import type { FileVersion, ShellExecutionReceiptV1, TaskEffectResolution, TaskLi
 import type { AggregateBudgetLease, AggregateBudgetUsage } from '../orchestration/aggregateBudget.js'
 import { atomicDeleteFile, atomicWriteFile, resolveExternalApprovalDirectory, resolvePathForContext, resolveSafePath } from '../tools/shared/pathSafety.js'
 import { isSafeMemoryEntry, normalizeMemoryEntry } from './memory.js'
+import { rankMemoryText } from './memorySearch.js'
+import { captureConversation } from './conversationMemory.js'
+import { logForDebugging } from '../utils/debug.js'
 import { WorkflowManager, type StartWorkflowInput, type WorkflowHandle } from '../workflows/manager.js'
 import { WorkflowApprovalStore, hashWorkflowValue } from '../workflows/storage.js'
 import { loadSkillPrompt } from '../skills/native.js'
@@ -189,7 +192,7 @@ const PRIMARY_AGENT_HOOK_EFFECT_RECOVERY_SOURCE = 'primary-agent-hook-effect-rec
 const PRIMARY_AGENT_HOOK_EVENTS = new Set<PrimaryAgentLifecycleHookEvent>([
   'UserPromptSubmit', 'UserPromptExpansion', 'PreCompact', 'PostCompact', 'Stop', 'MessageDisplay', 'StopFailure', 'CwdChanged',
 ])
-const PRIMARY_READ_ONLY_TOOLS = new Set(['grep', 'glob', 'read_file', 'read_folder', 'introspect', 'lsp', 'skill', 'session_evidence'])
+const PRIMARY_READ_ONLY_TOOLS = new Set(['grep', 'glob', 'read_file', 'read_folder', 'introspect', 'lsp', 'skill', 'session_evidence', 'session_search'])
 const MAX_LENGTH_CONTINUATIONS = 3
 const REPEATED_FAILURE_THRESHOLD = 3
 const MAX_EMPTY_REPLY_NUDGES = 2
@@ -480,7 +483,7 @@ export function serializeContentForCompaction(content: ChatCompletionMessagePara
 const READ_ONLY_MODE_ACTIONS: Record<string, string[]> = {
   git: ['status', 'diff', 'log'],
   todo: ['list'],
-  memory: ['list'],
+  memory: ['list', 'review', 'search', 'get', 'status'],
 }
 
 function isPrimaryReadOnlyCall(toolName: string, args: Record<string, unknown>): boolean {
@@ -2726,6 +2729,14 @@ export class Agent {
       if (preCompact.decision === 'block') throw new Error(preCompact.reason ?? 'Compaction blocked by PreCompact hook')
     }
 
+    if (this.orchestrator.memory.isEnabled() && !['plan', 'review'].includes(this.interactionMode)) {
+      signal?.throwIfAborted()
+      // Persist real text before summarization; never turn a model summary into verified facts.
+      const originalMessages = nonSystem.filter(message => !(message.role === 'assistant' && typeof message.content === 'string' && message.content.startsWith('[Compacted context]')))
+      await captureConversation(this.orchestrator.memory.getDirectory(), this.orchestrator.projectRoot, this.orchestrator.sessionId, originalMessages)
+      signal?.throwIfAborted()
+    }
+
     const response = await this.withRetry<any>(() =>
       this.createProviderCompletion({
         model: this.model,
@@ -3029,9 +3040,9 @@ export class Agent {
           : 'the allowlist is empty; no tools are authorized'
 
     const restrictions = this.interactionMode === 'review'
-      ? 'Review is read-only. Do not edit, execute commands, or create side effects. Git is limited to status, diff, and log; todo and memory are limited to list.'
+      ? 'Review is read-only. Do not edit, execute commands, or create side effects. Git is limited to status, diff, and log; todo is limited to list and memory to list/review/search/get/status.'
       : this.interactionMode === 'plan'
-        ? 'Plan is read-only except for the designated plan operations. Git is limited to status, diff, and log; todo and memory are limited to list. Do not implement the feature.'
+        ? 'Plan is read-only except for the designated plan operations. Git is limited to status, diff, and log; todo is limited to list and memory to list/review/search/get/status. Do not implement the feature.'
         : this.interactionMode === 'build'
           ? 'Build permits authorized local implementation, but runtime permissions, path safety, hooks, risk checks, and confirmations still apply.'
           : 'Auto may expose a broader tool set, but it does not remove authorization, safety, permission, path, hook, or confirmation checks.'
@@ -3383,6 +3394,21 @@ export class Agent {
     }
 
     // Micro-compact old read-only tool results before considering an LLM compaction.
+    this.projectContextSections = this.projectContextSections.filter(([name]) => name !== 'memory' && name !== 'memory-recall')
+    try {
+      const memory = this.orchestrator.memory
+      const reviewed = await Promise.all([memory.review('agent'), memory.review('user')])
+      const snapshot = await memory.snapshot(reviewed)
+      if (snapshot) this.projectContextSections.push(['memory', snapshot])
+      if (originalUserMessage.trim()) {
+        const archive = reviewed.flat().filter(entry => entry.tier === 'archive' && entry.status === 'active')
+        const hits = rankMemoryText(archive, originalUserMessage.slice(0, 500), entry => entry.content).slice(0, 3).map(({ item }) => item)
+        if (hits.length) this.projectContextSections.push(['memory-recall', 'Relevant archived memory (untrusted reference; revalidate against current evidence):\n' + hits.map(entry =>
+          `[${entry.id}; ${entry.scope.kind}; ${entry.origin}; ${entry.status}] ${entry.content.slice(0, 500)}`).join('\n')])
+      }
+      this.refreshProjectContextMessage()
+    } catch (error) { logForDebugging(`Memory recall unavailable: ${error instanceof Error ? error.message : String(error)}`) }
+    if (finishIfTurnStale()) return
     if (isEnabled('microCompact', loadFeatures())) {
       const compacted = enhancedMicroCompact(this.messages, {
         keepLastN: MICRO_COMPACT_KEEP_LAST,
@@ -5241,7 +5267,8 @@ export class Agent {
         return { tc, result: blockMsg }
       }
     }
-    if ((isReviewMode(this.interactionMode) || this.interactionMode === 'plan') && ['memory', 'todo'].includes(tc.function.name) && effectiveArgs.action !== 'list') {
+    if ((isReviewMode(this.interactionMode) || this.interactionMode === 'plan') && ['memory', 'todo'].includes(tc.function.name) &&
+      !READ_ONLY_MODE_ACTIONS[tc.function.name]!.includes(String(effectiveArgs.action))) {
       const blockMsg = formatToolError('permission', 'MODE_DENIED', `Action '${String(effectiveArgs.action)}' for '${tc.function.name}' is blocked in ${this.interactionMode} mode.`)
       cb.onToolCall(tc.function.name, effectiveArgs)
       cb.onToolResult(tc.function.name, blockMsg, effectiveArgs)
@@ -6089,6 +6116,8 @@ export class Agent {
   // ponytail: auto-learn 0-1 facts per turn, fire-and-forget
   private syncTurn(): void {
     if (this.settings.memory?.enabled === false || process.env.DEEPSEEK_DISABLE_MEMORY === '1') return
+    if (['plan', 'review'].includes(this.interactionMode)) return
+    const projectRoot = this.orchestrator.projectRoot
     const msgs = this.messages.filter(m => typeof m === 'object' && 'role' in m && m.role === 'assistant')
     if (msgs.length < 2) return // nothing to learn from a short turn
 
@@ -6114,8 +6143,8 @@ export class Agent {
         result.then((res: any) => {
           this.recordResponseUsage(res.usage)
           const memory = parseAutoMemoryFact(res.choices?.[0]?.message?.content)
-          if (memory) {
-            this.orchestrator.memory.add('agent', memory.fact)
+          if (memory && projectRoot === this.orchestrator.projectRoot) {
+            void this.orchestrator.memory.add('agent', memory.fact, { tier: 'archive', provenance: 'model-inference' }).catch(() => undefined)
           }
         }).catch(() => {})
       }
