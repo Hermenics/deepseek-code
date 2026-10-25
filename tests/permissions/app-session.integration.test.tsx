@@ -64,6 +64,8 @@ it('routes interactive App approvals and denials through the Agent', async () =>
   let localActionResult: unknown
   let forbiddenUrl = ''
   const requestPaths: string[] = []
+  let stage = 'deny turn'
+  const diagnostics = () => JSON.stringify({ stage, requestPaths, forbiddenFetches, rejectedActionResult, localActionResult })
   const server = Bun.serve({
     hostname: '127.0.0.1',
     port: 0,
@@ -72,11 +74,17 @@ it('routes interactive App approvals and denials through the Agent', async () =>
       requestPaths.push(pathname)
       if (pathname === '/forbidden') { forbiddenFetches++; return new Response('unexpected fetch') }
       if (pathname !== '/v1/chat/completions') return new Response('not found', { status: 404 })
-      const payload = await request.json() as { messages?: Array<{ role?: string; content?: unknown }> }
-      if (payload.messages?.some(message => message.role === 'user'
+      const payload = await request.json() as { stream?: boolean; messages?: Array<{ role?: string; content?: unknown }> }
+      const sideQuestion = payload.messages?.some(message => message.role === 'user'
         && JSON.stringify(message.content).includes('Suggest one short reply the user could send now.'))
         || payload.messages?.some(message => message.role === 'user'
-          && JSON.stringify(message.content).includes('<system-reminder>This is a side question from the user.'))) {
+          && JSON.stringify(message.content).includes('<system-reminder>This is a side question from the user.'))
+      // Background extraction must not advance the interactive tool-result scenario.
+      if (payload.stream !== true) return Response.json({
+        id: 'app-background', object: 'chat.completion', created: 1, model: 'app-approval-test',
+        choices: [{ index: 0, message: { role: 'assistant', content: sideQuestion ? 'EMPTY' : '{"kind":"none","fact":""}' }, finish_reason: 'stop' }],
+      })
+      if (sideQuestion) {
         const chunk = {
           id: 'app-side-question', object: 'chat.completion.chunk', created: 1, model: 'app-approval-test',
           choices: [{ index: 0, delta: { role: 'assistant', content: 'EMPTY' }, finish_reason: 'stop' }],
@@ -121,8 +129,19 @@ it('routes interactive App approvals and denials through the Agent', async () =>
   })
   servers.push(server)
   forbiddenUrl = `http://127.0.0.1:${server.port}/forbidden`
+  stage = 'background memory response'
+  const memoryResponse = await fetch(`http://127.0.0.1:${server.port}/v1/chat/completions`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ stream: false, messages: [
+      { role: 'user', content: 'APP_REJECT_CONTINUE' },
+      { role: 'tool', content: 'background-call-canary' },
+    ] }),
+  })
+  expect(await memoryResponse.json(), diagnostics()).toMatchObject({ choices: [{ message: { content: '{"kind":"none","fact":""}' } }] })
+  expect(rejectedActionResult, diagnostics()).toBeUndefined()
+  stage = 'deny turn'
   const expectOutputContains = (output: string, expected: string) => {
-    expect(output).toContain(expected)
+    expect(output, `Expected UI text: ${expected}; ${diagnostics()}`).toContain(expected)
   }
 
   const stdin = new FakeTerminal()
@@ -159,14 +178,14 @@ it('routes interactive App approvals and denials through the Agent', async () =>
     const prompt = plainOutput()
     expectOutputContains(prompt, 'Confirmation')
     expectOutputContains(prompt, 'Denyandstopthisturn')
-    expect(existsSync(canaryPath)).toBe(false)
+    expect(existsSync(canaryPath), diagnostics()).toBe(false)
 
     await Bun.sleep(50)
     stdin.write('3')
     const deniedDeadline = Date.now() + 5_000
     while (!plainOutput().includes('Executionabortedbyuser.') && Date.now() < deniedDeadline) await Bun.sleep(20)
     expectOutputContains(plainOutput(), 'Executionabortedbyuser.')
-    expect(existsSync(canaryPath)).toBe(false)
+    expect(existsSync(canaryPath), diagnostics()).toBe(false)
   } finally {
     stdout.isTTY = false
     instance.unmount()
@@ -174,6 +193,7 @@ it('routes interactive App approvals and denials through the Agent', async () =>
     await Bun.sleep(20)
   }
 
+  stage = 'approve write'
   const approvedStdin = new FakeTerminal()
   const approvedStdout = new FakeTerminal()
   let approvedOutput = ''
@@ -209,7 +229,7 @@ it('routes interactive App approvals and denials through the Agent', async () =>
     const completionDeadline = Date.now() + 10_000
     while (!approvedPlainOutput().includes('APP_DONE') && Date.now() < completionDeadline) await Bun.sleep(20)
     expectOutputContains(approvedPlainOutput(), 'APP_DONE')
-    expect(existsSync(canaryPath)).toBe(true)
+    expect(existsSync(canaryPath), diagnostics()).toBe(true)
   } finally {
     approvedStdout.isTTY = false
     approvedInstance.unmount()
@@ -217,6 +237,7 @@ it('routes interactive App approvals and denials through the Agent', async () =>
     await Bun.sleep(20)
   }
 
+  stage = 'reject fetch and continue with local read'
   const rejectionStdin = new FakeTerminal()
   const rejectionStdout = new FakeTerminal()
   let rejectionOutput = ''
@@ -259,9 +280,11 @@ it('routes interactive App approvals and denials through the Agent', async () =>
     const completionDeadline = Date.now() + 10_000
     while (!rejectionPlainOutput().includes('APP_DONE') && Date.now() < completionDeadline) await Bun.sleep(20)
     expectOutputContains(rejectionPlainOutput(), 'APP_DONE')
-    expect(forbiddenFetches).toBe(0)
-    expect(JSON.parse(String(rejectedActionResult))).toMatchObject({ error: { kind: 'permission', code: 'USER_DENIED' } })
-    expect(String(localActionResult)).toContain('APP_LOCAL_SOURCE')
+    expect(forbiddenFetches, diagnostics()).toBe(0)
+    try {
+      expect(JSON.parse(String(rejectedActionResult)), diagnostics()).toMatchObject({ error: { kind: 'permission', code: 'USER_DENIED' } })
+    } catch (error) { throw new Error(`Invalid rejected-action result: ${diagnostics()}`, { cause: error }) }
+    expect(String(localActionResult), diagnostics()).toContain('APP_LOCAL_SOURCE')
   } finally {
     rejectionStdout.isTTY = false
     rejectionInstance.unmount()
