@@ -90,7 +90,9 @@ try {
   if (await readFile(join(workspace, 'src/signup.js'), 'utf8') !== UPDATED_SOURCE) throw new Error('The real CLI did not write the expected signup validation.')
   if (await readFile(join(workspace, 'tests/signup.test.js'), 'utf8') !== UPDATED_TESTS) throw new Error('The real CLI did not write the expected test cases.')
 
-  await command('ffmpeg', ['-y', '-v', 'error', '-i', rawMp4Output, '-vf', 'scale=1920:1080:force_original_aspect_ratio=decrease:flags=lanczos,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:color=0x080a10,setsar=1', '-r', '30', '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-pix_fmt', 'yuv420p', mp4Output])
+  const rawProbe = await probe(rawMp4Output)
+  if (rawProbe.width !== 1920 || rawProbe.height !== 1080) throw new Error(`Expected a native 1920x1080 recording without letterboxing; received ${JSON.stringify(rawProbe)}`)
+  await command('ffmpeg', ['-y', '-v', 'error', '-i', rawMp4Output, '-vf', 'setsar=1', '-r', '30', '-c:v', 'libx264', '-crf', '18', '-preset', 'medium', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', mp4Output])
   const mp4Probe = await probe(mp4Output)
   if (mp4Probe.width !== 1920 || mp4Probe.height !== 1080 || mp4Probe.codec !== 'h264') throw new Error(`Unexpected MP4 video stream: ${JSON.stringify(mp4Probe)}`)
   await command('ffmpeg', ['-v', 'error', '-i', mp4Output, '-f', 'null', '-'])

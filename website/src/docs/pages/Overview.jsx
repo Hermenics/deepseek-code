@@ -116,9 +116,6 @@ export default function Overview() {
           >
             <source src={`${process.env.PUBLIC_URL}/demo.mp4`} type="video/mp4" />
           </video>
-          <figcaption style={{ padding: "10px 14px", color: "var(--text-muted)", fontSize: 12 }}>
-            Real CLI session with a deterministic local model and an isolated demo project.
-          </figcaption>
         </figure>
 
         <section id="what-is">

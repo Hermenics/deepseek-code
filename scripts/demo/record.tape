@@ -1,17 +1,16 @@
 Output "$DEMO_MP4"
 
 Set FontFamily "DejaVu Sans Mono"
-Set FontSize 18
-Set Columns 144
-Set Rows 40
+Set FontSize 30
+Set Width 1920
+Set Height 1080
 Set Framerate 30
 Set TypingSpeed 35ms
 Set Theme "Catppuccin Mocha"
 Set WindowBar Colorful
 Set Padding 24
-Set Margin 24
-Set MarginFill "#080a10"
-Set BorderRadius 12
+Set Margin 0
+Set BorderRadius 0
 
 Hide
 Type "$DEMO_COMMAND"
