@@ -51,7 +51,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: cli-tests-${{ matrix.os }}
-          path: test-results.xml
+          path: |
+            test-results.xml
+            test-results/
           if-no-files-found: ignore
 
       - name: Build CLI

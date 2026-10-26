@@ -9,6 +9,7 @@ import { join } from 'node:path'
 import { renderSync } from '../../src/ink/root.js'
 import { App } from '../../src/ui/App.js'
 import { writeIgnoreDefaults } from '../../src/tools/shared/deepseekignore.js'
+import { terminalText } from '../helpers/terminalText.js'
 
 class FakeTerminal extends PassThrough {
   isTTY = true
@@ -25,19 +26,45 @@ const servers: ReturnType<typeof Bun.serve>[] = []
 let restoreHomedir: (() => void) | undefined
 const priorHome = process.env.HOME
 const priorUserProfile = process.env.USERPROFILE
+let failureSnapshot: () => unknown = () => ({ stage: 'setup' })
+
+async function saveFailure(error: unknown, phase: 'test' | 'cleanup'): Promise<void> {
+  const directory = join(process.cwd(), 'test-results')
+  const file = join(directory, 'app-session.integration.failure.json')
+  try {
+    await mkdir(directory, { recursive: true })
+    await writeFile(file, JSON.stringify({
+      createdAt: new Date().toISOString(), phase, bun: Bun.version, platform: process.platform,
+      tty: process.stdout.isTTY === true,
+      error: error instanceof Error ? { message: error.message, stack: error.stack } : String(error),
+      context: failureSnapshot(),
+    }, null, 2))
+    console.error(`App approval failure diagnostics: ${file}`)
+  } catch (reportError) { console.error('Could not save App approval diagnostics:', reportError) }
+}
 
 afterEach(async () => {
-  restoreHomedir?.()
-  restoreHomedir = undefined
-  for (const server of servers.splice(0)) await server.stop(true)
-  for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
-  if (priorHome === undefined) delete process.env.HOME
-  else process.env.HOME = priorHome
-  if (priorUserProfile === undefined) delete process.env.USERPROFILE
-  else process.env.USERPROFILE = priorUserProfile
+  try {
+    restoreHomedir?.()
+    restoreHomedir = undefined
+    for (const server of servers.splice(0)) await server.stop(true)
+    for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
+  } catch (error) { await saveFailure(error, 'cleanup'); throw error }
+  finally {
+    if (priorHome === undefined) delete process.env.HOME
+    else process.env.HOME = priorHome
+    if (priorUserProfile === undefined) delete process.env.USERPROFILE
+    else process.env.USERPROFILE = priorUserProfile
+  }
 })
 
 it('routes interactive App approvals and denials through the Agent', async () => {
+  try { await appApprovalSession() }
+  catch (error) { await saveFailure(error, 'test'); throw error }
+}, 70_000)
+
+async function appApprovalSession() {
+  failureSnapshot = () => ({ stage: 'setup' })
   const root = await mkdtemp(join(tmpdir(), 'deepseek-app-approval-'))
   roots.push(root)
   const home = join(root, 'home')
@@ -65,7 +92,15 @@ it('routes interactive App approvals and denials through the Agent', async () =>
   let forbiddenUrl = ''
   const requestPaths: string[] = []
   let stage = 'deny turn'
-  const diagnostics = () => JSON.stringify({ stage, requestPaths, forbiddenFetches, rejectedActionResult, localActionResult })
+  const diagnosticState = () => ({ stage, requestPaths, forbiddenFetches, rejectedActionResult, localActionResult })
+  const diagnostics = () => JSON.stringify(diagnosticState())
+  let lastScreen = ''
+  const readOutput = (stdout: FakeTerminal) => {
+    lastScreen = terminalText(stdout as unknown as NodeJS.WriteStream).replace(/\s/g, '')
+    return lastScreen
+  }
+  let currentOutput = () => ({ raw: '', screen: '' })
+  failureSnapshot = () => ({ ...diagnosticState(), terminal: currentOutput() })
   const server = Bun.serve({
     hostname: '127.0.0.1',
     port: 0,
@@ -148,10 +183,8 @@ it('routes interactive App approvals and denials through the Agent', async () =>
   const stdout = new FakeTerminal()
   let rendered = ''
   stdout.on('data', data => { rendered += data.toString() })
-  const plainOutput = () => rendered
-    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
-    .replace(/\x1b\][^\x07]*\x07/g, '')
-    .replace(/\s/g, '')
+  const plainOutput = () => readOutput(stdout)
+  currentOutput = () => ({ raw: rendered.slice(-64_000), screen: lastScreen })
   const instance = renderSync(
     <App
       theme="dark"
@@ -198,10 +231,8 @@ it('routes interactive App approvals and denials through the Agent', async () =>
   const approvedStdout = new FakeTerminal()
   let approvedOutput = ''
   approvedStdout.on('data', data => { approvedOutput += data.toString() })
-  const approvedPlainOutput = () => approvedOutput
-    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
-    .replace(/\x1b\][^\x07]*\x07/g, '')
-    .replace(/\s/g, '')
+  const approvedPlainOutput = () => readOutput(approvedStdout)
+  currentOutput = () => ({ raw: approvedOutput.slice(-64_000), screen: lastScreen })
   const approvedInstance = renderSync(
     <App
       theme="dark"
@@ -242,10 +273,8 @@ it('routes interactive App approvals and denials through the Agent', async () =>
   const rejectionStdout = new FakeTerminal()
   let rejectionOutput = ''
   rejectionStdout.on('data', data => { rejectionOutput += data.toString() })
-  const rejectionPlainOutput = () => rejectionOutput
-    .replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
-    .replace(/\x1b\][^\x07]*\x07/g, '')
-    .replace(/\s/g, '')
+  const rejectionPlainOutput = () => readOutput(rejectionStdout)
+  currentOutput = () => ({ raw: rejectionOutput.slice(-64_000), screen: lastScreen })
   const rejectionInstance = renderSync(
     <App
       theme="dark"
@@ -291,4 +320,4 @@ it('routes interactive App approvals and denials through the Agent', async () =>
     rejectionInstance.cleanup()
     await Bun.sleep(20)
   }
-}, 70_000)
+}

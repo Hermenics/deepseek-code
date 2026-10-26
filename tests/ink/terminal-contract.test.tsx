@@ -6,6 +6,9 @@ import { renderSync } from '../../src/ink/root.js'
 import Box from '../../src/ink/components/Box.js'
 import ScrollBox, { type ScrollBoxHandle } from '../../src/ink/components/ScrollBox.js'
 import Text from '../../src/ink/components/Text.js'
+import instances from '../../src/ink/instances.js'
+import { terminalText } from '../helpers/terminalText.js'
+import { waitFor } from '../helpers/waitFor.js'
 
 class FakeTerminal extends PassThrough {
   isTTY = true
@@ -27,6 +30,31 @@ class FakeTerminal extends PassThrough {
 const waitForRenderer = () => new Promise(resolve => setTimeout(resolve, 0))
 
 describe('Ink terminal contract', () => {
+  it('reads the current screen when a patch reuses unchanged characters from a previous frame', async () => {
+    const stdout = new FakeTerminal()
+    const stdin = new FakeTerminal()
+    stdout.resume()
+    const output = stdout as unknown as NodeJS.WriteStream
+    const instance = renderSync(<Text>tool:read_file</Text>, {
+      stdout: output, stdin: stdin as unknown as NodeJS.ReadStream, stderr: output,
+      exitOnCtrlC: false, patchConsole: false,
+    })
+    const ink = instances.get(output)!
+    try {
+      ink.setAltScreenActive(true)
+      ink.onRender()
+      await waitFor(() => terminalText(output).includes('tool:read_file'), 'initial permission screen')
+      instance.rerender(<Text>tool:web_fetch</Text>)
+      await waitFor(() => terminalText(output).includes('tool:web_fetch'), 'updated permission screen')
+      expect(terminalText(output)).toContain('tool:web_fetch')
+      expect(terminalText(output)).not.toContain('tool:read_file')
+    } finally {
+      stdout.isTTY = false
+      instance.unmount()
+      instance.cleanup()
+    }
+  })
+
   it('writes Unicode, reflows on resize, and exposes imperative scroll', async () => {
     const stdout = new FakeTerminal()
     const stdin = new FakeTerminal()

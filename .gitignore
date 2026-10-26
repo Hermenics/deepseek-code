@@ -18,3 +18,4 @@ AGENTS.md
 .vscode/
 scripts/eval/results/
 /test-results*.xml
+/test-results/
