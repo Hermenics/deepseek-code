@@ -1,6 +1,7 @@
 name: Record CLI demo
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
@@ -28,7 +29,12 @@ jobs:
 
       - name: Check for a SemVer increase
         id: version
-        run: bun scripts/demo/version-bump.ts
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            echo 'record=true' >> "$GITHUB_OUTPUT"
+          else
+            bun scripts/demo/version-bump.ts
+          fi
         env:
           GITHUB_EVENT_BEFORE: ${{ github.event.before }}
 

@@ -77,7 +77,7 @@ function assertStage(index: number, request: ChatRequest, workspace: string): vo
   }
   if (index === 5) {
     const output = lastToolResult(messages)
-    if (!/\bpass\b/i.test(output)) throw new Error('The real Shell tool did not return a passing test result.')
+    if (!/\bpass\b/i.test(output)) throw new Error(`The real Shell tool did not return a passing test result: ${output}`)
     if (readFileSync(`${workspace}/src/signup.js`, 'utf8').trim() !== UPDATED_SOURCE.trim() || readFileSync(`${workspace}/tests/signup.test.js`, 'utf8').trim() !== UPDATED_TESTS.trim()) {
       throw new Error('The demo workspace changed after the expected writes.')
     }
