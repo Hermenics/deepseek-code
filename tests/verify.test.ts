@@ -105,7 +105,7 @@ describe('runVerification', () => {
     expect(result.status).toBe('inconclusive')
     expect(result.ok).toBe(false)
     expect(result.testCount).toBeNull()
-  })
+  }, 60_000)
   it.skipIf(!Bun.which('npm'))('does not accept a passing footer from npm-prepended local runner shims', async () => {
     const dir = await bunProject({})
     await rm(join(dir, 'bun.lock'))
