@@ -1,5 +1,5 @@
 {
-  "source": "https://api-docs.deepseek.com/quick_start/pricing",
+  "source": "https://api-docs.deepseek.com/quick_start/pricing/",
   "peakHoursUtc": {
     "weekdays": [
       1,
