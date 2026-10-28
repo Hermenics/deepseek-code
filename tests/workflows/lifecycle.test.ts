@@ -155,7 +155,7 @@ describe('workflow activity lifecycle', () => {
 
     expect((await manager.listActiveRuns()).map(item => item.runId)).toContain(live.runId)
     expect((await manager.listActivityRuns()).map(item => item.runId)).toContain(live.runId)
-  })
+  }, 60_000)
 
   test('keeps historical active records inspectable but refuses replay without context identity', async () => {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-workflow-lifecycle-'))

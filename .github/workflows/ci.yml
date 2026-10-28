@@ -38,6 +38,17 @@ jobs:
       - name: Type check
         run: bun run typecheck
 
+      - name: Configure Chrome test keychain
+        if: matrix.os == 'macos-latest'
+        run: |
+          mkdir -p "$RUNNER_TEMP/browser-bin"
+          cat > "$RUNNER_TEMP/browser-bin/google-chrome-stable" <<'EOF'
+          #!/bin/sh
+          exec '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' --use-mock-keychain "$@"
+          EOF
+          chmod +x "$RUNNER_TEMP/browser-bin/google-chrome-stable"
+          echo "$RUNNER_TEMP/browser-bin" >> "$GITHUB_PATH"
+
       - name: Test
         if: matrix.os != 'ubuntu-latest'
         run: bun run test --reporter=junit --reporter-outfile=test-results.xml
