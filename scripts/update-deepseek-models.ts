@@ -11,7 +11,7 @@
 import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
-export const PRICING_PAGE_URL = 'https://api-docs.deepseek.com/quick_start/pricing'
+export const PRICING_PAGE_URL = 'https://api-docs.deepseek.com/quick_start/pricing/'
 const OUTPUT = join(import.meta.dir, '../src/agent/deepseekModels.json')
 // Still accepted by the API but no longer named on the pricing page; both were served by deepseek-flash on 2026-09-13.
 const UNLISTED_ALIASES: Record<string, string> = { 'deepseek-chat': 'deepseek-flash', 'deepseek-reasoner': 'deepseek-flash' }

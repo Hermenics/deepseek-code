@@ -2,7 +2,7 @@ import { describe, expect, it, spyOn } from 'bun:test'
 import { createHash } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { PassThrough } from 'node:stream'
 import { maskSecretsForOffsets, redactSecrets } from '../src/orchestration/events.js'
@@ -345,7 +345,7 @@ describe('shell output artifact privacy', () => {
       expect(reattached.content).not.toContain('emergency-canary')
       const moduleUrl = new URL('../src/tools/Shell/outputArtifact.ts', import.meta.url).href
       const child = Bun.spawn([process.execPath, '-e', `import { readShellOutputContent } from ${JSON.stringify(moduleUrl)}; const result = await readShellOutputContent(${JSON.stringify(sessionId)}, ${JSON.stringify(saved.id)}, ${JSON.stringify(primaryStorage)}, ${JSON.stringify(recoveryRoot)}); process.stdout.write(JSON.stringify(result))`], {
-        stdout: 'pipe', stderr: 'pipe',
+        stdout: 'pipe', stderr: 'pipe', env: { ...process.env, ...(process.platform === 'win32' ? { USERPROFILE: homedir() } : {}) },
       })
       const [exitCode, childOutput, childError] = await Promise.all([
         child.exited,
