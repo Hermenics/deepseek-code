@@ -117,6 +117,16 @@ describe('project settings cannot grant automatic approval', () => {
 })
 
 describe('permission prompt', () => {
+  it('identifies text and files transmitted by a browser batch', () => {
+    const summary = toolPermissionSummary({ toolName: 'browser', args: { action: 'batch', __origin: 'https://example.com', steps: [{ action: 'type', text: 'hello' }, { action: 'upload', paths: ['report.txt'] }] }, reason: 'risk' })
+    expect(summary).toContain('hello')
+    expect(summary).toContain('report.txt')
+  })
+  it('shows browser text even if the call also supplies an unused URL', () => {
+    const summary = toolPermissionSummary({ toolName: 'browser', args: { action: 'type', url: 'https://example.com', command: 'ignored', text: 'hello', __origin: 'https://actual.example' }, reason: 'risk' })
+    expect(summary).toContain('"hello"')
+    expect(summary).toContain('https://actual.example')
+  })
   it('shows the URL and names the origin an approval covers', () => {
     const request: ToolPermissionRequest = { toolName: 'web_fetch', args: { url: 'https://docs.example.com/x' }, reason: 'permission' }
     expect(toolPermissionSummary(request)).toBe('web_fetch → https://docs.example.com/x')

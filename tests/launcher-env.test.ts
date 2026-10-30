@@ -6,6 +6,23 @@ import { pathToFileURL } from 'node:url'
 import { execa } from 'execa'
 import { BUN_RUNNER_SOURCE, LAUNCHER_SOURCE } from '../scripts/launcher.js'
 
+test('runtime rejects unsupported Bun versions before loading the CLI', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ds-bun-version-'))
+  try {
+    const runner = join(root, 'runtime.mjs')
+    writeFileSync(runner, BUN_RUNNER_SOURCE)
+    writeFileSync(join(root, 'cli.mjs'), 'console.log("CLI loaded")')
+    for (const [version, accepted] of [['1.3.13', false], ['1.4.0', true], ['2.0.0', true]] as const) {
+      const result = await execa('node', ['--input-type=module', '-e', `globalThis.Bun = { version: ${JSON.stringify(version)} }; await import(${JSON.stringify(pathToFileURL(runner).href)})`], { reject: false })
+      expect(result.exitCode).toBe(accepted ? 0 : 1)
+      if (accepted) expect(result.stdout).toContain('CLI loaded')
+      else expect(result.stderr).toContain('requires Bun 1.4+')
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('published launcher ignores project env and bunfig but keeps exported env', async () => {
   const root = mkdtempSync(join(tmpdir(), 'ds-launcher-env-'))
   const app = join(root, 'app')

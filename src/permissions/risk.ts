@@ -998,11 +998,18 @@ export function assessRisk(
 
   // Typing into a third-party page transmits that text to the site: always a fresh confirmation.
   if (toolName === 'browser' && browserActionKind(args) === 'type') {
-    const origin = originOf(browserTarget(args))
+    const batchOrigins = args.action === 'batch' && Array.isArray(args.steps)
+      ? args.steps.flatMap(step => step && typeof step === 'object' && (step as Record<string, unknown>).action === 'navigate'
+        ? [originOf((step as Record<string, unknown>).url)] : [])
+      : []
+    const origin = [originOf(browserTarget(args)), ...batchOrigins].find(candidate => candidate && !isLoopbackOrigin(candidate))
     if (origin && !isLoopbackOrigin(origin)) {
       const uploads = args.action === 'upload' || args.action === 'batch' && Array.isArray(args.steps)
         && args.steps.some(step => step && typeof step === 'object' && (step as Record<string, unknown>).action === 'upload')
-      return { level: 'high', matchedRule: 'browser:transmit', description: `${uploads ? 'Uploading sends file contents' : 'Typing sends this text'} to ${origin}.`, requiresConfirmation: true }
+      const description = args.action === 'batch' && batchOrigins.length > 0
+        ? 'This batch may send text or files to a public page; review the navigation and transmission steps.'
+        : `${uploads ? 'Uploading sends file contents' : 'Typing sends this text'} to ${origin}.`
+      return { level: 'high', matchedRule: 'browser:transmit', description, requiresConfirmation: true }
     }
   }
 

@@ -5,7 +5,7 @@
  * root, while every OpenAI-compatible server answers under `/v1`.
  */
 import { describe, expect, it } from 'bun:test'
-import { normalizeBaseUrl } from '../src/agent/llmClient.js'
+import { createLLMClient, normalizeBaseUrl } from '../src/agent/llmClient.js'
 
 describe('normalizeBaseUrl', () => {
   it('sends a bare local proxy to /v1', () => {
@@ -41,6 +41,17 @@ describe('normalizeBaseUrl', () => {
 
   it('preserves a query string', () => {
     expect(normalizeBaseUrl('https://proxy.example.com?tenant=a')).toBe('https://proxy.example.com/v1?tenant=a')
+  })
+
+  it('appends the endpoint before the provider query string', () => {
+    for (const config of [
+      { provider: 'local' as const, localBaseUrl: 'http://localhost:8001/v1?tenant=a' },
+      { provider: 'deepseek' as const, apiKey: 'test', baseURL: 'https://api.deepseek.com?tenant=a' },
+    ]) {
+      const url = new URL(createLLMClient(config).buildURL('/chat/completions', undefined))
+      expect(url.pathname.endsWith('/chat/completions')).toBe(true)
+      expect(url.searchParams.get('tenant')).toBe('a')
+    }
   })
 
   it('passes through what it cannot parse instead of mangling it', () => {

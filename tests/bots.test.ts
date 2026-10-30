@@ -644,6 +644,8 @@ describe('bot schedules', () => {
     expect(nextOccurrence(daily, Date.parse('2026-10-02T11:00:00Z'))).toBe(Date.parse('2026-10-05T11:00:00Z'))
   })
   it('keeps timed occurrences at or before the optional routine end time', () => {
+    expect(nextOccurrence(validateSchedule({ kind: 'interval', everyMs: 60_000 }), 8.64e15 - 1)).toBeNull()
+    expect(nextOccurrence(validateSchedule({ kind: 'daily', hour: 0, minute: 0, timeZone: 'UTC' }), 8.64e15)).toBeNull()
     const start = Date.parse('2026-10-01T00:00:00Z'), interval = validateSchedule({ kind: 'interval', everyMs: 60_000, endsAt: start + 60_000 })
     expect(nextOccurrence(interval, start)).toBe(start + 60_000)
     expect(nextOccurrence(interval, start + 60_000)).toBeNull()
@@ -653,7 +655,10 @@ describe('bot schedules', () => {
     expect(nextOccurrence(daily, Date.parse('2026-10-02T09:00:00Z'))).toBeNull()
   })
   it('does not repeat a daily time during a daylight saving fold', () => {
+    const weekly = validateSchedule({ kind: 'daily', hour: 2, minute: 30, timeZone: 'America/New_York', weekdays: [0] })
+    expect(nextOccurrence(weekly, Date.parse('2026-03-01T07:30:00Z'))).toBe(Date.parse('2026-03-15T06:30:00Z'))
     const daily = validateSchedule({ kind: 'daily', hour: 1, minute: 30, timeZone: 'America/New_York' })
     expect(nextOccurrence(daily, Date.parse('2026-11-01T05:30:00Z'))).toBe(Date.parse('2026-11-02T06:30:00Z'))
+    expect(nextOccurrence(daily, Date.parse('2026-11-01T06:00:00Z'))).toBe(Date.parse('2026-11-02T06:30:00Z'))
   })
 })

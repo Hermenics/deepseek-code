@@ -92,6 +92,7 @@ export function reviseGoal(objective: string): Goal {
     idleTurns: 0,
     blockReason: undefined,
     status: 'active',
+    timeUsedSeconds: getElapsedSeconds(currentGoal),
     startedAt: now,
     updatedAt: now,
   }
@@ -151,6 +152,7 @@ export function resumeGoal(): Goal {
   const now = new Date().toISOString()
   return updateGoal({
     status: 'active',
+    timeUsedSeconds: getElapsedSeconds(currentGoal),
     consecutiveBlockCount: 0,
     idleTurns: 0,
     blockReason: undefined,

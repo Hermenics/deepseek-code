@@ -1,5 +1,5 @@
 import { Tool } from '../types.js'
-import { getGoal } from '../../agent/goal.js'
+import { getElapsedSeconds, getGoal } from '../../agent/goal.js'
 
 /** Read-only tool reporting the current goal's status, token and time usage, and remaining budget. */
 export const GetGoal: Tool = {
@@ -20,7 +20,7 @@ export const GetGoal: Tool = {
         status: goal.status,
         tokenBudget: goal.tokenBudget ?? null,
         tokensUsed: goal.tokensUsed,
-        timeUsedSeconds: goal.timeUsedSeconds,
+        timeUsedSeconds: getElapsedSeconds(goal),
         remainingTokens:
           goal.tokenBudget !== undefined ? Math.max(0, goal.tokenBudget - goal.tokensUsed) : null,
         acceptanceCriteria: goal.acceptanceCriteria ?? null,

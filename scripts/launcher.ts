@@ -21,15 +21,15 @@ export const BUN_RUNNER_SOURCE = `#!/usr/bin/env bun
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const MIN_BUN = [1, 1]
+const MIN_BUN = [1, 4]
 const version = typeof Bun !== 'undefined' ? Bun.version : undefined
 if (!version) {
-  console.error('DeepSeek Code requires Bun 1.1+ at runtime. Install Bun: https://bun.sh')
+  console.error('DeepSeek Code requires Bun 1.4+ at runtime. Install Bun: https://bun.sh')
   process.exit(1)
 }
 const [major = 0, minor = 0] = version.split('.').map(Number)
 if (major < MIN_BUN[0] || (major === MIN_BUN[0] && minor < MIN_BUN[1])) {
-  console.error(\`DeepSeek Code requires Bun 1.1+ (found \${version}).\`)
+  console.error(\`DeepSeek Code requires Bun 1.4+ (found \${version}).\`)
   process.exit(1)
 }
 

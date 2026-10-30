@@ -35,10 +35,17 @@ describe('launcher', () => {
         writeFileSync(join(dir, 'runtime.mjs'), BUN_RUNNER_SOURCE)
         writeFileSync(join(dir, 'runtime.bunfig.toml'), '')
         // An app with no signal handling of its own, kept alive by a timer.
-        writeFileSync(join(dir, 'cli.mjs'), 'setInterval(() => {}, 1000); console.log("ready")\n')
+        writeFileSync(join(dir, 'cli.mjs'), 'setInterval(() => {}, 1000); process.stdout.write("rea"); setTimeout(() => console.log("dy"), 50)\n')
         const child = Bun.spawn(['node', join(dir, 'deepseek.mjs')], { stdout: 'pipe', stderr: 'pipe' })
         const reader = child.stdout.getReader()
-        await reader.read() // wait until the fake app is running
+        const decoder = new TextDecoder()
+        let output = ''
+        while (!output.includes('ready')) {
+          const { value, done } = await reader.read()
+          if (done) break
+          output += decoder.decode(value, { stream: true })
+        }
+        expect(output).toContain('ready')
         child.kill(signal)
         const exited = await Promise.race([child.exited.then(() => true), Bun.sleep(3000).then(() => false)])
         if (!exited) child.kill('SIGKILL')

@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import React from 'react'
 import { PassThrough } from 'node:stream'
 import { renderSync } from '../../src/ink/root.js'
+import useInput from '../../src/ink/hooks/use-input.js'
 import { ToolPermissionPrompt } from '../../src/ui/App.js'
 import type { ToolPermissionRequest, ToolPermissionResult } from '../../src/agent/agent.js'
 
@@ -28,6 +29,46 @@ describe('TUI tool permission prompt', () => {
     terminal = undefined
     output = undefined
     cleanup = undefined
+  })
+
+  it('wraps browser batch details instead of hiding their middle', async () => {
+    terminal = new FakeTerminal()
+    output = new FakeTerminal()
+    const request: ToolPermissionRequest = { toolName: 'browser', reason: 'risk', args: { action: 'batch', __origin: 'https://example.com', steps: [{ action: 'type', text: 'FIRST-' + 'x'.repeat(70) }, { action: 'upload', paths: ['MIDDLE.txt'] }, { action: 'type', text: 'LAST' }] } }
+    const instance = renderSync(<ToolPermissionPrompt request={request} onDecide={() => {}} />, { stdin: terminal as unknown as NodeJS.ReadStream, stdout: output as unknown as NodeJS.WriteStream, stderr: output as unknown as NodeJS.WriteStream, exitOnCtrlC: false, patchConsole: false })
+    cleanup = instance.cleanup
+    let rendered = ''
+    output.on('data', chunk => { rendered += chunk.toString() })
+    await Bun.sleep(40)
+    expect(rendered).toContain('MIDDLE.txt')
+  })
+
+  it('scrolls long browser batch details without hiding approval choices', async () => {
+    terminal = new FakeTerminal()
+    output = new FakeTerminal()
+    output.columns = 60
+    output.rows = 18
+    const steps = Array.from({ length: 20 }, (_, i) => ({ action: 'upload', paths: [`file-${i.toString().padStart(2, '0')}.txt`] }))
+    steps[19]!.paths = ['LAST-UNIQUE.txt']
+    const request: ToolPermissionRequest = { toolName: 'browser', reason: 'risk', args: { action: 'batch', __origin: 'https://example.com', steps } }
+    let propagated = 0
+    function Observer() {
+      useInput((_input, key) => { if (key.pageUp || key.pageDown) propagated++ })
+      return null
+    }
+    const instance = renderSync(<><ToolPermissionPrompt request={request} onDecide={() => {}} /><Observer /></>, { stdin: terminal as unknown as NodeJS.ReadStream, stdout: output as unknown as NodeJS.WriteStream, stderr: output as unknown as NodeJS.WriteStream, exitOnCtrlC: false, patchConsole: false })
+    cleanup = instance.cleanup
+    let rendered = ''
+    output.on('data', chunk => { rendered += chunk.toString() })
+    await Bun.sleep(60)
+    expect(rendered).toContain('file-00.txt')
+    for (let i = 0; i < 6; i++) { terminal.write('\x1b[6~'); await Bun.sleep(40) }
+    expect(rendered).toContain('LAST')
+    expect(rendered).toContain('UNIQUE.txt')
+    terminal.write('\x1b[5~')
+    await Bun.sleep(40)
+    expect(propagated).toBe(0)
+    expect(rendered.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '').replace(/\s/g, '')).toContain('Denyandstopthisturn')
   })
 
   it('renders the approval choices and sends the selected result to the host', async () => {

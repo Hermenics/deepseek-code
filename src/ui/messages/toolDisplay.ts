@@ -1,3 +1,6 @@
+import { safeGraphemeEnd } from '../../utils/textBoundaries.js'
+import { redactSecrets } from '../../orchestration/events.js'
+
 /** Maps internal tool names → display names */
 export const TOOL_DISPLAY: Record<string, string> = {
   read_file:        'Read',
@@ -22,9 +25,10 @@ export const TOOL_DISPLAY: Record<string, string> = {
 const TOOL_PREVIEW_MAX_CHARS = 60
 
 function truncatePreview(value: string, max = TOOL_PREVIEW_MAX_CHARS): string {
+  value = value.replace(/[\x00-\x1f\x7f-\x9f]/g, ' ')
   if (value.length <= max) return value
   if (max <= 1) return '…'.slice(0, max)
-  return value.slice(0, max - 1) + '…'
+  return value.slice(0, safeGraphemeEnd(value, max - 1)) + '…'
 }
 
 /** Summarizes a question list as its first question (truncated) plus a `· N questions` suffix, or just the count when no question text exists. */
@@ -94,6 +98,7 @@ export function summarizeToolPayload(toolName: string, payload: string): string 
 
 /** Builds the active tool preview without leaking AskUserQuestions JSON. */
 export function previewToolCallArgs(toolName: string, args: Record<string, unknown>): string {
+  args = redactSecrets(args) as Record<string, unknown>
   if (toolName === 'ask_user_questions') return summarizeAskUserPayload(JSON.stringify(args))
   if (toolName === 'browser') return previewBrowserArgs(args)
   const serialized = JSON.stringify(args)
@@ -131,6 +136,11 @@ const STREAMING_ARGS_FIELD_RE =
 /** Bounds the scan; a streamed `content` field can be megabytes long. */
 const STREAMING_ARGS_PREVIEW_MAX_CHARS = 64 * 1024
 
+/** Question payloads are summarized only after their complete arguments arrive. */
+export function previewPendingToolArgs(toolName: string, argsText: string): string {
+  return toolName === 'ask_user_questions' ? '' : previewStreamingArgs(argsText)
+}
+
 /** Returns the first key string argument (path, command, pattern, ...) found in possibly incomplete JSON args, unescaped and clipped to 60 chars; empty when none is found yet. */
 export function previewStreamingArgs(argsText: string): string {
   const text = argsText.slice(0, STREAMING_ARGS_PREVIEW_MAX_CHARS)
@@ -138,6 +148,9 @@ export function previewStreamingArgs(argsText: string): string {
   STREAMING_ARGS_FIELD_RE.lastIndex = 0
   const value = match?.[2]
   if (!value) return ''
-  const unescaped = value.replace(/\\n/g, ' ').replace(/\\(.)/g, '$1')
-  return unescaped.length > 60 ? unescaped.slice(0, 60) + '…' : unescaped
+  let unescaped: string
+  try { unescaped = JSON.parse(`"${value}"`).replace(/[\x00-\x1f\x7f-\x9f]/g, ' ') }
+  catch { return '' }
+  unescaped = redactSecrets(unescaped) as string
+  return unescaped.length > 60 ? unescaped.slice(0, safeGraphemeEnd(unescaped, 60)) + '…' : unescaped
 }

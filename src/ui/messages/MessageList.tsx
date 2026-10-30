@@ -17,6 +17,7 @@ import { useClock } from '../clock.js'
 import { isFullscreenActive } from '../../utils/fullscreen.js'
 import { stepToolFlags } from './steps.js'
 import { collapseToolGroups, ToolGroupLine } from './toolGroups.js'
+import { safeGraphemeEnd } from '../../utils/textBoundaries.js'
 
 /** Splits a stored tool message into display name, argument preview and raw output; JSON `{arg, output}` details are unpacked, other JSON is summarized, and previews are clipped to 60 chars unless `full`. */
 export function formatToolLine(rawName: string, detail: string, full = false): { display: string; arg: string; output: string } {
@@ -26,7 +27,7 @@ export function formatToolLine(rawName: string, detail: string, full = false): {
   }
   let arg = ''
   let output = ''
-  const truncate = (value: string) => (!full && value.length > 60) ? value.slice(0, 60) + '...' : value
+  const truncate = (value: string) => (!full && value.length > 60) ? value.slice(0, safeGraphemeEnd(value, 60)) + '...' : value
   try {
     const parsed = JSON.parse(detail)
     if (parsed && typeof parsed === 'object' && 'arg' in parsed) {
@@ -242,7 +243,7 @@ function MessageItem({ message: m, theme, agentLabel: _agentLabel, showDiffs = t
     if (m.content.startsWith('✓ subagent →') || m.content.startsWith('⚙ subagent')) {
       const isDone = m.content.startsWith('✓')
       const label = isDone ? m.content.slice('✓ subagent → '.length) : m.content.slice('⚙ subagent('.length, -1)
-      const labelTrunc = label.length > 60 ? label.slice(0, 60) + '...' : label
+      const labelTrunc = label.length > 60 ? label.slice(0, safeGraphemeEnd(label, 60)) + '...' : label
       return (
         <Box flexDirection="row" paddingLeft={2} gap={1}>
           <Text color={isDone ? colors.primary : colors.warning}>{STATUS_ICONS.tool}</Text>

@@ -11,6 +11,10 @@ describe('QueuedMessagesList', () => {
   })
 
   describe('truncateMessage()', () => {
+    it('does not split an emoji or a combining sequence at the truncation boundary', () => {
+      expect(truncateMessage('a'.repeat(59) + '👩‍💻' + 'tail')).toBe('a'.repeat(59) + '…')
+      expect(truncateMessage('a'.repeat(59) + 'e\u0301' + 'tail')).toBe('a'.repeat(59) + '…')
+    })
     it('should return message unchanged when shorter than MAX_MSG_LEN', () => {
       // Arrange
       const short = 'a'.repeat(MAX_MSG_LEN - 1)

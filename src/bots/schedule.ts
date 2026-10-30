@@ -28,18 +28,28 @@ export function nextOccurrence(schedule: Schedule, after: number): number | null
   if (schedule.kind === 'once') return schedule.at > after ? schedule.at : null
   if (schedule.kind === 'interval') {
     const next = after + schedule.everyMs
-    return schedule.endsAt !== undefined && next > schedule.endsAt ? null : next
+    return next > 8.64e15 || (schedule.endsAt !== undefined && next > schedule.endsAt) ? null : next
   }
+  if (after >= 8.64e15) return null
   const format = new Intl.DateTimeFormat('en-US', { timeZone: schedule.timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short' })
   const parts = (time: number) => Object.fromEntries(format.formatToParts(time).map(p => [p.type, p.value]))
   const start = parts(after)
   const startDate = `${start.year}-${start.month}-${start.day}`
   const alreadyPast = Number(start.hour) * 60 + Number(start.minute) >= schedule.hour * 60 + schedule.minute
-  // ponytail: at most eight days of minute steps, supports DST gaps/folds; use Temporal when the runtime ships it.
-  for (let time = Math.floor(after / 60_000) * 60_000 + 60_000; time <= after + 8 * 86400_000; time += 60_000) {
+  // shortcut: fifteen days covers a skipped weekly DST occurrence; use Temporal when available.
+  for (let time = Math.floor(after / 60_000) * 60_000 + 60_000; time <= Math.min(8.64e15, after + 15 * 86400_000); time += 60_000) {
     const p = parts(time)
     if (alreadyPast && `${p.year}-${p.month}-${p.day}` === startDate) continue
-    if (Number(p.hour) === schedule.hour && Number(p.minute) === schedule.minute && (!schedule.weekdays || schedule.weekdays.includes(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(p.weekday!)))) return schedule.endsAt !== undefined && time > schedule.endsAt ? null : time
+    if (Number(p.hour) === schedule.hour && Number(p.minute) === schedule.minute && (!schedule.weekdays || schedule.weekdays.includes(['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(p.weekday!)))) {
+      // A clock rollback can put `after` before the target wall time again.
+      let repeated = false
+      for (let prior = time - 60_000; prior > time - 26 * 3600_000 && prior >= -8.64e15; prior -= 60_000) {
+        const earlier = parts(prior)
+        if (earlier.year === p.year && earlier.month === p.month && earlier.day === p.day && earlier.hour === p.hour && earlier.minute === p.minute) { repeated = true; break }
+      }
+      if (!repeated) return schedule.endsAt !== undefined && time > schedule.endsAt ? null : time
+    }
   }
+  if (after + 15 * 86400_000 > 8.64e15) return null
   throw new Error('Unable to find next daily occurrence')
 }

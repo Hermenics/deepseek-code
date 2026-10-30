@@ -7,6 +7,7 @@ import type { ThemeName } from '../theme.js'
 import { useClock } from '../clock.js'
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
+import { safeGraphemeEnd } from '../../utils/textBoundaries.js'
 
 const SPINNER_FRAMES = ['◌', '○', '◎', '◉', '◎', '○']
 
@@ -27,12 +28,12 @@ export function ToolUseDisplay({ tool, theme = 'dark' }: { tool: ToolStatus; the
         .split('\n')
         .map(l => l.replace(/^#+\s*/, '').trim())
         .find(l => l.length > 0) ?? task
-      arg = firstLine.length > 60 ? firstLine.slice(0, 60) + '…' : firstLine
+      arg = firstLine.length > 60 ? firstLine.slice(0, safeGraphemeEnd(firstLine, 60)) + '…' : firstLine
     } catch {
-      arg = rawArg.length > 60 ? rawArg.slice(0, 60) + '…' : rawArg
+      arg = rawArg.length > 60 ? rawArg.slice(0, safeGraphemeEnd(rawArg, 60)) + '…' : rawArg
     }
   } else {
-    arg = rawArg.length > 60 ? rawArg.slice(0, 60) + '…' : rawArg
+    arg = rawArg.length > 60 ? rawArg.slice(0, safeGraphemeEnd(rawArg, 60)) + '…' : rawArg
     if (tool.done && tool.result) {
       arg = summarizeToolPayload(tool.name, tool.result)
     } else if (!tool.done && tool.args) {

@@ -7,7 +7,7 @@ import {
   runPreToolHooks,
 } from '../../src/hooks/executor.js'
 import { HookRuntime, MAX_HOOK_RUNTIME_RUNS, type HookDefinition } from '../../src/kernel/hooks/hookRuntime.js'
-import { printOutput } from '../platform-commands.js'
+import { printOutput, runScript } from '../platform-commands.js'
 
 const ALL = MIGRATIONS
 const SID = 'test-hooks'
@@ -22,7 +22,7 @@ describe('Legacy hook executor audit', () => {
 
   it('should record allow decision on successful run', async () => {
     const input = buildInput({ event: 'SessionStart', session_id: 's1' })
-    await runHookCommand({ type: 'command', command: printOutput('ok') }, input)
+    await runHookCommand({ type: 'command', command: runScript("process.stdin.resume(); process.stdin.on('end', () => process.stdout.write('ok'))") }, input)
     const run = hookAuditLog.find(r => r.run_id === input.run_id)!
     expect(run.decision).toBe('allow')
   })

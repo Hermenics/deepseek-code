@@ -1,12 +1,13 @@
 import Box from '../../ink/components/Box.js'
 import Text from '../../ink/components/Text.js'
 import { useThemeColors } from '../design-system/ThemeProvider.js'
+import { safeGraphemeEnd } from '../../utils/textBoundaries.js'
 export const MAX_MSG_LEN = 60
 
 /** Cuts a queued message to MAX_MSG_LEN characters, adding an ellipsis when it was shortened. */
 export function truncateMessage(msg: string): string {
   if (msg.length <= MAX_MSG_LEN) return msg
-  return msg.slice(0, MAX_MSG_LEN) + '…'
+  return msg.slice(0, safeGraphemeEnd(msg, MAX_MSG_LEN)) + '…'
 }
 
 /** Normalizes queued messages (plain strings or `{ text }` objects) into truncated display items. */

@@ -95,6 +95,9 @@ describe('normal transcript truncation', () => {
 })
 
 describe('formatToolLine', () => {
+  it('keeps graphemes intact when clipping tool arguments', () => {
+    expect(formatToolLine('unknown', 'a'.repeat(59) + '👩‍💻tail').arg).toBe('a'.repeat(59) + '...')
+  })
   it('truncates a long arg to 60 chars by default, but returns it whole in full mode', () => {
     const longArg = 'a'.repeat(70)
     const detail = JSON.stringify({ arg: longArg, output: 'ok' })

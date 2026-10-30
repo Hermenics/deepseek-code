@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.13.4
+
+- Fixed: Browser batch approvals show navigation and transmission details, classify public-page transmissions as high risk, and keep PageUp/PageDown focused on batch details in the alternate screen.
+- Fixed: Tool previews redact recognized secrets before truncation, decode streamed JSON escapes, and preserve Unicode graphemes when clipping displayed text.
+- Fixed: Goal tools validate token budgets and blocker descriptions, preserve elapsed time across revisions and resumes, report live elapsed time, and prevent invalid status transitions.
+- Fixed: Scheduled bot runs handle skipped or repeated daylight-saving times and stop at the supported date limit.
+- Fixed: Provider URLs retain query parameters when appending API endpoints, and the launcher enforces the declared minimum Bun version.
+- Tests: Launcher signal tests wait for the complete readiness marker across stdout chunks before sending a signal.
+
 ## 0.13.3
 
 - Added: Persistent memory separates the 2,000-character core from a 200,000-character searchable archive, with local BM25 retrieval, stable IDs, bounded get pages, capacity reporting, and unique-span patch edits.

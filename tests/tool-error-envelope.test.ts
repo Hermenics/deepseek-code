@@ -195,6 +195,10 @@ it('normalizes boolean cancellation and preserves the answers payload as partial
 it('returns typed errors for invalid and conflicting goal creation', async () => {
   const previous = getGoal()
   try {
+    setGoal(null)
+    const invalidBudget = JSON.parse(await CreateGoal.execute({ objective: 'Goal', tokenBudget: -1 }))
+    expect(invalidBudget.error.code).toBe('INVALID_ARGUMENTS')
+    expect(getGoal()).toBeNull()
     const invalid = JSON.parse(await CreateGoal.execute({ objective: '   ' }))
     expect(invalid).toMatchObject({ status: 'error', error: { kind: 'validation', code: 'INVALID_ARGUMENTS' } })
 

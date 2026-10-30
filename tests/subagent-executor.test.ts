@@ -2,7 +2,7 @@ import { waitFor } from './helpers/waitFor.js'
 import { describe, expect, it } from 'bun:test'
 import type { Tool } from '../src/tools/types.js'
 import { SUBAGENT_RESULT_SCHEMA } from '../src/orchestration/schema.js'
-import { runSubAgentLoop } from '../src/tools/SubAgent/executor.js'
+import { buildToolPreview, runSubAgentLoop } from '../src/tools/SubAgent/executor.js'
 import { StructuredOutputError, validateSubAgentResult, type SubAgentResult } from '../src/tools/SubAgent/contracts.js'
 import { AGGREGATE_REQUEST_BYTES, AGGREGATE_TURN_BYTES, OrchestratorSession } from '../src/orchestration/index.js'
 import type { TaskEventType } from '../src/orchestration/types.js'
@@ -17,6 +17,12 @@ import type { ToolErrorEnvelopeV1 } from '../src/tools/result.js'
 import { MoAExecutionError } from '../src/tools/MoA/types.js'
 
 const provider = { provider: 'local' as const, localModel: 'fake' }
+it('redacts a secret before truncating a subagent tool preview', () => {
+  const preview = buildToolPreview('shell', { command: `echo ${'x'.repeat(35)} sk-${'a'.repeat(40)}` })
+  expect(preview).not.toContain('sk-')
+  expect(preview).toContain('[REDACTED')
+  expect(buildToolPreview('shell', { command: 'a\tb\x1b[31mc' })).toBe('a b [31mc')
+})
 const valid: SubAgentResult = {
   summary: 'done', confidence: 1, filesRead: [], filesChanged: [], issuesFound: [], suggestions: [], metadata: {},
 }

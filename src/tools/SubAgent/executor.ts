@@ -129,16 +129,17 @@ export interface SubAgentLoopResult<T = never> {
 
 /** Short (50-char) label for a subagent tool call in the UI: the tool's key argument (path, command, pattern, url, task), or else its first string argument. */
 export function buildToolPreview(toolName: string, args: Record<string, unknown>): string {
+  args = redactSecrets(args) as Record<string, unknown>
   const str = (value: unknown) => typeof value === 'string' ? value : JSON.stringify(value)
   /** Shortens a preview to `length` characters. */
-  const truncate = (value: string, length = 50) => value.length > length ? `${value.slice(0, length)}…` : value
+  const truncate = (value: string, length = 50) => value.length > length ? `${value.slice(0, safeGraphemeEnd(value, length))}…` : value
   const selected: Record<string, unknown> = {
     read_file: args.path, write_file: args.path, patch_file: args.path, edit_file: args.path,
     read_folder: args.path, shell: args.command, grep: `${args.pattern ?? ''} in ${args.path ?? '.'}`,
     glob: args.pattern, web_fetch: args.url, subagent: args.task,
   }
   const value = selected[toolName] ?? Object.values(args).find(item => typeof item === 'string') ?? ''
-  return truncate(str(value))
+  return truncate(str(value).replace(/[\x00-\x1f\x7f-\x9f]/g, ' '))
 }
 
 /**

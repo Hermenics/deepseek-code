@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'bun:test'
 import { pickLoadingMessage } from '../src/ui/input/render/LoadingSpinner.js'
-import { previewStreamingArgs, previewToolCallArgs, summarizeAskUserPayload, summarizeStructuredPayload } from '../src/ui/messages/toolDisplay.js'
+import { previewPendingToolArgs, previewStreamingArgs, previewToolCallArgs, summarizeAskUserPayload, summarizeStructuredPayload } from '../src/ui/messages/toolDisplay.js'
 
 describe('pickLoadingMessage', () => {
   it('uses the tool-specific pun while a tool is in flight', () => {
@@ -22,6 +22,22 @@ describe('pickLoadingMessage', () => {
 })
 
 describe('previewStreamingArgs', () => {
+  it('does not show nested raw fields while a question tool is streaming', () => {
+    expect(previewPendingToolArgs('ask_user_questions', '{"questions":[{"description":"private context"}]}')).toBe('')
+  })
+  it('redacts secret fields and values before displaying tool arguments', () => {
+    expect(previewToolCallArgs('custom', { apiKey: 'private-value' })).not.toContain('private-value')
+    expect(previewToolCallArgs('shell', { command: `echo ${'x'.repeat(45)} sk-${'a'.repeat(40)}` })).not.toContain('sk-')
+    expect(previewStreamingArgs(JSON.stringify({ command: `echo ${'x'.repeat(45)} sk-${'a'.repeat(40)}` }))).not.toContain('sk-')
+    expect(previewToolCallArgs('custom', { label: 'a\tb\x1b[31mc' })).toBe('a b [31mc')
+  })
+  it('decodes JSON escape sequences in a streamed argument', () => {
+    expect(previewStreamingArgs('{"path":"caf\\u00e9.ts"}')).toBe('café.ts')
+    expect(previewStreamingArgs('{"path":"a\\tb\\u001b[31mc"}')).toBe('a b [31mc')
+  })
+  it('does not split a grapheme in streamed arguments', () => {
+    expect(previewStreamingArgs(JSON.stringify({ command: 'x'.repeat(59) + '👩‍💻tail' }))).toBe('x'.repeat(59) + '…')
+  })
   it('extracts a key field from unterminated JSON', () => {
     expect(previewStreamingArgs('{"path":"src/ui/App.tsx","content":"const x')).toBe('src/ui/App.tsx')
   })

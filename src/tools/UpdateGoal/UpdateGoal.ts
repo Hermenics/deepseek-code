@@ -32,10 +32,11 @@ export const UpdateGoal: Tool = {
   /** A `blocked` request only takes effect after the same blocker is reported 3 consecutive times; earlier reports just bump the counter and leave the goal active. */
   async execute(args, context) {
     const status = args.status as string
-    const blocker = args.blocker as string | undefined
+    const blocker = typeof args.blocker === 'string' ? args.blocker.trim() : ''
     const goal = getGoal()
 
     if (!goal) return JSON.stringify({ error: 'No active goal.' })
+    if (goal.status === 'complete') return JSON.stringify({ error: 'The goal is already complete.' })
 
     switch (status) {
       case 'complete': {
@@ -52,6 +53,7 @@ export const UpdateGoal: Tool = {
         return context.verifyGoalCompletion(completionSummary.trim())
       }
       case 'blocked': {
+        if (goal.status !== 'active') return JSON.stringify({ error: 'Resume the goal before reporting a blocker.' })
         if (!blocker)
           return JSON.stringify({ error: 'blocker is required when status=blocked.' })
         try {

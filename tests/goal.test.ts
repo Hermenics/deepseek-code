@@ -6,12 +6,44 @@ import {
   recordGoalTurnProgress, GOAL_MAX_IDLE_TURNS, rollbackFailedGoalRevision,
   type Goal,
 } from '../src/agent/goal.js'
+import { UpdateGoal } from '../src/tools/UpdateGoal/UpdateGoal.js'
+import { GetGoal } from '../src/tools/GetGoal/GetGoal.js'
 
 beforeEach(() => {
   setGoal(null)
 })
 
 describe('Goal progress', () => {
+  it('reports the elapsed time of a running goal', async () => {
+    const goal = createGoal('Running')
+    setGoal({ ...goal, startedAt: new Date(Date.now() - 30_000).toISOString(), timeUsedSeconds: 5 })
+    const result = JSON.parse(await GetGoal.execute({}))
+    expect(result.goal.timeUsedSeconds).toBeGreaterThanOrEqual(35)
+  })
+  it('does not reopen a completed goal through blocked or paused updates', async () => {
+    createGoal('Done')
+    markGoalComplete()
+    for (const status of ['blocked', 'paused']) {
+      const result = JSON.parse(await UpdateGoal.execute({ status, blocker: 'waiting' }))
+      expect(result.error).toBeTruthy()
+      expect(getGoal()?.status).toBe('complete')
+    }
+  })
+  it('does not reactivate a paused goal when a blocker is reported', async () => {
+    createGoal('Paused')
+    updateGoal({ status: 'paused', updatedAt: new Date().toISOString() })
+    const result = JSON.parse(await UpdateGoal.execute({ status: 'blocked', blocker: 'waiting' }))
+    expect(result.error).toBeTruthy()
+    expect(getGoal()?.status).toBe('paused')
+  })
+  it('rejects blank blocker descriptions without changing goal state', async () => {
+    createGoal('Active')
+    for (let i = 0; i < 3; i++) {
+      const result = JSON.parse(await UpdateGoal.execute({ status: 'blocked', blocker: '   ' }))
+      expect(result.error).toBeTruthy()
+    }
+    expect(getGoal()).toMatchObject({ status: 'active', consecutiveBlockCount: 0 })
+  })
   it('allows ten continuation turns by default', () => {
     expect(GOAL_MAX_CONTINUATIONS).toBe(10)
   })
@@ -57,6 +89,17 @@ describe('Goal creation', () => {
 })
 
 describe('Goal objective revisions', () => {
+  it('retains elapsed active time when the objective is revised', () => {
+    const goal = createGoal('Original')
+    setGoal({ ...goal, startedAt: new Date(Date.now() - 30_000).toISOString(), timeUsedSeconds: 5 })
+    expect(getElapsedSeconds(reviseGoal('Corrected'))).toBeGreaterThanOrEqual(35)
+  })
+
+  it('retains elapsed time when an already active goal is resumed', () => {
+    const goal = createGoal('Original')
+    setGoal({ ...goal, startedAt: new Date(Date.now() - 30_000).toISOString(), timeUsedSeconds: 5 })
+    expect(getElapsedSeconds(resumeGoal())).toBeGreaterThanOrEqual(35)
+  })
   it('increments the revision, records the user source, and resets stale completion state', () => {
     createGoal('Original objective', 20_000, 4)
     updateGoal({

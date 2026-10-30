@@ -15,15 +15,19 @@ export const CreateGoal: Tool = {
         description: 'The goal to achieve. Be specific and measurable.',
       },
       tokenBudget: {
-        type: 'number',
+        type: 'integer',
+        minimum: 1,
         description: 'Optional maximum tokens to spend on this goal. When exceeded, status becomes budget_limited.',
       },
     },
     required: ['objective'],
   },
   async execute(args) {
-    const objective = (args.objective as string)?.trim()
+    const objective = typeof args.objective === 'string' ? args.objective.trim() : ''
     if (!objective) return formatToolError('validation', 'INVALID_ARGUMENTS', 'objective is required.')
+    if (args.tokenBudget !== undefined && (!Number.isSafeInteger(args.tokenBudget) || (args.tokenBudget as number) < 1)) {
+      return formatToolError('validation', 'INVALID_ARGUMENTS', 'tokenBudget must be a positive safe integer.')
+    }
 
     const existing = getGoal()
     const unfinished = new Set(['active', 'paused', 'blocked', 'budget_limited', 'usage_limited'])

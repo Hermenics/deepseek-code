@@ -159,10 +159,13 @@ describe('WorkflowManager', () => {
   test('defaults helper admission to the configured agent concurrency', async () => {
     let running = 0
     let peak = 0
+    let release!: () => void
+    const admitted = new Promise<void>(resolve => { release = resolve })
     const manager = await setup(async request => {
       running++
       peak = Math.max(peak, running)
-      await Bun.sleep(20)
+      if (running === 4) release()
+      await admitted
       running--
       return { value: request.prompt }
     })

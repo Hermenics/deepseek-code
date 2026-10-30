@@ -48,6 +48,13 @@ export function normalizeBaseUrl(raw: string): string {
   return normalized
 }
 
+function clientUrl(raw: string): { baseURL: string; defaultQuery?: Record<string, string> } {
+  const normalized = normalizeBaseUrl(raw)
+  const separator = normalized.indexOf('?')
+  if (separator < 0) return { baseURL: normalized }
+  return { baseURL: normalized.slice(0, separator), defaultQuery: Object.fromEntries(new URLSearchParams(normalized.slice(separator + 1))) }
+}
+
 /**
  * Returns an OpenAI-compatible client configured for the given provider.
  *
@@ -95,13 +102,13 @@ export function createLLMClient(cfg: ProviderConfig, model?: string): OpenAI {
     case 'local': {
       return new OpenAI({
         apiKey: 'local',
-        baseURL: normalizeBaseUrl(cfg.localBaseUrl ?? 'http://localhost:11434/v1'),
+        ...clientUrl(cfg.localBaseUrl ?? 'http://localhost:11434/v1'),
       })
     }
     default: // deepseek
       return new OpenAI({
         apiKey: cfg.apiKey ?? process.env.DEEPSEEK_API_KEY,
-        baseURL: normalizeBaseUrl(cfg.baseURL ?? process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com'),
+        ...clientUrl(cfg.baseURL ?? process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com'),
       })
   }
 }

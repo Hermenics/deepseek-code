@@ -9,7 +9,7 @@ import { browserActionKind } from '../permissions/browser.js'
 import { FullModeBar, MessageList, getDiffPayload } from './messages/MessageList.js'
 import { DiffDialog, type DiffLine } from './messages/DiffDialog.js'
 import { TodoPanel } from './messages/TodoPanel.js'
-import { isToolError, previewStreamingArgs, previewToolCallArgs, summarizeToolResult } from './messages/toolDisplay.js'
+import { isToolError, previewPendingToolArgs, previewToolCallArgs, summarizeToolResult } from './messages/toolDisplay.js'
 import { closeSteps, interruptSteps, openStep } from './messages/steps.js'
 import { ignoreFileStatus, writeIgnoreDefaults, hasEditorAssociation, writeEditorAssociation, shouldOfferEditorAssociation, getEditorSettingsPath, IGNORE_FILE_NAME, shouldOfferIgnoreDefaults, markIgnoreDefaultsPrompted } from '../tools/shared/deepseekignore.js'
 import { useSubagents } from './subagent/index.js'
@@ -901,6 +901,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   // its own scroll keys: wheel notches move 3 lines, PageUp/PageDown move half a
   // viewport. stickyScroll re-pins to the bottom once the user scrolls back down.
   useInput((_input, key, event) => {
+    if (toolPermissionState && (key.pageUp || key.pageDown)) return
     const transcript = transcriptRef.current
     if (!transcript) return
     const halfPage = Math.max(1, Math.floor(transcript.getViewportHeight() / 2))
@@ -1565,7 +1566,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       if (pendingTool) {
         const { name, args } = pendingTool
         pendingTool = null
-        showActiveTool({ name, args: previewStreamingArgs(args), done: false })
+        showActiveTool({ name, args: previewPendingToolArgs(name, args), done: false })
       }
     }, 50)
 
@@ -1590,14 +1591,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           // Streamed preview is superseded by the real args — drop it so a late
           // flush cannot overwrite them.
           pendingTool = null
-          // For subagent, show the task text instead of raw JSON
-          const argsPreview = name === 'subagent' && typeof (args as Record<string, unknown>)?.task === 'string'
-            ? (() => {
-                const task = (args as Record<string, unknown>).task as string
-                const firstLine = task.split('\n').map(l => l.replace(/^#+\s*/, '').trim()).find(l => l.length > 0) ?? task
-                return firstLine.length > 80 ? firstLine.slice(0, 80) + '…' : firstLine
-              })()
-            : previewToolCallArgs(name, args as Record<string, unknown>)
+          const argsPreview = previewToolCallArgs(name, args as Record<string, unknown>)
           showActiveTool({ name, args: argsPreview, done: false })
         },
         onToolResult(name, result, args) {
@@ -3538,12 +3532,16 @@ export function toolPermissionSummary({ toolName, args }: ToolPermissionRequest)
     const name = /"name"\s*:\s*"([^"]+)"/.exec(input.script)?.[1]
     return name ? `Dynamic Workflow → ${name}` : 'Dynamic Workflow'
   }
-  if (typeof input.command === 'string') return `$ ${input.command}`
-  if (typeof input.url === 'string') return `${toolName} → ${typeof input.action === 'string' ? `${input.action} ` : ''}${input.url}`
+  if (toolName !== 'browser' && typeof input.command === 'string') return `$ ${input.command}`
+  if (typeof input.url === 'string' && (toolName !== 'browser' || input.action === 'navigate')) return `${toolName} → ${typeof input.action === 'string' ? `${input.action} ` : ''}${input.url}`
   if (toolName === 'browser' && typeof input.action === 'string') {
     // Show what would be typed: on a public page that text leaves the machine.
     const typed = typeof input.text === 'string' ? ` "${input.text.length > 60 ? `${input.text.slice(0, 59)}…` : input.text}"` : ''
-    const steps = input.action === 'batch' && Array.isArray(input.steps) ? ` (${input.steps.length} steps)`
+    const steps = input.action === 'batch' && Array.isArray(input.steps) ? ` (${input.steps.length} steps): ${input.steps.map((step: unknown) => {
+      if (!step || typeof step !== 'object') return 'unknown'
+      const item = step as Record<string, unknown>
+      return [item.action, item.url, item.text, ...(Array.isArray(item.paths) ? item.paths : [])].filter(value => typeof value === 'string').join(' ')
+    }).join('\n')}`
       : Array.isArray(input.paths) ? ` ${input.paths.join(', ')}` : ''
     return `browser → ${input.action}${steps}${typed}${typeof input.__origin === 'string' ? ` on ${input.__origin}` : ''}`
   }
@@ -3565,6 +3563,8 @@ export function ToolPermissionPrompt({
   const colors = useThemeColors()
   const [selected, setSelected] = useState(0)
   const [showWorkflowCode, setShowWorkflowCode] = useState(false)
+  const batchDetailsRef = useRef<ScrollBoxHandle | null>(null)
+  const isBrowserBatch = request.toolName === 'browser' && (request.args as Record<string, unknown>).action === 'batch'
   const options = permissionOptions(request)
   const rejectKey = options.find(option => option.result === 'reject')?.key
 
@@ -3573,8 +3573,10 @@ export function ToolPermissionPrompt({
     onDecide(option.result)
   }
 
-  useInput((input: string, key: Key) => {
+  useInput((input: string, key: Key, event) => {
     if (key.ctrl && input === 'c') { onDecide('deny'); return }
+    if (isBrowserBatch && key.pageUp) { batchDetailsRef.current?.scrollBy(-3); event.stopImmediatePropagation(); return }
+    if (isBrowserBatch && key.pageDown) { batchDetailsRef.current?.scrollBy(3); event.stopImmediatePropagation(); return }
     const option = options.find(option => option.key === input)
     if (option) { choose(option); return }
     if (key.upArrow) { setSelected((i) => (i - 1 + options.length) % options.length); return }
@@ -3596,7 +3598,7 @@ export function ToolPermissionPrompt({
         </Box>
         <Box flexDirection="row" gap={1}>
           <Text color={colors.textDim}>action:</Text>
-          <Text color={colors.textDim} wrap="truncate-middle">{summary}</Text>
+          {isBrowserBatch ? <ScrollBox ref={batchDetailsRef} height={4} flexGrow={1} flexDirection="column">{summary.split('\n').map((line, index) => <Text key={index} color={colors.textDim} wrap="wrap">{line}</Text>)}</ScrollBox> : <Text color={colors.textDim} wrap="truncate-middle">{summary}</Text>}
         </Box>
         <Text color={colors.warning}>{reason}</Text>
       </Box>
@@ -3619,7 +3621,7 @@ export function ToolPermissionPrompt({
         </Box>
       )}
       <Box marginLeft={2}>
-        <Text color={colors.textDim}>{`  ↑↓ navigate  ·  Enter confirm  ·  Esc stop turn  ·  [3] stop turn${rejectKey ? `  ·  [${rejectKey}] skip action and continue` : ''}`}</Text>
+        <Text color={colors.textDim}>{`  ↑↓ navigate${isBrowserBatch ? '  ·  PgUp/PgDn details' : ''}  ·  Enter confirm  ·  Esc stop turn  ·  [3] stop turn${rejectKey ? `  ·  [${rejectKey}] skip action and continue` : ''}`}</Text>
       </Box>
     </Box>
   )
