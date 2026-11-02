@@ -70,6 +70,7 @@ export function startBotWebServer(store: BotStore, options: BotWebOptions = {}, 
     }
     if (!url.pathname.startsWith('/api/')) return json({ error: 'Not found' }, 404)
     const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent)
+    if (parts[1] === 'pods') parts[1] = 'bots'
     const bearer = request.headers.get('authorization')?.startsWith('Bearer ') ? request.headers.get('authorization')!.slice(7) : undefined
     const tokenAccess = matches(bearer)
     let webhookAccess = false
@@ -202,7 +203,7 @@ export function startBotWebServer(store: BotStore, options: BotWebOptions = {}, 
         return json({ id: profile.id, model: profile.provider === 'local' ? profile.localModel ?? '' : profile.model ?? '' })
       }
     }
-    if (url.pathname === '/api/bots') {
+    if (url.pathname === '/api/bots' || url.pathname === '/api/pods') {
       if (method === 'GET') {
         const bots = store.listBots().map(bot => ({
           ...bot,

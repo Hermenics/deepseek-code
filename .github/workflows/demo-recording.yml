@@ -78,7 +78,7 @@ jobs:
           mkdir -p "$DEMO_ASSETS"
           cp src/public/demo.gif "$DEMO_ASSETS/demo.gif"
           cp website/public/demo.mp4 "$DEMO_ASSETS/demo.mp4"
-          git restore --source=HEAD -- src/public/demo.gif src/bots/pod-avatar-runtime.ts
+          git restore --source=HEAD -- src/public/demo.gif src/pods/pod-avatar-runtime.ts
           if git ls-files --error-unmatch website/public/demo.mp4 >/dev/null 2>&1; then
             git restore --source=HEAD -- website/public/demo.mp4
           else

@@ -121,6 +121,7 @@ if (process.argv[2] === '--bot-worker') {
   const directory = await mkdtemp(join(tmpdir(), 'deepseek-bot-runtime-'))
   const projectRoot = directory
   const path = join(directory, '.deepseek', 'state.db'), store = new BotStore({ path })
+  await writeFile(join(directory, '.deepseek', 'settings.json'), JSON.stringify({ interface: { language: 'Esperanto' } }))
   const bot = store.createBot({ name: 'engineer', projectRoot, instructions: 'Carry out the queued request and report observed results.' })
   const receiver = store.createBot({ name: 'researcher', projectRoot, instructions: 'Read the source and report its actual contents.', agentConfig: 'reviewer' })
   await writeFile(join(projectRoot, 'input.txt'), 'Persisted source evidence')
@@ -128,7 +129,7 @@ if (process.argv[2] === '--bot-worker') {
   await mkdir(privateDirectory, { recursive: true })
   await writeFile(join(privateDirectory, 'state.txt'), 'private-runtime-proof')
   let privateStateLeaked = false
-  let requests = 0, independentTaskIsolated = false, browserSessionRestored = false, humanLogin = false
+  let requests = 0, independentTaskIsolated = false, browserSessionRestored = false, humanLogin = false, languageApplied = false
   let procedureEffects = 0, changedProcedure = false, learnedName = '', learnedSkillRead = false, procedureRejectionObserved = false
   const safeRoutineToolCatalogs: string[][] = []
   let releaseChild: (() => void) | undefined, childWaiting = false
@@ -161,6 +162,7 @@ if (process.argv[2] === '--bot-worker') {
     // this deterministic provider's task interpreter on the actual user turn.
     const current = body.messages.findLastIndex(m => m.role === 'user' && !String(m.content).startsWith('[Current saved notes —'))
     const prompt = String(body.messages[current]?.content ?? '')
+    if (prompt.includes('Approved check')) languageApplied ||= body.messages.some(message => message.role === 'system' && String(message.content).includes('Always respond in Esperanto'))
     const done = body.messages.slice(current + 1).some(m => m.role === 'tool')
     const terminal = body.tools?.find(t => ['submit_result', 'submit_workflow_result'].includes(t.function.name))?.function.name
     if (prompt.includes('Delegated bot researcher finished this handoff with status completed')) {
@@ -299,6 +301,7 @@ if (process.argv[2] === '--bot-worker') {
     const first = store.enqueue(bot.id, 'Approved check'), w1 = spawn()
     await review(first.id, 'once'); await checkExit(w1)
     assert.equal(store.getRun(first.id).status, 'completed')
+    assert.equal(languageApplied, true, 'Pod workers use the project response language')
     assert.match(store.getRun(first.id).output, /Approved command ran/)
     assert.equal(store.hasUncertainActions(first.id), false)
     const denied = store.enqueue(bot.id, 'Deny check'), w2 = spawn()
@@ -558,7 +561,7 @@ if (process.argv[2] === '--bot-worker') {
         }, 30_000)
         assert.equal(decision.request.browserHandoff, true)
         const control = async (command: string, args?: object) => {
-          const result = await fetch(panelUrl + '/api/bots/' + bot.id + '/browser', {
+          const result = await fetch(panelUrl + '/api/pods/' + bot.id + '/browser', {
             method: 'POST', headers: { authorization: 'Bearer ' + panelToken, 'content-type': 'application/json' },
             body: JSON.stringify({ runId: handoff.id, command, args }),
           })
@@ -570,7 +573,7 @@ if (process.argv[2] === '--bot-worker') {
         const view = await control('image')
         assert.ok(view.image.length > 100)
         const actionsBefore = store.store.query('SELECT id FROM bot_actions WHERE run_id = ?', handoff.id).length
-        const stale = await fetch(panelUrl + '/api/bots/' + bot.id + '/browser', {
+        const stale = await fetch(panelUrl + '/api/pods/' + bot.id + '/browser', {
           method: 'POST', headers: { authorization: 'Bearer ' + panelToken, 'content-type': 'application/json' },
           body: JSON.stringify({ runId: handoff.id, command: 'click', args: { viewId: 'stale-view', x: 35, y: 25 } }),
         })

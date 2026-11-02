@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.13.6
+
+- Changed: The Pods workspace uses a Harness-style centered task composer and compact desktop navigation, with direct Pod creation and settings access; settings can be filtered by category, and mobile retains bottom navigation. Overview task drafts survive reloads.
+- Added: Pods settings expose response language, model overrides, agent turn budgets, Vim input, the terminal alternate screen, and the user-scoped language-server timeout. Pod workers use the configured response language.
+
 ## 0.13.5
 
 - Added: Overview now brings waiting and blocked group tasks into the attention queue, opens the group conversation from each item, and includes group attention in the mobile badge.

@@ -119,7 +119,7 @@ for (const name of selected ? [selected] : cases) {
       assert.ok(Date.now() < end); await Bun.sleep(1000)
     }
   }
-  const mutation = (suffix: string, input: object) => post(`/api/bots/${bot.id}/notes/${note.id}${suffix}`, input)
+  const mutation = (suffix: string, input: object) => post(`/api/pods/${bot.id}/notes/${note.id}${suffix}`, input)
   try {
     let priorDecision: ReturnType<BotStore['getDecision']> | undefined
     if (name === 'approval' || name === 'expire-approval') await until(() => { priorDecision = store.conversation(bot.id).decisions[0]; return Boolean(priorDecision) })

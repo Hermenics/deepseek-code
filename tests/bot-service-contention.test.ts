@@ -129,7 +129,7 @@ it('keeps the supervisor alive across real SQLite writer contention', async () =
     expect(heldResponse.status).toBe(200)
     expect(Date.now() - start).toBeLessThan(2000)
     expect(writer.exitCode).toBeNull()
-    const write = () => fetch(url + '/api/bots/' + bot.id + '/messages', {
+    const write = () => fetch(url + '/api/pods/' + bot.id + '/messages', {
       method: 'POST', headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' },
       body: JSON.stringify({ message: 'Contended enqueue', occurrenceId: 'held-write' }),
     })

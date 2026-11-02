@@ -241,7 +241,7 @@ deepseek pods test-routine release-watch ROUTINE_ID`}</CodeBlock>
         <section id="data">
           <h2><span className="anchor">#</span>Storage and recovery</h2>
           <p>
-            The default local database is <code className="inline">~/.deepseek/bots/state.db</code>. It contains
+            The default local database is <code className="inline">~/.deepseek/pods/state.db</code>. It contains
             Pod instructions, conversations, run state, decisions, notes and event history. The database and its
             adjacent actor data are private runtime state; back them up only to a location you trust.
           </p>
