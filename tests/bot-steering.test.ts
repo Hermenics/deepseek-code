@@ -124,7 +124,7 @@ for (const first of ['seal', 'guide']) it(`serializes ${first} against the compe
   try {
     const bot = store.createBot({ name: 'race', projectRoot: directory, instructions: 'Current guidance.' })
     const run = store.enqueue(bot.id, 'Existing work'); store.claim(bot.id, 'worker')
-    const source = fileURLToPath(new URL('../src/bots/store.ts', import.meta.url))
+    const source = fileURLToPath(new URL('../src/pods/store.ts', import.meta.url))
     const spawned = Bun.spawn([process.execPath, '-e', `import { existsSync, writeFileSync } from 'node:fs';import { BotStore } from ${JSON.stringify(source)};
       const store=new BotStore({path:process.env.GUIDANCE_DB,busyTimeoutMs:0}), get=store.getRun.bind(store);
       // Hold the real immediate writer after reading state. The competing

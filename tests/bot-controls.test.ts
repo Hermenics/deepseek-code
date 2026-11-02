@@ -141,7 +141,7 @@ it('cannot re-enable a procedure routine using a readiness check from before inv
     const routine = store.addRoutine(bot.id, { name: 'Observed', prompt: 'Use the observed method', schedule: { kind: 'event', topic: 'fixture' }, procedureId: procedure.id, procedureInputs: { expectedText2: 'Done' } })
     store.setRoutineEnabled(routine.id, false)
     const ready = join(directory, 'ready'), release = join(directory, 'release')
-    const sourcePath = fileURLToPath(new URL('../src/bots/store.ts', import.meta.url))
+    const sourcePath = fileURLToPath(new URL('../src/pods/store.ts', import.meta.url))
     const code = `import { existsSync, writeFileSync } from 'node:fs';import { BotStore } from ${JSON.stringify(sourcePath)};
       const store=new BotStore({path:process.env.DEEPSEEK_CONTROL_PATH}), original=store.getProcedure.bind(store);
       store.getProcedure=(...args)=>{const value=original(...args);writeFileSync(process.env.DEEPSEEK_CONTROL_READY,'');const end=Date.now()+10000;
