@@ -44,7 +44,10 @@ try {
   // Inspect the shipped schema before a source Store can migrate anything.
   const database = new Database(path, { readonly: true })
   try {
-    assert.equal(database.query<{ version: number }, []>('SELECT max(version) AS version FROM _schema_version').get()!.version, 32)
+    assert.equal(database.query<{ version: number }, []>('SELECT max(version) AS version FROM _schema_version').get()!.version, 34)
+    const indexes = database.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='index'").all().map(row => row.name)
+    assert.ok(indexes.includes('bot_run_created_at'))
+    assert.ok(indexes.includes('bot_conversation_recent'))
     const tables = database.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='table'").all().map(row => row.name)
     assert.ok(tables.includes('bot_event_receipts'))
     assert.ok(tables.includes('bot_webhook_credentials'))
@@ -128,5 +131,5 @@ try {
   assert.deepEqual(json('delete', bot.id, '--confirm', bot.name), { deleted: true, filesRemoved: true })
   assert.deepEqual(json('delete', researcher.id, '--confirm', researcher.name), { deleted: true, filesRemoved: true })
   assert.deepEqual(json('list'), [])
-  console.log('Installed DeepSeek Pods check passed: schema 32 conversation and staged deletion, bounded history search, configurable completion reviewer, group collaboration, retention, handoff routing and signed delivery, safe routine tests, data lifecycle, JSON export, routine expiry, run transcripts, webhook/rate-limit migrations, note and guidance controls, idempotency and terminal fencing.')
+  console.log('Installed DeepSeek Pods check passed: schema 34 recency indexes, conversation and staged deletion, bounded history search, configurable completion reviewer, group collaboration, retention, handoff routing and signed delivery, safe routine tests, data lifecycle, JSON export, routine expiry, run transcripts, webhook/rate-limit migrations, note and guidance controls, idempotency and terminal fencing.')
 } finally { store?.close(); await rm(directory, { recursive: true, force: true }) }
