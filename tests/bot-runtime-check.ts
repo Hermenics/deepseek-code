@@ -37,7 +37,7 @@ if (process.argv[2] === '--bot-worker') {
   }
   if (process.env.BOT_CHECK_CONTROL_GATE) {
     const { botControl: nativeControl } = await import('../src/pods/control.js')
-    mock.module('../src/bots/control.js', () => ({ botControl(...args: Parameters<typeof nativeControl>) {
+    mock.module('../src/pods/control.js', () => ({ botControl(...args: Parameters<typeof nativeControl>) {
       const tool = nativeControl(...args), execute = tool.execute.bind(tool)
       let paused = false
       tool.execute = async (input, context, callbacks) => {
@@ -50,7 +50,7 @@ if (process.argv[2] === '--bot-worker') {
   }
   if (process.env.BOT_CHECK_PROCEDURE_GATE) {
     const exports = { ...await import('../src/pods/procedures.js') }, nativeGuard = exports.procedureGuard
-    mock.module('../src/bots/procedures.js', () => ({ ...exports, procedureGuard(...args: Parameters<typeof nativeGuard>) {
+    mock.module('../src/pods/procedures.js', () => ({ ...exports, procedureGuard(...args: Parameters<typeof nativeGuard>) {
       const guard = nativeGuard(...args), before = guard.before.bind(guard)
       let paused = false
       guard.before = async (input, tab) => {
