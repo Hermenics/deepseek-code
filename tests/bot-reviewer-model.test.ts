@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { Agent } from '../src/agent/agent.js'
 import { createGoal, getGoal, setGoal } from '../src/agent/goal.js'
 import type { SessionEvidence } from '../src/agent/sessionEvidence.js'
-import { BotStore } from '../src/bots/store.js'
+import { BotStore } from '../src/pods/store.js'
 
 it('persists a validated per-pod reviewer model and supports inheritance', () => {
   const store = new BotStore({ memory: true })

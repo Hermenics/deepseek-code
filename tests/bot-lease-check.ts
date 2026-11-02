@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { BotStore } from '../src/bots/store.js'
+import { BotStore } from '../src/pods/store.js'
 import { scrubbedEnv } from '../src/utils/platform.js'
 
 for (const holdMs of [8000, 31000]) {

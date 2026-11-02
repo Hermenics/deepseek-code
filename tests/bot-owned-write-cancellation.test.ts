@@ -2,7 +2,7 @@ import { expect, it } from 'bun:test'
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { BotStore } from '../src/bots/store.js'
+import { BotStore } from '../src/pods/store.js'
 import { waitForChildFile } from './helpers/waitForChildFile.js'
 import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 

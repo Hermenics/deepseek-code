@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import { execa } from 'execa'
-import { podsHelp, formatPodsOutput } from '../src/bots/cli.js'
+import { podsHelp, formatPodsOutput } from '../src/pods/cli.js'
 import { cliStyle } from '../src/utils/cli-style.js'
 
 cliStyle.level = 0

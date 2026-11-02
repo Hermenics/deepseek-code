@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { botWorkerEnvironment } from '../src/bots/environment.js'
+import { botWorkerEnvironment } from '../src/pods/environment.js'
 
 describe('bot worker environment', () => {
   it('keeps runtime/display settings but drops unrelated secrets and control-plane credentials', () => {

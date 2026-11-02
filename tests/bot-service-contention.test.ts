@@ -2,9 +2,9 @@ import { expect, it } from 'bun:test'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { BotStore } from '../src/bots/store.js'
-import { serveBots } from '../src/bots/service.js'
-import { runPodsCli } from '../src/bots/cli.js'
+import { BotStore } from '../src/pods/store.js'
+import { serveBots } from '../src/pods/service.js'
+import { runPodsCli } from '../src/pods/cli.js'
 
 for (const pendingMigration of [false, true]) it(`opens ${pendingMigration ? 'a database with a pending migration' : 'a migrated database'} during writer contention without blocking or abandoning startup`, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'deepseek-startup-check-'))

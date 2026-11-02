@@ -3,8 +3,8 @@ import { generateKeyPairSync, verify } from 'node:crypto'
 import { lstatSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { BotStore } from '../src/bots/store.js'
-import { deliverSignedWebhook, validateWebhookTarget, type WebhookPost } from '../src/bots/delivery.js'
+import { BotStore } from '../src/pods/store.js'
+import { deliverSignedWebhook, validateWebhookTarget, type WebhookPost } from '../src/pods/delivery.js'
 import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 
 const stores: BotStore[] = [], directories: string[] = []

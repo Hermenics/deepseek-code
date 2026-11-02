@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { BotStore } from '../src/bots/store.js'
-import { botControl } from '../src/bots/control.js'
-import { botToolIsReadOnly, testModeAllowsReadOnlyTool } from '../src/bots/worker.js'
+import { BotStore } from '../src/pods/store.js'
+import { botControl } from '../src/pods/control.js'
+import { botToolIsReadOnly, testModeAllowsReadOnlyTool } from '../src/pods/worker.js'
 
 const stores: BotStore[] = []
 function database() { const store = new BotStore({ memory: true }); stores.push(store); return store }

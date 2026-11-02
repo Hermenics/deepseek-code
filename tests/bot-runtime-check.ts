@@ -6,7 +6,7 @@ import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { BotStore } from '../src/bots/store.js'
+import { BotStore } from '../src/pods/store.js'
 import { findChromium } from '../src/utils/platform.js'
 
 if (process.argv[2] === '--bot-worker') {
@@ -36,7 +36,7 @@ if (process.argv[2] === '--bot-worker') {
     }
   }
   if (process.env.BOT_CHECK_CONTROL_GATE) {
-    const { botControl: nativeControl } = await import('../src/bots/control.js')
+    const { botControl: nativeControl } = await import('../src/pods/control.js')
     mock.module('../src/bots/control.js', () => ({ botControl(...args: Parameters<typeof nativeControl>) {
       const tool = nativeControl(...args), execute = tool.execute.bind(tool)
       let paused = false
@@ -49,7 +49,7 @@ if (process.argv[2] === '--bot-worker') {
     } }))
   }
   if (process.env.BOT_CHECK_PROCEDURE_GATE) {
-    const exports = { ...await import('../src/bots/procedures.js') }, nativeGuard = exports.procedureGuard
+    const exports = { ...await import('../src/pods/procedures.js') }, nativeGuard = exports.procedureGuard
     mock.module('../src/bots/procedures.js', () => ({ ...exports, procedureGuard(...args: Parameters<typeof nativeGuard>) {
       const guard = nativeGuard(...args), before = guard.before.bind(guard)
       let paused = false
@@ -115,7 +115,7 @@ if (process.argv[2] === '--bot-worker') {
       })
     }
   }
-  const { runBotWorker } = await import('../src/bots/worker.js')
+  const { runBotWorker } = await import('../src/pods/worker.js')
   await runBotWorker(process.argv[3]!, process.argv[4]!)
 } else {
   const directory = await mkdtemp(join(tmpdir(), 'deepseek-bot-runtime-'))
@@ -505,7 +505,7 @@ if (process.argv[2] === '--bot-worker') {
     assert.equal(store.recover(Date.now() + 31_000).find(r => r.id === crash.id)?.status, 'blocked')
     assert.throws(() => store.retry(crash.id), /Reconcile/)
     store.reconcile(crash.id, 'The marker contains one effect. Do not replay the crashed action.')
-    const { serveBots } = await import('../src/bots/service.js')
+    const { serveBots } = await import('../src/pods/service.js')
     const controller = new AbortController()
     const previousUrl = process.env.BOT_CHECK_PROVIDER_URL
     const previousPanelToken = process.env.DEEPSEEK_BOTS_TOKEN

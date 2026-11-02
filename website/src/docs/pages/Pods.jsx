@@ -146,12 +146,30 @@ deepseek pods test-routine release-watch ROUTINE_ID`}</CodeBlock>
             of at least 32 characters; open the printed URL and sign in manually.
           </p>
           <p>
-            Find Pods by name or responsibility in the sidebar. Conversation shows tasks in chronological order;
+            Find Pods by name or responsibility in the sidebar. Each Pod has a conversation list and a New conversation button;
+            the button opens a blank welcome screen, and saves the thread only after its first message. Delete removes a conversation
+            and its saved task history after active work and uncertain effects are resolved; learned browser skills stay available. Messages in one
+            thread reuse only that thread&apos;s transcript. Conversation shows the selected thread in chronological order;
             Activity contains approvals, history search and tool events; Scheduled contains routines and learned
             browser skills and their next execution; Library collects completed results and source links with text downloads;
             Profile contains appearance, memory, completion review, delivery and data controls.
             New requests for approval open Activity automatically. New activity is marked in the roster until you open
             that Pod; read markers stay in this browser without storing credentials or result content.
+          </p>
+          <p>
+            Pod answers can include validated cards, tables, metric summaries, bar charts and interactive controls when those formats help.
+            Answers stream as they are produced: prose appears live while the Pod works, a finished interactive view renders as soon as its block completes, and an open view block shows a building indicator instead of raw JSON. Controls only update the current browser view; they do not send follow-up work, and their values persist across panel refreshes until the page reloads.
+          </p>
+          <p>
+            While a task runs, each conversation turn shows a live work log of the steps the agent is taking — tool calls with a short argument digest and expandable tool results — and collapses into a closed work log when the task finishes. The raw event log stays in the Activity view.
+          </p>
+          <p>
+            Settings opens the same user, project and local settings used by DeepSeek Code, with supported values validated before saving.
+            It can switch among provider profiles already configured in DeepSeek Code and change a profile&apos;s model; provider credentials stay on the worker host, and changes apply to new tasks.
+            Type <code className="inline">/</code> in the composer for command suggestions. <code className="inline">/clear</code> and <code className="inline">/new</code> open a blank draft; they keep older threads and do not save a thread until you send a message. Pods supports <code className="inline">/help</code>, <code className="inline">/config</code>,
+            <code className="inline">/settings</code>, <code className="inline">/clear</code>, <code className="inline">/new</code>, <code className="inline">/model</code>,
+            <code className="inline">/plan</code>, <code className="inline">/review</code>, <code className="inline">/verify</code>, <code className="inline">/test</code>,
+            <code className="inline">/retry</code>, <code className="inline">/sessions</code> and <code className="inline">/steer</code>.
           </p>
           <p>
             Choose from 13 body shapes, 12 colors and 10 accessory options when creating a Pod, or use Profile → Customize Pod later.

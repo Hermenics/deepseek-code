@@ -6,7 +6,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { BotStore } from '../src/bots/store.js'
+import { BotStore } from '../src/pods/store.js'
 
 const selected = process.argv[2], cases = ['complete', 'cancel', 'schema-error', 'missing-provider']
 if (selected && !cases.includes(selected)) throw Error('Unknown cleanup check')

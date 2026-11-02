@@ -7,7 +7,7 @@ import { Agent, fileCheckpointSessionKey } from '../src/agent/agent.js'
 import { createFileCheckpoint, markFileCheckpointWritten } from '../src/agent/fileCheckpoint.js'
 import { SessionEvidence } from '../src/agent/sessionEvidence.js'
 import { redactSecrets } from '../src/orchestration/events.js'
-import { restoreBotTranscript } from '../src/bots/worker.js'
+import { restoreBotTranscript } from '../src/pods/worker.js'
 import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 
 const roots: string[] = []

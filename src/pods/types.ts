@@ -43,6 +43,7 @@ export type RunStatus = 'queued' | 'running' | 'waiting' | 'blocked' | 'complete
 export interface BotRun {
   id: string
   botId: string
+  conversationId: string | null
   prompt: string
   source: string
   occurrenceId: string
@@ -73,6 +74,8 @@ export interface BotRun {
 }
 
 export interface BotRunMessage { id: string; runId: string; sequence: number; content: string; createdAt: string }
+
+export interface BotConversationThread { id: string; botId: string; title: string; createdAt: string; updatedAt: string; deleting: boolean }
 
 export interface BotNote {
   id: string
@@ -119,6 +122,7 @@ export interface BotRoutine {
 }
 
 export interface BotConversation {
+  conversations: BotConversationThread[]
   transcript: MessageOrBoundary[]
   legacyTranscript: MessageOrBoundary[]
   runs: BotRun[]

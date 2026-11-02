@@ -5,11 +5,11 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { BotStore } from '../src/bots/store.js'
-import { startBotWebServer } from '../src/bots/web.js'
+import { BotStore } from '../src/pods/store.js'
+import { startBotWebServer } from '../src/pods/web.js'
 import { BrowserService, contextKey } from '../src/browser/service.js'
 import { findChromium } from '../src/utils/platform.js'
-import { BOT_PANEL_HTML } from '../src/bots/panel.js'
+import { BOT_PANEL_HTML } from '../src/pods/panel.js'
 
 const directory = await mkdtemp(join(tmpdir(), 'deepseek-bot-web-'))
 const store = new BotStore({ path: join(directory, 'state.db') })
@@ -98,6 +98,13 @@ try {
     assert.equal((await request('/api/bots', [], { cookie })).status, 400)
     const bot = await authorized('/api/bots', { name: 'engineer', projectRoot: directory, instructions: 'Prepare observed findings. Render <img src=x onerror=alert(1)> as text.', reviewerModel: 'quality/reviewer-v1' })
     assert.equal(bot.reviewerModel, 'quality/reviewer-v1')
+    const settings = await authorized('/api/bots/' + bot.id + '/settings?level=project')
+    assert.ok(settings.fields.some((field: { path: string }) => field.path === 'budget'))
+    const changedSettings = await authorized('/api/bots/' + bot.id + '/settings?level=project', { level: 'project', path: 'budget', value: 'comfortable' })
+    assert.equal(changedSettings.fields.find((field: { path: string }) => field.path === 'budget').value, 'comfortable')
+    assert.equal((await request('/api/bots/' + bot.id + '/settings?level=project', { level: 'project', path: 'interaction.defaultMode', value: 'plan' }, { cookie })).status, 400)
+    const resetSettings = await authorized('/api/bots/' + bot.id + '/settings?level=project', { level: 'project', path: 'budget', reset: true })
+    assert.notEqual(resetSettings.fields.find((field: { path: string }) => field.path === 'budget').value, 'comfortable')
     const reviewerUpdate = await authorized('/api/bots/' + bot.id + '/reviewer-model', { model: 'quality/reviewer-v2' })
     assert.equal(reviewerUpdate.reviewerModel, 'quality/reviewer-v2')
     assert.equal((await authorized('/api/bots/' + bot.id + '/reviewer-model', { model: null })).reviewerModel, undefined)
@@ -241,15 +248,26 @@ try {
     assert.equal((await request('/api/bots/' + bot.id + '/notes/' + note.id, { content: 'Safe fact', source: 'fixture', version: '1' }, { cookie })).status, 400)
     assert.equal((await request('/api/bots/' + bot.id + '/notes/' + note.id, { content: 'password=fixture-only-value', source: 'fixture', version: note.version }, { cookie })).status, 400)
     assert.equal((await authorized('/api/bots/' + bot.id + '/notes/' + note.id + '/remove', { version: note.version })).removed, true)
-    const input = { message: 'Inspect the browser lifecycle.', occurrenceId: 'web-message-one' }
+    const conversation = await authorized('/api/bots/' + bot.id + '/conversations', { title: 'HTTP conversation' })
+    const input = { message: 'Inspect the browser lifecycle.', occurrenceId: 'web-message-one', conversationId: conversation.id }
     const job = await authorized('/api/bots/' + bot.id + '/messages', input)
+    assert.equal(job.conversationId, conversation.id)
     assert.equal((await authorized('/api/bots/' + bot.id + '/messages', input)).id, job.id)
     assert.equal((await request('/api/bots/' + bot.id + '/messages', { ...input, message: 'Changed request' }, { cookie })).status, 400)
     store.claim(bot.id, 'check-worker')
     store.checkpoint(job.id, 'check-worker', [{ role: 'user', content: 'Inspect the browser lifecycle.' }])
     const perRunTranscript = await authorized('/api/runs/' + job.id + '/transcript')
     assert.equal(perRunTranscript.messages[0].content, 'Inspect the browser lifecycle.')
-    assert.equal((await authorized('/api/bots/' + bot.id)).legacyTranscript.length, 0)
+    const botConversation = await authorized('/api/bots/' + bot.id)
+    assert.equal(botConversation.legacyTranscript.length, 0)
+    assert.equal(botConversation.conversations.some((item: { id: string }) => item.id === conversation.id), true)
+    const emptyConversation = await authorized('/api/bots/' + bot.id + '/conversations', { title: 'Empty conversation to delete' })
+    const deletePath = '/api/bots/' + bot.id + '/conversations/' + emptyConversation.id + '/delete'
+    assert.equal((await request(deletePath, { confirmation: emptyConversation.title })).status, 401)
+    assert.equal((await request(deletePath, { confirmation: emptyConversation.title }, { cookie, origin: 'https://outside.example' })).status, 403)
+    assert.equal((await request(deletePath, { confirmation: 'wrong title' }, { cookie })).status, 400)
+    assert.deepEqual(await (await request(deletePath, { confirmation: emptyConversation.title }, { cookie })).json(), { deleted: true })
+    assert.equal(store.listConversations(bot.id).some(item => item.id === emptyConversation.id), false)
     const decision = store.requestDecision(job.id, 'check-worker', 'permission', { toolName: 'shell', args: { command: 'printf approved' } })
     assert.equal((await request('/api/decisions/' + decision.id, { fingerprint: 'changed', answer: 'once' }, { cookie })).status, 400)
     await authorized('/api/decisions/' + decision.id, { fingerprint: decision.fingerprint, answer: 'once' })
@@ -433,9 +451,25 @@ try {
           await evaluate("document.querySelector('#notes button').click();document.getElementById('remove-note').click();true")
           await until("!document.getElementById('note-dialog').open && !document.getElementById('notes').textContent.includes('Concurrent memory correction')")
           assert.equal(store.notes(bot.id).some(n => n.id === panelNote.id), false)
+          const conversationsBeforeDraft = store.listConversations(bot.id).length
+          await evaluate("document.getElementById('new-conversation').click();true")
+          assert.equal(await evaluate("newConversationDraft && selectedConversation===null && document.getElementById('feed').textContent.includes('What can engineer help with?')"), true)
+          assert.equal(store.listConversations(bot.id).length, conversationsBeforeDraft)
+          assert.equal(await evaluate("document.querySelectorAll('#conversations .conversation-item[aria-current=true]').length"), 0)
           await evaluate("document.getElementById('message').value='Task from the real panel UI';document.getElementById('composer').requestSubmit();true")
           await until("document.getElementById('message').value === ''")
           assert.equal(store.listRuns(bot.id).filter(run => run.prompt === 'Task from the real panel UI').length, 1)
+          await until("selectedConversation && !newConversationDraft && document.querySelector('#conversations .conversation-item[aria-current=true]')")
+          const createdFromDraft = store.getRun(store.listRuns(bot.id).find(run => run.prompt === 'Task from the real panel UI')!.id)
+          assert.equal(store.listConversations(bot.id).length, conversationsBeforeDraft + 1)
+          assert.equal(createdFromDraft.conversationId, await evaluate('selectedConversation'))
+          const uiDeleteThread = await evaluate<{ id: string }>("api('/api/bots/'+selected+'/conversations',{title:'Delete from Pods UI'})")
+          await evaluate("refresh().then(()=>true)")
+          await until("[...document.querySelectorAll('#conversations .conversation-item')].some(item=>item.textContent.includes('Delete from Pods UI'))")
+          await evaluate(`(()=>{window.podsPrompt=window.prompt;window.prompt=()=>"Delete from Pods UI";const item=[...document.querySelectorAll('#conversations .conversation-item')].find(entry=>entry.textContent.includes('Delete from Pods UI'));item.parentElement.querySelector('.conversation-delete').click();return true})()`)
+          await until("![...document.querySelectorAll('#conversations .conversation-item')].some(item=>item.textContent.includes('Delete from Pods UI'))")
+          await evaluate("window.prompt=window.podsPrompt;delete window.podsPrompt;true")
+          assert.equal(store.listConversations(bot.id).some(item => item.id === uiDeleteThread.id), false)
           store.setEnabled(bot.id, true)
           const active = store.claim(bot.id, 'panel-guide-worker')!
           assert.equal(active.prompt, 'Task from the real panel UI')
@@ -464,6 +498,8 @@ try {
           assert.equal((await request('/api/runs/' + active.id + '/messages', { message: 'No authentication', messageId: 'no-auth' })).status, 401)
           assert.equal((await request('/api/runs/' + active.id + '/messages', { message: 'Wrong origin', messageId: 'wrong-origin' }, { cookie, origin: 'https://outside.example' })).status, 403)
           store.cancel(active.id); store.acknowledgeStop(active.id, 'panel-guide-worker')
+          await evaluate("[...document.querySelectorAll('#conversations .conversation-item')].find(b=>b.textContent.includes('Demonstrated browser procedure')).click();true")
+          await until("document.getElementById('feed').textContent.includes('Demonstrated browser procedure')")
           await evaluate("[...document.querySelectorAll('#feed button')].find(b=>b.textContent==='Learn browser skill').click();document.getElementById('learn-form').elements.name.value='from-panel';document.getElementById('learn-form').requestSubmit();true")
           await until("!document.getElementById('learn-dialog').open && document.getElementById('procedures').textContent.includes('from-panel')")
           const panelSkill = store.procedures(bot.id).find(p => p.name === 'from-panel')!
@@ -477,8 +513,8 @@ try {
           assert.deepEqual(panelRoutine.procedureInputs, { input2: 'New message', expectedText3: 'Observed current outcome' })
           assert.equal('endsAt' in panelRoutine.schedule ? panelRoutine.schedule.endsAt : undefined, panelEndsAt)
           await evaluate("[...document.querySelectorAll('#routines .routine')].find(el=>el.textContent.includes('Learned routine from panel')).querySelector('button').click();true")
-          await until("document.getElementById('feed').textContent.includes('Safe test · queued')")
-          const panelSafeRun = store.routineRuns(bot.id, panelRoutine.id).find(run => run.testMode)!
+          let panelSafeRun = store.routineRuns(bot.id, panelRoutine.id).find(run => run.testMode)
+          for (let attempt = 0; attempt < 100 && !panelSafeRun; attempt++) { await delay(50); panelSafeRun = store.routineRuns(bot.id, panelRoutine.id).find(run => run.testMode) }
           assert.ok(panelSafeRun)
           assert.equal(panelSafeRun.procedureId, panelSkill.id)
           await evaluate("Array.from([...document.querySelectorAll('#routines .routine')].find(el=>el.textContent.includes('Learned routine from panel')).querySelectorAll('button')).find(b=>b.textContent==='Edit routine').click();true")
@@ -487,8 +523,9 @@ try {
           await until("!document.getElementById('routine-dialog').open && document.getElementById('routines').textContent.includes('Edited routine from panel')")
           assert.equal(store.routines(bot.id).find(r => r.id === panelRoutine.id)?.version, 2)
           await evaluate("window.confirm=()=>true;[...document.querySelectorAll('#routines .routine')].find(el=>el.textContent.includes('Edited routine from panel')).querySelector('button').click();true")
-          await until("document.getElementById('feed').textContent.includes('Use the revised browser task')")
-          const uiManualRun = store.routineRuns(bot.id, panelRoutine.id)[0]!
+          let uiManualRun = store.routineRuns(bot.id, panelRoutine.id)[0]
+          for (let attempt = 0; attempt < 100 && !uiManualRun; attempt++) { await delay(50); uiManualRun = store.routineRuns(bot.id, panelRoutine.id)[0] }
+          assert.ok(uiManualRun)
           assert.equal(uiManualRun.procedureId, panelSkill.id)
           await evaluate("Array.from([...document.querySelectorAll('#routines .routine')].find(el=>el.textContent.includes('Edited routine from panel')).querySelectorAll('button')).find(b=>b.textContent==='Delete routine').click();true")
           await until("!document.getElementById('routines').textContent.includes('Edited routine from panel')")

@@ -1,5 +1,113 @@
 # Changelog
 
+## 0.13.5
+
+- Added: Overview now brings waiting and blocked group tasks into the attention queue, opens the group conversation from each item, and includes group attention in the mobile badge.
+- Added: Mobile group cards can open the task composer directly or resume a saved group draft, without first opening the conversation.
+- Changed: Mobile Groups can filter to attention or active work, with live counts and a clear all-groups path that stays in the same screen.
+- Changed: Mobile group cards elevate tasks waiting for input or review and show the matching redacted request preview, keeping attention visible in the in-flow directory.
+- Changed: Mobile group cards show enabled and paused Pod counts before opening the conversation, making it clear which teammates can receive work.
+- Changed: Mobile Groups also shows queued and running task counts per group, refreshing while the directory is open so ongoing work is visible without opening each chat.
+- Changed: Mobile group cards preview a redacted excerpt from the current queued or running task, so the team’s work is recognizable at a glance.
+- Changed: Sign-in explains where the panel token comes from and distinguishes it from a model API key, reducing credential guesswork at the workspace entry point.
+- Added: Overview now lists every queued or running task across Pods and groups, separate from recent history, with one-tap access to its conversation.
+- Changed: Mobile Chats now has a dedicated bottom-navigation tab; the Pods directory stays focused on Pods and Groups, removing a navigation step to conversations.
+- Changed: Mobile Chats now offers a direct New task action that opens task assignment and switches to the new conversation after queueing, so starting work does not require leaving Chats.
+- Changed: Unfinished Pod setup restores after closing the dialog or reloading the page, offers a start-fresh action, stays scoped to the current tab, and clears after creation or sign-out.
+- Changed: Mobile Pod cards show the current task summary while work needs attention, so it is clear what each Pod is doing without opening its chat.
+- Changed: Mobile Chats now opens with the 50 most recent conversations and keeps search available, so returning to a thread takes one tap instead of a query.
+- Changed: Touch layouts never show the side rail; mobile navigation stays in the bottom bar and in-flow Pod, group and chat views, including in landscape or desktop-site mode.
+- Changed: Conversation search spans every Pod and opens the original thread, so older chats remain reachable from mobile.
+- Fixed: The mobile Create Pod action dock now stands clear of the last form choices, respects the device safe area, and keeps both actions easy to tap; mobile keeps bottom navigation with the side rail hidden.
+- Changed: Workspace Overview collects unsent Pod and group drafts with prompt previews and one-tap resume, so unfinished work is reachable without searching each conversation.
+- Changed: Pod and group task drafts auto-save in the current browser tab, survive reloads, and clear on sign-out; recovered drafts are announced, and mobile Pod cards show a Draft badge.
+- Fixed: If Create & start task cannot confirm queueing, the prompt stays in the new Pod composer and a retry reuses its occurrence ID to avoid duplicate work.
+- Changed: New group conversations offer editable parallel-work starters, so the first shared task is easier to draft and never sent without review.
+- Changed: Group membership can be edited without deleting shared history; active group tasks protect Pods from being removed mid-run.
+- Changed: Unsent group tasks stay with their group while switching chats, appear as drafts in the group list, and retain their request ID when retried.
+- Changed: The mobile Pods directory now switches between Pods and group chats in place, keeping group access discoverable without a side rail.
+- Changed: Sign-in now lets you reveal or hide the access token before submitting, making long tokens easier to verify while keeping the field masked by default.
+- Changed: Opening the mobile Pods directory keeps focus on navigation instead of forcing the search field, preventing the keyboard from covering the roster.
+- Changed: The task assignment Pod selector labels each destination’s current status, helping you avoid routing work to a Pod that is already busy or waiting for review.
+- Changed: Overview and mobile Pod cards show the project folder name while keeping its full path accessible, so Pods are easier to distinguish without opening each one.
+- Changed: Mobile task assignment shows each suggested prompt’s guidance in a swipeable card strip, making the choices readable before selection.
+- Changed: Choosing a Pod role collapses the starter grid into a reversible summary, bringing required setup into view sooner on mobile.
+- Changed: Overview ranks attention by recovery risk, labels each next action and opens the affected conversation or activity panel; mobile puts pending actions before the roster and keeps workspace actions side by side.
+- Fixed: Create Pod reserves a separate action row while setup fields scroll independently, and each fresh create starts at the top with optional appearance collapsed.
+- Changed: Task details and both history views show requests and Pod responses as readable exchanges instead of raw transcript JSON; the preserved legacy trace is clearly labeled technical.
+- Changed: Workspace task history can prefill the original prompt into a fresh, unsent Pod conversation, so past work can be continued without copying text or resubmitting the original run.
+- Changed: Compact and touch layouts use full-width in-flow Pods views with bottom navigation; their responsive rules no longer carry desktop side-rail grid sizing.
+- Changed: Overview’s empty task state can enable a paused Pod and open an unsent first-task draft in one step, so choosing first work does not require navigating back.
+- Changed: Assign a task offers the same editable project, review and improvement starters as a Pod’s empty conversation, reducing blank-page hesitation while keeping the task reviewable before queueing.
+- Added: Create Pod offers four one-tap appearance presets with live avatar preview; every look remains editable through the existing controls.
+- Added: The mobile Pods directory can filter the roster by attention, active work or paused status, with search applied at the same time.
+- Changed: Mobile Pod status filters now appear as one-tap chips with live counts scoped to search, keeping useful roster views visible without opening a menu.
+- Changed: Mobile Pod creation condenses role starters and the first-task field so its input and helper text stay clear of the pinned action bar on common phone screens.
+- Changed: Fenced code in Pod answers and live output now renders in a labeled, scrollable code block with one-tap copying, instead of exposing Markdown fence markers.
+- Changed: Completed answers now offer in-place copy and download actions; Library results keep both actions beside the saved response.
+- Changed: Task and run history use plain-language status labels, and waiting tasks offer a direct Review request action that opens the current approval panel.
+- Changed: Mobile Pods replace the secondary row of section tabs with one compact view picker, keeping primary navigation in the bottom bar and clearing horizontal navigation clutter.
+- Changed: The mobile Pod header now opens a full-width, searchable conversation switcher above the bottom navigation, with draft recovery and direct new-conversation access, so conversation history no longer depends on the hidden side rail.
+- Changed: Create Pod now expands the optional first-task field by default, surfacing the path to queue a Pod’s first work during setup.
+- Changed: Overview filter empty states now offer an immediate next step—assign a task when a Pod is enabled or return to the full roster when no filter matches.
+- Fixed: Overview’s first-task empty state now starts from an enabled Pod or offers to enable a paused Pod before work is queued.
+- Changed: The mobile Pods directory offers a direct new-task action on each Pod, so starting work does not require opening its existing conversation first.
+- Changed: The mobile Pods tab opens an in-flow, searchable directory with direct Pod selection and creation; the side rail stays hidden.
+- Fixed: The Overview and mobile attention badge surface stopped tasks with unreviewed effects, and open the relevant evidence review directly.
+- Changed: Compact viewports up to 1180 px use the persistent bottom navigation instead of the side rail; the Create Pod action bar now spans the mobile dialog edge to edge.
+- Added: Create a Pod can browse local project folders, filter directory names and select the current folder without typing an absolute path; hidden folders are opt-in.
+- Changed: Compact-height workspaces keep the three safe task starters available in a horizontal strip and condense the Pod header so the composer stays above bottom navigation.
+- Added: The mobile Overview tab shows how many Pods need attention, so pending decisions and recovery work are visible from any screen.
+- Changed: Mobile primary navigation now pairs compact icons with labels in the bottom bar; the desktop side rail stays hidden on narrow screens.
+- Added: The routine editor previews each schedule in plain language, including its trigger, time zone and optional end time.
+- Changed: Long task prompts show a compact preview in the conversation and expand on demand, keeping full instructions accessible without crowding the feed.
+- Added: Create similar Pod copies its role, project and appearance settings into a fresh Pod, without carrying over conversations or agent state.
+- Fixed: First-run onboarding no longer reserves an empty desktop Pod rail, keeping the welcome content centered and the create action in view sooner.
+- Changed: On phones, the Pods picker opens as a bottom sheet while Jump stays full-screen; the side rail remains hidden.
+- Added: Jump searches conversation titles across Pods and opens the selected thread directly in its Pod.
+- Changed: Choosing a Pod role now opens a tailored first task for review, making Create & start task an obvious, editable path through setup.
+- Added: Create group is available from Jump on mobile, where the desktop-only workspace rail is hidden.
+- Changed: Mobile Pod switching uses a searchable dialog from the bottom bar; the desktop side rail stays hidden on mobile.
+- Fixed: The mobile Create Pod footer paints above the form and leaves room to scroll to the last settings.
+- Fixed: Reopening Jump or the Pod picker resets the result list to its selected first item.
+- Added: Pod composer drafts stay isolated by conversation while switching, restore when you return, and are marked in the conversation list and Jump.
+- Changed: On mobile, Pods is a bottom-navigation destination that opens an in-flow directory page; it no longer acts like a side-drawer toggle.
+- Added: Assign a task from the workspace Overview or Jump, creating a fresh Pod conversation only after the task is submitted.
+- Changed: Pod, group and conversation deletion now use a styled exact-name confirmation instead of a native prompt, keeping the warning and action together on mobile.
+- Changed: Mobile Pods now opens as an in-flow directory page with bottom-tab navigation; conversations and groups stay reachable through Jump instead of a side menu.
+- Changed: The empty task history now prioritizes a guided task entry and opens the Pod’s editable prompts without sending work automatically.
+- Added: Pod cards offer a direct New task action that opens a fresh conversation without replacing existing work.
+- Changed: Mobile Pods opens as an in-app workspace page above the persistent bottom tabs, so navigation never uses a side drawer or hides the primary tabs.
+- Added: Workspace overview shows recent tasks from every Pod, with direct links to their Pod or group conversation.
+- Added: Workspace-wide task history search finds finished work across all Pods, with redacted excerpts and expandable transcripts; available from Quick Switch and mobile navigation.
+- Changed: The mobile Pods destination is an active full-screen workspace page, and Pod creation fills the viewport with a scroll-safe action footer.
+- Changed: Browse on mobile opens a full-screen workspace page, removing the side-drawer pattern while keeping the bottom navigation.
+- Fixed: Quick Switch and workspace search are no longer blocked by the persistent desktop Pod rail.
+- Changed: On mobile, Activity, Scheduled, Library and Profile open as an upward sheet above the bottom navigation instead of a side panel.
+- Changed: Overview metrics filter the Pod list by active work or attention with one tap.
+- Added: Pod creation can include an optional first task and queue it immediately after setup.
+- Fixed: The Create Pod dialog keeps its action footer visible while the form scrolls within the viewport.
+- Added: A global quick switch opens with Ctrl/⌘+K on desktop or the Jump tab on mobile, searching Pods, groups, conversations and workspace actions.
+- Fixed: Compact-height mobile layouts keep the composer above the bottom navigation so every tab stays tappable.
+- Changed: Pod headers keep the active project folder visible and provide a one-tap copy action to reduce context mistakes.
+- Changed: On compact screens, Return inserts new lines in Pod messages and the send button submits; desktop Enter-to-send remains.
+- Changed: Replaced lateral workspace navigation with a full-screen workspace page on viewports up to 1024px, including landscape phones and compact tablets.
+- Changed: Overview attention cards open a waiting Pod’s Activity panel directly; its summary counts now cover the Pod’s tasks across conversations.
+- Fixed: The routine editor keeps Add routine and Cancel visible while schedule fields scroll on small screens.
+- Added: Pod creation offers four editable role starters that prefill the name and responsibility.
+- Changed: The Create Pod form has an explicit project-folder chooser that copies a folder from an existing Pod without storing it in the browser.
+- Changed: Mobile navigation keeps Overview, Pods, Jump and History in a persistent bottom bar; Pods, conversations and groups open in the full-screen workspace page, while the side rail stays desktop-only.
+- Changed: Consolidated Pod activity access in the workspace tabs and moved the pending-decision count to Activity, removing the duplicate header control.
+- Changed: Moved suggested first tasks into a compact quick-start strip above the composer so they stay visible on mobile and clear while the user writes.
+- Changed: The Pod header keeps its primary conversation action visible and groups secondary controls under a keyboard-accessible More menu, freeing space for the conversation on mobile.
+- Added: Pods now have separate persistent conversations per agent, blank drafts saved only after the first message, confirmed conversation deletion, inherited context within each thread, provider-profile and model switching for new tasks, and a scoped settings editor backed by DeepSeek Code settings. The composer suggests and runs `/help`, `/config`, `/settings`, `/clear`, `/new`, `/model`, `/plan`, `/review`, `/verify`, `/test`, `/retry`, `/sessions` and `/steer`.
+- Added: Pods web panel streams answers live while the agent works — intermediate assistant text appears as it is produced, tool calls and truncated results render as a per-task live work log that collapses into a closed work log when the task finishes, and an Interactive UI view block that is still being written shows a building indicator instead of raw JSON.
+- Fixed: Pod instructions now name the Intelligent UI capability and tell the agent how to respond when the user asks for it by name, instead of describing an unnamed interactive view.
+- Changed: Pod response views remember control values across panel refreshes until the page reloads, tolerate number-like `visibleWhen` comparisons against numeric controls, format bar-chart values compactly, and instruct agents to match `visibleWhen.equals` to the referenced control's value type.
+
+- Added: Pods can render schema-validated response views with local controls, tables, metric cards, bar charts and safe HTTPS links.
+- Docs: Explained the Pods response views and their session-local interaction limits.
+
 ## 0.13.4
 
 - Fixed: Browser batch approvals show navigation and transmission details, classify public-page transmissions as high risk, and keep PageUp/PageDown focused on batch details in the alternate screen.

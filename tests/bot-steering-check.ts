@@ -4,8 +4,8 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { BotStore } from '../src/bots/store.js'
-import { startBotWebServer } from '../src/bots/web.js'
+import { BotStore } from '../src/pods/store.js'
+import { startBotWebServer } from '../src/pods/web.js'
 
 const cases = ['inference', 'streaming', 'approval', 'admission', 'effect', 'final', 'delegated', 'workflow', 'recover'], selected = process.argv[2]
 if (selected && !cases.includes(selected)) throw Error('Unknown steering check')

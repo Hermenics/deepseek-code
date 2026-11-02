@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { BotStore } from '../src/bots/store.js'
+import { BotStore } from '../src/pods/store.js'
 import { scrubbedEnv } from '../src/utils/platform.js'
 
 const cases = ['schedule', 'learn', 'update_note', 'forget', 'expired'], selected = process.argv[2]

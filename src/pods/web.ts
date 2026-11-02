@@ -1,4 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+import { lstat, readdir } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { redactSecrets } from '../orchestration/events.js'
 import { BotEventQueueFullError, BotEventRateLimitError, BotStore, isSqliteBusy } from './store.js'
 import { BOT_PANEL_HTML } from './panel.js'
@@ -7,6 +10,10 @@ import { POD_FONT } from './pod-font.js'
 import type { PodAppearance } from './types.js'
 import type { BotBrowserControl } from './browser.js'
 import { procedureSkill } from './procedures.js'
+import { SettingsRepository } from '../settings/repository.js'
+import type { SettingsLevel } from '../settings/types.js'
+import { loadProviderProfiles, updateProviderProfiles } from '../utils/providerProfiles.js'
+import { podSettingsView, validatePodSetting, validatePodSettingPath } from './pod-settings.js'
 
 export interface BotWebOptions { hostname?: string; port?: number; publicUrl?: string; token?: string; webhookRateLimit?: { maxEvents: number; windowMs: number } }
 const SESSION_MS = 12 * 60 * 60_000
@@ -106,6 +113,28 @@ export function startBotWebServer(store: BotStore, options: BotWebOptions = {}, 
       if (key) sessions.delete(key)
       return json({ ok: true }, 200, { 'set-cookie': cookie('', 0) })
     }
+    if (method === 'GET' && url.pathname === '/api/directories') {
+      const requested = url.searchParams.get('path') ?? homedir()
+      if (requested.length > 4096 || !isAbsolute(requested)) throw new Error('Folder path must be absolute and no longer than 4096 characters')
+      const path = resolve(requested), info = await lstat(path)
+      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('Choose a directory that is not a symbolic link')
+      const directories = (await readdir(path, { withFileTypes: true }))
+        .filter(entry => entry.isDirectory())
+        .map(entry => ({ name: entry.name, path: join(path, entry.name) }))
+        .sort((left, right) => left.name.localeCompare(right.name, undefined, { sensitivity: 'base' }))
+      return json({ path, parent: dirname(path) === path ? null : dirname(path), directories })
+    }
+    if (parts[1] === 'history' && parts.length === 2 && method === 'GET') {
+      const limit = url.searchParams.has('limit') ? Number(url.searchParams.get('limit')) : 20
+      return json(store.searchAllHistory(url.searchParams.get('query') ?? '', limit))
+    }
+    if (parts[1] === 'conversations' && parts.length === 2 && method === 'GET') {
+      const query = url.searchParams.get('query'), excludeBotId = url.searchParams.get('excludeBotId') ?? undefined
+      const matches = url.searchParams.get('recent') === '1' && query === null
+        ? store.listRecentWorkspaceConversations(51, excludeBotId)
+        : store.searchWorkspaceConversations(query ?? '', 51, excludeBotId)
+      return json({ conversations: matches.slice(0, 50), hasMore: matches.length > 50 })
+    }
     if (parts[1] === 'groups') {
       if (parts.length === 2 && method === 'GET') return json({ groups: store.listGroups() })
       if (parts.length === 2 && method === 'POST') {
@@ -127,6 +156,11 @@ export function startBotWebServer(store: BotStore, options: BotWebOptions = {}, 
           return json({ group, messages: store.groupMessages(group.id), artifacts: store.groupArtifactsForUser(group.id), runs: store.groupRuns(group.id).map(run => ({ id: run.id, botId: run.botId, groupMessageId: run.groupMessageId, status: run.status, attempt: run.attempt, updatedAt: run.updatedAt, error: run.error })) })
         }
         const group = store.getGroup(parts[2])
+        if (parts.length === 4 && parts[3] === 'members' && method === 'POST') {
+          const input = await body(request)
+          if (Object.keys(input).some(key => key !== 'botIds') || !Array.isArray(input.botIds) || input.botIds.some(id => typeof id !== 'string')) throw new Error('Group membership accepts only a list of Pod IDs')
+          return json({ group: store.updateGroupMembers(group.id, input.botIds as string[]) })
+        }
         if (parts.length === 4 && parts[3] === 'messages' && method === 'POST') {
           const input = await body(request)
           if (Object.keys(input).some(key => !['message', 'messageId', 'recipients'].includes(key)) || input.recipients !== undefined && (!Array.isArray(input.recipients) || input.recipients.some(id => typeof id !== 'string'))) throw new Error('Group messages accept message, messageId and optional recipient bot IDs')
@@ -135,8 +169,49 @@ export function startBotWebServer(store: BotStore, options: BotWebOptions = {}, 
         if (parts.length === 5 && parts[3] === 'artifacts' && method === 'GET') return json(store.readGroupArtifactForUser(group.id, parts[4]!))
       }
     }
+    if (parts[1] === 'settings' && parts[2] === 'provider-profiles') {
+      if (parts.length === 3 && method === 'GET') {
+        const [profiles, settings] = await Promise.all([loadProviderProfiles(), new SettingsRepository().getSnapshot()])
+        return json({ activeProfileId: settings.effective.provider?.activeProfileId ?? profiles[0]?.id ?? null, profiles: profiles.map(profile => ({
+          id: profile.id, name: profile.name, provider: profile.provider,
+          model: profile.provider === 'local' ? profile.localModel : profile.model,
+          ready: profile.provider === 'deepseek' ? Boolean(profile.apiKey) : profile.provider === 'bedrock' ? Boolean(profile.awsRegion) : profile.provider === 'vertex' ? Boolean(profile.gcpProject && profile.gcpCredentials) : Boolean(profile.localBaseUrl),
+        })) })
+      }
+      if (parts.length === 4 && parts[3] === 'active' && method === 'POST') {
+        const input = await body(request)
+        if (Object.keys(input).length !== 1) throw new Error('Provider selection accepts only profileId')
+        const id = string(input, 'profileId'), profiles = await loadProviderProfiles(), profile = profiles.find(item => item.id === id)
+        if (!profile) throw new Error('Provider profile not found')
+        const ready = profile.provider === 'deepseek' ? Boolean(profile.apiKey) : profile.provider === 'bedrock' ? Boolean(profile.awsRegion) : profile.provider === 'vertex' ? Boolean(profile.gcpProject && profile.gcpCredentials) : Boolean(profile.localBaseUrl)
+        if (!ready) throw new Error('This profile is missing required provider settings. Complete it in DeepSeek Code TUI first.')
+        await new SettingsRepository().set('user', 'provider.activeProfileId', profile.id)
+        return json({ activeProfileId: profile.id, appliesTo: 'new tasks' })
+      }
+      if (parts.length === 5 && parts[4] === 'model' && method === 'POST') {
+        const input = await body(request)
+        if (Object.keys(input).length !== 1 || typeof input.model !== 'string' || input.model.length > 128 || input.model && !/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(input.model)) throw new Error('Model must be empty or a valid model ID of at most 128 characters')
+        const model = input.model as string
+        const profiles = await updateProviderProfiles(current => {
+          if (!current.some(profile => profile.id === parts[3])) throw new Error('Provider profile not found')
+          return current.map(profile => profile.id !== parts[3] ? profile : profile.provider === 'local'
+            ? { ...profile, localModel: model || undefined }
+            : { ...profile, model: model || undefined })
+        })
+        const profile = profiles.find(item => item.id === parts[3])!
+        return json({ id: profile.id, model: profile.provider === 'local' ? profile.localModel ?? '' : profile.model ?? '' })
+      }
+    }
     if (url.pathname === '/api/bots') {
-      if (method === 'GET') return json({ bots: store.listBots().map(bot => ({ ...bot, latestRun: store.listRuns(bot.id, 1)[0] ?? null, activeStatus: store.activeStatus(bot.id) })), service: { running: true } })
+      if (method === 'GET') {
+        const bots = store.listBots().map(bot => ({
+          ...bot,
+          latestRun: store.listRuns(bot.id, 1)[0] ?? null,
+          activeStatus: store.activeStatus(bot.id),
+          unreconciledRuns: store.unreconciledRuns(bot.id),
+        }))
+        return json({ bots, ...(url.searchParams.get('includeRecent') === '1' ? { recentRuns: store.listRecentRuns(), activeRuns: store.listActiveRuns() } : {}), ...(url.searchParams.get('includeGroupActivity') === '1' ? { activeGroupRuns: store.listActiveGroupRuns() } : {}), service: { running: true } })
+      }
       if (method === 'POST') {
         const input = await body(request)
         return json(store.createBot({ name: string(input, 'name'), projectRoot: string(input, 'projectRoot'), instructions: string(input, 'instructions'), appearance: input.appearance as PodAppearance | undefined, agentConfig: input.agentConfig === undefined ? undefined : string(input, 'agentConfig'), reviewerModel: input.reviewerModel === undefined || input.reviewerModel === null || input.reviewerModel === '' ? undefined : string(input, 'reviewerModel') }), 201)
@@ -149,6 +224,39 @@ export function startBotWebServer(store: BotStore, options: BotWebOptions = {}, 
         return json(await store.deleteBot(parts[2], string(input, 'confirmation')))
       }
       const bot = store.getBot(parts[2])
+      if (parts[3] === 'settings' && parts.length === 4) {
+        const level = (url.searchParams.get('level') ?? 'user') as SettingsLevel
+        if (!['user', 'project', 'local'].includes(level)) throw new Error('Settings level must be user, project or local')
+        const repository = new SettingsRepository(bot.projectRoot)
+        if (method === 'GET') {
+          const snapshot = await repository.reload()
+          return json({ level, fields: podSettingsView(snapshot, level) })
+        }
+        if (method === 'POST') {
+          const input = await body(request)
+          if (Object.keys(input).some(key => !['level', 'path', 'value', 'reset'].includes(key)) || input.level !== level || typeof input.path !== 'string' || input.reset !== undefined && input.reset !== true) throw new Error('Settings update needs a level, path and value, or reset: true')
+          if (input.reset === true) {
+            if (Object.hasOwn(input, 'value')) throw new Error('Reset does not accept a value')
+            validatePodSettingPath(input.path, level)
+            await repository.unset(level, input.path)
+          } else {
+            if (!Object.hasOwn(input, 'value')) throw new Error('A setting value is required')
+            validatePodSetting(input.path, input.value, level)
+            await repository.set(level, input.path, input.value)
+          }
+          return json({ level, fields: podSettingsView(await repository.reload(), level) })
+        }
+      }
+      if (parts[3] === 'conversations' && parts.length === 4 && method === 'POST') {
+        const input = await body(request)
+        if (Object.keys(input).some(key => key !== 'title')) throw new Error('Conversation creation accepts only an optional title')
+        return json(store.createConversation(bot.id, input.title === undefined ? undefined : string(input, 'title')), 201)
+      }
+      if (parts[3] === 'conversations' && parts.length === 6 && parts[5] === 'delete' && method === 'POST') {
+        const input = await body(request)
+        if (Object.keys(input).length !== 1) throw new Error('Conversation deletion accepts only the confirmation field')
+        return json(await store.deleteConversation(bot.id, parts[4]!, string(input, 'confirmation')))
+      }
       if (parts[3] === 'appearance' && parts.length === 4 && method === 'POST') {
         const input = await body(request)
         if (Object.keys(input).length !== 1 || !Object.hasOwn(input, 'appearance')) throw new Error('Appearance accepts only the appearance field')
@@ -262,7 +370,10 @@ export function startBotWebServer(store: BotStore, options: BotWebOptions = {}, 
           if (parts.length === 5) return json(store.updateNote(bot.id, parts[4]!, string(input, 'content'), string(input, 'source'), expiresAt, input.version as number))
           if (parts.length === 6 && parts[5] === 'remove') return json({ removed: store.removeNote(bot.id, parts[4]!, input.version as number) })
         }
-        if (parts[3] === 'messages' && parts.length === 4) return json(store.enqueue(bot.id, string(input, 'message'), 'user', string(input, 'occurrenceId')), 201)
+        if (parts[3] === 'messages' && parts.length === 4) {
+          if (Object.keys(input).some(key => !['message', 'occurrenceId', 'conversationId'].includes(key))) throw new Error('Messages accept message, occurrenceId and optional conversationId')
+          return json(store.enqueue(bot.id, string(input, 'message'), 'user', string(input, 'occurrenceId'), false, input.conversationId === undefined ? null : string(input, 'conversationId')), 201)
+        }
         if (parts[3] === 'enabled' && parts.length === 4) { store.setEnabled(bot.id, boolean(input, 'enabled')); return json(store.getBot(bot.id)) }
         if (parts[3] === 'procedures' && parts.length === 4) return json(store.learnProcedure(bot.id, string(input, 'runId'), string(input, 'name')), 201)
         if (parts[3] === 'routines' && parts.length === 4) return json(store.addRoutine(bot.id, { name: string(input, 'name'), prompt: string(input, 'prompt'), schedule: input.schedule, idempotencyKey: string(input, 'occurrenceId'), procedureId: input.procedureId === undefined ? undefined : string(input, 'procedureId'), procedureInputs: input.procedureInputs }), 201)
@@ -298,6 +409,14 @@ export function startBotWebServer(store: BotStore, options: BotWebOptions = {}, 
     if (method === 'GET' && parts[1] === 'runs' && parts.length === 4 && parts[3] === 'transcript') {
       const run = store.getRun(parts[2]!)
       return json({ runId: run.id, messages: store.transcript(run.botId, run.id) })
+    }
+    if (method === 'GET' && parts[1] === 'runs' && parts.length === 4 && parts[3] === 'summary') {
+      const run = store.getRun(parts[2]!)
+      return json({ prompt: run.prompt, output: run.output, error: run.error })
+    }
+    if (method === 'GET' && parts[1] === 'runs' && parts.length === 4 && parts[3] === 'prompt') {
+      const run = store.getRun(parts[2]!)
+      return json({ prompt: run.prompt })
     }
     if (method === 'POST' && parts[1] === 'decisions' && parts.length === 3) {
       const input = await body(request)

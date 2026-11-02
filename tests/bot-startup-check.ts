@@ -6,7 +6,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { BotStore } from '../src/bots/store.js'
+import { BotStore } from '../src/pods/store.js'
 
 for (const scenario of ['upgrade', 'claim', 'cancel', 'schema-error']) {
   const directory = await mkdtemp(join(tmpdir(), 'deepseek-worker-startup-')), path = join(directory, 'state.db')

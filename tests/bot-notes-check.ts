@@ -3,8 +3,8 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { BotStore } from '../src/bots/store.js'
-import { startBotWebServer } from '../src/bots/web.js'
+import { BotStore } from '../src/pods/store.js'
+import { startBotWebServer } from '../src/pods/web.js'
 import { scrubbedEnv } from '../src/utils/platform.js'
 
 const cases = ['update','remove','expire','expire-approval','approval','admission','delegated','workflow','observers','streaming','recover'], selected = process.argv[2]

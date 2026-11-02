@@ -2,9 +2,9 @@ import { expect, it } from 'bun:test'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { BotStore } from '../src/bots/store.js'
+import { BotStore } from '../src/pods/store.js'
 import { removeTempDirectory } from './helpers/removeTempDirectory.js'
-import { POD_APPEARANCE_OPTIONS, POD_TONE_COLORS, type PodAppearance } from '../src/bots/types.js'
+import { POD_APPEARANCE_OPTIONS, POD_TONE_COLORS, type PodAppearance } from '../src/pods/types.js'
 
 it('upgrades existing Pods and persists only validated appearance across reopen and export', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'pod-appearance-')), path = join(directory, 'state.db')

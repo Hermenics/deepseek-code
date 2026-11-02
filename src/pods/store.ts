@@ -15,7 +15,7 @@ import { materializeProcedure, procedureStep, validateProcedureInputs } from './
 import type { RecordedStep } from '../browser/record.js'
 import { validateWebhookTarget } from './delivery.js'
 import type { Resolver } from '../browser/policy.js'
-import type { Bot, BotConversation, BotDecision, BotDeliveryJob, BotDeliveryRecord, BotDeliveryTarget, BotDeliveryTopic, BotGroup, BotGroupArtifact, BotGroupMessage, BotNote, BotRoutine, BotRun, BotRunMessage, BotRuntimeState, BotProcedure, ProcedureStep, DecisionKind, RunStatus, Schedule } from './types.js'
+import type { Bot, BotConversation, BotConversationThread, BotDecision, BotDeliveryJob, BotDeliveryRecord, BotDeliveryTarget, BotDeliveryTopic, BotGroup, BotGroupArtifact, BotGroupMessage, BotNote, BotRoutine, BotRun, BotRunMessage, BotRuntimeState, BotProcedure, ProcedureStep, DecisionKind, RunStatus, Schedule } from './types.js'
 import type { MessageOrBoundary } from '../agent/compactBoundary.js'
 import { POD_APPEARANCE_OPTIONS, type PodAppearance } from './types.js'
 
@@ -281,6 +281,28 @@ const BOT_REVIEWER_MODEL_MIGRATION: Migration = {
 const BOT_APPEARANCE_MIGRATION: Migration = {
   version: 30, name: 'pod-appearance', up: `ALTER TABLE bot_instances ADD COLUMN appearance TEXT;`,
 }
+const BOT_CONVERSATION_MIGRATION: Migration = {
+  version: 31, name: 'pod-conversations', up: `
+    CREATE TABLE bot_conversations (
+      id TEXT PRIMARY KEY, bot_id TEXT NOT NULL REFERENCES bot_instances(id) ON DELETE CASCADE,
+      title TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+    );
+    ALTER TABLE bot_runs ADD COLUMN conversation_id TEXT REFERENCES bot_conversations(id) ON DELETE SET NULL;
+    CREATE INDEX bot_conversation_run_order ON bot_runs(conversation_id,created_at,id);
+    INSERT INTO bot_conversations (id,bot_id,title,created_at,updated_at)
+      SELECT id,bot_id,substr(prompt,1,80),created_at,updated_at FROM bot_runs WHERE source='user';
+    UPDATE bot_runs SET conversation_id=id WHERE source='user';`,
+}
+const BOT_CONVERSATION_DELETION_MIGRATION: Migration = {
+  version: 32, name: 'staged-pod-conversation-deletion',
+  up: `ALTER TABLE bot_conversations ADD COLUMN deleting INTEGER NOT NULL DEFAULT 0 CHECK(deleting IN (0,1));`,
+}
+const BOT_RECENT_RUN_INDEX_MIGRATION: Migration = {
+  version: 33, name: 'bot-run-recency-index', up: `CREATE INDEX bot_run_created_at ON bot_runs(created_at DESC);`,
+}
+const BOT_CONVERSATION_RECENCY_MIGRATION: Migration = {
+  version: 34, name: 'bot-conversation-recency-index', up: `CREATE INDEX bot_conversation_recent ON bot_conversations(updated_at DESC,created_at DESC) WHERE deleting=0;`,
+}
 
 function validatePodAppearance(value: unknown): PodAppearance {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Appearance must be an object')
@@ -307,6 +329,16 @@ export class BotRuntimeReviewRequiredError extends Error {
 type Row = Record<string, unknown>
 const now = () => new Date().toISOString()
 const json = (v: unknown) => JSON.stringify(redactSecrets(v))
+type DashboardRun = { runId: string; botId: string; botName: string; conversationId: string | null; groupId: string | null; groupName: string | null; status: RunStatus; createdAt: string; promptExcerpt: string }
+function dashboardRun(row: Row): DashboardRun {
+  const prompt = String(redactSecrets(String(row.prompt ?? '')))
+  return {
+    runId: String(row.id), botId: String(row.bot_id), botName: String(row.bot_name),
+    conversationId: row.conversation_id as string | null, groupId: row.group_id as string | null,
+    groupName: row.group_name as string | null, status: row.status as RunStatus, createdAt: String(row.created_at),
+    promptExcerpt: prompt.length > 240 ? prompt.slice(0, 239).trimEnd() + '…' : prompt,
+  }
+}
 function text(value: unknown, field: string, max = 100_000): string {
   if (typeof value !== 'string' || !value.trim() || value.length > max) throw new Error(`${field} must be nonempty text of at most ${max} characters`)
   return value.trim()
@@ -318,7 +350,10 @@ function bot(row: Row): Bot {
   return { id: String(row.id), name: String(row.name), projectRoot: String(row.project_root), instructions: String(row.instructions), agentConfig: row.agent_config ? String(row.agent_config) : undefined, ...(typeof row.reviewer_model === 'string' ? { reviewerModel: row.reviewer_model } : {}), ...(appearance ? { appearance } : {}), enabled: row.enabled === 1, deleting: row.deleting === 1, retentionDays: row.retention_days === null ? null : Number(row.retention_days), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }
 }
 function run(row: Row): BotRun {
-  return { id: String(row.id), botId: String(row.bot_id), prompt: String(row.prompt), source: String(row.source), occurrenceId: String(row.occurrence_id), status: row.status as RunStatus, attempt: Number(row.attempt), owner: row.owner as string | null, leaseUntil: row.lease_until as number | null, output: String(row.output), error: row.error as string | null, createdAt: String(row.created_at), updatedAt: String(row.updated_at), procedureId: row.procedure_id as string | null, procedureInputs: JSON.parse(String(row.procedure_inputs)), procedureCursor: Number(row.procedure_cursor), browserStepCount: JSON.parse(String(row.browser_steps)).length, steeringCursor: Number(row.steering_cursor), acceptingMessages: row.accepting_messages === 1, testMode: row.test_mode === 1, retentionPending: row.retention_pending === 1, parentRunId: row.parent_run_id as string | null, handoffMessageId: row.handoff_message_id as string | null, groupId: row.group_id as string | null, groupMessageId: row.group_message_id as string | null }
+  return { id: String(row.id), botId: String(row.bot_id), conversationId: row.conversation_id as string | null, prompt: String(row.prompt), source: String(row.source), occurrenceId: String(row.occurrence_id), status: row.status as RunStatus, attempt: Number(row.attempt), owner: row.owner as string | null, leaseUntil: row.lease_until as number | null, output: String(row.output), error: row.error as string | null, createdAt: String(row.created_at), updatedAt: String(row.updated_at), procedureId: row.procedure_id as string | null, procedureInputs: JSON.parse(String(row.procedure_inputs)), procedureCursor: Number(row.procedure_cursor), browserStepCount: JSON.parse(String(row.browser_steps)).length, steeringCursor: Number(row.steering_cursor), acceptingMessages: row.accepting_messages === 1, testMode: row.test_mode === 1, retentionPending: row.retention_pending === 1, parentRunId: row.parent_run_id as string | null, handoffMessageId: row.handoff_message_id as string | null, groupId: row.group_id as string | null, groupMessageId: row.group_message_id as string | null }
+}
+function conversationThread(row: Row): BotConversationThread {
+  return { id: String(row.id), botId: String(row.bot_id), title: String(row.title), createdAt: String(row.created_at), updatedAt: String(row.updated_at), deleting: row.deleting === 1 }
 }
 function groupMessage(row: Row): BotGroupMessage {
   return { id: String(row.id), groupId: String(row.group_id), sequence: Number(row.sequence), sender: row.sender as BotGroupMessage['sender'], botId: row.sender_bot_id as string | null, runId: row.sender_run_id as string | null, content: String(row.content), createdAt: String(row.created_at) }
@@ -429,7 +464,7 @@ export class BotStore {
     }
     this.store = new Store({ ...options, path })
     try {
-      this.store.migrate([...MIGRATIONS, BOT_MIGRATION, BOT_EXECUTION_MIGRATION, BOT_RUNTIME_MIGRATION, BOT_ROUTINE_MIGRATION, BOT_PROCEDURE_MIGRATION, BOT_RUN_RUNTIME_MIGRATION, BOT_HUMAN_RECORDING_MIGRATION, BOT_NOTE_SOURCE_MIGRATION, BOT_STEERING_MIGRATION, BOT_NOTE_VERSION_MIGRATION, BOT_DECISION_MEMORY_MIGRATION, BOT_EVENT_RECEIPT_MIGRATION, BOT_WEBHOOK_CREDENTIAL_MIGRATION, BOT_ROUTINE_VERSION_MIGRATION, BOT_WEBHOOK_RATE_MIGRATION, BOT_RUN_TRANSCRIPT_MIGRATION, BOT_DATA_LIFECYCLE_MIGRATION, BOT_ROUTINE_TEST_MIGRATION, BOT_RETENTION_MIGRATION, BOT_HANDOFF_ROUTING_MIGRATION, BOT_OUTBOUND_DELIVERY_MIGRATION, BOT_GROUP_COLLABORATION_MIGRATION, BOT_RUN_HISTORY_INDEX_MIGRATION, BOT_REVIEWER_MODEL_MIGRATION, BOT_APPEARANCE_MIGRATION])
+      this.store.migrate([...MIGRATIONS, BOT_MIGRATION, BOT_EXECUTION_MIGRATION, BOT_RUNTIME_MIGRATION, BOT_ROUTINE_MIGRATION, BOT_PROCEDURE_MIGRATION, BOT_RUN_RUNTIME_MIGRATION, BOT_HUMAN_RECORDING_MIGRATION, BOT_NOTE_SOURCE_MIGRATION, BOT_STEERING_MIGRATION, BOT_NOTE_VERSION_MIGRATION, BOT_DECISION_MEMORY_MIGRATION, BOT_EVENT_RECEIPT_MIGRATION, BOT_WEBHOOK_CREDENTIAL_MIGRATION, BOT_ROUTINE_VERSION_MIGRATION, BOT_WEBHOOK_RATE_MIGRATION, BOT_RUN_TRANSCRIPT_MIGRATION, BOT_DATA_LIFECYCLE_MIGRATION, BOT_ROUTINE_TEST_MIGRATION, BOT_RETENTION_MIGRATION, BOT_HANDOFF_ROUTING_MIGRATION, BOT_OUTBOUND_DELIVERY_MIGRATION, BOT_GROUP_COLLABORATION_MIGRATION, BOT_RUN_HISTORY_INDEX_MIGRATION, BOT_REVIEWER_MODEL_MIGRATION, BOT_APPEARANCE_MIGRATION, BOT_CONVERSATION_MIGRATION, BOT_CONVERSATION_DELETION_MIGRATION, BOT_RECENT_RUN_INDEX_MIGRATION, BOT_CONVERSATION_RECENCY_MIGRATION])
       if (!options.memory) {
         for (const file of [path, `${path}-wal`, `${path}-shm`]) {
           try { chmodSync(file, 0o600) } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error }
@@ -495,6 +530,28 @@ export class BotStore {
       const result = this.groupFromRow(this.groupRow(id))
       this.events(id).emit('BotGroupCreated', { groupId: id, name, members: botIds, shareBrowser: !!input.shareBrowser })
       return result
+    })
+  }
+  updateGroupMembers(groupId: string, inputBotIds: string[]): BotGroup {
+    return this.transaction(() => {
+      const group = this.getGroup(groupId)
+      if (!Array.isArray(inputBotIds)) throw new Error('Select the bots that will join this group')
+      const botIds = inputBotIds.map(id => this.getBot(id).id)
+      if (botIds.length < 2 || botIds.length > 16 || new Set(botIds).size !== botIds.length) throw new Error('A group needs 2 to 16 distinct bots')
+      const current = new Set(group.members.map(member => member.botId)), next = new Set(botIds)
+      for (const botId of next) if (!current.has(botId) && !this.getBot(botId).enabled) throw new Error(`Bot '${this.getBot(botId).name}' must be enabled before joining this group`)
+      for (const botId of current) if (!next.has(botId)) {
+        const active = this.store.query<Row>(`SELECT b.name FROM bot_runs r JOIN bot_instances b ON b.id=r.bot_id
+          WHERE r.group_id=? AND r.bot_id=? AND r.status IN ('queued','running','waiting','blocked') LIMIT 1`, groupId, botId)[0]
+        if (active) throw new Error(`Stop or finish ${String(active.name)}'s group task before removing this Pod`)
+      }
+      for (const botId of current) if (!next.has(botId)) this.store.run('DELETE FROM bot_group_members WHERE group_id=? AND bot_id=?', groupId, botId)
+      for (const botId of next) if (!current.has(botId)) this.store.run('INSERT INTO bot_group_members (group_id,bot_id,joined_at) VALUES (?,?,?)', groupId, botId, now())
+      if ([...current].some(id => !next.has(id)) || [...next].some(id => !current.has(id))) {
+        this.store.run('UPDATE bot_groups SET updated_at=? WHERE id=?', now(), groupId)
+        this.events(groupId).emit('BotGroupMembersChanged', { groupId, members: botIds })
+      }
+      return this.getGroup(groupId)
     })
   }
   listGroups(): BotGroup[] {
@@ -852,10 +909,8 @@ export class BotStore {
           this.store.run('DELETE FROM threads WHERE session_id=?', sessionId)
           this.store.run('DELETE FROM sessions WHERE id=?', sessionId)
           this.store.run(`DELETE FROM events WHERE session_id=? OR (session_id=? AND json_extract(payload,'$.runId')=?)`, sessionId, item.botId, item.runId)
-          this.store.run('DELETE FROM bot_decisions WHERE run_id=?', item.runId)
-          this.store.run('DELETE FROM bot_actions WHERE run_id=?', item.runId)
-          this.store.run('DELETE FROM bot_run_messages WHERE run_id=?', item.runId)
-          this.store.run('DELETE FROM bot_runs WHERE id=? AND retention_pending=1', item.runId)
+          this.removeRunRows(item.botId, item.runId, item.testMode)
+          if (row.conversation_id) this.store.run('DELETE FROM bot_conversations WHERE id=? AND NOT EXISTS (SELECT 1 FROM bot_runs WHERE conversation_id=?)', row.conversation_id, row.conversation_id)
           return true
         })
         if (deleted) runsDeleted++
@@ -890,6 +945,24 @@ export class BotStore {
       catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error }
     }
     await rm(runDirectory, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
+  }
+  private removeRunRows(botId: string, runId: string, testMode: boolean, keepProcedureSource = false): void {
+    const sessionId = `bot:${botId}:${testMode ? 'test' : 'run'}:${runId}`
+    this.store.run('DELETE FROM integration_results WHERE task_id IN (SELECT task_id FROM tasks WHERE session_id=?)', sessionId)
+    this.store.run('DELETE FROM path_claims WHERE task_id IN (SELECT task_id FROM tasks WHERE session_id=?)', sessionId)
+    this.store.run('DELETE FROM messages WHERE task_id IN (SELECT task_id FROM tasks WHERE session_id=?)', sessionId)
+    this.store.run('DELETE FROM workflow_runs WHERE session_id=?', sessionId)
+    this.store.run('DELETE FROM goals WHERE session_id=?', sessionId)
+    this.store.run('DELETE FROM tasks WHERE session_id=?', sessionId)
+    this.store.run('DELETE FROM threads WHERE session_id=?', sessionId)
+    this.store.run('DELETE FROM sessions WHERE id=?', sessionId)
+    this.store.run(`DELETE FROM events WHERE session_id=? OR (session_id=? AND json_extract(payload,'$.runId')=?)`, sessionId, botId, runId)
+    this.store.run('DELETE FROM bot_decisions WHERE run_id=?', runId)
+    this.store.run('DELETE FROM bot_actions WHERE run_id=?', runId)
+    this.store.run('DELETE FROM bot_run_messages WHERE run_id=?', runId)
+    if (keepProcedureSource) this.store.run(`UPDATE bot_runs SET conversation_id=NULL,source='conversation-deleted',prompt='Deleted conversation',output='',error=NULL,
+      transcript='[]',browser_steps='[]',procedure_inputs='{}',procedure_cursor=0,retention_pending=0,updated_at=? WHERE id=? AND bot_id=? AND retention_pending=1`, now(), runId, botId)
+    else this.store.run('DELETE FROM bot_runs WHERE id=? AND bot_id=? AND retention_pending=1', runId, botId)
   }
   createBot(input: { name: string; projectRoot: string; instructions: string; agentConfig?: string; reviewerModel?: string; appearance?: PodAppearance }): Bot {
     return this.transaction(() => {
@@ -938,19 +1011,107 @@ export class BotStore {
       this.events(b.id).emit('BotEnabled', { enabled })
     })
   }
-  enqueue(botId: string, prompt: string, source = 'user', occurrenceId: string = randomUUID(), testMode = false): BotRun {
+  createConversation(botId: string, title = 'New conversation'): BotConversationThread {
+    return this.transaction(() => {
+      const b = this.getBot(botId), id = randomUUID(), time = now()
+      this.store.run('INSERT INTO bot_conversations (id,bot_id,title,created_at,updated_at) VALUES (?,?,?,?,?)', id, b.id, text(title, 'title', 80), time, time)
+      this.events(b.id).emit('BotConversationCreated', { conversationId: id })
+      return conversationThread(this.store.query<Row>('SELECT * FROM bot_conversations WHERE id=?', id)[0]!)
+    })
+  }
+  listConversations(botId: string): BotConversationThread[] {
+    return this.store.query<Row>(`SELECT c.*,c.deleting OR EXISTS(SELECT 1 FROM bot_runs r WHERE r.conversation_id=c.id AND r.retention_pending=1) AS deleting
+      FROM bot_conversations c WHERE c.bot_id=? ORDER BY c.updated_at DESC,c.created_at DESC LIMIT 100`, this.getBot(botId).id).map(conversationThread)
+  }
+  // shortcut: recent chat loads stop at 50; add paging if users need older chats without search.
+  listRecentWorkspaceConversations(limit = 51, excludeBotId?: string): Array<BotConversationThread & { botName: string }> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 51) throw new Error('Conversation list limit must be between 1 and 51')
+    if (excludeBotId !== undefined && (typeof excludeBotId !== 'string' || excludeBotId.length > 64)) throw new Error('Excluded Pod ID is invalid')
+    const exclude = excludeBotId ? ' AND c.bot_id<>?' : ''
+    const parameters = excludeBotId ? [excludeBotId, limit] : [limit]
+    return this.store.query<Row>(`SELECT c.*,c.deleting OR EXISTS(SELECT 1 FROM bot_runs r WHERE r.conversation_id=c.id AND r.retention_pending=1) AS deleting,b.name AS bot_name
+      FROM bot_conversations c JOIN bot_instances b ON b.id=c.bot_id WHERE c.deleting=0 AND NOT EXISTS(SELECT 1 FROM bot_runs r WHERE r.conversation_id=c.id AND r.retention_pending=1)${exclude}
+      ORDER BY c.updated_at DESC,c.created_at DESC LIMIT ?`, ...parameters).map(row => ({ ...conversationThread(row), botName: String(row.bot_name) }))
+  }
+  searchWorkspaceConversations(query: string, limit = 51, excludeBotId?: string): Array<BotConversationThread & { botName: string }> {
+    if (query.length > 128) throw new Error('Conversation search query must be at most 128 characters')
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 51) throw new Error('Conversation search limit must be between 1 and 51')
+    if (excludeBotId !== undefined && (typeof excludeBotId !== 'string' || excludeBotId.length > 64)) throw new Error('Excluded Pod ID is invalid')
+    const term = query.trim().toLowerCase()
+    if (!term) return []
+    const exclude = excludeBotId ? ' AND c.bot_id<>?' : ''
+    const parameters = excludeBotId ? [term, excludeBotId, limit] : [term, limit]
+    return this.store.query<Row>(`SELECT c.*,c.deleting OR EXISTS(SELECT 1 FROM bot_runs r WHERE r.conversation_id=c.id AND r.retention_pending=1) AS deleting,b.name AS bot_name
+      FROM bot_conversations c JOIN bot_instances b ON b.id=c.bot_id WHERE c.deleting=0 AND NOT EXISTS(SELECT 1 FROM bot_runs r WHERE r.conversation_id=c.id AND r.retention_pending=1)
+      AND instr(lower(c.title || ' ' || b.name || ' conversation'), ?) > 0${exclude}
+      ORDER BY c.updated_at DESC,c.created_at DESC LIMIT ?`, ...parameters).map(row => ({ ...conversationThread(row), botName: String(row.bot_name) }))
+  }
+  async deleteConversation(botId: string, conversationId: string, confirmation: string): Promise<{ deleted: true }> {
+    const id = this.transaction(() => {
+      const bot = this.getBot(botId), threadId = text(conversationId, 'conversationId', 64)
+      const conversation = this.store.query<Row>('SELECT * FROM bot_conversations WHERE id=? AND bot_id=?', threadId, bot.id)[0]
+      if (!conversation) throw new Error('Conversation not found')
+      if (confirmation !== conversation.title && confirmation !== conversation.id) throw new Error('Confirm deletion with the exact conversation title or ID')
+      const runs = this.store.query<Row>('SELECT * FROM bot_runs WHERE conversation_id=? ORDER BY created_at,rowid', threadId)
+      const staged = conversation.deleting === 1
+      if (!staged) {
+        if (runs.some(run => ['running','waiting'].includes(String(run.status)) || run.owner !== null)) throw new Error('Stop active tasks and wait for their workers before deleting this conversation')
+        if (runs.some(run => this.hasUncertainActions(String(run.id)))) throw new Error('Review every uncertain effect before deleting this conversation')
+        if (runs.some(run => this.store.query('SELECT 1 FROM bot_delivery_outbox WHERE bot_id=? AND event_id LIKE ? AND status=? LIMIT 1', bot.id, `run:${run.id}:%`, 'sending').length)) throw new Error('Wait for active webhook deliveries before deleting this conversation')
+        if (runs.some(run => {
+          const sessionId = `bot:${bot.id}:${run.test_mode === 1 ? 'test' : 'run'}:${run.id}`
+          return Number(this.store.query<Row>("SELECT COUNT(*) AS count FROM tasks WHERE session_id=? AND state NOT IN ('done','failed','cancelled','timed_out')", sessionId)[0]!.count) > 0
+        })) throw new Error('Resolve delegated work before deleting this conversation')
+        this.store.run('UPDATE bot_conversations SET deleting=1 WHERE id=?', threadId)
+        this.store.run('UPDATE bot_runs SET retention_pending=1 WHERE conversation_id=?', threadId)
+        for (const run of runs) this.store.run("DELETE FROM bot_delivery_outbox WHERE bot_id=? AND event_id LIKE ? AND status='queued'", bot.id, `run:${run.id}:%`)
+      }
+      return { botId: bot.id, conversationId: threadId, runs: runs.map(run => ({ id: String(run.id), testMode: run.test_mode === 1 })) }
+    })
+
+    for (const run of id.runs) await this.removeRunActorState(id.botId, run.id, run.testMode)
+
+    this.transaction(() => {
+      const conversation = this.store.query<Row>('SELECT * FROM bot_conversations WHERE id=? AND bot_id=?', id.conversationId, id.botId)[0]
+      if (!conversation) return
+      const runs = this.store.query<Row>('SELECT * FROM bot_runs WHERE conversation_id=?', id.conversationId)
+      if (runs.some(run => run.retention_pending !== 1 || ['running','waiting'].includes(String(run.status)) || run.owner !== null)) throw new Error('A task changed while this conversation was being deleted; retry after it stops')
+      if (runs.some(run => this.hasUncertainActions(String(run.id)))) throw new Error('An uncertain effect appeared; review it before deleting this conversation')
+      for (const run of runs) {
+        this.store.run('DELETE FROM bot_delivery_outbox WHERE bot_id=? AND event_id LIKE ?', id.botId, `run:${run.id}:%`)
+        const keepProcedureSource = this.store.query('SELECT 1 FROM bot_procedures WHERE source_run_id=? LIMIT 1', run.id).length > 0
+        this.removeRunRows(id.botId, String(run.id), run.test_mode === 1, keepProcedureSource)
+      }
+      this.store.run('DELETE FROM bot_conversations WHERE id=? AND bot_id=?', id.conversationId, id.botId)
+      this.events(id.botId).emit('BotConversationDeleted', { conversationId: id.conversationId })
+    })
+    return { deleted: true }
+  }
+  conversationContext(conversationId: string, beforeRunId: string): MessageOrBoundary[] {
+    const row = this.store.query<Row>('SELECT transcript FROM bot_runs WHERE conversation_id=? AND id<>? ORDER BY created_at DESC,rowid DESC LIMIT 1', conversationId, beforeRunId)[0]
+    return row ? JSON.parse(String(row.transcript)) as MessageOrBoundary[] : []
+  }
+  enqueue(botId: string, prompt: string, source = 'user', occurrenceId: string = randomUUID(), testMode = false, conversationId?: string | null): BotRun {
     return this.transaction(() => {
       const b = this.getBot(botId), content = text(prompt, 'prompt'), occurrence = text(occurrenceId, 'occurrenceId', 256)
       source = text(source, 'source', 4096)
+      const threadId = conversationId == null ? null : text(conversationId, 'conversationId', 64)
+      if (threadId) {
+        const conversation = this.store.query<Row>('SELECT deleting FROM bot_conversations WHERE id=? AND bot_id=?', threadId, b.id)[0]
+        if (!conversation) throw new Error('Conversation does not belong to this Pod')
+        if (conversation.deleting === 1) throw new Error('Conversation is being deleted')
+      }
       if (redactSecrets(content) !== content) throw new Error('Use a secure connection for credentials; do not put them in chat')
       const existing = this.store.query<Row>('SELECT * FROM bot_runs WHERE occurrence_id = ?', occurrence)[0]
       if (existing) {
-        if (existing.bot_id !== b.id || existing.prompt !== content || existing.source !== source || (existing.test_mode === 1) !== testMode) throw new Error('Occurrence ID collision with different work')
+        if (existing.bot_id !== b.id || existing.prompt !== content || existing.source !== source || (existing.test_mode === 1) !== testMode || (threadId !== null && (existing.conversation_id ?? null) !== threadId)) throw new Error('Occurrence ID collision with different work')
         return run(existing)
       }
+      const conversation = threadId ?? (source === 'user' ? this.createConversation(b.id).id : null)
       const id = randomUUID(), time = now()
-      const inserted = this.store.run('INSERT OR IGNORE INTO bot_runs (id,bot_id,prompt,source,occurrence_id,test_mode,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)', id, b.id, content, source, occurrence, testMode ? 1 : 0, time, time)
-      if (!inserted) return this.enqueue(b.id, content, source, occurrence, testMode)
+      const inserted = this.store.run('INSERT OR IGNORE INTO bot_runs (id,bot_id,prompt,source,occurrence_id,test_mode,conversation_id,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?)', id, b.id, content, source, occurrence, testMode ? 1 : 0, conversation, time, time)
+      if (!inserted) return this.enqueue(b.id, content, source, occurrence, testMode, conversation)
+      if (conversation) this.store.run('UPDATE bot_conversations SET title=CASE WHEN title=? THEN ? ELSE title END,updated_at=? WHERE id=?', 'New conversation', content.replace(/\s+/g, ' ').slice(0, 80), time, conversation)
       this.events(b.id).emit('BotRunQueued', { runId: id, source, testMode, prompt: content })
       return this.getRun(id)
     })
@@ -1022,7 +1183,26 @@ export class BotStore {
     })
   }
   listRuns(botId: string, limit = 100): BotRun[] {
-    return this.store.query<Row>('SELECT * FROM bot_runs WHERE bot_id = ? ORDER BY created_at DESC,rowid DESC LIMIT ?', this.getBot(botId).id, limit).map(run)
+    return this.store.query<Row>("SELECT * FROM bot_runs WHERE bot_id = ? AND source<>'conversation-deleted' ORDER BY created_at DESC,rowid DESC LIMIT ?", this.getBot(botId).id, limit).map(run)
+  }
+  listRecentRuns(limit = 8): DashboardRun[] {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 20) throw new Error('Recent task limit must be from 1 to 20')
+    return this.store.query<Row>(`SELECT r.id,r.bot_id,b.name AS bot_name,r.conversation_id,r.group_id,g.name AS group_name,r.status,r.created_at,r.prompt
+      FROM bot_runs r JOIN bot_instances b ON b.id=r.bot_id LEFT JOIN bot_groups g ON g.id=r.group_id
+      WHERE r.source<>'conversation-deleted' AND r.status NOT IN ('queued','running')
+      ORDER BY r.created_at DESC,r.rowid DESC LIMIT ?`, limit).map(dashboardRun)
+  }
+  listActiveRuns(): DashboardRun[] {
+    return this.store.query<Row>(`SELECT r.id,r.bot_id,b.name AS bot_name,r.conversation_id,r.group_id,g.name AS group_name,r.status,r.created_at,r.prompt
+      FROM bot_runs r JOIN bot_instances b ON b.id=r.bot_id LEFT JOIN bot_groups g ON g.id=r.group_id
+      WHERE r.source<>'conversation-deleted' AND r.status IN ('queued','running')
+      ORDER BY CASE r.status WHEN 'running' THEN 0 ELSE 1 END,r.created_at ASC,r.rowid ASC`).map(dashboardRun)
+  }
+  listActiveGroupRuns(): DashboardRun[] {
+    return this.store.query<Row>(`SELECT r.id,r.bot_id,b.name AS bot_name,r.conversation_id,r.group_id,g.name AS group_name,r.status,r.created_at,r.prompt
+      FROM bot_runs r JOIN bot_instances b ON b.id=r.bot_id LEFT JOIN bot_groups g ON g.id=r.group_id
+      WHERE r.group_id IS NOT NULL AND r.source<>'conversation-deleted' AND r.status IN ('queued','running','waiting','blocked')
+      ORDER BY CASE r.status WHEN 'waiting' THEN 0 WHEN 'blocked' THEN 1 WHEN 'running' THEN 2 ELSE 3 END,r.created_at ASC,r.rowid ASC`).map(dashboardRun)
   }
   activeStatus(botId: string): RunStatus | null {
     const row = this.store.query<{ status: RunStatus }>(`SELECT status FROM bot_runs WHERE bot_id=? AND status IN ('waiting','blocked','running','queued')
@@ -1030,22 +1210,35 @@ export class BotStore {
     return row?.status ?? null
   }
   searchHistory(botId: string, query: string, limit = 10): Array<{ runId: string; status: RunStatus; source: string; createdAt: string; promptExcerpt: string; resultExcerpt: string }> {
-    const botIdSafe = this.getBot(botId).id, term = text(query, 'history query', 128)
+    const botIdSafe = this.getBot(botId).id
+    return this.searchHistoryRows(query, limit, botIdSafe).map(({ row, promptExcerpt, resultExcerpt }) => ({
+      runId: String(row.id), status: row.status as RunStatus, source: String(row.source), createdAt: String(row.created_at), promptExcerpt, resultExcerpt,
+    }))
+  }
+  searchAllHistory(query: string, limit = 20): Array<{ botId: string; botName: string; runId: string; status: RunStatus; source: string; createdAt: string; promptExcerpt: string; resultExcerpt: string }> {
+    return this.searchHistoryRows(query, limit).map(({ row, promptExcerpt, resultExcerpt }) => ({
+      botId: String(row.bot_id), botName: String(row.bot_name), runId: String(row.id), status: row.status as RunStatus,
+      source: String(row.source), createdAt: String(row.created_at), promptExcerpt, resultExcerpt,
+    }))
+  }
+  private searchHistoryRows(query: string, limit: number, botId?: string): Array<{ row: Row; promptExcerpt: string; resultExcerpt: string }> {
+    const term = text(query, 'history query', 128)
     if (term.length < 2) throw new Error('History query must contain at least two characters')
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 20) throw new Error('History search limit must be from 1 to 20')
     const quoted = `"${term.replaceAll('"', '""')}"`
-    const match = `bot_id:"${botIdSafe}" AND (prompt:${quoted} OR output:${quoted} OR error:${quoted})`
-    const rows = this.store.query<Row>(`SELECT r.* FROM bot_run_search search JOIN bot_runs r ON r.id=search.run_id
-      WHERE bot_run_search MATCH ? AND r.bot_id=? AND r.status IN ('completed','failed','blocked','cancelled')
-      ORDER BY r.created_at DESC,r.rowid DESC LIMIT ?`, match, botIdSafe, limit)
+    const match = `${botId ? `bot_id:"${botId}" AND ` : ''}(prompt:${quoted} OR output:${quoted} OR error:${quoted})`
+    const rows = this.store.query<Row>(`SELECT r.*, b.name AS bot_name FROM bot_run_search search JOIN bot_runs r ON r.id=search.run_id
+      JOIN bot_instances b ON b.id=r.bot_id
+      WHERE bot_run_search MATCH ? ${botId ? 'AND r.bot_id=?' : ''} AND r.status IN ('completed','failed','blocked','cancelled')
+        AND r.source<>'conversation-deleted'
+      ORDER BY r.created_at DESC,r.rowid DESC LIMIT ?`, ...(botId ? [match, botId, limit] : [match, limit]))
     const excerpt = (value: unknown): string => {
       const safe = String(redactSecrets(String(value ?? ''))), at = safe.toLocaleLowerCase().indexOf(term.toLocaleLowerCase())
       if (at < 0) return safe.slice(0, 1200)
       const start = Math.max(0, at - 350), end = Math.min(safe.length, at + term.length + 850)
       return `${start ? '…' : ''}${safe.slice(start, end)}${end < safe.length ? '…' : ''}`
     }
-    return rows.map(row => ({ runId: String(row.id), status: row.status as RunStatus, source: String(row.source), createdAt: String(row.created_at),
-      promptExcerpt: excerpt(row.prompt), resultExcerpt: excerpt(row.output || row.error) }))
+    return rows.map(row => ({ row, promptExcerpt: excerpt(row.prompt), resultExcerpt: excerpt(row.output || row.error) }))
   }
   claim(botId: string, owner: string, time?: number, leaseMs = 30_000): BotRun | null {
     return this.transaction(() => {
@@ -1271,8 +1464,10 @@ export class BotStore {
     return this.store.query('SELECT id FROM bot_actions WHERE run_id = ? AND read_only = 0 AND checkpointed = 0', runId).length > 0
   }
   unreconciledRuns(botId: string): string[] {
-    return this.store.query<{ id: string }>(`SELECT DISTINCT r.id FROM bot_runs r JOIN bot_actions a ON a.run_id = r.id
-      WHERE r.bot_id = ? AND r.status IN ('failed','blocked','cancelled') AND a.read_only = 0 AND a.checkpointed = 0`, this.getBot(botId).id).map(row => row.id)
+    return this.store.query<{ id: string }>(`SELECT r.id FROM bot_runs r
+      WHERE r.bot_id = ? AND r.status IN ('failed','blocked','cancelled')
+        AND EXISTS (SELECT 1 FROM bot_actions a WHERE a.run_id = r.id AND a.read_only = 0 AND a.checkpointed = 0)
+      ORDER BY r.updated_at DESC,r.rowid DESC`, this.getBot(botId).id).map(row => row.id)
   }
   reconcile(runId: string, evidence: string): void {
     this.transaction(() => {
@@ -1898,6 +2093,6 @@ export class BotStore {
   conversation(botId: string): BotConversation {
     const b = this.getBot(botId)
     const runs = this.listRuns(b.id)
-    return { transcript: this.transcript(b.id), legacyTranscript: this.legacyTranscript(b.id), runs, decisions: this.store.query<Row>("SELECT * FROM bot_decisions WHERE bot_id = ? AND status = 'pending' ORDER BY created_at", b.id).map(decision), notes: this.notes(b.id), routines: this.routines(b.id), procedures: this.procedures(b.id), guidance: runs.flatMap(run => this.steeringMessages(run.id)) }
+    return { conversations: this.listConversations(b.id), transcript: this.transcript(b.id), legacyTranscript: this.legacyTranscript(b.id), runs, decisions: this.store.query<Row>("SELECT * FROM bot_decisions WHERE bot_id = ? AND status = 'pending' ORDER BY created_at", b.id).map(decision), notes: this.notes(b.id), routines: this.routines(b.id), procedures: this.procedures(b.id), guidance: runs.flatMap(run => this.steeringMessages(run.id)) }
   }
 }

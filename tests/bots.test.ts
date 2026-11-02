@@ -3,10 +3,10 @@ import { createHash, createPrivateKey, sign } from 'node:crypto'
 import { mkdtempSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { BotStore } from '../src/bots/store.js'
-import { nextOccurrence, validateSchedule } from '../src/bots/schedule.js'
-import { botControl } from '../src/bots/control.js'
-import { procedureGuard, procedureSkill, procedureStep } from '../src/bots/procedures.js'
+import { BotStore } from '../src/pods/store.js'
+import { nextOccurrence, validateSchedule } from '../src/pods/schedule.js'
+import { botControl } from '../src/pods/control.js'
+import { procedureGuard, procedureSkill, procedureStep } from '../src/pods/procedures.js'
 import { parseSkillManifest } from '../src/skills/validate.js'
 import { redactSecrets } from '../src/orchestration/events.js'
 import { removeTempDirectory } from './helpers/removeTempDirectory.js'
@@ -114,6 +114,74 @@ describe('persistent bots', () => {
     expect(() => second.transcript(create(second, 'other').id, job.id)).toThrow('does not belong')
   })
 
+  it('keeps Pod conversations isolated while carrying each thread transcript forward', () => {
+    const s = database(), b = create(s), other = create(s, 'other')
+    const thread = s.createConversation(b.id), separate = s.createConversation(b.id)
+    const first = s.enqueue(b.id, 'First request', 'user', 'first-request', false, thread.id)
+    expect(first.conversationId).toBe(thread.id)
+    const claimed = s.claim(b.id, 'conversation-worker')!
+    s.checkpoint(first.id, 'conversation-worker', [{ role: 'user', content: 'First request' }, { role: 'assistant', content: 'First answer' }])
+    s.finish(first.id, 'conversation-worker', 'completed', 'First answer')
+    const followUp = s.enqueue(b.id, 'Follow-up', 'user', 'follow-up', false, thread.id)
+    const unrelated = s.enqueue(b.id, 'Separate task', 'user', 'separate-task', false, separate.id)
+    expect(s.conversationContext(thread.id, followUp.id)).toContainEqual(expect.objectContaining({ content: 'First answer' }))
+    expect(s.conversationContext(separate.id, unrelated.id)).toEqual([])
+    expect(s.listConversations(b.id).find(item => item.id === thread.id)?.title).toBe('First request')
+    const standalone = s.enqueue(b.id, 'Legacy API request', 'user', 'legacy-api-request')
+    expect(standalone.conversationId).toBeTruthy()
+    expect(s.enqueue(b.id, 'Legacy API request', 'user', 'legacy-api-request').id).toBe(standalone.id)
+    expect(() => s.enqueue(other.id, 'Cross-thread', 'user', 'cross-thread', false, thread.id)).toThrow('does not belong')
+  })
+
+  it('deletes a conversation and its completed task history without touching other threads', async () => {
+    const s = database(), b = create(s), thread = s.createConversation(b.id), keep = s.createConversation(b.id)
+    const job = s.enqueue(b.id, 'Private conversation request', 'user', 'private-conversation-request', false, thread.id)
+    s.claim(b.id, 'delete-worker')
+    s.checkpoint(job.id, 'delete-worker', [{ role: 'user', content: job.prompt }, { role: 'assistant', content: 'Private answer' }])
+    const guidance = s.steer(job.id, 'Keep this note inside the conversation')
+    s.checkpoint(job.id, 'delete-worker', [{ role: 'user', content: job.prompt }, { role: 'assistant', content: 'Private answer' }], undefined, undefined, guidance.sequence)
+    const action = s.beginAction(job.id, 'delete-worker', 'read_file', { path: 'README.md' }, true)
+    s.completeAction(action, 'Read safely', 'delete-worker')
+    s.finish(job.id, 'delete-worker', 'completed', 'Private answer')
+    s.acknowledgeStop(job.id, 'delete-worker')
+    expect(s.searchHistory(b.id, 'Private conversation request')).toHaveLength(1)
+    const threadTitle = s.listConversations(b.id).find(item => item.id === thread.id)!.title
+    await expect(s.deleteConversation(b.id, thread.id, 'wrong title')).rejects.toThrow('exact conversation title or ID')
+    await s.deleteConversation(b.id, thread.id, threadTitle)
+    expect(s.listConversations(b.id).map(item => item.id)).toEqual([keep.id])
+    expect(s.listRuns(b.id)).toEqual([])
+    expect(s.searchHistory(b.id, 'Private conversation request')).toEqual([])
+    expect(s.store.query('SELECT id FROM bot_actions WHERE run_id=?', job.id)).toEqual([])
+    expect(s.store.query('SELECT id FROM bot_run_messages WHERE run_id=?', job.id)).toEqual([])
+    expect(s.store.query('SELECT event_seq FROM events WHERE session_id=? AND json_extract(payload,\'$.runId\')=?', b.id, job.id)).toEqual([])
+    const learnedSource = s.enqueue(b.id, 'Browser skill source', 'user', 'browser-skill-source', false, keep.id)
+    s.claim(b.id, 'skill-worker')
+    s.recordBrowserStep(learnedSource.id, 'skill-worker', { action: 'navigate', url: 'https://example.com/login' }, 'about:blank')
+    s.recordBrowserStep(learnedSource.id, 'skill-worker', { action: 'expect', text: 'Signed in' }, 'https://example.com/login')
+    s.finish(learnedSource.id, 'skill-worker', 'completed', 'Signed in')
+    s.acknowledgeStop(learnedSource.id, 'skill-worker')
+    const skill = s.learnProcedureRecord(b.id, learnedSource.id, 'kept-browser-skill')
+    await s.deleteConversation(b.id, keep.id, s.listConversations(b.id).find(item => item.id === keep.id)!.title)
+    expect(s.getProcedure(b.id, skill.id).sourceRunId).toBe(learnedSource.id)
+    expect(s.getRun(learnedSource.id)).toMatchObject({ conversationId: null, source: 'conversation-deleted', prompt: 'Deleted conversation', output: '' })
+    expect(s.listConversations(b.id)).toEqual([])
+    expect(s.listRuns(b.id)).toEqual([])
+    expect(s.searchHistory(b.id, 'Browser skill source')).toEqual([])
+  })
+
+  it('refuses to delete a conversation while its worker still owns an active task', async () => {
+    const s = database(), b = create(s), thread = s.createConversation(b.id)
+    const job = s.enqueue(b.id, 'Keep active work safe', 'user', 'active-conversation-work', false, thread.id)
+    s.claim(b.id, 'active-conversation-worker')
+    await expect(s.deleteConversation(b.id, thread.id, 'Keep active work safe')).rejects.toThrow('Stop active tasks')
+    expect(s.listConversations(b.id).find(item => item.id === thread.id)?.deleting).toBe(false)
+    expect(s.getRun(job.id).retentionPending).toBe(false)
+    s.cancel(job.id)
+    s.acknowledgeStop(job.id, 'active-conversation-worker')
+    await s.deleteConversation(b.id, thread.id, 'Keep active work safe')
+    expect(s.listConversations(b.id)).toEqual([])
+  })
+
   it('scopes goals and todos to their occurrence, including retry after other work', () => {
     const s = database(), b = create(s), time = new Date().toISOString()
     const state = { goal: { objective: 'Old task only', status: 'blocked' as const, tokensUsed: 40, timeUsedSeconds: 1, consecutiveBlockCount: 3, continuations: 1, createdAt: time, updatedAt: time, startedAt: time }, todos: [{ id: 'old-item', title: 'Only the old request', status: 'pending' as const }] }
@@ -160,10 +228,12 @@ describe('persistent bots', () => {
     // Reconstruct the actual prior schema, then run the production migration.
     // Keep v27's foreign-keyed tables/columns while rewinding older migrations;
     // SQLite cannot safely drop the referenced run columns in this fixture.
-    old.store.db.exec('DROP TRIGGER bot_run_search_insert; DROP TRIGGER bot_run_search_update; DROP TRIGGER bot_run_search_delete; ALTER TABLE bot_instances DROP COLUMN appearance; ALTER TABLE bot_instances DROP COLUMN reviewer_model; DROP TABLE bot_run_search; DROP TABLE bot_delivery_outbox; DROP TABLE bot_delivery_targets; DROP INDEX bot_handoff_idempotency; ALTER TABLE bot_runs DROP COLUMN handoff_message_id; ALTER TABLE bot_runs DROP COLUMN parent_run_id; DROP INDEX bot_retention_candidates; ALTER TABLE bot_runs DROP COLUMN retention_pending; ALTER TABLE bot_instances DROP COLUMN retention_days; DROP TABLE bot_webhook_rate_limits; DROP TABLE bot_webhook_credentials; DROP TABLE bot_event_receipts; ALTER TABLE bot_routines DROP COLUMN version; ALTER TABLE bot_decisions DROP COLUMN memory_revision; ALTER TABLE bot_notes DROP COLUMN version; ALTER TABLE bot_notes DROP COLUMN updated_at; DROP TABLE bot_run_messages; ALTER TABLE bot_runs DROP COLUMN steering_cursor; ALTER TABLE bot_runs DROP COLUMN accepting_messages; ALTER TABLE bot_runs DROP COLUMN runtime_state; ALTER TABLE bot_runs DROP COLUMN legacy_runtime_state; ALTER TABLE bot_runs DROP COLUMN transcript; ALTER TABLE bot_runs DROP COLUMN test_mode; ALTER TABLE bot_instances DROP COLUMN deleting; DELETE FROM _schema_version WHERE version >= 11 AND version != 27')
+    old.store.db.exec('DROP INDEX bot_conversation_run_order; ALTER TABLE bot_runs DROP COLUMN conversation_id; DROP TABLE bot_conversations; DROP TRIGGER bot_run_search_insert; DROP TRIGGER bot_run_search_update; DROP TRIGGER bot_run_search_delete; ALTER TABLE bot_instances DROP COLUMN appearance; ALTER TABLE bot_instances DROP COLUMN reviewer_model; DROP TABLE bot_run_search; DROP TABLE bot_delivery_outbox; DROP TABLE bot_delivery_targets; DROP INDEX bot_handoff_idempotency; ALTER TABLE bot_runs DROP COLUMN handoff_message_id; ALTER TABLE bot_runs DROP COLUMN parent_run_id; DROP INDEX bot_retention_candidates; ALTER TABLE bot_runs DROP COLUMN retention_pending; ALTER TABLE bot_instances DROP COLUMN retention_days; DROP TABLE bot_webhook_rate_limits; DROP TABLE bot_webhook_credentials; DROP TABLE bot_event_receipts; ALTER TABLE bot_routines DROP COLUMN version; ALTER TABLE bot_decisions DROP COLUMN memory_revision; ALTER TABLE bot_notes DROP COLUMN version; ALTER TABLE bot_notes DROP COLUMN updated_at; DROP TABLE bot_run_messages; ALTER TABLE bot_runs DROP COLUMN steering_cursor; ALTER TABLE bot_runs DROP COLUMN accepting_messages; ALTER TABLE bot_runs DROP COLUMN runtime_state; ALTER TABLE bot_runs DROP COLUMN legacy_runtime_state; ALTER TABLE bot_runs DROP COLUMN transcript; ALTER TABLE bot_runs DROP COLUMN test_mode; ALTER TABLE bot_instances DROP COLUMN deleting; DELETE FROM _schema_version WHERE version >= 11 AND version != 27')
     stores.splice(stores.indexOf(old), 1); old.close()
     const s = database(path)
     expect(s.inspectRuntime(job.id)).toEqual({ current: null, legacy: state })
+    expect(s.getRun(job.id).conversationId).toBe(job.id)
+    expect(s.listConversations(b.id)).toContainEqual(expect.objectContaining({ id: job.id, title: 'Legacy task' }))
     expect(() => s.runtimeState(b.id, job.id)).toThrow('ownership is unknown')
     const fresh = s.enqueue(b.id, 'New task'); s.claim(b.id, 'fresh-worker')
     expect(s.runtimeState(b.id, fresh.id)).toEqual({ goal: null, todos: [] })
@@ -479,7 +549,7 @@ describe('persistent bots', () => {
     const dir = mkdtempSync(join(tmpdir(), 'dsk-event-migration-')); dirs.push(dir)
     const path = join(dir, 'state.db'), old = database(path), bot = create(old)
     // v27 remains installed for the same SQLite foreign-key reason as above.
-    old.store.exec('DROP TRIGGER bot_run_search_insert; DROP TRIGGER bot_run_search_update; DROP TRIGGER bot_run_search_delete; ALTER TABLE bot_instances DROP COLUMN appearance; ALTER TABLE bot_instances DROP COLUMN reviewer_model; DROP TABLE bot_run_search; DROP TABLE bot_delivery_outbox; DROP TABLE bot_delivery_targets; DROP INDEX bot_handoff_idempotency; ALTER TABLE bot_runs DROP COLUMN handoff_message_id; ALTER TABLE bot_runs DROP COLUMN parent_run_id; DROP INDEX bot_retention_candidates; ALTER TABLE bot_runs DROP COLUMN retention_pending; ALTER TABLE bot_instances DROP COLUMN retention_days; DROP TABLE bot_webhook_rate_limits; DROP TABLE bot_webhook_credentials; DROP TABLE bot_event_receipts; ALTER TABLE bot_routines DROP COLUMN version; ALTER TABLE bot_runs DROP COLUMN transcript; ALTER TABLE bot_runs DROP COLUMN test_mode; ALTER TABLE bot_instances DROP COLUMN deleting; DELETE FROM _schema_version WHERE version >= 17 AND version != 27')
+    old.store.exec('DROP INDEX bot_conversation_run_order; ALTER TABLE bot_runs DROP COLUMN conversation_id; DROP TABLE bot_conversations; DROP TRIGGER bot_run_search_insert; DROP TRIGGER bot_run_search_update; DROP TRIGGER bot_run_search_delete; ALTER TABLE bot_instances DROP COLUMN appearance; ALTER TABLE bot_instances DROP COLUMN reviewer_model; DROP TABLE bot_run_search; DROP TABLE bot_delivery_outbox; DROP TABLE bot_delivery_targets; DROP INDEX bot_handoff_idempotency; ALTER TABLE bot_runs DROP COLUMN handoff_message_id; ALTER TABLE bot_runs DROP COLUMN parent_run_id; DROP INDEX bot_retention_candidates; ALTER TABLE bot_runs DROP COLUMN retention_pending; ALTER TABLE bot_instances DROP COLUMN retention_days; DROP TABLE bot_webhook_rate_limits; DROP TABLE bot_webhook_credentials; DROP TABLE bot_event_receipts; ALTER TABLE bot_routines DROP COLUMN version; ALTER TABLE bot_runs DROP COLUMN transcript; ALTER TABLE bot_runs DROP COLUMN test_mode; ALTER TABLE bot_instances DROP COLUMN deleting; DELETE FROM _schema_version WHERE version >= 17 AND version != 27')
     old.close(); stores.splice(stores.indexOf(old), 1)
     const upgraded = database(path)
     expect(upgraded.store.query('SELECT version FROM _schema_version WHERE version = 17')).toHaveLength(1)

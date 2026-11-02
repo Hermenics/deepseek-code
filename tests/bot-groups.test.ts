@@ -2,8 +2,8 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { mkdtempSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { BotStore } from '../src/bots/store.js'
-import { botControl } from '../src/bots/control.js'
+import { BotStore } from '../src/pods/store.js'
+import { botControl } from '../src/pods/control.js'
 import { removeTempDirectory } from './helpers/removeTempDirectory.js'
 
 const stores: BotStore[] = [], directories: string[] = []

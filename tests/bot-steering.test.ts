@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { BotStore, isSqliteBusy } from '../src/bots/store.js'
+import { BotStore, isSqliteBusy } from '../src/pods/store.js'
 import { waitForChildFile } from './helpers/waitForChildFile.js'
 
 const stores: BotStore[] = []
