@@ -64,6 +64,43 @@ describe('TUI-to-Agent permission bridge', () => {
     }
   })
 
+  it('keeps concurrent WebSearch approvals attached to their own queries', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-parallel-search-approval-'))
+    roots.push(root)
+    const agent = new Agent({ provider: 'local', localModel: 'fixture' }, { projectRoot: root, logFile: null, snapshotFile: null })
+    await agent.readyPromise
+    const internal = agent as any
+    internal.settings = { permissions: {}, risk: { enabled: false } }
+    const executed: string[] = []
+    internal.executeTool = async (_name: string, args: Record<string, unknown>) => {
+      executed.push(String(args.query))
+      return `results for ${String(args.query)}`
+    }
+    let prompt: ToolPermissionState | null = null
+    const unbind = bindToolPermissionPrompt(agent, state => { prompt = state })
+    const callbacks = { onToken() {}, onThinking() {}, onToolCall() {}, onToolResult() {}, onDone() {}, onDenyAbort() {}, onAutoCompact() {} }
+    const search = (id: string, query: string) => internal.checkAndExecuteTool({
+      id, type: 'function', function: { name: 'web_search', arguments: JSON.stringify({ query }) },
+    }, { query }, callbacks) as Promise<{ result: string }>
+
+    try {
+      const first = search('parallel-search-one', 'query one')
+      await waitFor(() => (prompt?.request.args as any)?.query === 'query one', 'first WebSearch approval')
+      const second = search('parallel-search-two', 'query two')
+      prompt!.resolve('once')
+      await waitFor(() => (prompt?.request.args as any)?.query === 'query two', 'second WebSearch approval')
+      prompt!.resolve('reject')
+
+      expect((await first).result).toBe('results for query one')
+      expect((await second).result).toContain('USER_DENIED')
+      expect(executed).toEqual(['query one'])
+      expect(agent.getPermissionsInfo().sessionApproved).not.toContain('web_search@https://html.duckduckgo.com')
+    } finally {
+      unbind()
+      await agent.shutdown()
+    }
+  })
+
   it('stops queued prompts after a denial aborts the turn', async () => {
     let handler: ToolPermissionHandler | null = null
     const published: (ToolPermissionState | null)[] = []

@@ -1,5 +1,6 @@
 import type { PermissionRule, PermissionDecision } from './types.js'
 import { browserActionKind, browserApprovalKey, browserTarget, originOf } from './browser.js'
+import { normalizeWebSearchQuery } from '../utils/webSearchQuery.js'
 
 /** Normalize documented CamelCase tool aliases while preserving snake_case and custom tool names. */
 function normalizePermissionToolName(name: string): string {
@@ -73,6 +74,10 @@ function getMatchContent(toolName: string, args: Record<string, unknown>): strin
       return typeof args.path === 'string' ? args.path : undefined
     case 'web_fetch':
       return typeof args.url === 'string' ? normalizeUrl(args.url) : undefined
+    case 'web_search':
+      return typeof args.query === 'string'
+        ? `https://html.duckduckgo.com/html/?q=${encodeURIComponent(normalizeWebSearchQuery(args.query))}`
+        : undefined
     case 'browser': {
       // `browser(navigate http://localhost:3000/*)`, `browser(click https://example.com/*)`, `browser(* http://localhost:*)`
       const target = browserTarget(args)
@@ -99,8 +104,8 @@ const ORIGIN_SCOPED_TOOLS = new Set(['web_fetch'])
 
 /**
  * Key a session approval is stored under: `web_fetch@https://host` for
- * origin-scoped tools, so approving one site never approves another; the
- * tool name otherwise.
+ * origin-scoped tools, or `web_search@https://html.duckduckgo.com` for the
+ * fixed search endpoint, so approvals never cover another site.
  */
 export function approvalKey(toolName: string, args: Record<string, unknown>): string {
   if (toolName.toLowerCase() === 'browser') return browserApprovalKey(args)
@@ -110,10 +115,12 @@ export function approvalKey(toolName: string, args: Record<string, unknown>): st
   return origin ? `${toolName.toLowerCase()}@${origin}` : toolName
 }
 
-/** Origin an origin-scoped tool call targets, or undefined when the tool is not origin-scoped or has no parsable URL. */
+/** Origin an origin-scoped tool call targets; web_search always targets its fixed endpoint. */
 export function approvalOrigin(toolName: string, args: Record<string, unknown>): string | undefined {
-  if (toolName.toLowerCase() === 'browser') return originOf(browserTarget(args))
-  if (!ORIGIN_SCOPED_TOOLS.has(toolName.toLowerCase()) || typeof args.url !== 'string') return undefined
+  const normalizedToolName = toolName.toLowerCase()
+  if (normalizedToolName === 'browser') return originOf(browserTarget(args))
+  if (normalizedToolName === 'web_search') return 'https://html.duckduckgo.com'
+  if (!ORIGIN_SCOPED_TOOLS.has(normalizedToolName) || typeof args.url !== 'string') return undefined
   try {
     const origin = new URL(args.url).origin
     return origin === 'null' ? undefined : origin
@@ -164,7 +171,7 @@ export function resolvePermission(
   const normalizedToolName = toolName.toLowerCase()
   // Reading a browser page the user already approved needs no prompt; navigating and acting do.
   const defaultDecision = (): PermissionDecision =>
-    normalizedToolName === 'shell' || normalizedToolName === 'web_fetch' || (normalizedToolName === 'browser' && browserActionKind(args) !== 'read') ||
+    normalizedToolName === 'shell' || normalizedToolName === 'web_fetch' || normalizedToolName === 'web_search' || (normalizedToolName === 'browser' && browserActionKind(args) !== 'read') ||
     (normalizedToolName === 'dev_server' && args.action === 'start') ? 'ask' : 'allow'
 
   if (!permissions) return defaultDecision()

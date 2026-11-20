@@ -363,6 +363,14 @@ it('classifies native Git transport actions as network capability with mandatory
   expect(hasNetworkCapability('git', { action: 'status' })).toBe(false)
 })
 
+it('classifies WebSearch as network capability with mandatory confirmation', () => {
+  const args = { query: 'bun runtime' }
+  expect(hasNetworkCapability('web_search', args)).toBe(true)
+  expect(assessRisk('web_search', args, ctx({ config: { enabled: false } }))).toMatchObject({
+    level: 'high', matchedRule: 'shell:network', requiresConfirmation: true,
+  })
+})
+
 describe('package installation shell effects', () => {
   const commands = [
     'npm ci',

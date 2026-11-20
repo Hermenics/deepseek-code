@@ -54,6 +54,7 @@ const TOOL_MSGS: Record<string, string[]> = {
   grep: ['Grepping for hope...', 'Looking for the needle...', 'Regexing my way out of this...'],
   glob: ['Globbing everything in sight...', 'Casting a wide wildcard net...', 'Star-dot-starring around...'],
   web_fetch: ['Downloading the internet...', 'Asking the web politely...', 'Fetching, like a good dog...'],
+  web_search: ['Searching the public web...', 'Looking for matching pages...', 'Querying DuckDuckGo...'],
   subagent: ['Delegating my problems...', 'Cloning myself for backup...', 'Assembling the swarm...'],
   git: ['Running git blame on you...', 'Rewriting history, carefully...', 'Negotiating with the index...'],
   todo: ['Making a list, checking it twice...', 'Adding tasks I will regret...', 'Turning chaos into checkboxes...'],

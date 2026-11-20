@@ -12,6 +12,7 @@ export const TOOL_DISPLAY: Record<string, string> = {
   grep:             'Grep',
   glob:             'Glob',
   web_fetch:        'WebFetch',
+  web_search:       'WebSearch',
   browser:          'Browser',
   dev_server:       'Dev server',
   subagent:         'Agent',
@@ -101,6 +102,7 @@ export function previewToolCallArgs(toolName: string, args: Record<string, unkno
   args = redactSecrets(args) as Record<string, unknown>
   if (toolName === 'ask_user_questions') return summarizeAskUserPayload(JSON.stringify(args))
   if (toolName === 'browser') return previewBrowserArgs(args)
+  if (toolName === 'web_search') return truncatePreview(typeof args.query === 'string' ? args.query : '')
   const serialized = JSON.stringify(args)
   const fieldPreview = previewStreamingArgs(serialized)
   if (fieldPreview) return fieldPreview

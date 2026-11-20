@@ -882,7 +882,7 @@ export function hasPackageScriptExecution(command: string): boolean {
  */
 export function hasNetworkCapability(toolName: string, args: Record<string, unknown>): boolean {
   const normalizedTool = toolName.toLowerCase()
-  if (normalizedTool === 'web_fetch') return true
+  if (normalizedTool === 'web_fetch' || normalizedTool === 'web_search') return true
   if (normalizedTool === 'git') return args.action === 'push' || args.action === 'pull'
   if (normalizedTool === 'browser') {
     // Navigating to anything but this machine reaches the network; loopback is gated per origin by permissions.

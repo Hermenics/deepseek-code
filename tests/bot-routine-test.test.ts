@@ -75,7 +75,7 @@ describe('safe routine tests', () => {
       expect(testModeAllowsReadOnlyTool(tool, {})).toBe(true)
     }
     for (const [tool, args] of [
-      ['shell', { command: 'pwd' }], ['browser', { action: 'snapshot' }], ['web_fetch', { url: 'https://example.com' }],
+      ['shell', { command: 'pwd' }], ['browser', { action: 'snapshot' }], ['web_fetch', { url: 'https://example.com' }], ['web_search', { query: 'example' }],
       ['playwright__click', { selector: '#send' }], ['write_file', { path: 'output.txt' }],
       ['bot_control', { action: 'schedule' }], ['bot_control', { action: 'run_routine' }], ['ask_user_questions', { questions: [] }],
     ] as Array<[string, Record<string, unknown>]>) expect(testModeAllowsReadOnlyTool(tool, args)).toBe(false)

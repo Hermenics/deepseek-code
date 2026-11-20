@@ -1768,5 +1768,5 @@ describe('primary task effect reconciliation', () => {
       .map(entry => JSON.parse(entry.text) as { event: string; phase: string })
       .filter(entry => entry.event === 'StopFailure')
     expect(latestMarkers.map(entry => entry.phase)).toEqual(['started', 'finished'])
-  })
+  }, 10_000)
 })

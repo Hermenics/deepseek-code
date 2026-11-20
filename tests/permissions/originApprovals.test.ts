@@ -32,6 +32,10 @@ describe('origin-scoped approval keys', () => {
     expect(resolvePermission(permissions, 'web_fetch', { url: 'https://example.com/docs/page' })).toBe('allow')
     expect(resolvePermission(permissions, 'web_fetch', { url: 'https://example.com.evil.test/' })).toBe('ask')
   })
+
+  it('uses the fixed DuckDuckGo origin for WebSearch approvals', () => {
+    expect(approvalKey('web_search', { query: '  search terms  ' })).toBe('web_search@https://html.duckduckgo.com')
+  })
 })
 
 describe('agent session approvals for web_fetch', () => {
@@ -135,6 +139,13 @@ describe('permission prompt', () => {
     expect(labels).toContain('Always allow web_fetch on https://docs.example.com')
     expect(labels).toContain('Deny and stop this turn')
     expect(labels).toContain('Deny this action and continue')
+  })
+  it('sanitizes WebSearch control characters while keeping the query readable', () => {
+    const query = 'before\u001b[2J\nafter'
+    const summary = toolPermissionSummary({ toolName: 'web_search', args: { query }, reason: 'permission' })
+    expect(summary).toBe('web_search → before [2J after')
+    expect(summary).not.toContain('\u001b')
+    expect(summary).not.toContain('\n')
   })
 
   it('explains mutable upstream contents only for session-approved Git pulls', () => {

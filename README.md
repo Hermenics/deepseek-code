@@ -120,7 +120,7 @@ Each provider also exposes provider-specific models (Bedrock, Vertex, local).
 
 The agent has access to these tools out of the box:
 
-`ReadFile` · `WriteFile` · `EditFile` · `PatchFile` · `Shell` · `Glob` · `Grep` · `Lsp` · `Git` · `ReadFolder` · `WebFetch` · `Skill` · `SubAgent` · `AskAgent` · `Workflow` · `Memory` · `Todo` · `Introspect` · `MoA` · `AskUserQuestions`
+`ReadFile` · `WriteFile` · `EditFile` · `PatchFile` · `Shell` · `Glob` · `Grep` · `Lsp` · `Git` · `ReadFolder` · `WebFetch` · `WebSearch` · `Skill` · `SubAgent` · `AskAgent` · `Workflow` · `Memory` · `Todo` · `Introspect` · `MoA` · `AskUserQuestions`
 
 Shell command execution currently requires Linux with a working bubblewrap sandbox. On macOS, Windows, or a Linux host where the sandbox cannot start, commands fail closed before execution.
 

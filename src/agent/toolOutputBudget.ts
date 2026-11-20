@@ -9,7 +9,7 @@ export const TOOL_BATCH_CHARS = TOOL_BATCH_BYTES
 
 /** Read-only tool results that the delegated executor historically charges to the shared byte budget. */
 export const AGGREGATE_READ_TOOL_NAMES = new Set([
-  'read_file', 'read_folder', 'grep', 'glob', 'web_fetch', 'discover_tools', 'session_evidence',
+  'read_file', 'read_folder', 'grep', 'glob', 'web_fetch', 'web_search', 'discover_tools', 'session_evidence',
 ])
 
 /** Tool outputs charged at their capture source; charging their returned model envelope again would double-count them. */

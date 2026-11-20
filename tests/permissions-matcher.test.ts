@@ -5,6 +5,7 @@ describe('default capability permissions', () => {
   it('asks before shell and network tools when no rule is configured', () => {
     expect(resolvePermission(undefined, 'shell', { command: 'git status' })).toBe('ask')
     expect(resolvePermission(undefined, 'web_fetch', { url: 'https://example.invalid' })).toBe('ask')
+    expect(resolvePermission(undefined, 'web_search', { query: 'bun runtime' })).toBe('ask')
   })
 
   it('keeps ordinary read tools allowed by default', () => {
@@ -25,6 +26,13 @@ describe('default capability permissions', () => {
     expect(resolvePermission({ allow: ['Shell(git status)'] }, 'shell', { command: 'git status' })).toBe('allow')
     expect(resolvePermission({ deny: ['Shell(curl *)'] }, 'shell', { command: 'curl https://example.invalid' })).toBe('deny')
     expect(resolvePermission({ deny: ['Shell(curl *)'] }, 'shell', { command: 'git status' })).toBe('ask')
+  })
+
+  it('matches WebSearch rules against the exact normalized query sent to DuckDuckGo', () => {
+    const query = `  ${'q'.repeat(310)}  `
+    const requestUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent('q'.repeat(300))}`
+    expect(resolvePermission({ allow: [`web_search(${requestUrl})`] }, 'web_search', { query })).toBe('allow')
+    expect(resolvePermission({ deny: [`web_search(${requestUrl})`] }, 'web_search', { query })).toBe('deny')
   })
 
   it('matches documented PascalCase aliases to snake_case tool names', () => {

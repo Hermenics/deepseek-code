@@ -8,15 +8,15 @@ import type { PermissionProfile } from '../../orchestration/types.js'
 export type SubAgentRole = 'reader' | 'writer' | 'executor' | 'reviewer' | 'unrestricted'
 
 const ROLE_TOOLS: Record<SubAgentRole, Set<string> | '*'> = {
-  reader: new Set(['read_file', 'read_folder', 'grep', 'glob', 'lsp', 'web_fetch', 'introspect', 'session_evidence', 'record_claim', 'discover_tools']),
+  reader: new Set(['read_file', 'read_folder', 'grep', 'glob', 'lsp', 'web_fetch', 'web_search', 'introspect', 'session_evidence', 'record_claim', 'discover_tools']),
   writer: new Set(['read_file', 'read_folder', 'grep', 'glob', 'write_file', 'patch_file', 'introspect', 'session_evidence', 'record_claim', 'discover_tools']),
-  executor: new Set(['read_file', 'read_folder', 'grep', 'glob', 'write_file', 'patch_file', 'shell', 'web_fetch', 'introspect', 'session_evidence', 'record_claim', 'discover_tools']),
+  executor: new Set(['read_file', 'read_folder', 'grep', 'glob', 'write_file', 'patch_file', 'shell', 'web_fetch', 'web_search', 'introspect', 'session_evidence', 'record_claim', 'discover_tools']),
   reviewer: new Set(['read_file', 'read_folder', 'grep', 'glob', 'lsp', 'introspect', 'session_evidence', 'record_claim', 'discover_tools']),
   unrestricted: '*',
 }
 
 const PROFILE_TOOLS: Record<PermissionProfile, Set<string> | '*'> = {
-  'researcher-readonly': new Set(['read_file', 'read_folder', 'grep', 'glob', 'lsp', 'web_fetch', 'introspect', 'session_evidence', 'record_claim', 'discover_tools']),
+  'researcher-readonly': new Set(['read_file', 'read_folder', 'grep', 'glob', 'lsp', 'web_fetch', 'web_search', 'introspect', 'session_evidence', 'record_claim', 'discover_tools']),
   tester: new Set(['read_file', 'read_folder', 'grep', 'glob', 'shell', 'introspect', 'session_evidence', 'record_claim', 'discover_tools']),
   'writer-worktree': new Set(['read_file', 'read_folder', 'grep', 'glob', 'write_file', 'patch_file', 'edit_file', 'shell', 'introspect', 'session_evidence', 'record_claim', 'discover_tools']),
   'coordinator-integrator': '*',

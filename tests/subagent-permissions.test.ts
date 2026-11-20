@@ -6,7 +6,7 @@ import type { Tool } from '../src/tools/types.js'
 const ALL_TOOLS: Tool[] = [
   'read_file', 'read_folder', 'grep', 'glob',
   'write_file', 'patch_file', 'shell',
-  'web_fetch', 'introspect', 'subagent', 'record_claim', 'session_evidence', 'discover_tools',
+  'web_fetch', 'web_search', 'introspect', 'subagent', 'record_claim', 'session_evidence', 'discover_tools',
 ].map((name) => ({ name, description: name, parameters: {} }) as unknown as Tool)
 
 function names(tools: Tool[]): string[] {
@@ -17,7 +17,7 @@ describe('getToolsForRole', () => {
   test('reader — returns only read tools', () => {
     const result = getToolsForRole('reader', ALL_TOOLS)
     expect(names(result)).toEqual(
-      ['discover_tools', 'glob', 'grep', 'introspect', 'read_file', 'read_folder', 'record_claim', 'session_evidence', 'web_fetch'],
+      ['discover_tools', 'glob', 'grep', 'introspect', 'read_file', 'read_folder', 'record_claim', 'session_evidence', 'web_fetch', 'web_search'],
     )
   })
 
@@ -35,6 +35,7 @@ describe('getToolsForRole', () => {
     expect(names(result)).toContain('write_file')
     expect(names(result)).toContain('session_evidence')
     expect(names(result)).toContain('discover_tools')
+    expect(names(result)).toContain('web_search')
   })
 
   test('reviewer — only read tools, no writes', () => {

@@ -64,7 +64,7 @@ export function formatPermissionsReport(input: PermissionsReportInput): string {
   lines.push(`**Approved this session:** ${formatList(input.sessionApproved)}`)
   lines.push('')
   lines.push('Decision order: mode gate -> PreToolUse hooks -> risk checks (high risk always asks) -> settings deny/allow rules -> agent allowlist -> tool execution. Every gate applies in every mode.')
-  lines.push('Session approvals for web_fetch are remembered per origin (for example `web_fetch@https://example.com`).')
+  lines.push('Session approvals for web_fetch are remembered per origin; web_search is scoped to its fixed `https://html.duckduckgo.com` endpoint.')
 
   return lines.join('\n')
 }

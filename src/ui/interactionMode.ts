@@ -24,10 +24,10 @@ export function isReviewMode(mode: InteractionMode): boolean {
   return mode === 'review'
 }
 
-// Observation and session bookkeeping tools available in every mode.
+// Read-only and session-bookkeeping tools available in every mode; network reads still require approval.
 const READ_ONLY_TOOLS = new Set([
   'read_file', 'read_folder', 'glob', 'grep', 'lsp', 'session_evidence', 'session_search', 'record_claim', 'discover_tools',
-  'web_fetch', 'introspect', 'todo', 'step', 'memory',
+  'web_fetch', 'web_search', 'introspect', 'todo', 'step', 'memory',
   'git', 'workflow', 'get_goal', 'ask_user_questions', 'skill',
 ])
 

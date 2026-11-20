@@ -136,7 +136,7 @@ export function buildToolPreview(toolName: string, args: Record<string, unknown>
   const selected: Record<string, unknown> = {
     read_file: args.path, write_file: args.path, patch_file: args.path, edit_file: args.path,
     read_folder: args.path, shell: args.command, grep: `${args.pattern ?? ''} in ${args.path ?? '.'}`,
-    glob: args.pattern, web_fetch: args.url, subagent: args.task,
+    glob: args.pattern, web_fetch: args.url, web_search: args.query, subagent: args.task,
   }
   const value = selected[toolName] ?? Object.values(args).find(item => typeof item === 'string') ?? ''
   return truncate(str(value).replace(/[\x00-\x1f\x7f-\x9f]/g, ' '))
@@ -564,19 +564,27 @@ export async function runSubAgentLoop<T = never>(
       })
       const policyDecision = resolvePermission(permissions, call.function.name, args)
       const configuredDecision = permissionGrant && policyDecision !== 'deny' ? String(permissionGrant.payload.decision) as 'allow' | 'deny' : policyDecision
-      const hookDecision: Awaited<ReturnType<typeof runPermissionRequestHooks>> = configuredDecision === 'ask'
+      const networkRisk = ['web_fetch', 'web_search'].includes(call.function.name)
+        ? assessRisk(call.function.name, args, { isSubAgent: true, recentWriteCount: writeCount, config: settings.risk ?? {} })
+        : null
+      const requiresNetworkApproval = configuredDecision !== 'deny' && networkRisk?.requiresConfirmation === true && networkRisk.matchedRule === 'shell:network'
+      const permissionGrantApprovedNetwork = permissionGrant?.payload.decision === 'allow' && policyDecision !== 'deny'
+      const hookDecision: Awaited<ReturnType<typeof runPermissionRequestHooks>> = configuredDecision === 'ask' || (requiresNetworkApproval && !permissionGrantApprovedNetwork)
         ? await runPermissionRequestHooks(settings.hooks, call.function.name, args, options.context?.sessionId ?? '', { cwd: options.context?.workspacePath, model: modelName }, options.context?.signal)
         : { decision: 'pass' as const }
+      let networkApprovalGranted = permissionGrantApprovedNetwork || hookDecision.approved
       let decision = hookDecision.decision === 'block'
         ? 'deny' as const
         : hookDecision.approved
           ? 'allow' as const
           : configuredDecision
+      if (decision === 'allow' && requiresNetworkApproval && !networkApprovalGranted) decision = 'ask'
       let userDenied = false
       if (decision === 'ask') {
         const review = options.context?.session?.requestToolPermission(call.function.name, args, options.context.taskId)
         if (review) {
           decision = await review
+          networkApprovalGranted ||= decision === 'allow'
           userDenied = decision === 'deny'
         }
       }
@@ -607,7 +615,8 @@ export async function runSubAgentLoop<T = never>(
 
       if (['write_file', 'patch_file', 'edit_file'].includes(call.function.name)) writeCount++
       const risk = assessRisk(call.function.name, args, { isSubAgent: true, recentWriteCount: writeCount, config: settings.risk ?? {} })
-      if (risk?.requiresConfirmation) {
+      const approvedNetworkTool = networkApprovalGranted && ['web_fetch', 'web_search'].includes(call.function.name) && risk?.matchedRule === 'shell:network'
+      if (risk?.requiresConfirmation && !approvedNetworkTool) {
         const reason = `Tool '${call.function.name}' blocked: ${risk.level} risk (${risk.description})`
         options.context?.emit?.('authorization', { tool: call.function.name, decision: 'deny', reason })
         evidence.add('denial', call.function.name, JSON.stringify({ args, reason }))

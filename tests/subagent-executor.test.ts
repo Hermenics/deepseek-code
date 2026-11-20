@@ -163,6 +163,7 @@ describe('subagent terminal protocol', () => {
       { name: 'custom_effect', description: 'effect', parameters: { type: 'object', properties: {} }, async execute() { effects++; return 'effect ran' } },
     ]
     expect(AGGREGATE_READ_TOOL_NAMES.has('shell')).toBe(false)
+    expect(AGGREGATE_READ_TOOL_NAMES.has('web_search')).toBe(true)
     const requests: Array<Record<string, unknown>> = []
     let calls = 0
     const client = { chat: { completions: { create: async (body: Record<string, unknown>) => {
@@ -880,6 +881,35 @@ describe('subagent terminal protocol', () => {
       expect(denial).toMatchObject({ schemaVersion: 1, status: 'error', error: { kind: 'permission', code: 'USER_DENIED', retryable: false } })
       expect(denial.error.message).toContain('Do not retry it')
       expect(denial.error.message).toContain('continue with an independent permitted action')
+    } finally { await session.shutdown() }
+  })
+
+  it('asks the coordinator to approve a settings-allowed WebSearch before the network risk gate', async () => {
+    const requests: Array<{ tool: string; args: Record<string, unknown> }> = []
+    let searches = 0
+    const searchTool: Tool = {
+      name: 'web_search', description: 'search',
+      parameters: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'] },
+      async execute() { searches++; return 'search results' },
+    }
+    const call = { content: null, tool_calls: [{ id: 'settings-allowed-search', type: 'function', function: { name: 'web_search', arguments: '{"query":"release notes"}' } }] }
+    const session = new OrchestratorSession({
+      projectRoot: process.cwd(), logFile: null, snapshotFile: null,
+      settings: { permissions: { allow: ['web_search'] }, risk: { enabled: false } },
+    })
+    session.requestToolPermission = async (tool, args): Promise<'allow'> => { requests.push({ tool, args }); return 'allow' }
+    const providerMessages = [call, terminalArgs(valid)]
+
+    try {
+      const result = await runSubAgentLoop('system', 'search the web', 'settings-allowed-search', [searchTool], provider, 'fake', {
+        client: { chat: { completions: { create: async () => response(providerMessages.shift()!) } } } as any,
+        terminal,
+        context: session.toolContext({ permissionProfile: 'researcher-readonly' }),
+      })
+
+      expect(result.terminalResult).toEqual(valid)
+      expect(requests).toEqual([{ tool: 'web_search', args: { query: 'release notes' } }])
+      expect(searches).toBe(1)
     } finally { await session.shutdown() }
   })
 

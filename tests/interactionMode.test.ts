@@ -20,9 +20,9 @@ import {
 type RestrictedMode = Exclude<InteractionMode, 'auto'>
 
 const DOCUMENTED_MODE_TOOLS: Record<RestrictedMode, string[]> = {
-  review: ['session_evidence', 'session_search', 'record_claim', 'discover_tools', 'read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'step', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'skill'],
-  plan: ['session_evidence', 'session_search', 'record_claim', 'discover_tools', 'read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'step', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'skill', 'write_plan', 'submit_plan'],
-  build: ['session_evidence', 'session_search', 'record_claim', 'discover_tools', 'read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'todo', 'step', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'skill', 'shell', 'write_file', 'edit_file', 'patch_file', 'update_knowledge', 'subagent', 'ask_agent', 'moa', 'update_goal', 'browser', 'dev_server'],
+  review: ['session_evidence', 'session_search', 'record_claim', 'discover_tools', 'read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'web_search', 'introspect', 'todo', 'step', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'skill'],
+  plan: ['session_evidence', 'session_search', 'record_claim', 'discover_tools', 'read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'web_search', 'introspect', 'todo', 'step', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'skill', 'write_plan', 'submit_plan'],
+  build: ['session_evidence', 'session_search', 'record_claim', 'discover_tools', 'read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'web_search', 'introspect', 'todo', 'step', 'memory', 'git', 'workflow', 'get_goal', 'ask_user_questions', 'skill', 'shell', 'write_file', 'edit_file', 'patch_file', 'update_knowledge', 'subagent', 'ask_agent', 'moa', 'update_goal', 'browser', 'dev_server'],
 }
 
 function documentedTools(content: string, mode: RestrictedMode): string[] {
@@ -126,6 +126,10 @@ describe('interactionMode', () => {
         expect(canUseTool('build', 'web_fetch')).toBe(true)
       })
 
+      it('should allow web_search while keeping network permission-gated separately', () => {
+        expect(canUseTool('build', 'web_search')).toBe(true)
+      })
+
       it('should allow shell', () => {
         expect(canUseTool('build', 'shell')).toBe(true)
       })
@@ -208,6 +212,10 @@ describe('interactionMode', () => {
 
       it('should allow web_fetch', () => {
         expect(canUseTool('plan', 'web_fetch')).toBe(true)
+      })
+
+      it('should allow web_search', () => {
+        expect(canUseTool('plan', 'web_search')).toBe(true)
       })
 
       it('should allow glob', () => {
@@ -327,7 +335,7 @@ describe('interactionMode', () => {
       expect(systemPrompt.split('\n').length).toBeLessThanOrEqual(160)
       expect(systemPrompt).not.toContain('## 17. Tool: write_file')
       expect(systemPrompt).not.toContain('## 45. CLI command reference')
-      expect(docs).toContain('| Auto | All 32 native tools and dynamically discovered MCP tools |')
+      expect(docs).toContain('| Auto | All registered native tools and dynamically discovered MCP tools |')
     })
   })
 

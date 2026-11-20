@@ -51,7 +51,7 @@ What helpers, types, patterns, or utilities already exist that you will use?
 How will the implementer know the work is done correctly?
 
 ## Allowed tools
-- read_file, read_folder, glob, grep, lsp, web_fetch, introspect, get_goal — for exploration
+- read_file, read_folder, glob, grep, lsp, web_fetch, web_search, introspect, get_goal — for exploration
 - git (status, diff, log only), todo (list only), memory (list only) — for read-only state inspection
 - workflow — only when it launches read-only agents
 - write_plan — to write your plan content

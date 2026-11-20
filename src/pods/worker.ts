@@ -24,7 +24,7 @@ import { installBotBrowserControl } from './browser.js'
 import { clearRecording } from '../browser/record.js'
 import { materializeProcedure, procedureGuard, procedureSkill } from './procedures.js'
 
-const READ_TOOLS = new Set(['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'introspect', 'get_goal', 'ask_user_questions', 'step', 'session_search'])
+const READ_TOOLS = new Set(['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'web_fetch', 'web_search', 'introspect', 'get_goal', 'ask_user_questions', 'step', 'session_search'])
 const BROWSER_READ_ACTIONS = new Set(['snapshot', 'find', 'screenshot', 'logs', 'network', 'wait', 'expect', 'scroll'])
 const TEST_LOCAL_READ_TOOLS = new Set(['read_file', 'read_folder', 'glob', 'grep', 'lsp', 'introspect', 'get_goal'])
 /** Only bounded local inspection can execute during a safe routine preview. */

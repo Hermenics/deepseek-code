@@ -6,7 +6,7 @@ import { Grep } from './Grep/Grep.js'
 import { Glob } from './Glob/Glob.js'
 import { Shell } from './Shell/Shell.js'
 import { Introspect } from './Introspect/Introspect.js'
-import { WebFetch } from './WebFetch/WebFetch.js'
+import { WebFetch, WebSearch } from './WebFetch/WebFetch.js'
 import { Browser } from './Browser/Browser.js'
 import { DevServer } from './DevServer/DevServer.js'
 import { SubAgent } from './SubAgent/SubAgent.js'
@@ -33,7 +33,7 @@ import { DiscoverTools } from './DiscoverTools/DiscoverTools.js'
 import { RecordClaim, SessionEvidenceTool } from './SessionEvidence/SessionEvidence.js'
 
 /** Every built-in tool, in the order they are offered to the model. */
-export const allTools: Tool[] = [WriteFile, EditFile, PatchFile, ReadFile, ReadFolder, Grep, Glob, Lsp, Shell, Introspect, WebFetch, Browser, DevServer, Skill, SubAgent, AskAgent, Workflow, UpdateKnowledge, Todo, Step, Git, MemoryTool, SessionSearch, MoATool, SubmitPlan, WritePlan, GetGoal, CreateGoal, UpdateGoal, AskUserQuestions, SessionEvidenceTool, RecordClaim, DiscoverTools]
+export const allTools: Tool[] = [WriteFile, EditFile, PatchFile, ReadFile, ReadFolder, Grep, Glob, Lsp, Shell, Introspect, WebFetch, WebSearch, Browser, DevServer, Skill, SubAgent, AskAgent, Workflow, UpdateKnowledge, Todo, Step, Git, MemoryTool, SessionSearch, MoATool, SubmitPlan, WritePlan, GetGoal, CreateGoal, UpdateGoal, AskUserQuestions, SessionEvidenceTool, RecordClaim, DiscoverTools]
 
 /** Built-in tools indexed by their model-facing name. */
 export const toolMap = new Map<string, Tool>(allTools.map((t) => [t.name, t]))

@@ -3532,6 +3532,7 @@ export function toolPermissionSummary({ toolName, args }: ToolPermissionRequest)
     const name = /"name"\s*:\s*"([^"]+)"/.exec(input.script)?.[1]
     return name ? `Dynamic Workflow → ${name}` : 'Dynamic Workflow'
   }
+  if (toolName === 'web_search' && typeof input.query === 'string') return `web_search → ${previewToolCallArgs(toolName, input)}`
   if (toolName !== 'browser' && typeof input.command === 'string') return `$ ${input.command}`
   if (typeof input.url === 'string' && (toolName !== 'browser' || input.action === 'navigate')) return `${toolName} → ${typeof input.action === 'string' ? `${input.action} ` : ''}${input.url}`
   if (toolName === 'browser' && typeof input.action === 'string') {

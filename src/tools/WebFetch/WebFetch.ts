@@ -1,6 +1,7 @@
 import { lookup } from 'dns/promises'
 import { BlockList, isIP } from 'node:net'
 import { Tool } from '../types.js'
+import { normalizeWebSearchQuery } from '../../utils/webSearchQuery.js'
 
 const TIMEOUT_MS = 15_000
 const MAX_CHARS = 20_000
@@ -189,10 +190,10 @@ function stripHtml(html: string): string {
     .trim()
 }
 
-/** Tool that fetches an http(s) URL and returns up to 20k chars of stripped text. SSRF-hardened: every hop, redirects included (max 5), must resolve only to public IPs, and the request is pinned to the checked IP. Body size and total time are capped. */
+/** Tool that fetches an http(s) URL and returns up to 20k chars of stripped text. Same-origin redirects only; every hop must resolve only to public IPs, and the request is pinned to the checked IP. Body size and total time are capped. */
 export const WebFetch: Tool = {
   name: 'web_fetch',
-  description: 'Fetch content from a URL. Returns the page text.',
+  description: 'Fetch a public URL. Same-origin redirects are followed; cross-origin redirects are blocked so each origin can be approved directly.',
   parameters: {
     type: 'object',
     properties: {
@@ -233,8 +234,11 @@ export const WebFetch: Tool = {
           const location = res.headers.get('location')
           if (!location) return `Error: redirect without Location fetching ${url}`
           if (redirect === MAX_REDIRECTS) return `Error: too many redirects fetching ${requestedUrl}`
-          url = new URL(location, url).toString()
-          if (!isValidUrl(url)) return 'Error: redirect uses a blocked URL protocol.'
+          const destination = new URL(location, url)
+          if (!isValidUrl(destination.href)) return 'Error: redirect uses a blocked URL protocol.'
+          if (isBlockedUrl(destination.href)) return 'Error: URL points to a private/internal network address which is blocked for security reasons.'
+          if (destination.origin !== original.origin) return `Error: cross-origin redirect to ${destination.origin} is blocked. Fetch that destination directly to authorize its origin.`
+          url = destination.href
           continue
         }
 
@@ -266,7 +270,7 @@ export const WebFetch: Tool = {
 /** Tool that runs a query (trimmed to 300 chars) through DuckDuckGo's HTML endpoint via WebFetch, so the same SSRF and size limits apply. */
 export const WebSearch: Tool = {
   name: 'web_search',
-  description: 'Search the public web for an exact model ID or technical topic. Returns search result text and links.',
+  description: 'Search the public web for a query. Returns result text and links.',
   parameters: {
     type: 'object',
     properties: {
@@ -275,7 +279,7 @@ export const WebSearch: Tool = {
     required: ['query'],
   },
   async execute(args, context) {
-    const query = String(args.query ?? '').trim().slice(0, 300)
+    const query = normalizeWebSearchQuery(String(args.query ?? ''))
     if (!query) return 'Error: search query is required.'
     return WebFetch.execute({ url: `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}` }, context)
   },

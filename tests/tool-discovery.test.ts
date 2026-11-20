@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { discoverTools, TOOL_DISCOVERY_MAX_RESPONSE_BYTES, TOOL_DISCOVERY_MAX_RESULTS } from '../src/agent/toolDiscovery.js'
 import { Agent } from '../src/agent/agent.js'
 import { DiscoverTools } from '../src/tools/DiscoverTools/DiscoverTools.js'
+import { AGGREGATE_TURN_BYTES } from '../src/orchestration/aggregateBudget.js'
 
 const tool = (index: number, description = `Search source files by token ${index}`) => ({
   name: `search_source_${index}`,
@@ -81,6 +82,33 @@ test('catalog installation rejects duplicate names without replacing the current
   expect(agent.tools).toBe(tools)
   expect(agent.toolMap).toBe(lookup)
   expect([...agent.discoveredMcpTools]).toEqual([current.name])
+})
+
+test('primary discover_tools output is accepted and charged exactly once', async () => {
+  const agent = catalogAgent()
+  agent.installMcpTools([{ ...tool(1, `discovery_budget_marker ${'x'.repeat(11_000)}`), name: 'server__budget_probe', execute: async () => 'unused' }])
+  const query = 'discovery_budget_marker'
+  const expected = JSON.stringify(discoverTools(agent.getEligibleTools(), query))
+  const outputBytes = Buffer.byteLength(expected, 'utf8')
+  const remainingBytes = outputBytes + 8
+  let usedBytes = 0
+  const charges: number[] = []
+  agent.turnBudgetGroupId = 'primary-discovery-output'
+  agent.orchestrator.registry.recordAggregateOutputBytes = (_groupId: string, bytes: number) => {
+    charges.push(bytes)
+    if (bytes > remainingBytes - usedBytes) { usedBytes = remainingBytes; return false }
+    usedBytes += bytes
+    return true
+  }
+
+  expect(outputBytes).toBeGreaterThan(remainingBytes / 2)
+  expect(outputBytes).toBeLessThanOrEqual(TOOL_DISCOVERY_MAX_RESPONSE_BYTES)
+  const result = await agent.executeTool('discover_tools', { query })
+  expect(result).toBe(expected)
+  expect(charges).toEqual([outputBytes])
+
+  expect(await agent.executeTool('discover_tools', { query })).toContain('AGGREGATE_OUTPUT_BYTES_EXCEEDED')
+  expect(charges).toEqual([outputBytes, outputBytes])
 })
 
  test('large MCP catalogs are discovered on demand and reload invalidates selected schemas', async () => {

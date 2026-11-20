@@ -447,7 +447,7 @@ async function awaitWithAbort<T>(pending: Promise<T>, signal?: AbortSignal): Pro
 }
 
 // Tools that are safe to run in parallel (read-only or isolated)
-const PARALLEL_SAFE = new Set(['subagent', 'ask_agent', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'introspect', 'step', 'skill'])
+const PARALLEL_SAFE = new Set(['subagent', 'ask_agent', 'grep', 'glob', 'read_file', 'read_folder', 'web_fetch', 'web_search', 'introspect', 'step', 'skill'])
 const PARALLEL_TOOL_BATCH_CONCURRENCY = 4
 
 const DEFAULT_SYSTEM_PROMPT = DEFAULT_SYSTEM_PROMPT_MD
@@ -5077,7 +5077,7 @@ export class Agent {
     // Starting a dev server is approved per exact launch.json entry: resolve it now, before the gates.
     if (tc.function.name === 'dev_server') effectiveArgs = await withLaunchApproval(this.workspacePath, effectiveArgs)
 
-    // Origin-scoped tools (web_fetch) remember approvals per site, never per tool.
+    // Origin-scoped tools remember approvals per site; web_search uses its fixed DuckDuckGo origin.
     const gitMutation = isGitMutation(tc.function.name, effectiveArgs)
     const primaryEffectId = this.options.checkpointHistory && supportsStableToolCallIds(this.provider, this.model) && (
       gitMutation || tc.function.name === 'shell' && typeof effectiveArgs.command === 'string' &&

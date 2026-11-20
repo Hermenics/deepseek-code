@@ -206,6 +206,42 @@ describe('WebFetch tool', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('blocks a WebSearch cross-origin redirect before sending a request to its destination', async () => {
+    const { WebSearch } = await import('../src/tools/WebFetch/WebFetch.js')
+    const fetchMock = mock(() => Promise.resolve(streamResponse([], {
+      status: 302,
+      headers: { location: 'https://other.example/private' },
+    })))
+    global.fetch = fetchMock as any
+
+    const result = await WebSearch.execute({ query: 'release notes' })
+
+    expect(result).toContain('cross-origin redirect')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends the trimmed, 300-character WebSearch query', async () => {
+    const { WebSearch } = await import('../src/tools/WebFetch/WebFetch.js')
+    const fetchMock = mock(() => Promise.resolve(okResponse('results')))
+    global.fetch = fetchMock as any
+
+    await WebSearch.execute({ query: `  ${'q'.repeat(310)}  ` })
+
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [URL, RequestInit & { tls: { serverName: string } }]
+    expect(url.searchParams.get('q')).toBe('q'.repeat(300))
+    expect(init.headers).toEqual({ host: 'html.duckduckgo.com' })
+    expect(init.tls.serverName).toBe('html.duckduckgo.com')
+  })
+
+  it('does not send an empty WebSearch query', async () => {
+    const { WebSearch } = await import('../src/tools/WebFetch/WebFetch.js')
+    const fetchMock = mock(() => Promise.resolve(okResponse('must not fetch')))
+    global.fetch = fetchMock as any
+
+    expect(await WebSearch.execute({ query: ' \t\n ' })).toContain('search query is required')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   // --- Non-2xx HTTP status ---
 
   it('returns an error for status 404', async () => {
