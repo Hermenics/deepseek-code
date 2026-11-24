@@ -12,10 +12,32 @@ DeepSeek Code has two primary execution surfaces and several coordination mechan
 | Interactive TUI | `bun run start`, installed `deepseek` | Conversation, approvals, plans, tools, tasks, workflows, session control |
 | Development watch | `bun run dev` | Run source and restart on changes |
 | Pipe mode | `deepseek --pipe ...` | Explicit headless prompt execution |
-| JSON pipe mode | `deepseek --pipe --json ...` | Machine-readable one-shot result |
+| Legacy JSON pipe mode | `deepseek --pipe --json ...` | Machine-readable one-shot result |
+| JSON Lines pipe mode | `deepseek --pipe --jsonl ...` | Versioned event stream, one JSON object per line |
+| Pipe output schema | `deepseek --pipe --output-schema <path> ...` | Prompt for and locally validate a JSON response |
 | Slash commands | `/command ...` | Local UI/control actions that do not need model interpretation |
 | Model tools | Tool calls selected by the agent | Typed access to workspace and coordination capabilities |
 | Saved workflows | `/<name>` or `/workflow run <name>` | Repeatable approved multi-agent coordination programs |
+
+### 1.1 Pipe protocols and output schemas
+
+`--json` and `--jsonl` are mutually exclusive. Without either option, pipe mode streams generated text to stdout and reports errors on stderr. `--json` retains the legacy final-only stdout contract: success is `{ "ok": true, "output": "...", "tools": [...] }`; failure is `{ "ok": false, "error": "..." }`. It does not emit token or tool-call events. Tool names are reported to stderr during execution.
+
+`--jsonl` is JSON Lines v1. Each stdout line is one JSON object containing `version: 1` and `type`, plus the event fields below:
+
+| Event | Additional fields |
+| --- | --- |
+| `start` | None |
+| `token` | `text`: one streamed text fragment |
+| `tool_call` | `name`: tool name; arguments and results are not emitted |
+| `done` | `ok: true`, final `output`, the `tools` name array, and `usage` |
+| `error` | `ok: false`, `error`, `partialOutput`, and `usage`; if `--output-schema` rejects the final output, `issues` is included |
+
+After argument and schema preflight succeeds, `start` is emitted before agent execution, followed by zero or more `token` and `tool_call` events; the run then ends in `done` or `error`. Preflight failures can emit `error` without `start`. `partialOutput` is true when any generated text was received before failure. The `usage` object has nullable `tokens` and `costUsd`, `tokenStatus` and `costStatus` values of `measured`, `partial`, or `unavailable`, and a boolean `costEstimated`. When the final-output check from `--output-schema` fails, each `issues` entry contains only `instancePath` and `keyword`; a non-JSON response uses the `json` keyword, and schema-validation failures include up to 20 Ajv issues.
+
+`--output-schema <path>` may be provided once and reads a local file containing a JSON Schema object or boolean schema. The file must be no larger than 1,000,000 bytes. The complete schema JSON, including annotations, must serialize to no more than 32 KiB; oversized schemas fail instead of being truncated. `$ref` values must be local references beginning with `#`; no remote resolver is used, and `$dynamicRef` or `$recursiveRef` is rejected. Annotation keywords—including free-form annotations such as `title`, `description`, `examples`, `default`, and `$comment`—are omitted from the model-facing schema. The prompt instructs the model to return exactly one JSON value conforming to the remaining schema, without prose, Markdown, or code fences. The final response is parsed and validated locally with Ajv's configured draft-07 validator; unsupported keywords or unregistered formats fail preflight rather than being ignored.
+
+Schema loading, parsing, reference, prompt-size, or final-output validation failures set exit status 1 and use the selected pipe format. In `--json`, failures use the legacy `{ "ok": false, "error": "..." }` object. In `--jsonl`, they use an `error` event with usage and `partialOutput`; final-output parse or validation failures additionally include `issues`. In text mode, generated text has already been streamed when final validation runs, so a validation failure is reported on stderr after that text.
 
 ## 2. Interaction modes
 

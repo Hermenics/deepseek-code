@@ -1,4 +1,18 @@
 import type { Command, CommandResult } from '../types.js'
+import { listSessions } from '../../agent/session.js'
+import { resolve } from 'node:path'
+
+const sessionIdCache = new Map<string, { expiresAt: number; ids: Promise<string[]> }>()
+
+function listLocalSessionIds(cwd: string): Promise<string[]> {
+  const key = resolve(cwd)
+  const cached = sessionIdCache.get(key)
+  if (cached && cached.expiresAt > Date.now()) return cached.ids
+  const ids = listSessions(cwd)
+    .then(sessions => sessions.map(session => session.id).filter(id => /^[a-f0-9]{12}$/i.test(id)))
+  sessionIdCache.set(key, { expiresAt: Date.now() + 1_000, ids })
+  return ids
+}
 
 /** Parses `/sessions [export <12-hex-id> [json|md]]`; exports default to Markdown. */
 export function parseSessionsCommand(args: string[]): CommandResult {
@@ -15,6 +29,13 @@ const command: Command = {
   name: 'sessions',
   aliases: [],
   description: 'List or export sanitized sessions',
+  async complete(args, context) {
+    if (args.length === 0) return ['export']
+    if (args[0] !== 'export') return []
+    if (args.length === 1) return listLocalSessionIds(context.cwd)
+    if (args.length === 2) return ['json', 'md']
+    return []
+  },
   parse(args) {
     return parseSessionsCommand(args)
   },

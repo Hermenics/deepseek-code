@@ -8,6 +8,13 @@ export interface TrustedArtifact {
   canonicalPath: string
   hash: string
 }
+export interface CachedMcpToolSchema {
+  name: string
+  description?: string
+  inputSchema: Record<string, unknown>
+}
+
+export type CachedMcpSchemas = Record<string, CachedMcpToolSchema[]>
 
 interface WorkspaceTrustFile {
   schemaVersion: 1
@@ -15,10 +22,14 @@ interface WorkspaceTrustFile {
     agents: Record<string, string>
     mcp?: TrustedArtifact
     mcpArtifacts?: Record<string, string>
+    mcpSchemas?: Record<string, { hash: string; servers: CachedMcpSchemas }>
   }>
 }
 
 const DEFAULT_TRUST_FILE = join(homedir(), '.deepseek', 'workspace-trust.json')
+const MAX_MCP_SCHEMA_CACHE_SERVERS = 128
+const MAX_MCP_SCHEMA_CACHE_TOOLS = 1_024
+const MAX_MCP_SCHEMA_CACHE_BYTES = 1_048_576
 
 /** Resolves symlinks for a path, falling back to a plain absolute path when it does not exist. */
 export async function canonicalPath(path: string): Promise<string> {
@@ -104,9 +115,7 @@ export class WorkspaceTrustStore {
   /** True if the workspace's approved MCP config matches this path and hash. */
   async isMcpApproved(artifact: TrustedArtifact): Promise<boolean> {
     const { key, state } = await this.project()
-    const approval = state.projects[key]?.mcp
-    return (approval?.canonicalPath === artifact.canonicalPath && approval.hash === artifact.hash) ||
-      state.projects[key]?.mcpArtifacts?.[artifact.canonicalPath] === artifact.hash
+    return isMcpApproved(state.projects[key], artifact)
   }
 
   /** Records the workspace's MCP config approval, replacing any previous one. */
@@ -115,6 +124,142 @@ export class WorkspaceTrustStore {
     await this.updateProject(key, project => {
       project.mcpArtifacts ??= {}
       project.mcpArtifacts[artifact.canonicalPath] = artifact.hash
+      const cached = project.mcpSchemas?.[artifact.canonicalPath]
+      if (cached && cached.hash !== artifact.hash) delete project.mcpSchemas![artifact.canonicalPath]
     })
+  }
+
+  /** Returns schemas only while the exact MCP artifact remains approved. */
+  async getMcpSchemas(artifact: TrustedArtifact): Promise<CachedMcpSchemas | null> {
+    const { key, state } = await this.project()
+    const project = state.projects[key]
+    if (!isMcpApproved(project, artifact)) return null
+    const cacheMap = project?.mcpSchemas as unknown
+    if (cacheMap === undefined) return null
+    if (!cacheMap || typeof cacheMap !== 'object' || Array.isArray(cacheMap)) {
+      await this.invalidateMcpSchemas(artifact).catch(() => undefined)
+      return null
+    }
+    const cached = (cacheMap as Record<string, unknown>)[artifact.canonicalPath]
+    if (cached === undefined) return null
+    if (!cached || typeof cached !== 'object' || Array.isArray(cached)) {
+      await this.invalidateMcpSchemas(artifact).catch(() => undefined)
+      return null
+    }
+    const record = cached as { hash?: unknown; servers?: unknown }
+    if (record.hash !== artifact.hash) {
+      // A cache for a different hash may belong to a newer concurrent load. Never
+      // let an older generation delete that entry merely because it is stale here.
+      if (typeof record.hash !== 'string') await this.invalidateMcpSchemas(artifact).catch(() => undefined)
+      return null
+    }
+    if (getMcpSchemaCacheIssue(record.servers) !== null) {
+      await this.invalidateMcpSchemas(artifact).catch(() => undefined)
+      return null
+    }
+    return structuredClone(record.servers as CachedMcpSchemas)
+  }
+
+  /** Saves a catalog only if the same artifact is still approved under the trust-file lease. */
+  async saveMcpSchemas(artifact: TrustedArtifact, servers: CachedMcpSchemas): Promise<boolean> {
+    const key = await canonicalPath(this.workspaceRoot)
+    let saved = false
+    await this.updateProject(key, project => {
+      if (!isMcpApproved(project, artifact)) return
+      if (getMcpSchemaCacheIssue(servers) !== null) {
+        const cacheMap = project.mcpSchemas as unknown
+        if (cacheMap && typeof cacheMap === 'object' && !Array.isArray(cacheMap)) {
+          const cached = (cacheMap as Record<string, unknown>)[artifact.canonicalPath]
+          if (cached && typeof cached === 'object' && !Array.isArray(cached) &&
+            (cached as { hash?: unknown }).hash === artifact.hash) {
+            delete (cacheMap as Record<string, unknown>)[artifact.canonicalPath]
+          }
+        }
+        return
+      }
+      if (!project.mcpSchemas || typeof project.mcpSchemas !== 'object' || Array.isArray(project.mcpSchemas)) {
+        project.mcpSchemas = {}
+      }
+      project.mcpSchemas[artifact.canonicalPath] = { hash: artifact.hash, servers: structuredClone(servers) }
+      saved = true
+    })
+    return saved
+  }
+
+  /** Drops cached schemas for this exact artifact without changing approval. */
+  async invalidateMcpSchemas(artifact: TrustedArtifact): Promise<void> {
+    const { key, state } = await this.project()
+    const cacheMap = state.projects[key]?.mcpSchemas as unknown
+    const malformedMap = cacheMap !== undefined && (!cacheMap || typeof cacheMap !== 'object' || Array.isArray(cacheMap))
+    const hasEntry = !!cacheMap && typeof cacheMap === 'object' && !Array.isArray(cacheMap) &&
+      Object.prototype.hasOwnProperty.call(cacheMap, artifact.canonicalPath)
+    if (!malformedMap && !hasEntry) return
+    await this.updateProject(key, project => {
+      const current = project.mcpSchemas as unknown
+      if (current && typeof current === 'object' && !Array.isArray(current)) {
+        const entry = (current as Record<string, unknown>)[artifact.canonicalPath]
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry) ||
+          (entry as { hash?: unknown }).hash === artifact.hash || typeof (entry as { hash?: unknown }).hash !== 'string') {
+          delete (current as Record<string, unknown>)[artifact.canonicalPath]
+        }
+      } else if (current !== undefined) {
+        project.mcpSchemas = {}
+      }
+    })
+  }
+
+  /** Revokes one exact MCP approval and removes its schema cache. */
+  async revokeMcp(artifact: TrustedArtifact): Promise<void> {
+    const key = await canonicalPath(this.workspaceRoot)
+    await this.updateProject(key, project => {
+      if (project.mcp?.canonicalPath === artifact.canonicalPath && project.mcp.hash === artifact.hash) delete project.mcp
+      if (project.mcpArtifacts?.[artifact.canonicalPath] === artifact.hash) delete project.mcpArtifacts[artifact.canonicalPath]
+      if (project.mcpSchemas?.[artifact.canonicalPath]?.hash === artifact.hash) delete project.mcpSchemas[artifact.canonicalPath]
+    })
+  }
+}
+
+function isMcpApproved(project: WorkspaceTrustFile['projects'][string] | undefined, artifact: TrustedArtifact): boolean {
+  const approval = project?.mcp
+  return (approval?.canonicalPath === artifact.canonicalPath && approval.hash === artifact.hash) ||
+    project?.mcpArtifacts?.[artifact.canonicalPath] === artifact.hash
+}
+
+/** Returns a safe explanation when a schema cache cannot be loaded or persisted. */
+export function getMcpSchemaCacheIssue(value: unknown): string | null {
+  try {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return 'the schema cache format is invalid'
+    const servers = Object.entries(value as Record<string, unknown>)
+    if (servers.length > MAX_MCP_SCHEMA_CACHE_SERVERS) {
+      return `it contains more than ${MAX_MCP_SCHEMA_CACHE_SERVERS} MCP servers`
+    }
+
+    let toolCount = 0
+    for (const [, tools] of servers) {
+      if (!Array.isArray(tools)) return 'a server catalog has an invalid format'
+      toolCount += tools.length
+      if (toolCount > MAX_MCP_SCHEMA_CACHE_TOOLS) {
+        return `it contains more than ${MAX_MCP_SCHEMA_CACHE_TOOLS} tools`
+      }
+      for (const tool of tools) {
+        if (!tool || typeof tool !== 'object' || Array.isArray(tool)) return 'a tool descriptor has an invalid format'
+        const descriptor = tool as Record<string, unknown>
+        if (typeof descriptor.name !== 'string' ||
+          !descriptor.inputSchema || typeof descriptor.inputSchema !== 'object' || Array.isArray(descriptor.inputSchema) ||
+          (descriptor.description !== undefined && typeof descriptor.description !== 'string')) {
+          return 'a tool descriptor has an invalid format'
+        }
+      }
+    }
+
+    const serialized = JSON.stringify(value)
+    if (typeof serialized !== 'string') return 'the schema cache is not serializable'
+    const byteLength = Buffer.byteLength(serialized, 'utf8')
+    if (byteLength > MAX_MCP_SCHEMA_CACHE_BYTES) {
+      return `its serialized schemas exceed the ${MAX_MCP_SCHEMA_CACHE_BYTES}-byte limit`
+    }
+    return null
+  } catch {
+    return 'the schema cache contains invalid data'
   }
 }

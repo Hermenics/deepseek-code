@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { enhancedMicroCompact } from '../src/services/compact/microCompact.js'
 import { runPostCompactCleanup } from '../src/services/compact/postCompactCleanup.js'
-import { validateCompactSummary } from '../src/services/compact/summaryPrompt.js'
+import { COMPACT_CONTINUATION_SYSTEM_PROMPT, COMPACT_SUMMARY_PROMPT, validateCompactSummary } from '../src/services/compact/summaryPrompt.js'
 import { formatToolError } from '../src/tools/result.js'
 
 describe('enhanced micro-compaction', () => {
@@ -65,12 +65,31 @@ describe('enhanced micro-compaction', () => {
   })
 
   it('rejects missing, empty or reordered summary sections before discarding history', () => {
-    const valid = Array.from({ length: 9 }, (_, index) => `## ${index + 1}. Section\nSource context`).join('\n')
+    const valid = Array.from({ length: 9 }, (_, index) => {
+      const content = index === 5
+        ? '- Completed: None\n- Pending: None\n- Blocked: None\n- Next action: None'
+        : 'Source context'
+      return `## ${index + 1}. Section\n${content}`
+    }).join('\n')
     expect(() => validateCompactSummary(valid)).not.toThrow()
     expect(() => validateCompactSummary('')).toThrow('nine ordered')
     expect(() => validateCompactSummary(valid.replace('## 2.', '## 3.'))).toThrow('nine ordered')
     expect(() => validateCompactSummary(valid.replace('## 9. Section\nSource context', '## 9. Section'))).toThrow('empty')
+    expect(() => validateCompactSummary(valid.replace('- Blocked: None\n', ''))).toThrow('Blocked state')
+    expect(() => validateCompactSummary(valid.replace('- Completed: None', '- Completed:'))).toThrow('Completed state')
+    expect(() => validateCompactSummary(valid.replace('- Pending: None', '-\nPending: None'))).toThrow('Pending state')
   })
+
+  it('requires a compact handoff that separates completed, pending, blocked, and next-action state', () => {
+    for (const label of ['Completed', 'Pending', 'Blocked', 'Next action']) {
+      expect(COMPACT_SUMMARY_PROMPT).toContain(`- ${label}:`)
+    }
+    expect(COMPACT_SUMMARY_PROMPT).toContain('A compacted summary is a navigation aid only')
+    expect(COMPACT_CONTINUATION_SYSTEM_PROMPT).toContain('call get_goal')
+    expect(COMPACT_CONTINUATION_SYSTEM_PROMPT).toContain('session_evidence')
+    expect(COMPACT_CONTINUATION_SYSTEM_PROMPT).toContain('never as proof')
+  })
+
   it('only clears old, long read-only tool results and preserves the latest eight', () => {
     const messages = [
       {

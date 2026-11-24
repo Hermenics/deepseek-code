@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto'
 import type { Tool } from '../tools/types.js'
 import type { PromptImage } from '../types/input.js'
 import { auditLog, type AuditEvent } from './auditLog.js'
-import { canonicalPath, hashTrustedContent, hashTrustedFile, WorkspaceTrustStore, type TrustedArtifact } from '../settings/trust.js'
+import { canonicalPath, getMcpSchemaCacheIssue, hashTrustedContent, hashTrustedFile, WorkspaceTrustStore, type CachedMcpSchemas, type CachedMcpToolSchema, type TrustedArtifact } from '../settings/trust.js'
 import pkg from '../../package.json' with { type: 'json' }
 import { loadInstalledPlugins } from '../plugins/loader.js'
 import { resolvePluginVariables } from '../plugins/variables.js'
@@ -40,6 +40,8 @@ export interface McpLoadOptions {
   environment?: Record<string, string | undefined>
   trustFile?: string
   initialTimeoutMs?: number
+  /** Force connection and catalog listing even when an approved stdio schema cache exists. */
+  eager?: boolean
 }
 
 export type McpApprovalRequest = TrustedArtifact
@@ -348,8 +350,10 @@ export interface McpLoadResult {
 
 /**
  * Connects to trusted project and plugin MCP servers and exposes their tools as `<server>__<tool>`.
- * Returns the first pending `approval` while still connecting approved configs. Per-server
- * failures are collected in `errors` rather than thrown; `cleanup` closes all connected clients.
+ * Approved stdio schemas are reused without starting the server; the first tool use reconnects,
+ * verifies the live catalog, and only then calls the requested tool. Cold caches and `eager` loads
+ * keep the current connect-and-list behavior. Returns the first pending `approval` while still
+ * connecting approved configs. Per-server failures are collected in `errors` rather than thrown.
  */
 export async function loadMcpTools(cwd = process.cwd(), options: McpLoadOptions = {}): Promise<McpLoadResult> {
   if (!options.enabled) return { tools: [], errors: [] }
@@ -360,86 +364,289 @@ export async function loadMcpTools(cwd = process.cwd(), options: McpLoadOptions 
   const serverNames = new Set<string>()
   let approval: McpApprovalRequest | undefined
   const initialTimeoutMs = Math.max(100, Math.min(options.initialTimeoutMs ?? MCP_INITIAL_TIMEOUT_MS, 60_000))
+  let cleanupPromise: Promise<void> | undefined
 
   for (const source of sources) {
     if (!await trust.isMcpApproved(source.artifact)) {
+      try {
+        await trust.invalidateMcpSchemas(source.artifact)
+      } catch (error) {
+        errors.push(`MCP schema cache for '${source.artifact.canonicalPath}' could not be invalidated; approval is still required: ${(error as Error).message}`)
+      }
       approval ??= source.artifact
       continue
     }
-    for (const [rawServerName, serverConfig] of Object.entries(source.config.servers)) {
-    const serverName = `${source.prefix}${rawServerName}`
-    if (serverNames.has(serverName)) {
-      errors.push(`MCP server name collision: '${serverName}' is declared more than once`)
-      continue
-    }
-    serverNames.add(serverName)
-    let client: Client | undefined
-    let transport: StdioClientTransport | StreamableHTTPClientTransport | undefined
+
+    let cachedSchemas: CachedMcpSchemas | null = null
     try {
-      // Validate command before creating transport (stdio only)
-      if (serverConfig.transport === 'stdio') {
-        validateMcpCommand(serverConfig.command)
-        if (!sandboxAvailable()) {
-          throw new Error('MCP stdio servers require a working Linux bubblewrap sandbox')
-        }
+      cachedSchemas = await trust.getMcpSchemas(source.artifact)
+    } catch (error) {
+      errors.push(`MCP schema cache for '${source.artifact.canonicalPath}' could not be read; live tools remain available: ${(error as Error).message}`)
+    }
+    // MCP server names are configuration keys, so they can legally collide with
+    // Object.prototype names (including the special __proto__ setter).
+    const schemaCache = Object.assign(Object.create(null), cachedSchemas ?? {}) as CachedMcpSchemas
+    let schemaCacheDisabled = false
+    for (const [rawServerName, serverConfig] of Object.entries(source.config.servers)) {
+      const serverName = `${source.prefix}${rawServerName}`
+      if (serverNames.has(serverName)) {
+        errors.push(`MCP server name collision: '${serverName}' is declared more than once`)
+        continue
       }
+      serverNames.add(serverName)
+      try {
+        if (serverConfig.transport === 'stdio') {
+          validateMcpCommand(serverConfig.command)
+          if (!sandboxAvailable()) throw new Error('MCP stdio servers require a working Linux bubblewrap sandbox')
+        }
 
-      const connectedClient = new Client({ name: 'deepseek-code', version: pkg.version })
-      client = connectedClient
-
-      transport = serverConfig.transport === 'stdio'
-        ? new StdioClientTransport({
-            command: 'bwrap',
-            args: buildMcpSandboxArgs(serverConfig.command, serverConfig.args ?? [], source.cwd),
-            cwd: source.cwd,
-            env: createMcpProcessEnvironment(options.environment, serverConfig.env ?? {}),
+        const cachedTools = serverConfig.transport === 'stdio' && !options.eager && cachedSchemas &&
+          Object.prototype.hasOwnProperty.call(cachedSchemas, rawServerName)
+          ? cachedSchemas?.[rawServerName]
+          : undefined
+        // An empty cached catalog has no tool invocation that could trigger live validation.
+        // Re-list it on load so newly added tools cannot remain invisible forever.
+        if (cachedTools?.length) {
+          const lazy = createLazyServerTools({
+            cwd,
+            source,
+            rawServerName,
+            serverName,
+            serverConfig,
+            cachedTools,
+            options,
+            trust,
+            initialTimeoutMs,
+            onCleanup: cleanup => cleanups.push(cleanup),
           })
-        : new StreamableHTTPClientTransport(new URL(serverConfig.url))
-
-      await withTimeout(connectedClient.connect(transport), initialTimeoutMs, `MCP server '${serverName}' connection timed out after ${initialTimeoutMs}ms`)
-
-      // Log audit event after successful connection
-      await auditLog(buildMcpLoadEvent(serverName, serverConfig.transport))
-
-      const { tools: mcpTools } = await withTimeout(connectedClient.listTools(), initialTimeoutMs, `MCP server '${serverName}' tool listing timed out`)
-
-      for (const mcpTool of mcpTools) {
-        const name = mcpToolName(serverName, mcpTool.name)
-        if (tools.some(tool => tool.name === name)) {
-          errors.push(`MCP tool name collision: ${serverName}/${mcpTool.name} maps to '${name}'`)
+          for (const tool of lazy) {
+            if (tools.some(existing => existing.name === tool.name)) {
+              errors.push(`MCP tool name collision: ${serverName}/${tool.name} maps to '${tool.name}'`)
+              continue
+            }
+            tools.push(tool)
+          }
           continue
         }
-        tools.push({
-          name,
-          description: `[MCP:${serverName}] ${mcpTool.description ?? ''}`,
-          parameters: mcpTool.inputSchema as object,
-          async execute(args, context) {
-            // The SDK enforces the timeout and, on Esc, sends notifications/cancelled to the server.
-            const timeoutMs = 30_000
-            const result = await connectedClient.callTool({ name: mcpTool.name, arguments: args }, undefined, { signal: context?.signal, timeout: timeoutMs })
-              .catch((error: Error) => {
-                if (context?.signal?.aborted) throw error
-                if (/timed out|timeout/i.test(error.message)) throw new Error(`MCP tool '${mcpTool.name}' timed out after ${timeoutMs / 1000}s`)
-                throw error
-              }) as Awaited<ReturnType<typeof connectedClient.callTool>>
-            if ('toolResult' in result) throw new Error(`MCP tool '${mcpTool.name}' returned an unsupported task result`)
-            return formatMcpToolResult(result, context?.attachImage, mcpTool.name)
-          },
-        })
+
+        const connected = await connectAndListMcpServer(source, serverName, serverConfig, options, initialTimeoutMs)
+        cleanups.push(() => closeClient(connected.client, connected.transport))
+        await assertMcpSourceApproved(cwd, source, trust, serverName)
+        const cachedToolsFromServer = connected.tools.map(toCachedMcpTool)
+        if (serverConfig.transport === 'stdio' && !schemaCacheDisabled) {
+          schemaCache[rawServerName] = cachedToolsFromServer
+          const cacheIssue = getMcpSchemaCacheIssue(schemaCache)
+          if (cacheIssue) {
+            schemaCacheDisabled = true
+            await trust.invalidateMcpSchemas(source.artifact).catch(() => undefined)
+            errors.push(`MCP server '${serverName}' schema cache optimization was skipped because ${cacheIssue}; live tools remain available.`)
+          } else {
+            try {
+              const saved = await trust.saveMcpSchemas(source.artifact, schemaCache)
+              if (!saved) errors.push(`MCP server '${serverName}' schema cache was not saved because its configuration is no longer approved.`)
+            } catch (error) {
+              errors.push(`MCP server '${serverName}' schema cache could not be saved; the live tools remain available: ${(error as Error).message}`)
+            }
+          }
+        }
+        for (const mcpTool of cachedToolsFromServer) {
+          const name = mcpToolName(serverName, mcpTool.name)
+          if (tools.some(tool => tool.name === name)) {
+            errors.push(`MCP tool name collision: ${serverName}/${mcpTool.name} maps to '${name}'`)
+            continue
+          }
+          tools.push(createMcpTool(mcpTool, name, serverName, connected.client, cwd, source, trust))
+        }
+      } catch (error) {
+        const msg = `MCP server '${serverName}': ${(error as Error).message}`
+        errors.push(msg)
       }
-      cleanups.push(() => closeClient(client, transport))
-    } catch (e) {
-      await closeClient(client, transport)
-      const msg = `MCP server '${serverName}': ${(e as Error).message}`
-      errors.push(msg)
     }
-  }
   }
 
   return {
     tools,
     errors,
     ...(approval ? { approval } : {}),
-    ...(cleanups.length ? { cleanup: async () => { await Promise.allSettled(cleanups.map(cleanup => cleanup())) } } : {}),
+    ...(cleanups.length || sources.length ? { cleanup: () => {
+      if (cleanupPromise) return cleanupPromise
+      cleanupPromise = Promise.allSettled(cleanups.map(async cleanup => cleanup())).then(() => undefined)
+      return cleanupPromise
+    } } : {}),
+  }
+}
+
+interface ConnectedMcpServer {
+  client: Client
+  transport: StdioClientTransport | StreamableHTTPClientTransport
+  tools: Array<{ name: string; description?: string; inputSchema: object }>
+}
+
+async function connectAndListMcpServer(
+  source: McpSource,
+  serverName: string,
+  serverConfig: McpServerConfig,
+  options: McpLoadOptions,
+  timeoutMs: number,
+): Promise<ConnectedMcpServer> {
+  let client: Client | undefined
+  let transport: StdioClientTransport | StreamableHTTPClientTransport | undefined
+  try {
+    client = new Client({ name: 'deepseek-code', version: pkg.version })
+    transport = serverConfig.transport === 'stdio'
+      ? new StdioClientTransport({
+          command: 'bwrap',
+          args: buildMcpSandboxArgs(serverConfig.command, serverConfig.args ?? [], source.cwd),
+          cwd: source.cwd,
+          env: createMcpProcessEnvironment(options.environment, serverConfig.env ?? {}),
+        })
+      : new StreamableHTTPClientTransport(new URL(serverConfig.url))
+
+    await withTimeout(client.connect(transport), timeoutMs, `MCP server '${serverName}' connection timed out after ${timeoutMs}ms`)
+    await auditLog(buildMcpLoadEvent(serverName, serverConfig.transport))
+    const { tools } = await withTimeout(client.listTools(), timeoutMs, `MCP server '${serverName}' tool listing timed out`)
+    return { client, transport, tools: tools.map(tool => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema as object })) }
+  } catch (error) {
+    await closeClient(client, transport)
+    throw error
+  }
+}
+
+function toCachedMcpTool(tool: { name: string; description?: string; inputSchema: object }): CachedMcpToolSchema {
+  return {
+    name: tool.name,
+    ...(tool.description === undefined ? {} : { description: tool.description }),
+    inputSchema: tool.inputSchema as Record<string, unknown>,
+  }
+}
+
+function stableSerialize(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(',')}]`
+  if (value && typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, entry]) => `${JSON.stringify(key)}:${stableSerialize(entry)}`).join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'undefined'
+}
+
+function sameMcpSchemaSet(expected: CachedMcpToolSchema[], actual: CachedMcpToolSchema[]): boolean {
+  const canonical = (tools: CachedMcpToolSchema[]) => tools
+    .map(tool => ({ name: tool.name, description: tool.description ?? '', inputSchema: tool.inputSchema }))
+    .sort((left, right) => left.name.localeCompare(right.name))
+  return stableSerialize(canonical(expected)) === stableSerialize(canonical(actual))
+}
+
+async function assertMcpSourceApproved(cwd: string, source: McpSource, trust: WorkspaceTrustStore, serverName = 'server'): Promise<void> {
+  const current = (await loadMcpSources(cwd)).sources.find(candidate => candidate.artifact.canonicalPath === source.artifact.canonicalPath)
+  if (!current || current.artifact.hash !== source.artifact.hash || !await trust.isMcpApproved(source.artifact)) {
+    await trust.invalidateMcpSchemas(source.artifact).catch(() => undefined)
+    throw new Error(`MCP ${serverName} configuration changed or approval was revoked; reload MCP tools before retrying.`)
+  }
+}
+
+function createLazyServerTools(input: {
+  cwd: string
+  source: McpSource
+  rawServerName: string
+  serverName: string
+  serverConfig: McpServerConfig
+  cachedTools: CachedMcpToolSchema[]
+  options: McpLoadOptions
+  trust: WorkspaceTrustStore
+  initialTimeoutMs: number
+  onCleanup: (cleanup: () => Promise<void>) => void
+}): Tool[] {
+  let client: Client | undefined
+  let transport: StdioClientTransport | StreamableHTTPClientTransport | undefined
+  let connection: Promise<Client> | undefined
+  let disposed = false
+  const cleanup = async () => {
+    disposed = true
+    await connection?.catch(() => undefined)
+    await closeClient(client, transport)
+    client = undefined
+    transport = undefined
+  }
+  input.onCleanup(cleanup)
+
+  const getClient = async (): Promise<Client> => {
+    if (disposed) throw new Error(`MCP server '${input.serverName}' has been closed.`)
+    await assertMcpSourceApproved(input.cwd, input.source, input.trust, input.serverName)
+    if (disposed) throw new Error(`MCP server '${input.serverName}' has been closed.`)
+    if (client) return client
+    if (!connection) {
+      connection = (async () => {
+        const connected = await connectAndListMcpServer(input.source, input.serverName, input.serverConfig, input.options, input.initialTimeoutMs)
+        try {
+          await assertMcpSourceApproved(input.cwd, input.source, input.trust, input.serverName)
+          const liveTools = connected.tools.map(toCachedMcpTool)
+          if (!sameMcpSchemaSet(input.cachedTools, liveTools)) {
+            await input.trust.invalidateMcpSchemas(input.source.artifact).catch(() => undefined)
+            throw new Error(`MCP server '${input.serverName}' catalog changed since its cached schema; no tool was called. Reload MCP tools and review the updated catalog.`)
+          }
+          client = connected.client
+          transport = connected.transport
+          return connected.client
+        } catch (error) {
+          await closeClient(connected.client, connected.transport)
+          throw error
+        }
+      })().catch(error => {
+        connection = undefined
+        throw error
+      })
+    }
+    const connected = await connection
+    if (disposed) throw new Error(`MCP server '${input.serverName}' has been closed.`)
+    return connected
+  }
+
+  return input.cachedTools.map(mcpTool => {
+    const name = mcpToolName(input.serverName, mcpTool.name)
+    return {
+      name,
+      description: `[MCP:${input.serverName}] ${mcpTool.description ?? ''}`,
+      parameters: mcpTool.inputSchema as object,
+      async execute(args, context) {
+        const connectedClient = await getClient()
+        await assertMcpSourceApproved(input.cwd, input.source, input.trust, input.serverName)
+        const timeoutMs = 30_000
+        const result = await connectedClient.callTool({ name: mcpTool.name, arguments: args }, undefined, { signal: context?.signal, timeout: timeoutMs })
+          .catch((error: Error) => {
+            if (context?.signal?.aborted) throw error
+            if (/timed out|timeout/i.test(error.message)) throw new Error(`MCP tool '${mcpTool.name}' timed out after ${timeoutMs / 1000}s`)
+            throw error
+          }) as Awaited<ReturnType<typeof connectedClient.callTool>>
+        if ('toolResult' in result) throw new Error(`MCP tool '${mcpTool.name}' returned an unsupported task result`)
+        return formatMcpToolResult(result, context?.attachImage, mcpTool.name)
+      },
+    }
+  })
+}
+
+function createMcpTool(
+  mcpTool: CachedMcpToolSchema,
+  name: string,
+  serverName: string,
+  client: Client,
+  cwd: string,
+  source: McpSource,
+  trust: WorkspaceTrustStore,
+): Tool {
+  return {
+    name,
+    description: `[MCP:${serverName}] ${mcpTool.description ?? ''}`,
+    parameters: mcpTool.inputSchema as object,
+    async execute(args, context) {
+      await assertMcpSourceApproved(cwd, source, trust, serverName)
+      const timeoutMs = 30_000
+      const result = await client.callTool({ name: mcpTool.name, arguments: args }, undefined, { signal: context?.signal, timeout: timeoutMs })
+        .catch((error: Error) => {
+          if (context?.signal?.aborted) throw error
+          if (/timed out|timeout/i.test(error.message)) throw new Error(`MCP tool '${mcpTool.name}' timed out after ${timeoutMs / 1000}s`)
+          throw error
+        }) as Awaited<ReturnType<typeof client.callTool>>
+      if ('toolResult' in result) throw new Error(`MCP tool '${mcpTool.name}' returned an unsupported task result`)
+      return formatMcpToolResult(result, context?.attachImage, mcpTool.name)
+    },
   }
 }

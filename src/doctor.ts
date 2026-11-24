@@ -6,6 +6,8 @@ import { getCredentialsPath, getSettingsPath, loadMergedSettings } from './setti
 import { isEnabled, loadFeatures } from './features.js'
 import { cliStyle as ink } from './utils/cli-style.js'
 import { findChromium, isLinux } from './utils/platform.js'
+import { checkMcpCatalog } from './commands/doctor/mcp.js'
+import { formatProviderProbe, loadDoctorProviderConfig, probeProviderCatalog, type ProviderProbeResult } from './commands/doctor/provider.js'
 
 export interface DoctorCheck {
   name: string
@@ -30,10 +32,13 @@ async function inspectMcpConfig(cwd: string): Promise<DoctorCheck> {
   if (!existsSync(path)) return { name: 'MCP config', ok: true, detail: 'none configured' }
   try {
     const value = JSON.parse(await readFile(path, 'utf8')) as { servers?: unknown }
-    const count = value.servers && typeof value.servers === 'object' ? Object.keys(value.servers).length : 0
+    if (!value || typeof value !== 'object' || !value.servers || typeof value.servers !== 'object' || Array.isArray(value.servers)) {
+      return { name: 'MCP config', ok: false, detail: 'invalid server configuration' }
+    }
+    const count = Object.keys(value.servers).length
     return { name: 'MCP config', ok: true, detail: `${count} server${count === 1 ? '' : 's'} configured` }
-  } catch (error) {
-    return { name: 'MCP config', ok: false, detail: `invalid JSON: ${(error as Error).message}` }
+  } catch {
+    return { name: 'MCP config', ok: false, detail: 'invalid JSON' }
   }
 }
 
@@ -54,7 +59,7 @@ async function inspectBrowser(): Promise<DoctorCheck> {
   }
 }
 
-/** Runs the `doctor` environment checks (runtime, workspace, git, ripgrep, credentials, settings, MCP config) for a workspace. */
+/** Runs local environment checks and separate provider-catalog and approved-MCP diagnostics for a workspace. */
 export async function runDoctor(cwd = process.cwd()): Promise<DoctorReport> {
   const settings = await loadMergedSettings(cwd)
   const browserCheck = isEnabled('browser', loadFeatures()) ? inspectBrowser() : Promise.resolve(null)
@@ -64,6 +69,11 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorReport> {
     inspectMcpConfig(cwd),
     browserCheck,
   ])
+  const [providerResult, mcpCatalog] = await Promise.all([
+    loadDoctorProviderConfig(cwd).then(probeProviderCatalog).catch((): ProviderProbeResult => ({ provider: 'Provider', status: 'configuration-error' })),
+    checkMcpCatalog(cwd, settings.mcp?.enabled === true),
+  ])
+  const provider = formatProviderProbe(providerResult)
   const checks: DoctorCheck[] = [
     { name: 'Runtime', ok: Boolean(Bun.version), detail: `Bun ${Bun.version ?? process.version}` },
     { name: 'Workspace', ok: existsSync(cwd), detail: cwd },
@@ -72,6 +82,8 @@ export async function runDoctor(cwd = process.cwd()): Promise<DoctorReport> {
     { name: 'Credentials', ok: existsSync(getCredentialsPath()), detail: existsSync(getCredentialsPath()) ? 'configured' : 'not found; configure a provider before starting a session' },
     { name: 'Settings', ok: existsSync(getSettingsPath('user', cwd)) || Object.keys(settings).length > 0, detail: `provider: ${settings.provider?.name ?? 'deepseek'}` },
     mcp,
+    { name: 'Provider catalog', ...provider },
+    mcpCatalog,
     ...(browser ? [browser] : []),
   ]
 

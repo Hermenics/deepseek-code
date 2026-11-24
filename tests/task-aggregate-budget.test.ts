@@ -3,10 +3,89 @@ import { OrchestratorSession, TaskRegistry } from '../src/orchestration/index.js
 import { runSubAgentLoop } from '../src/tools/SubAgent/executor.js'
 import { validateSettings } from '../src/settings/repository.js'
 import { estimateCost } from '../src/agent/cost.js'
+import { formatAggregateBudgetWarning } from '../src/orchestration/aggregateBudget.js'
 
 const provider = { provider: 'local' as const, localModel: 'fake' }
 
 describe('aggregate worker budgets', () => {
+  it('warns once the measured aggregate limit is reached and labels estimated cost', () => {
+    expect(formatAggregateBudgetWarning({
+      limits: { maxAggregateTokens: 10, maxAggregateCostUsd: 0.25 },
+      blocked: false,
+      tokens: 10,
+      tokenUsageStatus: 'measured',
+      costUsd: 0.25,
+      costUsageStatus: 'measured',
+    })).toContain('estimated aggregate cost limit was reached ($0.2500 / $0.2500)')
+
+    expect(formatAggregateBudgetWarning({
+      limits: { maxAggregateTokens: 10 },
+      blocked: false,
+      tokens: 9,
+      tokenUsageStatus: 'measured',
+      costUsd: 0,
+      costUsageStatus: 'unavailable',
+    })).toBeUndefined()
+  })
+
+  it('keeps unavailable cost distinct from an exceeded limit', () => {
+    expect(formatAggregateBudgetWarning({
+      limits: { maxAggregateCostUsd: 0.5 },
+      blocked: false,
+      tokens: 0,
+      tokenUsageStatus: 'unavailable',
+      costUsd: 0,
+      costUsageStatus: 'unavailable',
+    })).toBeUndefined()
+
+    expect(formatAggregateBudgetWarning({
+      limits: { maxAggregateCostUsd: 0.5 },
+      blocked: true,
+      tokens: 0,
+      tokenUsageStatus: 'unavailable',
+      costUsd: 0.2,
+      costUsageStatus: 'partial',
+    })).toContain('partial estimated cost subtotal is $0.2000')
+
+    expect(formatAggregateBudgetWarning({
+      limits: { maxAggregateCostUsd: 0.5 },
+      blocked: true,
+      tokens: 0,
+      tokenUsageStatus: 'unavailable',
+      costUsd: 0,
+      costUsageStatus: 'unavailable',
+    })).toContain('Cost usage is unavailable')
+
+    expect(formatAggregateBudgetWarning({
+      limits: { maxAggregateCostUsd: 0.5 },
+      blocked: true,
+      tokens: 0,
+      tokenUsageStatus: 'unavailable',
+      costUsd: 0.6,
+      costUsageStatus: 'partial',
+    })).toContain('At least $0.6000 of estimated cost was measured, which exceeds the $0.5000 limit')
+
+    expect(formatAggregateBudgetWarning({
+      limits: { maxAggregateTokens: 10 },
+      blocked: true,
+      tokens: 12,
+      tokenUsageStatus: 'partial',
+      costUsd: 0,
+      costUsageStatus: 'unavailable',
+    })).toContain('At least 12 tokens were measured, which exceeds the 10-token limit')
+  })
+
+  it('still explains a blocked call when measured usage does not identify the exhausted limit', () => {
+    expect(formatAggregateBudgetWarning({
+      limits: { maxAggregateCostUsd: 0.5 },
+      blocked: true,
+      tokens: 12,
+      tokenUsageStatus: 'measured',
+      costUsd: 0.2,
+      costUsageStatus: 'measured',
+    })).toContain('available usage does not identify which limit caused it')
+  })
+
   it('serializes requests within a budget group and passes only the remaining allowance', async () => {
     const registry = new TaskRegistry({
       projectRoot: process.cwd(),

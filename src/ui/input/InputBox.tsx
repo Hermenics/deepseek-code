@@ -12,6 +12,7 @@ import { useDoublePress } from './hooks/useDoublePress.js'
 import { usePasteHandler } from './hooks/usePasteHandler.js'
 import { InputHistory } from './hooks/useInputHistory.js'
 import { getMatches } from './commandMatches.js'
+import { getArgumentMatches, type ArgumentMatches } from './argumentMatches.js'
 import { computeGhostText, getSuggestedReplyGhost } from './ghost/index.js'
 import { COMMAND_DESCRIPTIONS } from '../../commands.js'
 import { getWorkflowCommandDescriptions } from '../../workflows/commands.js'
@@ -148,6 +149,9 @@ export function InputBox({
   const [pastedImages, setPastedImages] = useState<PromptImage[]>([])
   const [imageNotice, setImageNotice] = useState<string | null>(null)
   const [selectedIdx, setSelectedIdx] = useState(0)
+  const [argumentSelectedIdx, setArgumentSelectedIdx] = useState(0)
+  const [argumentCompletion, setArgumentCompletion] = useState<ArgumentMatches | null>(null)
+  const [argumentCompletionWorkspace, setArgumentCompletionWorkspace] = useState(workingDirectory)
   const [vimState, setVimState] = useState<VimState>(createVimState)
   const [fileMatches, setFileMatches] = useState<string[]>([])
   const [fileSelectedIdx, setFileSelectedIdx] = useState(0)
@@ -161,9 +165,35 @@ export function InputBox({
   }
   const bufferRef = useRef(new InputBuffer())
   const fileSearchRequestRef = useRef(0)
+  const argumentSearchRequestRef = useRef(0)
   useEffect(() => {
     onDraftChange?.(cursor.text.length > 0)
   }, [cursor.text, onDraftChange])
+
+  const resolveArgumentCompletion = (text: string, offset: number) => {
+    const requestId = ++argumentSearchRequestRef.current
+    setArgumentCompletionWorkspace(workingDirectory)
+    const result = getArgumentMatches(text, offset, workingDirectory)
+    setArgumentSelectedIdx(0)
+    if (result && typeof (result as Promise<unknown>).then === 'function') {
+      setArgumentCompletion(null)
+      void (result as Promise<ArgumentMatches | null>).then(completion => {
+        if (requestId !== argumentSearchRequestRef.current) return
+        setArgumentCompletion(completion)
+      }).catch(() => {
+        if (requestId !== argumentSearchRequestRef.current) return
+        setArgumentCompletion(null)
+      })
+    } else {
+      setArgumentCompletion(result as ArgumentMatches | null)
+    }
+  }
+
+  useEffect(() => {
+    resolveArgumentCompletion(cursor.text, cursor.offset)
+    // A workspace change must not leave local IDs from the previous workspace in the dropdown.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workingDirectory])
 
   const updateCursor = (next: Cursor) => {
     if (!cursor.equals(next)) {
@@ -171,6 +201,7 @@ export function InputBox({
       setFileMatches([])
       setFileSelectedIdx(0)
       setFileSearchComplete(false)
+      resolveArgumentCompletion(next.text, next.offset)
     }
     setImageNotice(null)
     if (next.text.length > 0) onSuggestedReplyDismiss?.()
@@ -288,6 +319,7 @@ export function InputBox({
 
   const matches = getMatches(cursor.text)
   const showDropdown = matches.length > 0
+  const showArgumentDropdown = !showDropdown && argumentCompletionWorkspace === workingDirectory && (argumentCompletion?.values.length ?? 0) > 0
   const activeMention = getAtMention(cursor.text, cursor.offset)
   const showFileDropdown = activeMention !== null && !showDropdown
   const ghost = getSuggestedReplyGhost(cursor.text, suggestedReply) ?? computeGhostText(cursor.text, cursor.offset)
@@ -418,6 +450,27 @@ export function InputBox({
       return
     }
 
+    if (showArgumentDropdown && argumentCompletion && (key.upArrow || key.downArrow)) {
+      setArgumentSelectedIdx(index => key.upArrow
+        ? (index - 1 + argumentCompletion.values.length) % argumentCompletion.values.length
+        : (index + 1) % argumentCompletion.values.length)
+      return
+    }
+
+    if (showArgumentDropdown && argumentCompletion && (action === 'acceptCompletion' || (key.return && !key.ctrl && !key.shift))) {
+      const chosen = argumentCompletion.values[argumentSelectedIdx]
+      if (chosen) {
+        const before = cursor.text.slice(0, argumentCompletion.replaceStart)
+        const after = cursor.text.slice(argumentCompletion.replaceEnd)
+        const suffix = after.length > 0 && /^\s/.test(after) ? '' : ' '
+        const inserted = `${chosen}${suffix}`
+        const text = `${before}${inserted}${after}`
+        updateCursor(Cursor.fromText(text, cursorCols, before.length + inserted.length))
+        historyRef.current.reset()
+      }
+      return
+    }
+
     if (showDropdown && (key.upArrow || key.downArrow)) {
       setSelectedIdx((i) => key.upArrow ? (i - 1 + matches.length) % matches.length : (i + 1) % matches.length)
       return
@@ -425,14 +478,10 @@ export function InputBox({
 
     if (showDropdown && (action === 'acceptCompletion' || (key.return && !key.ctrl && !key.shift))) {
       const chosen = matches[selectedIdx]!
-      if (isLoading) submitOrQueueWhileLoading(chosen)
-      else onSubmit(chosen)
-      updateCursor(Cursor.fromText('', cursorCols))
-      setPastedTexts([])
-      setPastedImages([])
+      const text = `${chosen} `
+      updateCursor(Cursor.fromText(text, cursorCols, text.length))
       setSelectedIdx(0)
       historyRef.current.reset()
-      setVimState(createVimState)
       return
     }
 
@@ -539,7 +588,13 @@ export function InputBox({
       ? 'Context almost full. Try /compact'
       : 'What do you want me to do? ↵')
 
-  const dropdown = showDropdown
+  const dropdown = showArgumentDropdown && argumentCompletion
+    ? <CommandDropdown
+        matches={argumentCompletion.values}
+        selectedIdx={argumentSelectedIdx}
+        columns={cols}
+      />
+    : showDropdown
     ? <CommandDropdown
         matches={matches}
         selectedIdx={selectedIdx}

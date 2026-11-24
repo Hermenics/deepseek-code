@@ -1,4 +1,4 @@
-import type { Command, CommandResult } from './types.js'
+import type { Command, CommandCompletionContext, CommandResult } from './types.js'
 
 import help from './help/index.js'
 import model from './model/index.js'
@@ -113,6 +113,18 @@ export function parseCommand(input: string): CommandResult | null {
   }
 
   return { type: 'unknown', input: `Unknown command: /${cmd}. Use /help to see available commands.` }
+}
+
+/** Returns optional local argument suggestions for a built-in command; suggestions never execute the command. */
+export async function getCommandArgumentSuggestions(
+  name: string,
+  priorArgs: readonly string[],
+  context: CommandCompletionContext,
+): Promise<string[]> {
+  const command = commands.find(item => item.name === name || item.aliases.includes(name))
+  if (!command?.complete) return []
+  const suggestions = await command.complete(priorArgs, context)
+  return [...new Set(suggestions.filter(value => typeof value === 'string' && value.length > 0))]
 }
 
 /** Resolves interactive slash commands with one stable precedence policy. */

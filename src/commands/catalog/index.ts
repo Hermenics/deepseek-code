@@ -15,6 +15,9 @@ const command: Command = {
   name: 'catalog',
   aliases: ['marketplace'],
   description: 'Show curated MCP, plugin and skill recommendations',
+  complete(args) {
+    return args.length === 0 ? ['mcp', 'plugin', 'skill'] : []
+  },
   parse(args) {
     return parseCatalogCommand(args)
   },

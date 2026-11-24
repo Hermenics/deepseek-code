@@ -156,7 +156,23 @@ ${chalk.bold('Explore')}
 ${chalk.bold('Run without the TUI')}
   ${chalk.cyan('echo "task" | deepseek --pipe')}             Run a task from the shell
   ${chalk.cyan('cat file.ts | deepseek --pipe "explain"')}  Include file contents
-  ${chalk.cyan('echo "task" | deepseek --pipe --json')}     Print a JSON result
+  ${chalk.cyan('echo "task" | deepseek --pipe --json')}     Print the legacy final JSON result
+  ${chalk.cyan('echo "task" | deepseek --pipe --jsonl')}    Emit JSON Lines v1 events
+  ${chalk.cyan('cat file.ts | deepseek --pipe --output-schema schema.json "summarize"')}
+                                                    Request and validate JSON output
+
+  --json and --jsonl are mutually exclusive. --json keeps the legacy
+  { ok, output, tools } success / { ok: false, error } failure object.
+  --jsonl writes one JSON object per line with version: 1 and type: start,
+  token, tool_call, done, or error.
+  Event fields: token(text), tool_call(name), done(ok, output, tools, usage),
+  error(ok, error, partialOutput, usage, optional issues).
+  --output-schema accepts one local JSON Schema file (max 1,000,000 bytes);
+  its complete serialized JSON must fit within 32 KiB. The model is asked for
+  one JSON value only, without prose or Markdown; Ajv validates it locally.
+  Unsupported keywords and unregistered formats fail schema preflight.
+  Only local $ref references are allowed; remote references are not resolved.
+  Errors use the selected format and exit with status 1.
 
 ${chalk.bold('Inside a session')}  ${chalk.dim('Type / to browse commands')}
   ${chalk.dim('/help  /model  /agent  /plan  /review  /quit')}

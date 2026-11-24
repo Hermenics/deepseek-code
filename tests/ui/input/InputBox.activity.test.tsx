@@ -248,6 +248,10 @@ test('routes a completed command to the queue while the agent is loading', async
     stdin.write('\r')
     await Bun.sleep(100)
     expect(submitted).toEqual([])
+    expect(queued).toEqual([])
+
+    stdin.write('\r')
+    await Bun.sleep(100)
     expect(queued).toEqual(['/help'])
   } finally {
     stdout.isTTY = false

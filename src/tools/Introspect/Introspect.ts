@@ -320,9 +320,15 @@ deepseek --version                        # print the installed version
 echo "task" | deepseek --pipe             # run headlessly from standard input
 cat src/index.ts | deepseek --pipe "explain" # pass file content plus prompt
 echo "task" | deepseek --pipe --json      # emit { ok, output, tools } JSON
+echo "task" | deepseek --pipe --jsonl     # emit JSON Lines v1 events
+cat src/index.ts | deepseek --pipe --output-schema schema.json "summarize"
 \`\`\`
 
-Pipe mode combines the command-line prompt with standard input when both are present. It denies destructive shell commands because no interactive approval is possible; in JSON mode, errors also use a structured JSON response. It still loads configured provider credentials and workspace context before executing.
+Pipe mode combines the command-line prompt with standard input when both are present. It denies destructive shell commands because no interactive approval is possible. The legacy \`--json\` format writes only a final \`{ ok, output, tools }\` object on success or \`{ ok: false, error }\` on failure; it is mutually exclusive with \`--jsonl\`.
+
+\`--jsonl\` emits JSON Lines v1, one object per line. Every event has \`version: 1\` and a \`type\`: \`start\`, \`token\` (with \`text\`), \`tool_call\` (with \`name\`), \`done\` (with \`ok\`, \`output\`, \`tools\`, and \`usage\`), or \`error\` (with \`ok: false\`, \`error\`, \`partialOutput\`, and \`usage\`). If parsing the final response as JSON or validating it against the output schema fails, the error event also includes \`issues\`; schema-file preflight errors do not. Tool arguments and results are not emitted. Argument or schema preflight errors may occur before the \`start\` event.
+
+\`--output-schema <path>\` reads one local JSON Schema file, at most 1,000,000 bytes. The complete schema JSON, including annotations, must serialize to no more than 32 KiB; larger schemas are rejected instead of truncated. The model-facing contract asks for one JSON value without prose, Markdown, or code fences, and annotation keywords such as \`description\` are omitted from that copy. Ajv's configured draft-07 validator checks the final response locally and rejects unsupported keywords or unregistered formats during preflight. \`$ref\` may refer only to local locations; remote references are not resolved, and \`$dynamicRef\` and \`$recursiveRef\` are rejected. Errors use the selected output format and exit with status 1. Pipe mode still loads configured provider credentials and workspace context before executing.
 
 ## Diagnostic and recovery paths
 

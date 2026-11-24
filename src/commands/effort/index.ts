@@ -5,6 +5,9 @@ const command: Command = {
   name: 'effort',
   aliases: [],
   description: 'Set reasoning effort level',
+  complete(args) {
+    return args.length === 0 ? ['low', 'high', 'max', 'auto', 'status'] : []
+  },
   parse(args) {
     const level = args[0]?.toLowerCase()
     if (!level) return { type: 'effort', action: 'status' }

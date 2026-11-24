@@ -7,6 +7,9 @@ const command: Command = {
   name: 'browser',
   aliases: [],
   description: 'Show, hide or close the agent browser',
+  complete(args: readonly string[]) {
+    return args.length === 0 ? [...ACTIONS] : []
+  },
   parse(args: string[]) {
     const action = (args[0] ?? 'status').toLowerCase()
     if (!(ACTIONS as readonly string[]).includes(action)) return { type: 'browser', action: 'error', message: `Unknown action: ${action}. Use ${ACTIONS.join(', ')}.` }

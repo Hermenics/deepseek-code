@@ -3,6 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Agent } from '../src/agent/agent.js'
+import { validCompactSummary } from './helpers/compactSummary.js'
 
 const HISTORY_PATH = join(tmpdir(), `deepseek-code-cost-report-${process.pid}.json`)
 const ORIGINAL_HISTORY_PATH = process.env.DEEPSEEK_HISTORY_PATH
@@ -84,7 +85,7 @@ describe('side-request usage', () => {
       chat: {
         completions: {
           create: async () => ({
-            choices: [{ message: { content: Array.from({ length: 9 }, (_, index) => `## ${index + 1}. Section\nRetained context`).join('\n') } }],
+            choices: [{ message: { content: validCompactSummary('Retained context') } }],
             usage: { total_tokens: 1_100_000, prompt_tokens: 1_000_000, completion_tokens: 100_000, prompt_cache_hit_tokens: 0 },
           }),
         },

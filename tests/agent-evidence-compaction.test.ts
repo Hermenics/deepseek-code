@@ -7,6 +7,15 @@ import { createGoal, setGoal } from '../src/agent/goal.js'
 
 const callbacks = { onToken() {}, onToolCall() {}, onToolResult() {}, onDone() {} }
 
+function compactSummary(sectionText: string): string {
+  return Array.from({ length: 9 }, (_, index) => {
+    const content = index === 5
+      ? `- Completed: None\n- Pending: ${sectionText}\n- Blocked: None\n- Next action: Recheck the current state.`
+      : sectionText
+    return `## ${index + 1}. Section\n${content}`
+  }).join('\n')
+}
+
 it('recovers an old decisive read after real compaction and resume despite an incorrect summary', async () => {
   const root = await mkdtemp(join(tmpdir(), 'deepseek-evidence-compact-'))
   const options = { projectRoot: root, logFile: null, snapshotFile: null }
@@ -44,10 +53,13 @@ it('recovers an old decisive read after real compaction and resume despite an in
     internal.client = { chat: { completions: { create: async (request: any) => {
       compactions++
       expect(request.messages[1].content).toContain('Development port: 4100')
-      return { choices: [{ message: { content: Array.from({ length: 9 }, (_, index) => `## ${index + 1}. Section\nThe port is 3000.`).join('\n') } }] }
+      return { choices: [{ message: { content: compactSummary('The port is 3000.') } }] }
     } } } }
     await agent.compact()
     expect(compactions).toBe(1)
+    const compactedApiMessages = (agent as any).getApiMessages(agent.getMessages())
+    expect(compactedApiMessages[0].content).toContain('call get_goal')
+    expect(compactedApiMessages[0].content).toContain('session_evidence')
     expect(JSON.stringify(agent.getMessages())).toContain('Preserve the configured development port and complete the whole requested task.')
     const raw = agent.getRawMessages()
     expect(agent.getMessages().some(message => String(message.content).includes('Development port: 4100'))).toBe(false)
@@ -57,6 +69,10 @@ it('recovers an old decisive read after real compaction and resume despite an in
     await resumed.readyPromise
     expect(JSON.stringify(resumed.getMessages())).toContain('Preserve the configured development port and complete the whole requested task.')
     const recovered = resumed as any
+    recovered.setLanguage('English')
+    const resumedApiMessages = recovered.getApiMessages(resumed.getMessages())
+    expect(resumedApiMessages[0].content).toContain('call get_goal')
+    expect(resumedApiMessages[0].content).toContain('session_evidence')
     recovered.settings = { risk: { enabled: false } }
     const restoredToolSources = recovered.sessionEvidence.toolSources().length
     expect(JSON.stringify(resumed.getMessages())).toMatch(/\d+ tool references omitted/)
@@ -109,7 +125,7 @@ it('keeps a denied action historical across compaction and requires fresh consen
     let compactInput = ''
     internal.client = { chat: { completions: { create: async (request: any) => {
       compactInput = request.messages[1].content
-      return { choices: [{ message: { content: Array.from({ length: 9 }, (_, index) => `## ${index + 1}. Section\nThe denied action remains unauthorized.`).join('\n') } }] }
+      return { choices: [{ message: { content: compactSummary('The denied action remains unauthorized.') } }] }
     } } } }
     await agent.compact()
     expect(compactInput).toContain('Inspect available tools')

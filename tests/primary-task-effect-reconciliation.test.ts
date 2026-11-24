@@ -10,6 +10,7 @@ import { SessionEvidence } from '../src/agent/sessionEvidence.js'
 import { redactSecrets } from '../src/orchestration/events.js'
 import { runScript } from './platform-commands.js'
 import { removeTempDirectory } from './helpers/removeTempDirectory.js'
+import { validCompactSummary } from './helpers/compactSummary.js'
 
 function addAttempt(evidence: SessionEvidence, turnId: string, toolCallId: string, toolName: string, hooksMayHaveEffects = false): void {
   evidence.add('tool', `task-effect-attempt:${turnId}:${toolCallId}`, JSON.stringify({
@@ -1692,7 +1693,7 @@ describe('primary task effect reconciliation', () => {
       }
       internal.messages.push({ role: 'user', content: 'Conversation before compaction.' })
       internal.createProviderCompletion = async () => ({
-        choices: [{ message: { content: Array.from({ length: 9 }, (_, index) => `## ${index + 1}. Section\nA concise compacted summary.`).join('\n') } }],
+        choices: [{ message: { content: validCompactSummary('A concise compacted summary.') } }],
         usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
       })
 
