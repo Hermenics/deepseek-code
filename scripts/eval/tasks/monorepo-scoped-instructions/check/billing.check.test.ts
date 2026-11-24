@@ -21,8 +21,9 @@ it("keeps all billing callers on the original identifier string", () => {
 })
 
 it("preserves every web package file byte for byte", () => {
-  const expected = JSON.parse(readFileSync(join(import.meta.dir, "web-baseline.json"), "utf8")) as Record<string, string>
-  const webRoot = join(import.meta.dir, "../repo/packages/web")
+  const checkerRoot = join(process.cwd(), "__eval_check__")
+  const expected = JSON.parse(readFileSync(join(checkerRoot, "web-baseline.json"), "utf8")) as Record<string, string>
+  const webRoot = join(process.cwd(), "repo/packages/web")
   function listFiles(directory: string, prefix = ""): string[] {
     return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
       const relative = prefix ? `${prefix}/${entry.name}` : entry.name

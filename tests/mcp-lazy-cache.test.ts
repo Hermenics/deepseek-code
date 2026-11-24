@@ -110,6 +110,7 @@ process.stdin.on('data', chunk => {
     await approveMcpConfig(project, pending.approval!, trustFile)
     const cold = await loadMcpTools(project, options)
     expect(cold.tools).toHaveLength(0)
+    expect(await new WorkspaceTrustStore(project, trustFile).getMcpSchemas(pending.approval!)).toEqual({ fixture: [] })
     await cold.cleanup?.()
 
     await writeFile(catalogState, 'available')
@@ -161,7 +162,7 @@ process.stdin.on('data', chunk => {
     try {
       loaded = await loadMcpTools(project, options)
       expect(loaded.tools.map(tool => tool.name)).toEqual(['fixture__probe'])
-      expect(loaded.errors.some(error => error.includes('schema cache could not be saved'))).toBe(true)
+      expect(loaded.warnings?.some(warning => warning.includes('schema cache could not be saved'))).toBe(true)
       await expect(loaded.tools[0]!.execute({})).resolves.toContain('tool was called')
     } finally {
       await loaded?.cleanup?.()
@@ -194,7 +195,7 @@ process.stdin.on('data', chunk => {
     try {
       loaded = await loadMcpTools(project, options)
       expect(loaded.tools.map(tool => tool.name)).toEqual(['fixture__large-schema'])
-      expect(loaded.errors.some(error => error.includes('schema cache optimization was skipped') && error.includes('byte limit'))).toBe(true)
+      expect(loaded.warnings?.some(warning => warning.includes('schema cache optimization was skipped') && warning.includes('byte limit'))).toBe(true)
       expect(await trust.isMcpApproved(pending.approval!)).toBe(true)
       expect(await trust.getMcpSchemas(pending.approval!)).toBeNull()
       expect(connect).toHaveBeenCalledTimes(1)

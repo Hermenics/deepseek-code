@@ -103,9 +103,11 @@ async function probeVertexCatalog(
 ): Promise<string[]> {
   const location = config.gcpLocation!.trim()
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/i.test(location)) throw new Error('Vertex configuration is incomplete')
+  const normalizedLocation = location.toLowerCase()
   const token = await tokenProvider(config.gcpCredentials!, signal)
   signal.throwIfAborted()
-  const url = new URL('/v1/publishers/deepseek-ai/models', `https://${location}-aiplatform.googleapis.com`)
+  const host = normalizedLocation === 'global' ? 'aiplatform.googleapis.com' : `${normalizedLocation}-aiplatform.googleapis.com`
+  const url = new URL('/v1beta1/publishers/deepseek-ai/models', `https://${host}`)
   const response = await fetchImpl(url, {
     headers: { Authorization: `Bearer ${token}` },
     signal,

@@ -137,24 +137,24 @@ export class WorkspaceTrustStore {
     const cacheMap = project?.mcpSchemas as unknown
     if (cacheMap === undefined) return null
     if (!cacheMap || typeof cacheMap !== 'object' || Array.isArray(cacheMap)) {
-      await this.invalidateMcpSchemas(artifact).catch(() => undefined)
+      await this.invalidateMcpSchemasIfStillInvalid(artifact).catch(() => undefined)
       return null
     }
     const cached = (cacheMap as Record<string, unknown>)[artifact.canonicalPath]
     if (cached === undefined) return null
     if (!cached || typeof cached !== 'object' || Array.isArray(cached)) {
-      await this.invalidateMcpSchemas(artifact).catch(() => undefined)
+      await this.invalidateMcpSchemasIfStillInvalid(artifact).catch(() => undefined)
       return null
     }
     const record = cached as { hash?: unknown; servers?: unknown }
     if (record.hash !== artifact.hash) {
       // A cache for a different hash may belong to a newer concurrent load. Never
       // let an older generation delete that entry merely because it is stale here.
-      if (typeof record.hash !== 'string') await this.invalidateMcpSchemas(artifact).catch(() => undefined)
+      if (typeof record.hash !== 'string') await this.invalidateMcpSchemasIfStillInvalid(artifact).catch(() => undefined)
       return null
     }
     if (getMcpSchemaCacheIssue(record.servers) !== null) {
-      await this.invalidateMcpSchemas(artifact).catch(() => undefined)
+      await this.invalidateMcpSchemasIfStillInvalid(artifact).catch(() => undefined)
       return null
     }
     return structuredClone(record.servers as CachedMcpSchemas)
@@ -208,6 +208,33 @@ export class WorkspaceTrustStore {
     })
   }
 
+  /** Removes a malformed cache only if it is still malformed when the trust-file lease is held. */
+  private async invalidateMcpSchemasIfStillInvalid(artifact: TrustedArtifact): Promise<void> {
+    const key = await canonicalPath(this.workspaceRoot)
+    await this.updateProject(key, project => {
+      const current = project.mcpSchemas as unknown
+      if (current === undefined) return
+      if (!current || typeof current !== 'object' || Array.isArray(current)) {
+        project.mcpSchemas = {}
+        return
+      }
+      const map = current as Record<string, unknown>
+      if (!Object.prototype.hasOwnProperty.call(map, artifact.canonicalPath)) return
+      const entry = map[artifact.canonicalPath]
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+        delete map[artifact.canonicalPath]
+        return
+      }
+      const record = entry as { hash?: unknown; servers?: unknown }
+      if (typeof record.hash !== 'string') {
+        delete map[artifact.canonicalPath]
+        return
+      }
+      if (record.hash !== artifact.hash) return
+      if (getMcpSchemaCacheIssue(record.servers) !== null) delete map[artifact.canonicalPath]
+    })
+  }
+
   /** Revokes one exact MCP approval and removes its schema cache. */
   async revokeMcp(artifact: TrustedArtifact): Promise<void> {
     const key = await canonicalPath(this.workspaceRoot)
@@ -220,9 +247,12 @@ export class WorkspaceTrustStore {
 }
 
 function isMcpApproved(project: WorkspaceTrustFile['projects'][string] | undefined, artifact: TrustedArtifact): boolean {
+  const pathApprovals = project?.mcpArtifacts
+  if (pathApprovals && Object.prototype.hasOwnProperty.call(pathApprovals, artifact.canonicalPath)) {
+    return pathApprovals[artifact.canonicalPath] === artifact.hash
+  }
   const approval = project?.mcp
-  return (approval?.canonicalPath === artifact.canonicalPath && approval.hash === artifact.hash) ||
-    project?.mcpArtifacts?.[artifact.canonicalPath] === artifact.hash
+  return approval?.canonicalPath === artifact.canonicalPath && approval.hash === artifact.hash
 }
 
 /** Returns a safe explanation when a schema cache cannot be loaded or persisted. */

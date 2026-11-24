@@ -191,13 +191,14 @@ function aggregateUsage(usage: PrimaryResponseUsage | null | undefined, provider
   const completion = safe(usage?.completion_tokens)
   const tokens = total ?? (prompt !== undefined && completion !== undefined ? prompt + completion : undefined)
   const costUsd = hasVerifiedDeepSeekPricing(provider, model) && prompt !== undefined && completion !== undefined
-    ? estimateCost(model, { promptTokens: prompt, completionTokens: completion, cachedTokens: safe(usage?.prompt_cache_hit_tokens ?? usage?.prompt_tokens_details?.cached_tokens) ?? 0 }, pricedAt)
+    ? estimateCost(model, { promptTokens: prompt, completionTokens: completion, cachedTokens: normalizePrimaryResponseUsage(usage)?.cachedTokens ?? 0 }, pricedAt)
     : undefined
   return { tokens, costUsd }
 }
 
-function isCompactedContextMessage(message: ChatCompletionMessageParam): boolean {
-  return message.role === 'assistant'
+function isCompactedContextMessage(message: MessageOrBoundary): boolean {
+  return !isBoundaryMarker(message)
+    && message.role === 'assistant'
     && typeof message.content === 'string'
     && message.content.startsWith('[Compacted context]')
 }
@@ -224,6 +225,7 @@ const PRIMARY_AGENT_HOOK_EVENTS = new Set<PrimaryAgentLifecycleHookEvent>([
 ])
 const PRIMARY_READ_ONLY_TOOLS = new Set(['grep', 'glob', 'read_file', 'read_folder', 'introspect', 'lsp', 'skill', 'session_evidence', 'session_search'])
 const MAX_LENGTH_CONTINUATIONS = 3
+const MCP_CATALOG_DISCOVERY_FRESHNESS_MS = 30_000
 const REPEATED_FAILURE_THRESHOLD = 3
 const MAX_EMPTY_REPLY_NUDGES = 2
 const EMPTY_REPLY_FEEDBACK = '[Empty response] Your last response had no text and no tool calls, so the turn would end with the task unfinished and nothing reported. Continue the task; when it is truly done, reply with a short summary of what changed.'
@@ -751,8 +753,8 @@ export interface ToolCallInvocation {
 interface McpClientGeneration {
   activeCalls: number
   retired: boolean
-  schemaValidated: boolean
-  schemaValidation?: Promise<{ code: string; message: string } | undefined>
+  schemaValidatedServers: Set<string>
+  schemaValidations: Map<string, Promise<{ tool?: Tool; error?: { code: string; message: string } }>>
   cleanup: () => Promise<void>
   closed: Promise<void>
   resolveClosed: () => void
@@ -762,7 +764,7 @@ interface McpClientGeneration {
 function createMcpClientGeneration(cleanup: () => Promise<void>): McpClientGeneration {
   let resolveClosed!: () => void
   const closed = new Promise<void>(resolve => { resolveClosed = resolve })
-  return { activeCalls: 0, retired: false, schemaValidated: false, cleanup, closed, resolveClosed }
+  return { activeCalls: 0, retired: false, schemaValidatedServers: new Set(), schemaValidations: new Map(), cleanup, closed, resolveClosed }
 }
 
 /**
@@ -1305,6 +1307,8 @@ export interface AgentCallbacks {
   /** The budget-group ID for this run, published after initialization and before any model request. */
   onAggregateBudgetGroup?(groupId: string): void
   onToken(text: string): void
+  /** One complete assistant response, after stream parsing; tool-call responses are marked non-final. */
+  onAssistantMessage?(text: string, hasToolCalls: boolean): void
   onThinking?(text: string): void
   onToolCall(name: string, args: object): void
   /** Live tool call while its arguments are still streaming in. `argsText` is partial JSON. */
@@ -1344,6 +1348,10 @@ export class Agent {
   private mcpClientGeneration?: McpClientGeneration
   private readonly mcpClientGenerations = new Set<McpClientGeneration>()
   private readonly mcpToolGenerations = new WeakMap<Tool, McpClientGeneration>()
+  private readonly mcpValidationPromises = new Set<Promise<unknown>>()
+  private mcpDiscoveryFreshUntil = 0
+  private mcpDiscoveryRefresh?: Promise<void>
+  private mcpDiscoveryRefreshWorkspace?: string
   private tools: Tool[] = allTools
   private toolMap: Map<string, Tool> = new Map(allTools.map((t) => [t.name, t]))
   private undoStack: UndoEntry[] = []
@@ -1499,26 +1507,52 @@ export class Agent {
   }
 
   /** Stage and install a complete MCP catalog before retiring the currently active clients. */
-  private async reloadMcpTools(workspacePath: string, enabled: boolean): Promise<void> {
-    const loaded = await loadMcpTools(workspacePath, { enabled })
+  private async reloadMcpTools(workspacePath: string, enabled: boolean, eager = false): Promise<void> {
+    const loaded = await loadMcpTools(workspacePath, { enabled, eager })
     if (this.mcpReloadClosed || this.workspacePath !== workspacePath) { await loaded.cleanup?.(); return }
     try {
-      this.installMcpTools(loaded.tools, loaded.cleanup)
+      const validatedServers = eager
+        ? new Set(loaded.tools.map(tool => tool.mcpServerName).filter((name): name is string => typeof name === 'string'))
+        : undefined
+      this.installMcpTools(loaded.tools, loaded.cleanup, validatedServers)
     } catch (error) {
       await loaded.cleanup?.()
       throw error
     }
     this.mcpErrors = loaded.errors
     this.mcpApprovalRequired = loaded.approval ?? null
+    this.mcpDiscoveryFreshUntil = 0
+  }
+
+  /** Explicit discovery refreshes a warm catalog at most once per freshness window. */
+  private refreshMcpCatalogForDiscovery(): Promise<void> {
+    if (Date.now() < this.mcpDiscoveryFreshUntil) return Promise.resolve()
+    const workspacePath = this.workspacePath
+    if (this.mcpDiscoveryRefresh && this.mcpDiscoveryRefreshWorkspace === workspacePath) return this.mcpDiscoveryRefresh
+    let pending!: Promise<void>
+    pending = this.queueMcpReload(() => this.reloadMcpTools(workspacePath, this.settings.mcp?.enabled === true, true))
+      .then(() => {
+        this.mcpDiscoveryFreshUntil = !this.mcpReloadClosed && this.workspacePath === workspacePath && this.mcpErrors.length === 0
+          ? Date.now() + MCP_CATALOG_DISCOVERY_FRESHNESS_MS
+          : 0
+      })
+      .finally(() => {
+        if (this.mcpDiscoveryRefresh === pending) {
+          this.mcpDiscoveryRefresh = undefined
+          this.mcpDiscoveryRefreshWorkspace = undefined
+        }
+      })
+    this.mcpDiscoveryRefresh = pending
+    this.mcpDiscoveryRefreshWorkspace = workspacePath
+    return pending
   }
 
   /** Replaces the tool set with the built-ins plus the given MCP tools and rebuilds the name lookup. */
-  private installMcpTools(mcpTools: Tool[], cleanup?: () => Promise<void>): void {
+  private installMcpTools(mcpTools: Tool[], cleanup?: () => Promise<void>, validatedServers?: ReadonlySet<string>): void {
     const extras = this.options.extraTools ?? []
     if (extras.some(tool => [...allTools, ...mcpTools].some(existing => existing.name === tool.name))) throw new Error('Extra tool cannot replace an installed tool')
     const tools = [...allTools, ...mcpTools, ...extras]
     if (new Set(tools.map(tool => tool.name)).size !== tools.length) throw new Error('Tool names must be unique across native, MCP and extra tools')
-    const previousGeneration = this.mcpClientGeneration
     const nextGeneration = cleanup ? createMcpClientGeneration(cleanup) : undefined
     this.mcpToolNames = new Set(mcpTools.map(tool => tool.name))
     this.discoveredMcpTools.clear()
@@ -1527,10 +1561,12 @@ export class Agent {
     this.mcpClientGeneration = nextGeneration
     this.mcpCleanup = nextGeneration ? () => this.retireMcpClientGeneration(nextGeneration) : null
     if (nextGeneration) {
+      if (validatedServers) nextGeneration.schemaValidatedServers = new Set(validatedServers)
       this.mcpClientGenerations.add(nextGeneration)
       for (const tool of mcpTools) this.mcpToolGenerations.set(tool, nextGeneration)
     }
-    if (previousGeneration && previousGeneration !== nextGeneration) {
+    for (const previousGeneration of [...this.mcpClientGenerations]) {
+      if (previousGeneration === nextGeneration) continue
       void this.retireMcpClientGeneration(previousGeneration).catch(error => {
         this.mcpErrors.push(`MCP cleanup failed: ${(error as Error).message}`)
       })
@@ -1555,28 +1591,39 @@ export class Agent {
     return generation.activeCalls === 0 ? this.closeMcpClientGeneration(generation) : generation.closed
   }
 
-  /** Rechecks lazily discovered descriptors against the currently trusted server catalog before their first call. */
-  private async validateMcpClientGeneration(generation: McpClientGeneration): Promise<{ code: string; message: string } | undefined> {
+  /** Rechecks one selected server's descriptors, keeping failures on unrelated servers isolated. */
+  private async validateMcpClientGeneration(
+    generation: McpClientGeneration,
+    serverName: string,
+    toolName: string,
+  ): Promise<{ tool?: Tool; error?: { code: string; message: string } }> {
     const workspacePath = this.workspacePath
     if (this.mcpReloadClosed || this.mcpClientGeneration !== generation) {
-      return { code: 'MCP_SCHEMA_VALIDATION_STALE', message: 'The MCP catalog changed before schema validation completed. No MCP tool was executed; retry the call.' }
+      return { error: { code: 'MCP_SCHEMA_VALIDATION_STALE', message: 'The MCP catalog changed before schema validation completed. No MCP tool was executed; retry the call.' } }
     }
 
-    const expectedTools = this.tools.filter(tool => this.mcpToolGenerations.get(tool) === generation)
+    const expectedTools = this.tools.filter(tool => this.mcpToolGenerations.get(tool) === generation && tool.mcpServerName === serverName)
     let loaded: Awaited<ReturnType<typeof loadMcpTools>>
     try {
-      loaded = await loadMcpTools(workspacePath, { enabled: this.settings.mcp?.enabled === true, eager: true })
+      loaded = await loadMcpTools(workspacePath, {
+        enabled: this.settings.mcp?.enabled === true,
+        eager: true,
+        onlyServerName: serverName,
+        persistSchemaCache: false,
+      })
     } catch {
-      return { code: 'MCP_SCHEMA_VALIDATION_FAILED', message: 'The currently trusted MCP server schemas could not be loaded. No MCP tool was executed; refresh the MCP catalog and retry.' }
+      return { error: { code: 'MCP_SCHEMA_VALIDATION_FAILED', message: `The trusted MCP server '${serverName}' schema could not be loaded. No MCP tool was executed; refresh the MCP catalog and retry.` } }
     }
 
     let installed = false
     try {
       if (this.mcpReloadClosed || this.workspacePath !== workspacePath || this.mcpClientGeneration !== generation) {
-        return { code: 'MCP_SCHEMA_VALIDATION_STALE', message: 'The MCP catalog changed during schema validation. No MCP tool was executed; retry the call.' }
+        return { error: { code: 'MCP_SCHEMA_VALIDATION_STALE', message: 'The MCP catalog changed during schema validation. No MCP tool was executed; retry the call.' } }
       }
 
-      this.mcpErrors = loaded.errors
+      if (loaded.errors.length) {
+        return { error: { code: 'MCP_SCHEMA_VALIDATION_FAILED', message: `The trusted MCP server '${serverName}' could not be validated: ${loaded.errors.join('; ')} No MCP tool was executed; refresh the MCP catalog and retry.` } }
+      }
       const expectedFingerprint = discoverTools(expectedTools, '').catalogFingerprint
       const currentFingerprint = discoverTools(loaded.tools, '').catalogFingerprint
       if (expectedFingerprint !== currentFingerprint) {
@@ -1585,74 +1632,122 @@ export class Agent {
         const changed = [...new Set([...expectedByName.keys(), ...currentByName.keys()])]
           .filter(name => expectedByName.get(name) !== currentByName.get(name))
         const detail = changed.length ? ` Changed tools: ${changed.slice(0, 8).join(', ')}${changed.length > 8 ? ', …' : ''}.` : ''
-        this.mcpApprovalRequired = loaded.approval ?? null
+        this.mcpApprovalRequired = loaded.approval ?? this.mcpApprovalRequired
         if (this.mcpApprovalRequired && this.mcpApprovalHandler) void this.resolveMcpApproval()
-        return {
+        return { error: {
           code: 'MCP_SCHEMA_CHANGED',
           message: `The current trusted MCP catalog differs from the installed tool schemas.${detail} No MCP tool was executed. Refresh or approve the MCP configuration, discover the current schema, and retry.`,
-        }
+        } }
       }
 
       if (loaded.tools.length && !loaded.cleanup) {
-        return { code: 'MCP_SCHEMA_VALIDATION_FAILED', message: 'The MCP server schemas were listed without an executable client. No MCP tool was executed; refresh the MCP catalog and retry.' }
+        return { error: { code: 'MCP_SCHEMA_VALIDATION_FAILED', message: 'The MCP server schemas were listed without an executable client. No MCP tool was executed; refresh the MCP catalog and retry.' } }
       }
 
-      const previouslyDiscovered = new Set(this.discoveredMcpTools)
+      const validatedTool = loaded.tools.find(tool => tool.name === toolName)
+      if (!validatedTool || !loaded.cleanup) {
+        return { error: { code: 'MCP_SCHEMA_VALIDATION_FAILED', message: `The validated MCP server '${serverName}' did not provide '${toolName}' with an executable client. No MCP tool was executed; refresh the MCP catalog and retry.` } }
+      }
       try {
-        this.installMcpTools(loaded.tools, loaded.cleanup)
+        this.installValidatedMcpServerTools(serverName, loaded.tools, loaded.cleanup)
         installed = true
       } catch {
-        return { code: 'MCP_SCHEMA_VALIDATION_FAILED', message: 'The validated MCP catalog could not be installed. No MCP tool was executed; refresh the MCP catalog and retry.' }
+        return { error: { code: 'MCP_SCHEMA_VALIDATION_FAILED', message: 'The validated MCP server catalog could not be installed. No MCP tool was executed; refresh the MCP catalog and retry.' } }
       }
-      this.mcpErrors = loaded.errors
-      this.mcpApprovalRequired = loaded.approval ?? null
-      this.discoveredMcpTools = new Set([...previouslyDiscovered].filter(name => this.mcpToolNames.has(name)))
-      if (this.mcpClientGeneration) this.mcpClientGeneration.schemaValidated = true
-      if (this.mcpApprovalRequired && this.mcpApprovalHandler) void this.resolveMcpApproval()
-      return undefined
+      this.mcpApprovalRequired = loaded.approval ?? this.mcpApprovalRequired
+      if (loaded.approval && this.mcpApprovalHandler) void this.resolveMcpApproval()
+      const installedTool = this.toolMap.get(toolName)
+      return installedTool ? { tool: installedTool } : {
+        error: { code: 'MCP_SCHEMA_VALIDATION_STALE', message: 'The MCP tool changed while its validated catalog was installed. No MCP tool was executed; retry the call.' },
+      }
     } finally {
       if (!installed) await loaded.cleanup?.()
     }
   }
 
-  /** Shares lazy first-use validation across concurrent calls and installs the validated client generation. */
-  private async ensureMcpClientGenerationValidated(generation: McpClientGeneration): Promise<{ code: string; message: string } | undefined> {
-    if (generation.schemaValidated) return undefined
-    if (!generation.schemaValidation) {
-      let pending!: Promise<{ code: string; message: string } | undefined>
-      pending = this.validateMcpClientGeneration(generation).catch(() => ({
-        code: 'MCP_SCHEMA_VALIDATION_FAILED',
-        message: 'MCP schema validation could not be completed safely. No MCP tool was executed; refresh the MCP catalog and retry.',
-      })).finally(() => {
-        if (generation.schemaValidation === pending) generation.schemaValidation = undefined
-      })
-      generation.schemaValidation = pending
+  /** Replaces just one server's catalog and gives its fresh client a separately managed generation. */
+  private installValidatedMcpServerTools(serverName: string, mcpTools: Tool[], cleanup: () => Promise<void>): void {
+    const oldTools = this.tools.filter(tool => tool.mcpServerName === serverName)
+    const oldNames = new Set(oldTools.map(tool => tool.name))
+    const retainedTools = this.tools.filter(tool => !oldNames.has(tool.name))
+    if (mcpTools.some(tool => retainedTools.some(existing => existing.name === tool.name))) {
+      throw new Error('Validated MCP tools conflict with another installed tool')
     }
-    return generation.schemaValidation
+    const insertionIndex = this.tools.findIndex(tool => oldNames.has(tool.name))
+    const before = insertionIndex < 0 ? retainedTools : this.tools.slice(0, insertionIndex).filter(tool => !oldNames.has(tool.name))
+    const after = insertionIndex < 0 ? [] : this.tools.slice(insertionIndex).filter(tool => !oldNames.has(tool.name))
+    const nextGeneration = createMcpClientGeneration(cleanup)
+    nextGeneration.schemaValidatedServers.add(serverName)
+    this.mcpClientGenerations.add(nextGeneration)
+    for (const tool of mcpTools) this.mcpToolGenerations.set(tool, nextGeneration)
+    this.tools = [...before, ...mcpTools, ...after]
+    this.toolMap = new Map(this.tools.map(tool => [tool.name, tool]))
+    this.mcpToolNames = new Set([...this.mcpToolNames].filter(name => !oldNames.has(name)).concat(mcpTools.map(tool => tool.name)))
+    this.discoveredMcpTools = new Set([...this.discoveredMcpTools].filter(name => this.mcpToolNames.has(name)))
+
+    const previousGenerations = new Set(oldTools.map(tool => this.mcpToolGenerations.get(tool)).filter((value): value is McpClientGeneration => value !== undefined))
+    for (const previousGeneration of previousGenerations) {
+      if (this.tools.some(tool => this.mcpToolGenerations.get(tool) === previousGeneration)) continue
+      void this.retireMcpClientGeneration(previousGeneration).catch(error => {
+        this.mcpErrors.push(`MCP cleanup failed: ${(error as Error).message}`)
+      })
+    }
   }
 
-  /** Resolves a current MCP tool after validation, retrying if an independent catalog reload won the race. */
-  private async getValidatedMcpTool(name: string): Promise<{ tool?: Tool; generation?: McpClientGeneration; error?: { code: string; message: string } }> {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const tool = this.toolMap.get(name)
-      if (!tool) return { error: { code: 'UNKNOWN_TOOL', message: `Unknown tool: ${name}` } }
-      const generation = this.mcpToolGenerations.get(tool)
-      // MCP tools installed by the host always own a client generation. Keep injected test/custom
-      // catalogs compatible; without a generation there is no MCP server to authorize here.
-      if (!generation) return { tool }
-
-      const error = await this.ensureMcpClientGenerationValidated(generation)
-      if (error) {
-        if (this.mcpClientGeneration !== generation) continue
-        return { error }
-      }
-
-      const currentTool = this.toolMap.get(name)
-      const currentGeneration = currentTool && this.mcpToolGenerations.get(currentTool)
-      if (currentTool && currentGeneration?.schemaValidated) return { tool: currentTool, generation: currentGeneration }
-      if (currentTool && !currentGeneration) return { tool: currentTool }
+  /** Shares validation of a server's current schema across concurrent calls and tracks staging for shutdown. */
+  private ensureMcpClientGenerationValidated(
+    generation: McpClientGeneration,
+    serverName: string,
+    toolName: string,
+  ): Promise<{ tool?: Tool; error?: { code: string; message: string } }> {
+    if (generation.schemaValidatedServers.has(serverName)) {
+      const tool = this.toolMap.get(toolName)
+      return Promise.resolve(tool ? { tool } : { error: { code: 'UNKNOWN_TOOL', message: `Unknown tool: ${toolName}` } })
     }
-    return { error: { code: 'MCP_SCHEMA_VALIDATION_STALE', message: 'The MCP catalog kept changing during schema validation. No MCP tool was executed; retry the call.' } }
+    const existing = generation.schemaValidations.get(serverName)
+    if (existing) return existing
+
+    let tracked!: Promise<{ tool?: Tool; error?: { code: string; message: string } }>
+    tracked = this.validateMcpClientGeneration(generation, serverName, toolName).catch(() => ({
+      error: {
+        code: 'MCP_SCHEMA_VALIDATION_FAILED',
+        message: 'MCP schema validation could not be completed safely. No MCP tool was executed; refresh the MCP catalog and retry.',
+      },
+    })).finally(() => {
+      if (generation.schemaValidations.get(serverName) === tracked) generation.schemaValidations.delete(serverName)
+      this.mcpValidationPromises.delete(tracked)
+    })
+    generation.schemaValidations.set(serverName, tracked)
+    this.mcpValidationPromises.add(tracked)
+    return tracked
+  }
+
+  /** Resolves the selected tool from the exact server generation that passed first-use validation. */
+  private async getValidatedMcpTool(name: string): Promise<{ tool?: Tool; generation?: McpClientGeneration; error?: { code: string; message: string } }> {
+    const tool = this.toolMap.get(name)
+    if (!tool) return { error: { code: 'UNKNOWN_TOOL', message: `Unknown tool: ${name}` } }
+    const generation = this.mcpToolGenerations.get(tool)
+    // Injected test/custom catalogs without a host generation have no MCP server to authorize here.
+    if (!generation) return { tool }
+    const serverName = tool.mcpServerName
+    if (!serverName) return { error: { code: 'MCP_SCHEMA_VALIDATION_FAILED', message: 'The MCP server identity is unavailable. No MCP tool was executed; refresh the MCP catalog and retry.' } }
+
+    const validated = await this.ensureMcpClientGenerationValidated(generation, serverName, name)
+    if (validated.error) {
+      if (this.mcpClientGeneration !== generation) {
+        return { error: { code: 'MCP_SCHEMA_VALIDATION_STALE', message: 'The MCP catalog changed while schema validation was pending. No MCP tool was executed; retry the call.' } }
+      }
+      return { error: validated.error }
+    }
+    const currentTool = this.toolMap.get(name)
+    if (!validated.tool || currentTool !== validated.tool) {
+      return { error: { code: 'MCP_SCHEMA_VALIDATION_STALE', message: 'The MCP catalog changed after schema validation. No MCP tool was executed; retry the call.' } }
+    }
+    const currentGeneration = this.mcpToolGenerations.get(currentTool)
+    if (!currentGeneration?.schemaValidatedServers.has(serverName)) {
+      return { error: { code: 'MCP_SCHEMA_VALIDATION_STALE', message: 'The MCP tool generation changed after schema validation. No MCP tool was executed; retry the call.' } }
+    }
+    return { tool: currentTool, generation: currentGeneration }
   }
 
   private async releaseMcpClientGeneration(generation: McpClientGeneration): Promise<void> {
@@ -2192,9 +2287,14 @@ export class Agent {
    */
   private async initialize(restorePersisted = true): Promise<void> {
     try {
-      await this.mcpCleanup?.()
-      this.mcpCleanup = null
       this.mcpClientGeneration = undefined
+      this.mcpDiscoveryFreshUntil = 0
+      this.mcpDiscoveryRefresh = undefined
+      this.mcpDiscoveryRefreshWorkspace = undefined
+      await this.mcpCleanup?.()
+      await Promise.allSettled([...this.mcpValidationPromises])
+      await Promise.all([...this.mcpClientGenerations].map(generation => this.retireMcpClientGeneration(generation)))
+      this.mcpCleanup = null
       this.mcpApprovalRequired = null
       const [instructions, loadedSettings, skills] = await Promise.all([
         loadProjectInstructions(this.workspacePath, this.workspacePath),
@@ -2475,6 +2575,7 @@ export class Agent {
     this.abortController?.abort(new Error('Agent shutdown'))
     await lspClosed
     await this.mcpReload
+    await Promise.allSettled([...this.mcpValidationPromises])
     await this.mcpCleanup?.()
     this.mcpCleanup = null
     await Promise.all([...this.mcpClientGenerations].map(generation => this.retireMcpClientGeneration(generation)))
@@ -2709,7 +2810,9 @@ export class Agent {
   }
 
   private get estimatedCostText(): string {
-    if (this.modelPricingAvailable && this.modelUsagePriceable && !this.hasUnpricedSubagentUsage) return formatCost(this.totalCostUsd)
+    const hasSubagentCostMeasurement = [...this.subagentCostAvailable.values()].some(available => available)
+    const hasRecordedCost = this.costUsageObserved || hasSubagentCostMeasurement || this.totalCostUsd > 0
+    if (hasRecordedCost && this.modelUsagePriceable && !this.hasUnpricedSubagentUsage) return formatCost(this.totalCostUsd)
     if (this.totalCostUsd > 0) return `${formatCost(this.totalCostUsd)} (partial subtotal; unpriced usage is excluded)`
     return 'unavailable (no verified price for all provider/model usage)'
   }
@@ -2807,9 +2910,9 @@ export class Agent {
     const tokenUsageStatus: AggregateUsageStatus = !tokenUsageObserved
       ? 'unavailable'
       : tokenUsageAvailable ? 'measured' : 'partial'
-    const costAvailable = this.modelPricingAvailable && this.modelUsagePriceable && !this.hasUnpricedSubagentUsage
     const hasSubagentCostMeasurement = taskUsage.some(task => task.metrics.costUsd !== undefined && task.metrics.costAvailable === true)
     const costUsageObserved = this.costUsageObserved || hasSubagentCostMeasurement
+    const costAvailable = costUsageObserved && this.modelUsagePriceable && !this.hasUnpricedSubagentUsage
     const costUsageStatus: AggregateUsageStatus = !costUsageObserved && this.totalCostUsd === 0
       ? 'unavailable'
       : costAvailable ? 'measured' : 'partial'
@@ -2825,6 +2928,7 @@ export class Agent {
       filesModified: this.filesModified.size,
       costUsd: this.totalCostUsd,
       costAvailable,
+      currentModelPricingAvailable: this.modelPricingAvailable,
       costUsageStatus,
       costEstimated: costUsageStatus !== 'unavailable',
       subagentCostAvailable: !this.hasUnpricedSubagentUsage,
@@ -3341,7 +3445,19 @@ export class Agent {
 
   /** Keeps continuation guidance active whenever the current compacted summary remains in the conversation. */
   private getConversationSystemPrompt(): string {
-    const hasCompactedContext = getMessagesAfterBoundary(this.messages).some(isCompactedContextMessage)
+    let boundaryIndex = -1
+    for (let index = this.messages.length - 1; index >= 0; index--) {
+      if (isBoundaryMarker(this.messages[index]!)) {
+        boundaryIndex = index
+        break
+      }
+    }
+    const recentMessages = boundaryIndex >= 0
+      ? this.messages.slice(boundaryIndex + 1)
+      : this.messages.slice(1)
+    const firstConversationMessage = recentMessages.find(message =>
+      !isBoundaryMarker(message) && message.role !== 'system' && !isProjectContextMessage(message))
+    const hasCompactedContext = firstConversationMessage !== undefined && isCompactedContextMessage(firstConversationMessage)
     return hasCompactedContext
       ? `${this.systemPrompt}\n\n${COMPACT_CONTINUATION_SYSTEM_PROMPT}`
       : this.systemPrompt
@@ -4086,6 +4202,7 @@ export class Agent {
           const toolCalls = parseBedrockToolCalls(rawText)
           if (toolCalls.length > 0) {
             const visibleText = stripToolCalls(rawText)
+            cb.onAssistantMessage?.(visibleText, true)
             if (visibleText) cb.onToken(visibleText)
             const parsedList = parseBedrockToolCallBatch(toolCalls, finishReason)
             const retainedAssistantText = sanitizeBedrockToolCallText(rawText, toolCalls, parsedList)
@@ -4112,6 +4229,7 @@ export class Agent {
           }
           // No tool calls — final response
           const assistantText = stripToolCalls(rawText)
+          cb.onAssistantMessage?.(assistantText, false)
           if (assistantText) cb.onToken(assistantText)
           const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: rawText }
           if (reasoningText) finalMsg.reasoning_content = reasoningText
@@ -4123,6 +4241,7 @@ export class Agent {
 
         // ── Native tool calling (non-Bedrock) ───────────────────────────────
         const assistantText = rawText
+        cb.onAssistantMessage?.(assistantText, Boolean(msg?.tool_calls?.length))
         if (assistantText) cb.onToken(assistantText)
 
         if (!msg?.tool_calls?.length) {
@@ -4324,6 +4443,7 @@ export class Agent {
         if (this.provider === 'bedrock' && !modelSupportsChatCompletions(this.model)) {
           const textCalls = parseBedrockToolCalls(assistantText)
           if (textCalls.length > 0) {
+            cb.onAssistantMessage?.(stripToolCalls(assistantText), true)
             const parsedList = parseBedrockToolCallBatch(textCalls, finishReason)
             const retainedAssistantText = sanitizeBedrockToolCallText(assistantText, textCalls, parsedList)
             const assistantMsg: AssistantMessageWithReasoning = { role: 'assistant', content: retainedAssistantText }
@@ -4347,6 +4467,7 @@ export class Agent {
           }
         }
 
+        cb.onAssistantMessage?.(isPromptToolCalling ? stripToolCalls(assistantText) : assistantText, false)
         const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText }
         // Always preserve reasoning_content — DeepSeek-V4-Flash has built-in thinking mode
         if (reasoningText) finalMsg.reasoning_content = reasoningText
@@ -4367,6 +4488,7 @@ export class Agent {
         function: { name: tc.name, arguments: tc.args },
       }))
 
+      cb.onAssistantMessage?.(assistantText, true)
 
       const parsedList = parseToolCallBatchArguments(tcArray, finishReason)
       const assistantMsg: AssistantMessageWithReasoning = {
@@ -6233,6 +6355,7 @@ export class Agent {
         this.discoveredMcpTools = new Set(result.matches.filter(tool => this.mcpToolNames.has(tool.name)).map(tool => tool.name))
         return JSON.stringify(result)
       }
+      context.refreshMcpCatalog = () => this.refreshMcpCatalogForDiscovery()
       context.readSessionEvidence = (id, start, limit) => this.sessionEvidence.read(id, start, limit)
       context.recordSessionClaim = claim => {
         const id = this.sessionEvidence.recordClaim(claim)

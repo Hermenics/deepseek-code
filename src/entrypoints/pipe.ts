@@ -247,6 +247,7 @@ function pipeUsage(agent: Agent | undefined) {
 export default async function runPipe() {
   const options = parsePipeArgs()
   let output = ''
+  let finalModelResponse = ''
   const tools: string[] = []
   let agent: Agent | undefined
   let runFailure: Error | undefined
@@ -316,6 +317,9 @@ export default async function runPipe() {
     if (!enchant) agent.setPromptRefinerEnabled(false)
 
     await agent.run(userMessage, {
+      onAssistantMessage(text, hasToolCalls) {
+        if (!hasToolCalls) finalModelResponse = text
+      },
       onToken(token) {
         // Recoverable provider failures are also sent as token text for interactive callers.
         // Pipe mode reports them through its structured error event instead.
@@ -345,7 +349,7 @@ export default async function runPipe() {
     if (runFailure) throw runFailure
 
     if (outputSchema) {
-      const result = validatePipeOutput(output, outputSchema.validate)
+      const result = validatePipeOutput(finalModelResponse, outputSchema.validate)
       if (!result.ok) {
         const error = new Error('Final output failed JSON Schema validation')
         Object.assign(error, { validationIssues: result.issues })

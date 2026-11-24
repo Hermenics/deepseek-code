@@ -21,6 +21,7 @@ function createAgent(workspacePath: string) {
     discoveredMcpTools: new Set<string>(),
     mcpToolGenerations: new WeakMap<Tool, object>(),
     mcpClientGenerations: new Set<object>(),
+    mcpValidationPromises: new Set<Promise<unknown>>(),
     tools: [],
     toolMap: new Map(),
     interactionMode: 'auto',
@@ -48,7 +49,7 @@ function createAgent(workspacePath: string) {
 }
 
 function mcpTool(execute: Tool['execute'], parameters: object = schema): Tool {
-  return { name: toolName, description: 'Look up a value', parameters, execute }
+  return { name: toolName, description: 'Look up a value', parameters, mcpServerName: 'trusted_server', execute }
 }
 
 function largeCatalog(selectedTool: Tool): Tool[] {
@@ -56,13 +57,13 @@ function largeCatalog(selectedTool: Tool): Tool[] {
     name: `trusted_server__catalog_${index}`,
     description: `Read catalog entry ${index} ${'x'.repeat(100)}`,
     parameters: schema,
+    mcpServerName: 'trusted_server',
     execute: async () => 'unused catalog tool',
   }))
 }
 
-async function discoverSelectedTool(agent: Agent): Promise<void> {
-  const result = JSON.parse(await (agent as any).executeTool('discover_tools', { query: toolName }))
-  expect(result.matches.some((tool: Tool) => tool.name === toolName)).toBe(true)
+function exposeSelectedToolForTest(agent: Agent): void {
+  ;(agent as any).discoveredMcpTools.add(toolName)
 }
 
 describe('agent MCP live schema validation', () => {
@@ -93,7 +94,7 @@ describe('agent MCP live schema validation', () => {
       internals.installMcpTools(cachedCatalog, async () => { events.push('close-cached') })
       const run = internals.executeTool.bind(agent)
 
-      await discoverSelectedTool(agent)
+      exposeSelectedToolForTest(agent)
       await expect(run(toolName, { value: 'first' })).resolves.toBe('live:first')
       await expect(run(toolName, { value: 'second' })).resolves.toBe('live:second')
 
@@ -101,10 +102,15 @@ describe('agent MCP live schema validation', () => {
       expect(cachedCalls).toBe(0)
       expect(liveCalls).toBe(2)
       expect(load).toHaveBeenCalledTimes(1)
-      expect(load).toHaveBeenCalledWith(workspacePath, { enabled: true, eager: true })
+      expect(load).toHaveBeenCalledWith(workspacePath, {
+        enabled: true,
+        eager: true,
+        onlyServerName: 'trusted_server',
+        persistSchemaCache: false,
+      })
     } finally {
       load.mockRestore()
-      await (agent as any).mcpCleanup?.()
+      await Promise.all([...internals.mcpClientGenerations].map((generation: object) => internals.retireMcpClientGeneration(generation)))
     }
   })
 
@@ -126,7 +132,7 @@ describe('agent MCP live schema validation', () => {
 
     try {
       internals.installMcpTools(cachedCatalog, async () => {})
-      await discoverSelectedTool(agent)
+      exposeSelectedToolForTest(agent)
       const result = JSON.parse(await internals.executeTool(toolName, { value: 'first' }))
 
       expect(result).toMatchObject({
@@ -140,7 +146,7 @@ describe('agent MCP live schema validation', () => {
       expect(load).toHaveBeenCalledTimes(1)
     } finally {
       load.mockRestore()
-      await (agent as any).mcpCleanup?.()
+      await Promise.all([...internals.mcpClientGenerations].map((generation: object) => internals.retireMcpClientGeneration(generation)))
     }
   })
 
@@ -155,7 +161,7 @@ describe('agent MCP live schema validation', () => {
 
     try {
       internals.installMcpTools(largeCatalog(cachedTool), async () => {})
-      await discoverSelectedTool(agent)
+      exposeSelectedToolForTest(agent)
       const result = JSON.parse(await internals.executeTool(toolName, { value: 'first' }))
 
       expect(result.error.code).toBe('MCP_SCHEMA_CHANGED')
@@ -165,7 +171,7 @@ describe('agent MCP live schema validation', () => {
       expect(load).toHaveBeenCalledTimes(1)
     } finally {
       load.mockRestore()
-      await (agent as any).mcpCleanup?.()
+      await Promise.all([...internals.mcpClientGenerations].map((generation: object) => internals.retireMcpClientGeneration(generation)))
     }
   })
 })

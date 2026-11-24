@@ -5,8 +5,10 @@ import { tmpdir } from 'node:os'
 import { approveMcpConfig, loadMcpTools } from '../src/agent/mcp.js'
 import { checkMcpCatalog } from '../src/commands/doctor/mcp.js'
 import { classifyProviderError, formatProviderProbe, probeProviderCatalog, selectDoctorProviderProfile } from '../src/commands/doctor/provider.js'
+import { sandboxAvailable } from '../src/utils/platform.js'
 
 const roots: string[] = []
+const sandboxTest = it.skipIf(!sandboxAvailable())
 const previousPluginsDir = process.env.DEEPSEEK_PLUGINS_DIR
 
 afterEach(async () => {
@@ -126,7 +128,7 @@ describe('doctor provider catalog probe', () => {
         return 'vertex-secret'
       },
       fetchImpl: async (input, init) => {
-        expect(String(input)).toBe('https://us-central1-aiplatform.googleapis.com/v1/publishers/deepseek-ai/models')
+        expect(String(input)).toBe('https://us-central1-aiplatform.googleapis.com/v1beta1/publishers/deepseek-ai/models')
         expect(new Headers(init?.headers).get('authorization')).toBe('Bearer vertex-secret')
         return new Response(JSON.stringify({ publisherModels: [{ name: 'publishers/deepseek-ai/models/deepseek-r1' }] }), { status: 200 })
       },
@@ -175,7 +177,7 @@ describe('doctor MCP catalog check', () => {
     expect(result).toEqual({ name: 'MCP catalog', ok: true, detail: 'MCP is disabled; no servers were started' })
   })
 
-  it('lists tools from approved configurations without calling them', async () => {
+  sandboxTest('lists tools from approved configurations without calling them', async () => {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-doctor-mcp-approved-'))
     roots.push(root)
     process.env.DEEPSEEK_PLUGINS_DIR = join(root, 'plugins')

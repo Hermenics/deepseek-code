@@ -42,6 +42,10 @@ export interface McpLoadOptions {
   initialTimeoutMs?: number
   /** Force connection and catalog listing even when an approved stdio schema cache exists. */
   eager?: boolean
+  /** Restrict loading to one fully-qualified server for isolated first-use validation. */
+  onlyServerName?: string
+  /** Avoid persisting a staged schema before the host compares it with the installed catalog. */
+  persistSchemaCache?: boolean
 }
 
 export type McpApprovalRequest = TrustedArtifact
@@ -278,13 +282,15 @@ function pluginServers(value: unknown, pluginRoot: string): McpConfig | null {
 }
 
 /** Collects plugin MCP files and inline manifest configs without following paths outside the plugin. */
-async function loadMcpSources(cwd: string): Promise<{ sources: McpSource[]; errors: string[] }> {
+async function loadMcpSources(cwd: string, onlyServerName?: string): Promise<{ sources: McpSource[]; errors: string[] }> {
   const sources: McpSource[] = []
   const errors: string[] = []
   const project = await loadConfig(cwd)
   if (project) sources.push({ ...project, cwd, prefix: '' })
 
   for (const plugin of loadInstalledPlugins()) {
+    const pluginPrefix = `${plugin.entry.name}__`
+    const pluginCouldProvideSelectedServer = onlyServerName === undefined || onlyServerName.startsWith(pluginPrefix)
     const specs = ['.mcp.json', ...[plugin.manifest.mcpServers ?? []].flat()]
     const seen = new Set<string>()
     for (const spec of specs) {
@@ -300,11 +306,16 @@ async function loadMcpSources(cwd: string): Promise<{ sources: McpSource[]; erro
           if (!config) throw new Error('invalid MCP server configuration')
           sources.push({ config, artifact: { canonicalPath: canonical, hash: hashTrustedContent(`${plugin.entry.commitHash ?? ''}\0${content}`) }, cwd: plugin.path, prefix: `${plugin.entry.name}__` })
         } catch (error) {
-          if (spec !== '.mcp.json' || (error as NodeJS.ErrnoException).code !== 'ENOENT') errors.push(`Plugin '${plugin.entry.name}' MCP ${spec}: ${(error as Error).message}`)
+          if (pluginCouldProvideSelectedServer && (spec !== '.mcp.json' || (error as NodeJS.ErrnoException).code !== 'ENOENT')) {
+            errors.push(`Plugin '${plugin.entry.name}' MCP ${spec}: ${(error as Error).message}`)
+          }
         }
       } else {
         const config = pluginServers(spec, plugin.path)
-        if (!config) { errors.push(`Plugin '${plugin.entry.name}' has invalid inline MCP configuration`); continue }
+        if (!config) {
+          if (pluginCouldProvideSelectedServer) errors.push(`Plugin '${plugin.entry.name}' has invalid inline MCP configuration`)
+          continue
+        }
         const manifestFile = join(plugin.path, 'plugin.json')
         const fallback = join(plugin.path, '.claude-plugin', 'plugin.json')
         const artifact = await hashTrustedFile(manifestFile).catch(() => hashTrustedFile(fallback))
@@ -344,6 +355,8 @@ export async function approveMcpConfig(cwd: string, approval: McpApprovalRequest
 export interface McpLoadResult {
   tools: Tool[]
   errors: string[]
+  /** Optional cache optimization notices that do not prevent live MCP tools from working. */
+  warnings?: string[]
   approval?: McpApprovalRequest
   cleanup?: () => Promise<void>
 }
@@ -353,13 +366,15 @@ export interface McpLoadResult {
  * Approved stdio schemas are reused without starting the server; the first tool use reconnects,
  * verifies the live catalog, and only then calls the requested tool. Cold caches and `eager` loads
  * keep the current connect-and-list behavior. Returns the first pending `approval` while still
- * connecting approved configs. Per-server failures are collected in `errors` rather than thrown.
+ * connecting approved configs. Live/configuration failures are collected in `errors`; optional cache
+ * optimization notices are separated into `warnings`.
  */
 export async function loadMcpTools(cwd = process.cwd(), options: McpLoadOptions = {}): Promise<McpLoadResult> {
   if (!options.enabled) return { tools: [], errors: [] }
-  const { sources, errors } = await loadMcpSources(cwd)
+  const { sources, errors } = await loadMcpSources(cwd, options.onlyServerName)
   const trust = new WorkspaceTrustStore(cwd, options.trustFile)
   const tools: Tool[] = []
+  const warnings: string[] = []
   const cleanups: Array<() => Promise<void>> = []
   const serverNames = new Set<string>()
   let approval: McpApprovalRequest | undefined
@@ -367,11 +382,12 @@ export async function loadMcpTools(cwd = process.cwd(), options: McpLoadOptions 
   let cleanupPromise: Promise<void> | undefined
 
   for (const source of sources) {
+    if (options.onlyServerName && !Object.keys(source.config.servers).some(name => `${source.prefix}${name}` === options.onlyServerName)) continue
     if (!await trust.isMcpApproved(source.artifact)) {
       try {
         await trust.invalidateMcpSchemas(source.artifact)
       } catch (error) {
-        errors.push(`MCP schema cache for '${source.artifact.canonicalPath}' could not be invalidated; approval is still required: ${(error as Error).message}`)
+        warnings.push(`MCP schema cache for '${source.artifact.canonicalPath}' could not be invalidated; approval is still required: ${(error as Error).message}`)
       }
       approval ??= source.artifact
       continue
@@ -381,7 +397,7 @@ export async function loadMcpTools(cwd = process.cwd(), options: McpLoadOptions 
     try {
       cachedSchemas = await trust.getMcpSchemas(source.artifact)
     } catch (error) {
-      errors.push(`MCP schema cache for '${source.artifact.canonicalPath}' could not be read; live tools remain available: ${(error as Error).message}`)
+      warnings.push(`MCP schema cache for '${source.artifact.canonicalPath}' could not be read; live tools remain available: ${(error as Error).message}`)
     }
     // MCP server names are configuration keys, so they can legally collide with
     // Object.prototype names (including the special __proto__ setter).
@@ -389,6 +405,7 @@ export async function loadMcpTools(cwd = process.cwd(), options: McpLoadOptions 
     let schemaCacheDisabled = false
     for (const [rawServerName, serverConfig] of Object.entries(source.config.servers)) {
       const serverName = `${source.prefix}${rawServerName}`
+      if (options.onlyServerName && serverName !== options.onlyServerName) continue
       if (serverNames.has(serverName)) {
         errors.push(`MCP server name collision: '${serverName}' is declared more than once`)
         continue
@@ -430,22 +447,27 @@ export async function loadMcpTools(cwd = process.cwd(), options: McpLoadOptions 
         }
 
         const connected = await connectAndListMcpServer(source, serverName, serverConfig, options, initialTimeoutMs)
+        try {
+          await assertMcpSourceApproved(cwd, source, trust, serverName)
+        } catch (error) {
+          await closeClient(connected.client, connected.transport)
+          throw error
+        }
         cleanups.push(() => closeClient(connected.client, connected.transport))
-        await assertMcpSourceApproved(cwd, source, trust, serverName)
         const cachedToolsFromServer = connected.tools.map(toCachedMcpTool)
-        if (serverConfig.transport === 'stdio' && !schemaCacheDisabled) {
+        if (serverConfig.transport === 'stdio' && !schemaCacheDisabled && options.persistSchemaCache !== false) {
           schemaCache[rawServerName] = cachedToolsFromServer
           const cacheIssue = getMcpSchemaCacheIssue(schemaCache)
           if (cacheIssue) {
             schemaCacheDisabled = true
             await trust.invalidateMcpSchemas(source.artifact).catch(() => undefined)
-            errors.push(`MCP server '${serverName}' schema cache optimization was skipped because ${cacheIssue}; live tools remain available.`)
+            warnings.push(`MCP server '${serverName}' schema cache optimization was skipped because ${cacheIssue}; live tools remain available.`)
           } else {
             try {
               const saved = await trust.saveMcpSchemas(source.artifact, schemaCache)
               if (!saved) errors.push(`MCP server '${serverName}' schema cache was not saved because its configuration is no longer approved.`)
             } catch (error) {
-              errors.push(`MCP server '${serverName}' schema cache could not be saved; the live tools remain available: ${(error as Error).message}`)
+              warnings.push(`MCP server '${serverName}' schema cache could not be saved; the live tools remain available: ${(error as Error).message}`)
             }
           }
         }
@@ -467,6 +489,7 @@ export async function loadMcpTools(cwd = process.cwd(), options: McpLoadOptions 
   return {
     tools,
     errors,
+    ...(warnings.length ? { warnings } : {}),
     ...(approval ? { approval } : {}),
     ...(cleanups.length || sources.length ? { cleanup: () => {
       if (cleanupPromise) return cleanupPromise
@@ -606,6 +629,7 @@ function createLazyServerTools(input: {
       name,
       description: `[MCP:${input.serverName}] ${mcpTool.description ?? ''}`,
       parameters: mcpTool.inputSchema as object,
+      mcpServerName: input.serverName,
       async execute(args, context) {
         const connectedClient = await getClient()
         await assertMcpSourceApproved(input.cwd, input.source, input.trust, input.serverName)
@@ -636,6 +660,7 @@ function createMcpTool(
     name,
     description: `[MCP:${serverName}] ${mcpTool.description ?? ''}`,
     parameters: mcpTool.inputSchema as object,
+    mcpServerName: serverName,
     async execute(args, context) {
       await assertMcpSourceApproved(cwd, source, trust, serverName)
       const timeoutMs = 30_000

@@ -22,6 +22,7 @@ export async function checkMcpCatalog(
     const parts = [`${loaded.tools.length} tool${loaded.tools.length === 1 ? '' : 's'} listed from approved MCP configurations`]
     if (pendingApproval) parts.push('unapproved configuration skipped')
     if (failed) parts.push(`${loaded.errors.length} approved server or configuration check${loaded.errors.length === 1 ? '' : 's'} failed`)
+    if (loaded.warnings?.length) parts.push(`${loaded.warnings.length} optional schema-cache notice${loaded.warnings.length === 1 ? '' : 's'}`)
     return { name: 'MCP catalog', ok: !pendingApproval && !failed, detail: parts.join('; ') }
   } catch {
     return { name: 'MCP catalog', ok: false, detail: 'approved MCP configurations could not be inspected' }

@@ -121,7 +121,7 @@ describe('primary Agent response usage normalization', () => {
           create: mock(async () => {
             responseNumber++
             groupAtRequest = primaryAgent.getCurrentAggregateBudgetGroupId()
-            const tokens = responseNumber === 1 ? 1 : 9
+            const tokens = responseNumber === 1 ? 1 : 10
             return {
               choices: [{ finish_reason: 'stop', message: { content: 'done' } }],
               usage: { total_tokens: tokens, prompt_tokens: tokens - 1, completion_tokens: 1 },

@@ -377,6 +377,8 @@ export interface ToolExecutionContext {
   effectId?: string
   /** Read-only lookup of currently eligible installed tool descriptors; never authorization. */
   discoverTools?: (query: string) => string
+  /** Refreshes the approved MCP catalog before discovery; never executes a tool. */
+  refreshMcpCatalog?: () => Promise<void>
   /** Read-only recovery of runtime source records, never tool authorization. */
   readSessionEvidence?: (id?: string, start?: number, limit?: number) => string
   /** Append model-authored claim revisions to this session only; never mutates source evidence or grants. */

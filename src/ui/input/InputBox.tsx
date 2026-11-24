@@ -150,6 +150,7 @@ export function InputBox({
   const [imageNotice, setImageNotice] = useState<string | null>(null)
   const [selectedIdx, setSelectedIdx] = useState(0)
   const [argumentSelectedIdx, setArgumentSelectedIdx] = useState(0)
+  const [argumentSuggestionSelected, setArgumentSuggestionSelected] = useState(false)
   const [argumentCompletion, setArgumentCompletion] = useState<ArgumentMatches | null>(null)
   const [argumentCompletionWorkspace, setArgumentCompletionWorkspace] = useState(workingDirectory)
   const [vimState, setVimState] = useState<VimState>(createVimState)
@@ -175,6 +176,7 @@ export function InputBox({
     setArgumentCompletionWorkspace(workingDirectory)
     const result = getArgumentMatches(text, offset, workingDirectory)
     setArgumentSelectedIdx(0)
+    setArgumentSuggestionSelected(false)
     if (result && typeof (result as Promise<unknown>).then === 'function') {
       setArgumentCompletion(null)
       void (result as Promise<ArgumentMatches | null>).then(completion => {
@@ -454,10 +456,13 @@ export function InputBox({
       setArgumentSelectedIdx(index => key.upArrow
         ? (index - 1 + argumentCompletion.values.length) % argumentCompletion.values.length
         : (index + 1) % argumentCompletion.values.length)
+      setArgumentSuggestionSelected(true)
       return
     }
 
-    if (showArgumentDropdown && argumentCompletion && (action === 'acceptCompletion' || (key.return && !key.ctrl && !key.shift))) {
+    const hasArgumentPrefix = argumentCompletion !== null && argumentCompletion.replaceStart < argumentCompletion.replaceEnd
+    if (showArgumentDropdown && argumentCompletion && (action === 'acceptCompletion' ||
+      (key.return && !key.ctrl && !key.shift && (hasArgumentPrefix || argumentSuggestionSelected)))) {
       const chosen = argumentCompletion.values[argumentSelectedIdx]
       if (chosen) {
         const before = cursor.text.slice(0, argumentCompletion.replaceStart)
