@@ -67,11 +67,15 @@ describe('parsePipeArgs', () => {
   it('joins output-limit continuations before schema validation and drops tool-call prefaces', () => {
     const response = createPipeAssistantResponseAccumulator()
     response.accept('{"count":', false, true)
-    response.accept('planning tool call', true)
-    response.accept('{"count":2}', false)
+    response.accept('2}', false)
 
     expect(response.getValue()).toBe('{"count":2}')
     expect(validatePipeOutput(response.getValue(), compileOutputSchema({ type: 'object', required: ['count'] }))).toMatchObject({ ok: true })
+
+    response.accept('{"count":', false, true)
+    response.accept('planning tool call', true)
+    response.accept('{"count":3}', false)
+    expect(response.getValue()).toBe('{"count":3}')
   })
 
   it('allows in-document references and rejects references that would need external resolution', () => {
