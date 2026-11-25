@@ -389,7 +389,7 @@ process.stdin.on('data', chunk => {
       loaded = await loadMcpTools(project, options)
       expect(loaded.tools.map(tool => tool.name)).toEqual(['healthy__probe'])
       expect(loaded.approval?.canonicalPath).toBe(await realpath(join(plugin, 'mcp.json')))
-      expect(loaded.errors.some(error => error.includes('approval is still required') && error.includes('fixture cache storage unavailable'))).toBe(true)
+      expect(loaded.warnings?.some(warning => warning.includes('approval is still required') && warning.includes('fixture cache storage unavailable'))).toBe(true)
       await expect(loaded.tools[0]!.execute({})).resolves.toBe('healthy tool called')
     } finally {
       await loaded?.cleanup?.()

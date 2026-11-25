@@ -122,6 +122,7 @@ export class WorkspaceTrustStore {
   async approveMcp(artifact: TrustedArtifact): Promise<void> {
     const key = await canonicalPath(this.workspaceRoot)
     await this.updateProject(key, project => {
+      if (project.mcp?.canonicalPath === artifact.canonicalPath) delete project.mcp
       project.mcpArtifacts ??= {}
       project.mcpArtifacts[artifact.canonicalPath] = artifact.hash
       const cached = project.mcpSchemas?.[artifact.canonicalPath]

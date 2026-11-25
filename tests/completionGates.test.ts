@@ -175,12 +175,20 @@ describe('output limit and repeated failures', () => {
     }
     const { agent, requests } = await scriptedAgent([() => cutOff(), () => textResponse(' and the second half.')])
     const cb = trackedCallbacks()
+    const assistantResponses: Array<[string, boolean, boolean]> = []
+    cb.onAssistantMessage = (text, hasToolCalls, willContinue) => {
+      assistantResponses.push([text, hasToolCalls, willContinue])
+    }
 
     await agent.run('explain everything', cb)
 
     expect(requests).toHaveLength(2)
     expect(lastMessage(requests[1])).toContain('[Output limit]')
     expect(JSON.stringify(requests[1]!.at(-2)?.content)).toContain('First half of the answer')
+    expect(assistantResponses).toEqual([
+      ['First half of the answer', false, true],
+      [' and the second half.', false, false],
+    ])
     expect(cb.done).toBe(1)
   })
 

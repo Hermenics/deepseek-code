@@ -22,21 +22,24 @@ type BalanceInternals = {
   sessionStartBalance: Promise<unknown> | null
   fetchBalance: () => Promise<unknown>
   recordUsage: (promptTokens?: number, completionTokens?: number, cachedTokens?: number) => void
+  recordResponseUsage: (usage: unknown) => unknown
 }
 
 describe('getCostReport', () => {
-  it('updates price availability when the model or provider changes', async () => {
+  it('keeps historical cost availability separate from current-model price availability', async () => {
     const agent = new Agent({ provider: 'deepseek', apiKey: 'sk-test', baseURL: 'https://api.deepseek.com' })
     await agent.readyPromise.catch(() => {})
-    expect(agent.getSessionStats().costAvailable).toBe(true)
+    expect(agent.getSessionStats()).toMatchObject({ costAvailable: false, currentModelPricingAvailable: true })
+    ;(agent as unknown as BalanceInternals).recordResponseUsage({ total_tokens: 2, prompt_tokens: 1, completion_tokens: 1 })
+    expect(agent.getSessionStats()).toMatchObject({ costAvailable: true, currentModelPricingAvailable: true })
     agent.setModel('unknown-model')
-    expect(agent.getSessionStats().costAvailable).toBe(false)
+    expect(agent.getSessionStats()).toMatchObject({ costAvailable: true, currentModelPricingAvailable: false })
     agent.setModel('deepseek-flash')
-    expect(agent.getSessionStats().costAvailable).toBe(true)
+    expect(agent.getSessionStats()).toMatchObject({ costAvailable: true, currentModelPricingAvailable: true })
     agent.setProviderConfig({ provider: 'deepseek', apiKey: 'sk-test', baseURL: 'http://127.0.0.1:8001/v1' })
-    expect(agent.getSessionStats().costAvailable).toBe(false)
+    expect(agent.getSessionStats()).toMatchObject({ costAvailable: true, currentModelPricingAvailable: false })
     agent.setProviderConfig({ provider: 'vertex', gcpProject: 'test', gcpLocation: 'global', gcpCredentials: '/tmp/test-service-account.json' })
-    expect(agent.getSessionStats().costAvailable).toBe(false)
+    expect(agent.getSessionStats()).toMatchObject({ costAvailable: true, currentModelPricingAvailable: false })
   })
 
   it('adds the account balance and how much it moved since the session started', async () => {

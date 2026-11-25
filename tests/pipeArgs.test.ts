@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { appendOutputSchemaInstruction, compileOutputSchema, formatOutputSchemaInstruction, formatPipeJsonlEvent, MAX_OUTPUT_SCHEMA_PROMPT_BYTES, parsePipeArgs, validatePipeOutput } from '../src/entrypoints/pipe.js'
+import { appendOutputSchemaInstruction, compileOutputSchema, createPipeAssistantResponseAccumulator, formatOutputSchemaInstruction, formatPipeJsonlEvent, MAX_OUTPUT_SCHEMA_PROMPT_BYTES, parsePipeArgs, validatePipeOutput } from '../src/entrypoints/pipe.js'
 
 describe('parsePipeArgs', () => {
   it('removes pipe flags from prompt args', () => {
@@ -62,6 +62,16 @@ describe('parsePipeArgs', () => {
       ok: false,
       issues: [{ instancePath: '', keyword: 'json' }],
     })
+  })
+
+  it('joins output-limit continuations before schema validation and drops tool-call prefaces', () => {
+    const response = createPipeAssistantResponseAccumulator()
+    response.accept('{"count":', false, true)
+    response.accept('planning tool call', true)
+    response.accept('{"count":2}', false)
+
+    expect(response.getValue()).toBe('{"count":2}')
+    expect(validatePipeOutput(response.getValue(), compileOutputSchema({ type: 'object', required: ['count'] }))).toMatchObject({ ok: true })
   })
 
   it('allows in-document references and rejects references that would need external resolution', () => {

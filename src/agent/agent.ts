@@ -1307,8 +1307,8 @@ export interface AgentCallbacks {
   /** The budget-group ID for this run, published after initialization and before any model request. */
   onAggregateBudgetGroup?(groupId: string): void
   onToken(text: string): void
-  /** One complete assistant response, after stream parsing; tool-call responses are marked non-final. */
-  onAssistantMessage?(text: string, hasToolCalls: boolean): void
+  /** One complete assistant response; willContinue marks output-limit continuations of this response. */
+  onAssistantMessage?(text: string, hasToolCalls: boolean, willContinue: boolean): void
   onThinking?(text: string): void
   onToolCall(name: string, args: object): void
   /** Live tool call while its arguments are still streaming in. `argsText` is partial JSON. */
@@ -4202,7 +4202,7 @@ export class Agent {
           const toolCalls = parseBedrockToolCalls(rawText)
           if (toolCalls.length > 0) {
             const visibleText = stripToolCalls(rawText)
-            cb.onAssistantMessage?.(visibleText, true)
+            cb.onAssistantMessage?.(visibleText, true, false)
             if (visibleText) cb.onToken(visibleText)
             const parsedList = parseBedrockToolCallBatch(toolCalls, finishReason)
             const retainedAssistantText = sanitizeBedrockToolCallText(rawText, toolCalls, parsedList)
@@ -4229,7 +4229,7 @@ export class Agent {
           }
           // No tool calls — final response
           const assistantText = stripToolCalls(rawText)
-          cb.onAssistantMessage?.(assistantText, false)
+          cb.onAssistantMessage?.(assistantText, false, false)
           if (assistantText) cb.onToken(assistantText)
           const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: rawText }
           if (reasoningText) finalMsg.reasoning_content = reasoningText
@@ -4241,7 +4241,9 @@ export class Agent {
 
         // ── Native tool calling (non-Bedrock) ───────────────────────────────
         const assistantText = rawText
-        cb.onAssistantMessage?.(assistantText, Boolean(msg?.tool_calls?.length))
+        const hasToolCalls = Boolean(msg?.tool_calls?.length)
+        const willContinue = !hasToolCalls && finishReason === 'length' && this.turnLengthContinuations < MAX_LENGTH_CONTINUATIONS
+        cb.onAssistantMessage?.(assistantText, hasToolCalls, willContinue)
         if (assistantText) cb.onToken(assistantText)
 
         if (!msg?.tool_calls?.length) {
@@ -4443,7 +4445,7 @@ export class Agent {
         if (this.provider === 'bedrock' && !modelSupportsChatCompletions(this.model)) {
           const textCalls = parseBedrockToolCalls(assistantText)
           if (textCalls.length > 0) {
-            cb.onAssistantMessage?.(stripToolCalls(assistantText), true)
+            cb.onAssistantMessage?.(stripToolCalls(assistantText), true, false)
             const parsedList = parseBedrockToolCallBatch(textCalls, finishReason)
             const retainedAssistantText = sanitizeBedrockToolCallText(assistantText, textCalls, parsedList)
             const assistantMsg: AssistantMessageWithReasoning = { role: 'assistant', content: retainedAssistantText }
@@ -4467,7 +4469,8 @@ export class Agent {
           }
         }
 
-        cb.onAssistantMessage?.(isPromptToolCalling ? stripToolCalls(assistantText) : assistantText, false)
+        const willContinue = finishReason === 'length' && this.turnLengthContinuations < MAX_LENGTH_CONTINUATIONS
+        cb.onAssistantMessage?.(isPromptToolCalling ? stripToolCalls(assistantText) : assistantText, false, willContinue)
         const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText }
         // Always preserve reasoning_content — DeepSeek-V4-Flash has built-in thinking mode
         if (reasoningText) finalMsg.reasoning_content = reasoningText
@@ -4488,7 +4491,7 @@ export class Agent {
         function: { name: tc.name, arguments: tc.args },
       }))
 
-      cb.onAssistantMessage?.(assistantText, true)
+      cb.onAssistantMessage?.(assistantText, true, false)
 
       const parsedList = parseToolCallBatchArguments(tcArray, finishReason)
       const assistantMsg: AssistantMessageWithReasoning = {

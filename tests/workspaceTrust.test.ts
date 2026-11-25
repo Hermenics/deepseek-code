@@ -63,6 +63,31 @@ describe('workspace trust', () => {
     expect(await store.getMcpSchemas(newArtifact)).toBeNull()
   })
 
+  it('does not restore a superseded legacy approval after revoking its replacement', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'deepseek-workspace-trust-legacy-revoke-'))
+    roots.push(root)
+    const workspace = join(root, 'project')
+    await mkdir(workspace)
+    const file = join(root, 'workspace-trust.json')
+    const workspaceKey = await canonicalPath(workspace)
+    const legacyArtifact = { canonicalPath: join(workspace, '.deepseek', 'mcp.json'), hash: 'legacy-config-hash' }
+    const replacementArtifact = { canonicalPath: legacyArtifact.canonicalPath, hash: 'replacement-config-hash' }
+    await writeFile(file, JSON.stringify({
+      schemaVersion: 1,
+      projects: { [workspaceKey]: { agents: {}, mcp: legacyArtifact } },
+    }))
+    const store = new WorkspaceTrustStore(workspace, file)
+
+    expect(await store.isMcpApproved(legacyArtifact)).toBe(true)
+    await store.approveMcp(replacementArtifact)
+    expect(await store.isMcpApproved(legacyArtifact)).toBe(false)
+    expect(await store.isMcpApproved(replacementArtifact)).toBe(true)
+    await store.revokeMcp(replacementArtifact)
+
+    expect(await store.isMcpApproved(legacyArtifact)).toBe(false)
+    expect(await store.isMcpApproved(replacementArtifact)).toBe(false)
+  })
+
   it('does not let an old artifact invalidate a newer approved schema cache', async () => {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-workspace-trust-cache-generation-'))
     roots.push(root)

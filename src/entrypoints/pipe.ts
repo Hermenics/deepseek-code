@@ -74,6 +74,24 @@ function isSchemaObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
+/** Collects one logical assistant response across output-limit continuations, excluding tool-call prefaces. */
+export function createPipeAssistantResponseAccumulator() {
+  let value = ''
+  let continuationOpen = false
+  return {
+    accept(text: string, hasToolCalls: boolean, willContinue = false): void {
+      if (hasToolCalls) {
+        value = ''
+        continuationOpen = false
+        return
+      }
+      value = continuationOpen ? value + text : text
+      continuationOpen = willContinue
+    },
+    getValue: () => value,
+  }
+}
+
 const SCHEMA_ANNOTATION_KEYWORDS = new Set([
   'title', 'description', 'examples', 'default', '$comment', 'deprecated', 'readOnly', 'writeOnly',
 ])
@@ -247,7 +265,7 @@ function pipeUsage(agent: Agent | undefined) {
 export default async function runPipe() {
   const options = parsePipeArgs()
   let output = ''
-  let finalModelResponse = ''
+  const finalAssistantResponse = createPipeAssistantResponseAccumulator()
   const tools: string[] = []
   let agent: Agent | undefined
   let runFailure: Error | undefined
@@ -317,8 +335,8 @@ export default async function runPipe() {
     if (!enchant) agent.setPromptRefinerEnabled(false)
 
     await agent.run(userMessage, {
-      onAssistantMessage(text, hasToolCalls) {
-        if (!hasToolCalls) finalModelResponse = text
+      onAssistantMessage(text, hasToolCalls, willContinue) {
+        finalAssistantResponse.accept(text, hasToolCalls, willContinue)
       },
       onToken(token) {
         // Recoverable provider failures are also sent as token text for interactive callers.
@@ -349,7 +367,7 @@ export default async function runPipe() {
     if (runFailure) throw runFailure
 
     if (outputSchema) {
-      const result = validatePipeOutput(finalModelResponse, outputSchema.validate)
+      const result = validatePipeOutput(finalAssistantResponse.getValue(), outputSchema.validate)
       if (!result.ok) {
         const error = new Error('Final output failed JSON Schema validation')
         Object.assign(error, { validationIssues: result.issues })
