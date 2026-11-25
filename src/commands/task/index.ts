@@ -7,6 +7,11 @@ const command: Command = {
   name: 'task',
   aliases: [],
   description: 'Inspect or control a task',
+  complete(args) {
+    if (args.length === 1) return [...ACTIONS]
+    if (args.length === 2 && args[1] === 'reconcile') return ['no-effect', 'effect-observed', 'compensated']
+    return []
+  },
   parse(args) {
     const [id, rawAction = 'status', ...rest] = args
     if (!id) return { type: 'unknown', input: 'Usage: /task <id> status|cancel|resume|result|message|integrate|cleanup|reconcile <resolution> <evidence>' }

@@ -44,7 +44,7 @@ import { enhancedMicroCompact } from '../services/compact/microCompact.js'
 import { runPostCompactCleanup } from '../services/compact/postCompactCleanup.js'
 import { isEnabled, loadFeatures } from '../features.js'
 import { estimateContextBreakdown, type ContextBreakdown, type ContextSnapshotInput } from './contextBreakdown.js'
-import { COMPACT_SUMMARY_PROMPT, COMPACT_SYSTEM_PROMPT, validateCompactSummary } from '../services/compact/summaryPrompt.js'
+import { COMPACT_CONTINUATION_SYSTEM_PROMPT, COMPACT_SUMMARY_PROMPT, COMPACT_SYSTEM_PROMPT, validateCompactSummary } from '../services/compact/summaryPrompt.js'
 import { auditLog } from './auditLog.js'
 import { combineOriginalWithRefinement, refinePrompt, previewPromptRefinement, type PromptRefinementPreview } from './promptRefiner.js'
 import { canUseTool, DEFAULT_MODE, getToolsForMode, isReviewMode, type InteractionMode } from '../ui/interactionMode.js'
@@ -74,7 +74,7 @@ import { OrchestratorSession, DurableExecutionError, taskSnapshotFile, type Dura
 import { closeLspSession } from '../lsp.js'
 import { validateToolArguments as validateToolSchema } from '../orchestration/schema.js'
 import type { FileVersion, ShellExecutionReceiptV1, TaskEffectResolution, TaskLimits, ToolExecutionContext } from '../orchestration/types.js'
-import type { AggregateBudgetLease, AggregateBudgetUsage } from '../orchestration/aggregateBudget.js'
+import type { AggregateBudgetLease, AggregateBudgetUsage, AggregateBudgetUsageSnapshot, AggregateUsageStatus } from '../orchestration/aggregateBudget.js'
 import { atomicDeleteFile, atomicWriteFile, resolveExternalApprovalDirectory, resolvePathForContext, resolveSafePath } from '../tools/shared/pathSafety.js'
 import { isSafeMemoryEntry, normalizeMemoryEntry } from './memory.js'
 import { rankMemoryText } from './memorySearch.js'
@@ -135,25 +135,49 @@ interface PrimaryResponseUsage {
 
 interface NormalizedPrimaryResponseUsage {
   totalTokens: number
+  tokenCountAvailable: boolean
   promptTokens?: number
   completionTokens?: number
   cachedTokens: number
 }
 
-function finiteUsageValue(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+interface AggregateTurnUsageState {
+  tokens: number
+  costUsd: number
+  tokenUsageAvailable: boolean
+  tokenUsageObserved: boolean
+  costUsageAvailable: boolean
+  costUsageObserved: boolean
+  blocked: boolean
+}
+
+function createAggregateTurnUsageState(): AggregateTurnUsageState {
+  return {
+    tokens: 0,
+    costUsd: 0,
+    tokenUsageAvailable: true,
+    tokenUsageObserved: false,
+    costUsageAvailable: true,
+    costUsageObserved: false,
+    blocked: false,
+  }
+}
+
+function validUsageTokenCount(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : undefined
 }
 
 function normalizePrimaryResponseUsage(usage: PrimaryResponseUsage | null | undefined): NormalizedPrimaryResponseUsage | undefined {
   if (!usage) return undefined
-  const promptTokens = finiteUsageValue(usage.prompt_tokens)
-  const completionTokens = finiteUsageValue(usage.completion_tokens)
-  const reportedTotal = finiteUsageValue(usage.total_tokens)
+  const promptTokens = validUsageTokenCount(usage.prompt_tokens)
+  const completionTokens = validUsageTokenCount(usage.completion_tokens)
+  const reportedTotal = validUsageTokenCount(usage.total_tokens)
   const derivedTotal = promptTokens !== undefined && completionTokens !== undefined ? promptTokens + completionTokens : 0
-  const cacheHitTokens = finiteUsageValue(usage.prompt_cache_hit_tokens) ??
-    finiteUsageValue(usage.prompt_tokens_details?.cached_tokens) ?? 0
+  const cacheHitTokens = validUsageTokenCount(usage.prompt_cache_hit_tokens) ??
+    validUsageTokenCount(usage.prompt_tokens_details?.cached_tokens) ?? 0
   return {
     totalTokens: reportedTotal ?? (Number.isFinite(derivedTotal) ? derivedTotal : 0),
+    tokenCountAvailable: reportedTotal !== undefined || (promptTokens !== undefined && completionTokens !== undefined),
     promptTokens,
     completionTokens,
     cachedTokens: cacheHitTokens,
@@ -167,9 +191,16 @@ function aggregateUsage(usage: PrimaryResponseUsage | null | undefined, provider
   const completion = safe(usage?.completion_tokens)
   const tokens = total ?? (prompt !== undefined && completion !== undefined ? prompt + completion : undefined)
   const costUsd = hasVerifiedDeepSeekPricing(provider, model) && prompt !== undefined && completion !== undefined
-    ? estimateCost(model, { promptTokens: prompt, completionTokens: completion, cachedTokens: safe(usage?.prompt_cache_hit_tokens ?? usage?.prompt_tokens_details?.cached_tokens) ?? 0 }, pricedAt)
+    ? estimateCost(model, { promptTokens: prompt, completionTokens: completion, cachedTokens: normalizePrimaryResponseUsage(usage)?.cachedTokens ?? 0 }, pricedAt)
     : undefined
   return { tokens, costUsd }
+}
+
+function isCompactedContextMessage(message: MessageOrBoundary): boolean {
+  return !isBoundaryMarker(message)
+    && message.role === 'assistant'
+    && typeof message.content === 'string'
+    && message.content.startsWith('[Compacted context]')
 }
 
 type PrimaryAgentLifecycleHookEvent = 'UserPromptSubmit' | 'UserPromptExpansion' | 'PreCompact' | 'PostCompact' | 'Stop' | 'MessageDisplay' | 'StopFailure' | 'CwdChanged'
@@ -194,6 +225,7 @@ const PRIMARY_AGENT_HOOK_EVENTS = new Set<PrimaryAgentLifecycleHookEvent>([
 ])
 const PRIMARY_READ_ONLY_TOOLS = new Set(['grep', 'glob', 'read_file', 'read_folder', 'introspect', 'lsp', 'skill', 'session_evidence', 'session_search'])
 const MAX_LENGTH_CONTINUATIONS = 3
+const MCP_CATALOG_DISCOVERY_FRESHNESS_MS = 30_000
 const REPEATED_FAILURE_THRESHOLD = 3
 const MAX_EMPTY_REPLY_NUDGES = 2
 const EMPTY_REPLY_FEEDBACK = '[Empty response] Your last response had no text and no tool calls, so the turn would end with the task unfinished and nothing reported. Continue the task; when it is truly done, reply with a short summary of what changed.'
@@ -721,6 +753,8 @@ export interface ToolCallInvocation {
 interface McpClientGeneration {
   activeCalls: number
   retired: boolean
+  schemaValidatedServers: Set<string>
+  schemaValidations: Map<string, Promise<{ tool?: Tool; error?: { code: string; message: string } }>>
   cleanup: () => Promise<void>
   closed: Promise<void>
   resolveClosed: () => void
@@ -730,7 +764,7 @@ interface McpClientGeneration {
 function createMcpClientGeneration(cleanup: () => Promise<void>): McpClientGeneration {
   let resolveClosed!: () => void
   const closed = new Promise<void>(resolve => { resolveClosed = resolve })
-  return { activeCalls: 0, retired: false, cleanup, closed, resolveClosed }
+  return { activeCalls: 0, retired: false, schemaValidatedServers: new Set(), schemaValidations: new Map(), cleanup, closed, resolveClosed }
 }
 
 /**
@@ -1270,12 +1304,18 @@ function taskLimitsFromSettings(settings: DeepSeekSettings): Partial<TaskLimits>
 }
 
 export interface AgentCallbacks {
+  /** The budget-group ID for this run, published after initialization and before any model request. */
+  onAggregateBudgetGroup?(groupId: string): void
   onToken(text: string): void
+  /** One complete assistant response; willContinue marks output-limit continuations of this response. */
+  onAssistantMessage?(text: string, hasToolCalls: boolean, willContinue: boolean): void
   onThinking?(text: string): void
   onToolCall(name: string, args: object): void
   /** Live tool call while its arguments are still streaming in. `argsText` is partial JSON. */
   onToolPending?(name: string, argsText: string): void
   onToolResult(name: string, result: string, args: Record<string, unknown>): void
+  /** Provider-side recoverable failures that the agent surfaces as visible text instead of throwing. */
+  onProviderError?(message: string): void
   /** The model opened a named step; fired before its batch runs so every call of the batch belongs to it. */
   onStep?(step: { active: string; done: string }): void
   onDone(): void
@@ -1308,15 +1348,24 @@ export class Agent {
   private mcpClientGeneration?: McpClientGeneration
   private readonly mcpClientGenerations = new Set<McpClientGeneration>()
   private readonly mcpToolGenerations = new WeakMap<Tool, McpClientGeneration>()
+  private readonly mcpValidationPromises = new Set<Promise<unknown>>()
+  private mcpDiscoveryFreshUntil = 0
+  private mcpDiscoveryRefresh?: Promise<void>
+  private mcpDiscoveryRefreshWorkspace?: string
   private tools: Tool[] = allTools
   private toolMap: Map<string, Tool> = new Map(allTools.map((t) => [t.name, t]))
   private undoStack: UndoEntry[] = []
   private filesModified: Set<string> = new Set()
   private tokenUsage: TokenUsage = { promptTokens: 0, completionTokens: 0, cachedTokens: 0 }
+  private tokenUsageAvailable = true
+  private tokenUsageObserved = false
   /** Each response is priced when it arrives, at its model and peak/off-peak rate. */
   private costUsd = 0
   private modelPricingAvailable = false
   private modelUsagePriceable = true
+  private costUsageObserved = false
+  /** Observed usage grouped by the existing turn budget ID, retained while its background tasks can still report usage. */
+  private aggregateTurnUsageByGroup = new Map<string, AggregateTurnUsageState>()
   /** Latest reported cost per subagent task, so /cost and budgets include delegated spend. */
   private subagentCostUsd = new Map<string, number>()
   private subagentCostAvailable = new Map<string, boolean>()
@@ -1458,26 +1507,52 @@ export class Agent {
   }
 
   /** Stage and install a complete MCP catalog before retiring the currently active clients. */
-  private async reloadMcpTools(workspacePath: string, enabled: boolean): Promise<void> {
-    const loaded = await loadMcpTools(workspacePath, { enabled })
+  private async reloadMcpTools(workspacePath: string, enabled: boolean, eager = false): Promise<void> {
+    const loaded = await loadMcpTools(workspacePath, { enabled, eager })
     if (this.mcpReloadClosed || this.workspacePath !== workspacePath) { await loaded.cleanup?.(); return }
     try {
-      this.installMcpTools(loaded.tools, loaded.cleanup)
+      const validatedServers = eager
+        ? new Set(loaded.tools.map(tool => tool.mcpServerName).filter((name): name is string => typeof name === 'string'))
+        : undefined
+      this.installMcpTools(loaded.tools, loaded.cleanup, validatedServers)
     } catch (error) {
       await loaded.cleanup?.()
       throw error
     }
     this.mcpErrors = loaded.errors
     this.mcpApprovalRequired = loaded.approval ?? null
+    this.mcpDiscoveryFreshUntil = 0
+  }
+
+  /** Explicit discovery refreshes a warm catalog at most once per freshness window. */
+  private refreshMcpCatalogForDiscovery(): Promise<void> {
+    if (Date.now() < this.mcpDiscoveryFreshUntil) return Promise.resolve()
+    const workspacePath = this.workspacePath
+    if (this.mcpDiscoveryRefresh && this.mcpDiscoveryRefreshWorkspace === workspacePath) return this.mcpDiscoveryRefresh
+    let pending!: Promise<void>
+    pending = this.queueMcpReload(() => this.reloadMcpTools(workspacePath, this.settings.mcp?.enabled === true, true))
+      .then(() => {
+        this.mcpDiscoveryFreshUntil = !this.mcpReloadClosed && this.workspacePath === workspacePath && this.mcpErrors.length === 0
+          ? Date.now() + MCP_CATALOG_DISCOVERY_FRESHNESS_MS
+          : 0
+      })
+      .finally(() => {
+        if (this.mcpDiscoveryRefresh === pending) {
+          this.mcpDiscoveryRefresh = undefined
+          this.mcpDiscoveryRefreshWorkspace = undefined
+        }
+      })
+    this.mcpDiscoveryRefresh = pending
+    this.mcpDiscoveryRefreshWorkspace = workspacePath
+    return pending
   }
 
   /** Replaces the tool set with the built-ins plus the given MCP tools and rebuilds the name lookup. */
-  private installMcpTools(mcpTools: Tool[], cleanup?: () => Promise<void>): void {
+  private installMcpTools(mcpTools: Tool[], cleanup?: () => Promise<void>, validatedServers?: ReadonlySet<string>): void {
     const extras = this.options.extraTools ?? []
     if (extras.some(tool => [...allTools, ...mcpTools].some(existing => existing.name === tool.name))) throw new Error('Extra tool cannot replace an installed tool')
     const tools = [...allTools, ...mcpTools, ...extras]
     if (new Set(tools.map(tool => tool.name)).size !== tools.length) throw new Error('Tool names must be unique across native, MCP and extra tools')
-    const previousGeneration = this.mcpClientGeneration
     const nextGeneration = cleanup ? createMcpClientGeneration(cleanup) : undefined
     this.mcpToolNames = new Set(mcpTools.map(tool => tool.name))
     this.discoveredMcpTools.clear()
@@ -1486,10 +1561,12 @@ export class Agent {
     this.mcpClientGeneration = nextGeneration
     this.mcpCleanup = nextGeneration ? () => this.retireMcpClientGeneration(nextGeneration) : null
     if (nextGeneration) {
+      if (validatedServers) nextGeneration.schemaValidatedServers = new Set(validatedServers)
       this.mcpClientGenerations.add(nextGeneration)
       for (const tool of mcpTools) this.mcpToolGenerations.set(tool, nextGeneration)
     }
-    if (previousGeneration && previousGeneration !== nextGeneration) {
+    for (const previousGeneration of [...this.mcpClientGenerations]) {
+      if (previousGeneration === nextGeneration) continue
       void this.retireMcpClientGeneration(previousGeneration).catch(error => {
         this.mcpErrors.push(`MCP cleanup failed: ${(error as Error).message}`)
       })
@@ -1512,6 +1589,165 @@ export class Agent {
   private retireMcpClientGeneration(generation: McpClientGeneration): Promise<void> {
     generation.retired = true
     return generation.activeCalls === 0 ? this.closeMcpClientGeneration(generation) : generation.closed
+  }
+
+  /** Rechecks one selected server's descriptors, keeping failures on unrelated servers isolated. */
+  private async validateMcpClientGeneration(
+    generation: McpClientGeneration,
+    serverName: string,
+    toolName: string,
+  ): Promise<{ tool?: Tool; error?: { code: string; message: string } }> {
+    const workspacePath = this.workspacePath
+    if (this.mcpReloadClosed || this.mcpClientGeneration !== generation) {
+      return { error: { code: 'MCP_SCHEMA_VALIDATION_STALE', message: 'The MCP catalog changed before schema validation completed. No MCP tool was executed; retry the call.' } }
+    }
+
+    const expectedTools = this.tools.filter(tool => this.mcpToolGenerations.get(tool) === generation && tool.mcpServerName === serverName)
+    let loaded: Awaited<ReturnType<typeof loadMcpTools>>
+    try {
+      loaded = await loadMcpTools(workspacePath, {
+        enabled: this.settings.mcp?.enabled === true,
+        eager: true,
+        onlyServerName: serverName,
+        persistSchemaCache: false,
+      })
+    } catch {
+      return { error: { code: 'MCP_SCHEMA_VALIDATION_FAILED', message: `The trusted MCP server '${serverName}' schema could not be loaded. No MCP tool was executed; refresh the MCP catalog and retry.` } }
+    }
+
+    let installed = false
+    try {
+      if (this.mcpReloadClosed || this.workspacePath !== workspacePath || this.mcpClientGeneration !== generation) {
+        return { error: { code: 'MCP_SCHEMA_VALIDATION_STALE', message: 'The MCP catalog changed during schema validation. No MCP tool was executed; retry the call.' } }
+      }
+
+      if (loaded.errors.length) {
+        return { error: { code: 'MCP_SCHEMA_VALIDATION_FAILED', message: `The trusted MCP server '${serverName}' could not be validated: ${loaded.errors.join('; ')} No MCP tool was executed; refresh the MCP catalog and retry.` } }
+      }
+      const expectedFingerprint = discoverTools(expectedTools, '').catalogFingerprint
+      const currentFingerprint = discoverTools(loaded.tools, '').catalogFingerprint
+      if (expectedFingerprint !== currentFingerprint) {
+        const expectedByName = new Map(expectedTools.map(tool => [tool.name, discoverTools([tool], '').catalogFingerprint]))
+        const currentByName = new Map(loaded.tools.map(tool => [tool.name, discoverTools([tool], '').catalogFingerprint]))
+        const changed = [...new Set([...expectedByName.keys(), ...currentByName.keys()])]
+          .filter(name => expectedByName.get(name) !== currentByName.get(name))
+        const detail = changed.length ? ` Changed tools: ${changed.slice(0, 8).join(', ')}${changed.length > 8 ? ', …' : ''}.` : ''
+        this.mcpApprovalRequired = loaded.approval ?? this.mcpApprovalRequired
+        if (this.mcpApprovalRequired && this.mcpApprovalHandler) void this.resolveMcpApproval()
+        return { error: {
+          code: 'MCP_SCHEMA_CHANGED',
+          message: `The current trusted MCP catalog differs from the installed tool schemas.${detail} No MCP tool was executed. Refresh or approve the MCP configuration, discover the current schema, and retry.`,
+        } }
+      }
+
+      if (loaded.tools.length && !loaded.cleanup) {
+        return { error: { code: 'MCP_SCHEMA_VALIDATION_FAILED', message: 'The MCP server schemas were listed without an executable client. No MCP tool was executed; refresh the MCP catalog and retry.' } }
+      }
+
+      const validatedTool = loaded.tools.find(tool => tool.name === toolName)
+      if (!validatedTool || !loaded.cleanup) {
+        return { error: { code: 'MCP_SCHEMA_VALIDATION_FAILED', message: `The validated MCP server '${serverName}' did not provide '${toolName}' with an executable client. No MCP tool was executed; refresh the MCP catalog and retry.` } }
+      }
+      try {
+        this.installValidatedMcpServerTools(serverName, loaded.tools, loaded.cleanup)
+        installed = true
+      } catch {
+        return { error: { code: 'MCP_SCHEMA_VALIDATION_FAILED', message: 'The validated MCP server catalog could not be installed. No MCP tool was executed; refresh the MCP catalog and retry.' } }
+      }
+      this.mcpApprovalRequired = loaded.approval ?? this.mcpApprovalRequired
+      if (loaded.approval && this.mcpApprovalHandler) void this.resolveMcpApproval()
+      const installedTool = this.toolMap.get(toolName)
+      return installedTool ? { tool: installedTool } : {
+        error: { code: 'MCP_SCHEMA_VALIDATION_STALE', message: 'The MCP tool changed while its validated catalog was installed. No MCP tool was executed; retry the call.' },
+      }
+    } finally {
+      if (!installed) await loaded.cleanup?.()
+    }
+  }
+
+  /** Replaces just one server's catalog and gives its fresh client a separately managed generation. */
+  private installValidatedMcpServerTools(serverName: string, mcpTools: Tool[], cleanup: () => Promise<void>): void {
+    const oldTools = this.tools.filter(tool => tool.mcpServerName === serverName)
+    const oldNames = new Set(oldTools.map(tool => tool.name))
+    const retainedTools = this.tools.filter(tool => !oldNames.has(tool.name))
+    if (mcpTools.some(tool => retainedTools.some(existing => existing.name === tool.name))) {
+      throw new Error('Validated MCP tools conflict with another installed tool')
+    }
+    const insertionIndex = this.tools.findIndex(tool => oldNames.has(tool.name))
+    const before = insertionIndex < 0 ? retainedTools : this.tools.slice(0, insertionIndex).filter(tool => !oldNames.has(tool.name))
+    const after = insertionIndex < 0 ? [] : this.tools.slice(insertionIndex).filter(tool => !oldNames.has(tool.name))
+    const nextGeneration = createMcpClientGeneration(cleanup)
+    nextGeneration.schemaValidatedServers.add(serverName)
+    this.mcpClientGenerations.add(nextGeneration)
+    for (const tool of mcpTools) this.mcpToolGenerations.set(tool, nextGeneration)
+    this.tools = [...before, ...mcpTools, ...after]
+    this.toolMap = new Map(this.tools.map(tool => [tool.name, tool]))
+    this.mcpToolNames = new Set([...this.mcpToolNames].filter(name => !oldNames.has(name)).concat(mcpTools.map(tool => tool.name)))
+    this.discoveredMcpTools = new Set([...this.discoveredMcpTools].filter(name => this.mcpToolNames.has(name)))
+
+    const previousGenerations = new Set(oldTools.map(tool => this.mcpToolGenerations.get(tool)).filter((value): value is McpClientGeneration => value !== undefined))
+    for (const previousGeneration of previousGenerations) {
+      if (this.tools.some(tool => this.mcpToolGenerations.get(tool) === previousGeneration)) continue
+      void this.retireMcpClientGeneration(previousGeneration).catch(error => {
+        this.mcpErrors.push(`MCP cleanup failed: ${(error as Error).message}`)
+      })
+    }
+  }
+
+  /** Shares validation of a server's current schema across concurrent calls and tracks staging for shutdown. */
+  private ensureMcpClientGenerationValidated(
+    generation: McpClientGeneration,
+    serverName: string,
+    toolName: string,
+  ): Promise<{ tool?: Tool; error?: { code: string; message: string } }> {
+    if (generation.schemaValidatedServers.has(serverName)) {
+      const tool = this.toolMap.get(toolName)
+      return Promise.resolve(tool ? { tool } : { error: { code: 'UNKNOWN_TOOL', message: `Unknown tool: ${toolName}` } })
+    }
+    const existing = generation.schemaValidations.get(serverName)
+    if (existing) return existing
+
+    let tracked!: Promise<{ tool?: Tool; error?: { code: string; message: string } }>
+    tracked = this.validateMcpClientGeneration(generation, serverName, toolName).catch(() => ({
+      error: {
+        code: 'MCP_SCHEMA_VALIDATION_FAILED',
+        message: 'MCP schema validation could not be completed safely. No MCP tool was executed; refresh the MCP catalog and retry.',
+      },
+    })).finally(() => {
+      if (generation.schemaValidations.get(serverName) === tracked) generation.schemaValidations.delete(serverName)
+      this.mcpValidationPromises.delete(tracked)
+    })
+    generation.schemaValidations.set(serverName, tracked)
+    this.mcpValidationPromises.add(tracked)
+    return tracked
+  }
+
+  /** Resolves the selected tool from the exact server generation that passed first-use validation. */
+  private async getValidatedMcpTool(name: string): Promise<{ tool?: Tool; generation?: McpClientGeneration; error?: { code: string; message: string } }> {
+    const tool = this.toolMap.get(name)
+    if (!tool) return { error: { code: 'UNKNOWN_TOOL', message: `Unknown tool: ${name}` } }
+    const generation = this.mcpToolGenerations.get(tool)
+    // Injected test/custom catalogs without a host generation have no MCP server to authorize here.
+    if (!generation) return { tool }
+    const serverName = tool.mcpServerName
+    if (!serverName) return { error: { code: 'MCP_SCHEMA_VALIDATION_FAILED', message: 'The MCP server identity is unavailable. No MCP tool was executed; refresh the MCP catalog and retry.' } }
+
+    const validated = await this.ensureMcpClientGenerationValidated(generation, serverName, name)
+    if (validated.error) {
+      if (this.mcpClientGeneration !== generation) {
+        return { error: { code: 'MCP_SCHEMA_VALIDATION_STALE', message: 'The MCP catalog changed while schema validation was pending. No MCP tool was executed; retry the call.' } }
+      }
+      return { error: validated.error }
+    }
+    const currentTool = this.toolMap.get(name)
+    if (!validated.tool || currentTool !== validated.tool) {
+      return { error: { code: 'MCP_SCHEMA_VALIDATION_STALE', message: 'The MCP catalog changed after schema validation. No MCP tool was executed; retry the call.' } }
+    }
+    const currentGeneration = this.mcpToolGenerations.get(currentTool)
+    if (!currentGeneration?.schemaValidatedServers.has(serverName)) {
+      return { error: { code: 'MCP_SCHEMA_VALIDATION_STALE', message: 'The MCP tool generation changed after schema validation. No MCP tool was executed; retry the call.' } }
+    }
+    return { tool: currentTool, generation: currentGeneration }
   }
 
   private async releaseMcpClientGeneration(generation: McpClientGeneration): Promise<void> {
@@ -2051,9 +2287,14 @@ export class Agent {
    */
   private async initialize(restorePersisted = true): Promise<void> {
     try {
-      await this.mcpCleanup?.()
-      this.mcpCleanup = null
       this.mcpClientGeneration = undefined
+      this.mcpDiscoveryFreshUntil = 0
+      this.mcpDiscoveryRefresh = undefined
+      this.mcpDiscoveryRefreshWorkspace = undefined
+      await this.mcpCleanup?.()
+      await Promise.allSettled([...this.mcpValidationPromises])
+      await Promise.all([...this.mcpClientGenerations].map(generation => this.retireMcpClientGeneration(generation)))
+      this.mcpCleanup = null
       this.mcpApprovalRequired = null
       const [instructions, loadedSettings, skills] = await Promise.all([
         loadProjectInstructions(this.workspacePath, this.workspacePath),
@@ -2334,6 +2575,7 @@ export class Agent {
     this.abortController?.abort(new Error('Agent shutdown'))
     await lspClosed
     await this.mcpReload
+    await Promise.allSettled([...this.mcpValidationPromises])
     await this.mcpCleanup?.()
     this.mcpCleanup = null
     await Promise.all([...this.mcpClientGenerations].map(generation => this.retireMcpClientGeneration(generation)))
@@ -2545,15 +2787,15 @@ export class Agent {
   // ── Cost ───────────────────────────────────────────────────────────────────
 
   /** Adds one response's tokens and prices it only when the provider/model rate is verified. */
-  private recordUsage(promptTokens?: number, completionTokens?: number, cachedTokens = 0): void {
+  private recordUsage(promptTokens?: number, completionTokens?: number, cachedTokens = 0, model = this.model): void {
     this.tokenUsage.promptTokens += promptTokens ?? 0
     this.tokenUsage.completionTokens += completionTokens ?? 0
     this.tokenUsage.cachedTokens += cachedTokens
-    if (!this.modelPricingAvailable || promptTokens === undefined || completionTokens === undefined) {
+    if (!hasVerifiedDeepSeekPricing(this.providerConfig, model) || promptTokens === undefined || completionTokens === undefined) {
       this.modelUsagePriceable = false
       return
     }
-    this.costUsd += estimateCost(this.model, { promptTokens, completionTokens, cachedTokens })
+    this.costUsd += estimateCost(model, { promptTokens, completionTokens, cachedTokens })
   }
 
   /** The session's own requests plus everything its subagents spent. */
@@ -2568,7 +2810,9 @@ export class Agent {
   }
 
   private get estimatedCostText(): string {
-    if (this.modelPricingAvailable && this.modelUsagePriceable && !this.hasUnpricedSubagentUsage) return formatCost(this.totalCostUsd)
+    const hasSubagentCostMeasurement = [...this.subagentCostAvailable.values()].some(available => available)
+    const hasRecordedCost = this.costUsageObserved || hasSubagentCostMeasurement || this.totalCostUsd > 0
+    if (hasRecordedCost && this.modelUsagePriceable && !this.hasUnpricedSubagentUsage) return formatCost(this.totalCostUsd)
     if (this.totalCostUsd > 0) return `${formatCost(this.totalCostUsd)} (partial subtotal; unpriced usage is excluded)`
     return 'unavailable (no verified price for all provider/model usage)'
   }
@@ -2607,18 +2851,74 @@ export class Agent {
   }
 
   /** Adds the usage of a side request (compaction, memory extraction) to the session totals. */
-  private recordResponseUsage(usage: PrimaryResponseUsage | undefined): NormalizedPrimaryResponseUsage | undefined {
+  private recordResponseUsage(usage: PrimaryResponseUsage | undefined, model = this.model): NormalizedPrimaryResponseUsage | undefined {
     const normalized = normalizePrimaryResponseUsage(usage)
-    if (!normalized) return undefined
+    if (!normalized) {
+      this.tokenUsageAvailable = false
+      this.modelUsagePriceable = false
+      return undefined
+    }
+
     this.tokenCount += normalized.totalTokens
-    this.recordUsage(normalized.promptTokens, normalized.completionTokens, normalized.cachedTokens)
+    this.recordUsage(normalized.promptTokens, normalized.completionTokens, normalized.cachedTokens, model)
+    if (normalized.tokenCountAvailable) this.tokenUsageObserved = true
+    else this.tokenUsageAvailable = false
+
+    const costWasMeasured = hasVerifiedDeepSeekPricing(this.providerConfig, model)
+      && normalized.promptTokens !== undefined
+      && normalized.completionTokens !== undefined
+    if (costWasMeasured) this.costUsageObserved = true
     return normalized
+  }
+
+  /** Records measured primary usage at the shared budget boundary, including side requests that have no session-stat callback. */
+  private recordAggregateTurnUsage(usage: AggregateBudgetUsage, groupId: string): void {
+    const measured = this.aggregateTurnUsageByGroup.get(groupId)
+    if (!measured) return
+    if (usage.tokens !== undefined) {
+      measured.tokens += usage.tokens
+      measured.tokenUsageObserved = true
+    } else {
+      measured.tokenUsageAvailable = false
+    }
+
+    if (usage.costUsd !== undefined) {
+      measured.costUsd += usage.costUsd
+      measured.costUsageObserved = true
+    } else {
+      measured.costUsageAvailable = false
+    }
+  }
+
+  private markAggregateBudgetBlocked(groupId: string): void {
+    const measured = this.aggregateTurnUsageByGroup.get(groupId)
+    if (measured) measured.blocked = true
   }
 
   /** Structured session telemetry for diagnostics and integrations. */
   getSessionStats() {
+    const taskUsage = this.orchestrator.registry.listTasks()
+    const subagentTokens = taskUsage.reduce((total, task) => total + (task.metrics.tokens ?? 0), 0)
+    const hasSubagentTokenMeasurement = taskUsage.some(task => task.metrics.tokens !== undefined
+      && (task.metrics.usageAvailable || task.metrics.tokens > 0))
+    const subagentTokenUsageAvailable = taskUsage.every(task =>
+      (task.metrics.tokens === undefined && task.metrics.costUsd === undefined)
+      || (task.metrics.tokens !== undefined && task.metrics.usageAvailable))
+    const tokenCount = this.tokenCount + subagentTokens
+    const tokenUsageObserved = this.tokenUsageObserved || hasSubagentTokenMeasurement
+    const tokenUsageAvailable = this.tokenUsageAvailable && subagentTokenUsageAvailable
+    const tokenUsageStatus: AggregateUsageStatus = !tokenUsageObserved
+      ? 'unavailable'
+      : tokenUsageAvailable ? 'measured' : 'partial'
+    const hasSubagentCostMeasurement = taskUsage.some(task => task.metrics.costUsd !== undefined && task.metrics.costAvailable === true)
+    const costUsageObserved = this.costUsageObserved || hasSubagentCostMeasurement
+    const costAvailable = costUsageObserved && this.modelUsagePriceable && !this.hasUnpricedSubagentUsage
+    const costUsageStatus: AggregateUsageStatus = !costUsageObserved && this.totalCostUsd === 0
+      ? 'unavailable'
+      : costAvailable ? 'measured' : 'partial'
     return {
-      tokenCount: this.tokenCount,
+      tokenCount,
+      tokenUsageStatus,
       promptTokens: this.tokenUsage.promptTokens,
       completionTokens: this.tokenUsage.completionTokens,
       cachedTokens: this.tokenUsage.cachedTokens,
@@ -2627,9 +2927,67 @@ export class Agent {
       toolCalls: this.toolCallTotal,
       filesModified: this.filesModified.size,
       costUsd: this.totalCostUsd,
-      costAvailable: this.modelPricingAvailable && this.modelUsagePriceable && !this.hasUnpricedSubagentUsage,
+      costAvailable,
+      currentModelPricingAvailable: this.modelPricingAvailable,
+      costUsageStatus,
+      costEstimated: costUsageStatus !== 'unavailable',
       subagentCostAvailable: !this.hasUnpricedSubagentUsage,
     }
+  }
+
+  /** Usage measured against this turn's existing aggregate limits. */
+  getAggregateBudgetUsageSnapshot(budgetGroupId = this.turnBudgetGroupId): AggregateBudgetUsageSnapshot {
+    const limits = this.orchestrator.registry.getLimits()
+    const measured = budgetGroupId ? this.aggregateTurnUsageByGroup.get(budgetGroupId) : undefined
+    const taskUsage = budgetGroupId
+      ? this.orchestrator.registry.listTasks().filter(task => task.budgetGroupId === budgetGroupId)
+      : []
+    const taskTokens = taskUsage.reduce((total, task) => total + (task.metrics.tokens ?? 0), 0)
+    const hasTaskTokenMeasurement = taskUsage.some(task => task.metrics.tokens !== undefined
+      && (task.metrics.usageAvailable || task.metrics.tokens > 0))
+    const taskTokenUsageAvailable = taskUsage.every(task => task.metrics.tokens !== undefined
+      ? task.metrics.usageAvailable
+      : task.metrics.costUsd === undefined && task.error?.code !== 'AGGREGATE_BUDGET_UNAVAILABLE')
+    const tokens = (measured?.tokens ?? 0) + taskTokens
+    const tokenUsageAvailable = (measured?.tokenUsageAvailable ?? true) && taskTokenUsageAvailable
+    const tokenUsageObserved = (measured?.tokenUsageObserved ?? false) || hasTaskTokenMeasurement
+    const tokenUsageStatus: AggregateUsageStatus = !tokenUsageObserved
+      ? 'unavailable'
+      : tokenUsageAvailable ? 'measured' : 'partial'
+
+    const taskCostUsd = taskUsage.reduce((total, task) => total + (task.metrics.costUsd ?? 0), 0)
+    const hasTaskCostMeasurement = taskUsage.some(task => task.metrics.costUsd !== undefined && task.metrics.costAvailable === true)
+    const taskCostUsageAvailable = taskUsage.every(task => task.metrics.costUsd !== undefined
+      ? task.metrics.costAvailable === true
+      : task.metrics.tokens === undefined && task.error?.code !== 'AGGREGATE_BUDGET_UNAVAILABLE')
+    const costUsd = (measured?.costUsd ?? 0) + taskCostUsd
+    const costUsageAvailable = (measured?.costUsageAvailable ?? true) && taskCostUsageAvailable
+    const costUsageObserved = (measured?.costUsageObserved ?? false) || hasTaskCostMeasurement
+    const costUsageStatus: AggregateUsageStatus = !costUsageObserved && costUsd === 0
+      ? 'unavailable'
+      : costUsageAvailable ? 'measured' : 'partial'
+
+    return {
+      limits: {
+        ...(limits.maxAggregateTokens !== undefined ? { maxAggregateTokens: limits.maxAggregateTokens } : {}),
+        ...(limits.maxAggregateCostUsd !== undefined ? { maxAggregateCostUsd: limits.maxAggregateCostUsd } : {}),
+      },
+      tokens,
+      tokenUsageStatus,
+      blocked: (measured?.blocked ?? false) || taskUsage.some(task => task.error?.code.startsWith('AGGREGATE_BUDGET_')),
+      costUsd,
+      costUsageStatus,
+    }
+  }
+
+  /** The ID associates delayed task updates with the budget group created for this turn. */
+  getCurrentAggregateBudgetGroupId(): string | undefined {
+    return this.turnBudgetGroupId
+  }
+
+  /** Releases only telemetry after the UI confirms that the group's primary turn and tasks have settled. */
+  releaseAggregateBudgetUsageGroup(groupId: string): void {
+    this.aggregateTurnUsageByGroup.delete(groupId)
   }
 
   /** Human-readable session statistics for /stats. */
@@ -2756,14 +3114,14 @@ export class Agent {
     // Reset messages to system + boundary + summary
     this.refreshProjectContextMessage()
     this.messages = [
-      { role: 'system', content: this.systemPrompt },
+      { role: 'system', content: `${this.systemPrompt}\n\n${COMPACT_CONTINUATION_SYSTEM_PROMPT}` },
       createBoundaryMarker(),
       ...(this.projectContext ? [this.createProjectContextMessage()] : []),
       { role: 'assistant', content: `[Compacted context]\n${summary}` },
     ]
 
     const cleanup = runPostCompactCleanup({
-      onSystemPromptRefresh: () => this.systemPrompt,
+      onSystemPromptRefresh: () => `${this.systemPrompt}\n\n${COMPACT_CONTINUATION_SYSTEM_PROMPT}`,
     })
     if (cleanup.refreshedPrompt) {
       this.messages[0] = { role: 'system', content: cleanup.refreshedPrompt }
@@ -2969,7 +3327,21 @@ export class Agent {
     return {
       chat: {
         completions: {
-          create: (body: Record<string, unknown>, options?: { signal?: AbortSignal }) => this.createProviderCompletion(body, options),
+          create: async (body: Record<string, unknown>, options?: { signal?: AbortSignal }) => {
+            const model = typeof body.model === 'string' ? body.model : this.model
+            try {
+              const response = await this.createProviderCompletion(body, options)
+              // The prompt refiner consumes only response text, but its request is
+              // still part of this turn's usage and aggregate-budget telemetry.
+              this.recordResponseUsage((response as any)?.usage, model)
+              return response
+            } catch (error) {
+              // A failed request may have reached the provider without returning
+              // usage, so keep the session's totals explicitly partial/unavailable.
+              this.recordResponseUsage(undefined, model)
+              throw error
+            }
+          },
         },
       },
     } as unknown as OpenAI
@@ -2984,7 +3356,7 @@ export class Agent {
     if (hint) {
       this.systemPrompt += `\n\n# EFFORT LEVEL\n${hint}`
     }
-    this.messages = [{ role: 'system', content: this.systemPrompt }, ...this.messages.slice(1)]
+    this.messages = [{ role: 'system', content: this.getConversationSystemPrompt() }, ...this.messages.slice(1)]
   }
 
   /** Prompt guidance for the effort level; null for 'high', the default behaviour. */
@@ -3064,10 +3436,31 @@ export class Agent {
   /** System prompt sent to the API: the stored prompt plus the runtime contract, plus prompt-based tool definitions for Bedrock models without chat-completions support. */
   private getApiSystemPrompt(availableTools: Tool[] = this.getAvailableTools(), includeBedrockTools = true): string {
     const runtimeContract = this.getRuntimeContract(availableTools)
+    const conversationSystemPrompt = this.getConversationSystemPrompt()
     if (includeBedrockTools && this.provider === 'bedrock' && !modelSupportsChatCompletions(this.model)) {
-      return `${this.systemPrompt}\n\n${runtimeContract}${buildBedrockToolsPrompt(availableTools, this.interactionMode)}`
+      return `${conversationSystemPrompt}\n\n${runtimeContract}${buildBedrockToolsPrompt(availableTools, this.interactionMode)}`
     }
-    return `${this.systemPrompt}\n\n${runtimeContract}`
+    return `${conversationSystemPrompt}\n\n${runtimeContract}`
+  }
+
+  /** Keeps continuation guidance active whenever the current compacted summary remains in the conversation. */
+  private getConversationSystemPrompt(): string {
+    let boundaryIndex = -1
+    for (let index = this.messages.length - 1; index >= 0; index--) {
+      if (isBoundaryMarker(this.messages[index]!)) {
+        boundaryIndex = index
+        break
+      }
+    }
+    const recentMessages = boundaryIndex >= 0
+      ? this.messages.slice(boundaryIndex + 1)
+      : this.messages.slice(1)
+    const firstConversationMessage = recentMessages.find(message =>
+      !isBoundaryMarker(message) && message.role !== 'system' && !isProjectContextMessage(message))
+    const hasCompactedContext = firstConversationMessage !== undefined && isCompactedContextMessage(firstConversationMessage)
+    return hasCompactedContext
+      ? `${this.systemPrompt}\n\n${COMPACT_CONTINUATION_SYSTEM_PROMPT}`
+      : this.systemPrompt
   }
 
   /** Sets or clears the `# PREFERRED LANGUAGE` section of the system prompt and updates the history's system message. */
@@ -3076,14 +3469,14 @@ export class Agent {
     const pattern = /\n\n# PREFERRED LANGUAGE\n[^\n]*(?=\n\n#|$)/
     if (!language) {
       this.systemPrompt = this.systemPrompt.replace(pattern, '')
-      this.messages = [{ role: 'system', content: this.systemPrompt }, ...this.messages.slice(1)]
+      this.messages = [{ role: 'system', content: this.getConversationSystemPrompt() }, ...this.messages.slice(1)]
       return
     }
     const langInstruction = `\n\n# PREFERRED LANGUAGE\nAlways respond in ${language}. Do NOT switch languages based on what language the user writes in — always use ${language}.`
     this.systemPrompt = pattern.test(this.systemPrompt)
       ? this.systemPrompt.replace(pattern, langInstruction)
       : this.systemPrompt + langInstruction
-    this.messages = [{ role: 'system', content: this.systemPrompt }, ...this.messages.slice(1)]
+    this.messages = [{ role: 'system', content: this.getConversationSystemPrompt() }, ...this.messages.slice(1)]
   }
 
   /** Resets the conversation to the seed messages and forgets undo entries, modified files and file read times. */
@@ -3205,6 +3598,10 @@ export class Agent {
       this.messages = [refreshedSystem, ...withoutProjectContext.slice(1)]
     } else {
       this.messages = [{ role: 'system', content: this.systemPrompt }, ...withoutProjectContext]
+    }
+
+    if (this.messages[0]?.role === 'system' && isAgentSystemPrompt(this.messages[0].content)) {
+      this.messages[0] = { ...this.messages[0], content: this.getConversationSystemPrompt() }
     }
 
     if (this.projectContext && this.messages[0]?.role === 'system' && isAgentSystemPrompt(this.messages[0].content)) {
@@ -3383,6 +3780,8 @@ export class Agent {
     }
     this.turnObjectiveRevision = objectiveRevisionAtInvocation
     this.turnBudgetGroupId = randomUUID()
+    this.aggregateTurnUsageByGroup.set(this.turnBudgetGroupId, createAggregateTurnUsageState())
+    cb.onAggregateBudgetGroup?.(this.turnBudgetGroupId)
 
     let hookContext = ''
     if (this.settings.hooks) {
@@ -3532,7 +3931,13 @@ export class Agent {
 
   private async createAggregateBudgetedCompletion(body: Record<string, unknown>, options: { signal?: AbortSignal } | undefined, groupId: string): Promise<any> {
     const signal = options?.signal ?? this.abortController?.signal
-    const lease = await this.orchestrator.registry.acquireAggregateBudget(groupId, signal)
+    let lease: AggregateBudgetLease | undefined
+    try {
+      lease = await this.orchestrator.registry.acquireAggregateBudget(groupId, signal)
+    } catch (error) {
+      if (error instanceof TaskRuntimeError && error.code.startsWith('AGGREGATE_BUDGET_')) this.markAggregateBudgetBlocked(groupId)
+      throw error
+    }
     if (!lease) return this.dispatchProviderCompletion(body, options)
 
     const model = typeof body.model === 'string' ? body.model : this.model
@@ -3544,10 +3949,13 @@ export class Agent {
       settled = true
       let result
       try {
-        result = lease.reportUsage(aggregateUsage(usage, this.providerConfig, model, pricedAt))
+        const measuredUsage = aggregateUsage(usage, this.providerConfig, model, pricedAt)
+        this.recordAggregateTurnUsage(measuredUsage, groupId)
+        result = lease.reportUsage(measuredUsage)
       } finally {
         lease.release()
       }
+      if (result.unavailable || result.exceeded || result.exhausted) this.markAggregateBudgetBlocked(groupId)
       if (result.unavailable) throw new TaskRuntimeError('AGGREGATE_BUDGET_UNAVAILABLE', 'Provider usage could not be measured for the configured aggregate budget; no further model calls are allowed')
       if (result.exceeded) throw new TaskRuntimeError('AGGREGATE_BUDGET_EXCEEDED', 'The model response exceeded the remaining aggregate budget; its tool calls were not executed')
       if (result.exhausted && hasToolCalls) throw new TaskRuntimeError('AGGREGATE_BUDGET_EXHAUSTED', 'The aggregate budget is exhausted; the proposed tool calls were not executed')
@@ -3618,6 +4026,7 @@ export class Agent {
       if (choice) assertPrimaryCompletionOutputBudget(choice.message)
       return response
     } catch (error) {
+      if (error instanceof TaskRuntimeError && error.code.startsWith('AGGREGATE_BUDGET_')) this.markAggregateBudgetBlocked(groupId)
       if (!settled) {
         if (dispatched) {
           try { settle(undefined, false) } catch (budgetError) { throw budgetError }
@@ -3793,6 +4202,7 @@ export class Agent {
           const toolCalls = parseBedrockToolCalls(rawText)
           if (toolCalls.length > 0) {
             const visibleText = stripToolCalls(rawText)
+            cb.onAssistantMessage?.(visibleText, true, false)
             if (visibleText) cb.onToken(visibleText)
             const parsedList = parseBedrockToolCallBatch(toolCalls, finishReason)
             const retainedAssistantText = sanitizeBedrockToolCallText(rawText, toolCalls, parsedList)
@@ -3819,6 +4229,7 @@ export class Agent {
           }
           // No tool calls — final response
           const assistantText = stripToolCalls(rawText)
+          cb.onAssistantMessage?.(assistantText, false, false)
           if (assistantText) cb.onToken(assistantText)
           const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: rawText }
           if (reasoningText) finalMsg.reasoning_content = reasoningText
@@ -3830,6 +4241,9 @@ export class Agent {
 
         // ── Native tool calling (non-Bedrock) ───────────────────────────────
         const assistantText = rawText
+        const hasToolCalls = Boolean(msg?.tool_calls?.length)
+        const willContinue = !hasToolCalls && finishReason === 'length' && this.turnLengthContinuations < MAX_LENGTH_CONTINUATIONS
+        cb.onAssistantMessage?.(assistantText, hasToolCalls, willContinue)
         if (assistantText) cb.onToken(assistantText)
 
         if (!msg?.tool_calls?.length) {
@@ -3904,6 +4318,7 @@ export class Agent {
       let reasoningText = ''
       let streamOutputBytes = 0
       let finishReason: string | null = null
+      let responseUsageReported = false
       const toolCalls: Map<number, { id: string; name: string; args: string }> = new Map()
       const reserveStreamOutput = (text: string) => {
         streamOutputBytes = reservePrimaryOutputBytes(streamOutputBytes, text)
@@ -3921,7 +4336,9 @@ export class Agent {
           // Proxy error chunk: { error: { message: '...' } } — treat as recoverable, surface to user
           const chunkAny = chunk as any
           if (chunkAny.error?.message) {
+            if (!responseUsageReported) this.recordResponseUsage(undefined)
             const errMsg = chunkAny.error.message as string
+            cb.onProviderError?.(errMsg)
             cb.onToken(`⚠ Proxy error: ${errMsg}`)
             const errMsgObj: AssistantMessageWithReasoning = { role: 'assistant', content: `⚠ Proxy error: ${errMsg}` }
             this.messages.push(errMsgObj)
@@ -3932,6 +4349,7 @@ export class Agent {
 
           // Always capture usage when present — may arrive with empty choices OR alongside a delta
           if (chunk.usage) {
+            responseUsageReported = true
             const usage = this.recordResponseUsage(chunk.usage as PrimaryResponseUsage)
             this.contextUsage = usage?.promptTokens ?? 0
             this.contextStale = false
@@ -3975,6 +4393,7 @@ export class Agent {
           }
         }
       } catch (e: unknown) {
+        if (!responseUsageReported) this.recordResponseUsage(undefined)
         if (this.abortController?.signal.aborted) {
           if (assistantText || reasoningText) {
             const abortMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText || null }
@@ -3990,6 +4409,8 @@ export class Agent {
         await this.runStopFailureHook(e, this.abortController?.signal)
         throw e
       }
+
+      if (!responseUsageReported) this.recordResponseUsage(undefined)
 
       r1Filter?.flush()
 
@@ -4024,6 +4445,7 @@ export class Agent {
         if (this.provider === 'bedrock' && !modelSupportsChatCompletions(this.model)) {
           const textCalls = parseBedrockToolCalls(assistantText)
           if (textCalls.length > 0) {
+            cb.onAssistantMessage?.(stripToolCalls(assistantText), true, false)
             const parsedList = parseBedrockToolCallBatch(textCalls, finishReason)
             const retainedAssistantText = sanitizeBedrockToolCallText(assistantText, textCalls, parsedList)
             const assistantMsg: AssistantMessageWithReasoning = { role: 'assistant', content: retainedAssistantText }
@@ -4047,6 +4469,8 @@ export class Agent {
           }
         }
 
+        const willContinue = finishReason === 'length' && this.turnLengthContinuations < MAX_LENGTH_CONTINUATIONS
+        cb.onAssistantMessage?.(isPromptToolCalling ? stripToolCalls(assistantText) : assistantText, false, willContinue)
         const finalMsg: AssistantMessageWithReasoning = { role: 'assistant', content: assistantText }
         // Always preserve reasoning_content — DeepSeek-V4-Flash has built-in thinking mode
         if (reasoningText) finalMsg.reasoning_content = reasoningText
@@ -4067,6 +4491,7 @@ export class Agent {
         function: { name: tc.name, arguments: tc.args },
       }))
 
+      cb.onAssistantMessage?.(assistantText, true, false)
 
       const parsedList = parseToolCallBatchArguments(tcArray, finishReason)
       const assistantMsg: AssistantMessageWithReasoning = {
@@ -5786,10 +6211,20 @@ export class Agent {
       this.aggregateOutputQuotaExhausted = true
       return formatToolError('tool', 'AGGREGATE_OUTPUT_BYTES_EXCEEDED', 'This tool result exceeded the remaining shared per-turn byte budget and was not added to the model context.')
     }
-    const tool = this.toolMap.get(name)
+    let tool = this.toolMap.get(name)
     if (!tool) return returnModelFacingResult(formatToolError('tool', 'UNKNOWN_TOOL', `Unknown tool: ${name}`))
-    if (this.mcpToolNames.has(name) && this.requiresMcpToolDiscovery() && !this.discoveredMcpTools.has(name)) {
+    const lazyMcpTool = this.mcpToolNames.has(name) && this.requiresMcpToolDiscovery()
+    if (lazyMcpTool && !this.discoveredMcpTools.has(name)) {
       return returnModelFacingResult(formatToolError('tool', 'TOOL_NOT_DISCOVERED', `MCP tool '${name}' is unavailable until it is returned by discover_tools. Discover the current tool schema before calling it.`))
+    }
+
+    let mcpGeneration = this.mcpToolGenerations.get(tool)
+    if (lazyMcpTool && mcpGeneration) {
+      const prepared = await this.getValidatedMcpTool(name)
+      if (prepared.error) return returnModelFacingResult(formatToolError('tool', prepared.error.code, prepared.error.message))
+      if (!prepared.tool) return returnModelFacingResult(formatToolError('tool', 'UNKNOWN_TOOL', `Unknown tool: ${name}`))
+      tool = prepared.tool
+      mcpGeneration = prepared.generation
     }
 
     // `__planFilePath`, `__origin`: fields the runtime injects, not part of the model-facing schema.
@@ -5798,7 +6233,6 @@ export class Agent {
     if (!validation.valid) return returnModelFacingResult(formatToolError('validation', 'INVALID_ARGUMENTS', validation.errors.join('\n')))
     const effectiveArgs = { ...args, ...validation.value }
 
-    const mcpGeneration = this.mcpToolGenerations.get(tool)
     if (mcpGeneration) mcpGeneration.activeCalls++
     try {
       const context = this.orchestrator.toolContext({
@@ -5924,6 +6358,7 @@ export class Agent {
         this.discoveredMcpTools = new Set(result.matches.filter(tool => this.mcpToolNames.has(tool.name)).map(tool => tool.name))
         return JSON.stringify(result)
       }
+      context.refreshMcpCatalog = () => this.refreshMcpCatalogForDiscovery()
       context.readSessionEvidence = (id, start, limit) => this.sessionEvidence.read(id, start, limit)
       context.recordSessionClaim = claim => {
         const id = this.sessionEvidence.recordClaim(claim)

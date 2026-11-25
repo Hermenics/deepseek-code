@@ -9,6 +9,11 @@ const command: Command = {
   name: 'features',
   aliases: ['experimental'],
   description: 'Toggle experimental feature flags',
+  complete(args) {
+    if (args.length === 0) return FLAG_NAMES
+    if (args.length === 1) return ['on', 'off']
+    return []
+  },
   parse(args: string[]) {
     const [flagArg, valueArg] = args
 

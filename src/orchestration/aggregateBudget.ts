@@ -16,6 +16,92 @@ export interface AggregateBudgetUsage {
   costUsd?: number
 }
 
+export type AggregateUsageStatus = 'measured' | 'partial' | 'unavailable'
+
+/** A read-only view of usage measured against the existing aggregate limits. */
+export interface AggregateBudgetUsageSnapshot {
+  limits: AggregateBudgetLimits
+  /** True only when the existing budget already rejected work or reported exhaustion. */
+  blocked: boolean
+  tokens: number
+  tokenUsageStatus: AggregateUsageStatus
+  costUsd: number
+  costUsageStatus: AggregateUsageStatus
+}
+
+/** Tracks one-shot UI notices by the budget group that produced the measured usage. */
+export class AggregateBudgetWarningTracker {
+  private readonly watches = new Map<string, {
+    getSnapshot: () => AggregateBudgetUsageSnapshot
+    notify: (warning: string) => void
+  }>()
+
+  watch(groupId: string, getSnapshot: () => AggregateBudgetUsageSnapshot, notify: (warning: string) => void): void {
+    this.watches.set(groupId, { getSnapshot, notify })
+  }
+
+  /** Checks one original group; a delivered warning consumes that group's watcher exactly once. */
+  check(groupId: string): boolean {
+    const watch = this.watches.get(groupId)
+    if (!watch) return false
+    const warning = formatAggregateBudgetWarning(watch.getSnapshot())
+    if (!warning) return false
+    this.watches.delete(groupId)
+    watch.notify(warning)
+    return true
+  }
+
+  clear(groupId: string): void {
+    this.watches.delete(groupId)
+  }
+}
+
+/** Formats a single user-facing notice without changing aggregate budget enforcement. */
+export function formatAggregateBudgetWarning(snapshot: AggregateBudgetUsageSnapshot): string | undefined {
+  const notices: string[] = []
+  const { maxAggregateTokens, maxAggregateCostUsd } = snapshot.limits
+  const knownLimitReached = (maxAggregateTokens !== undefined
+      && snapshot.tokenUsageStatus !== 'unavailable'
+      && snapshot.tokens >= maxAggregateTokens)
+    || (maxAggregateCostUsd !== undefined
+      && snapshot.costUsageStatus !== 'unavailable'
+      && snapshot.costUsd >= maxAggregateCostUsd)
+  if (!snapshot.blocked && !knownLimitReached) return undefined
+
+  if (maxAggregateTokens !== undefined) {
+    if (snapshot.tokenUsageStatus === 'unavailable' && snapshot.blocked) {
+      notices.push(`Token usage is unavailable, so the ${maxAggregateTokens.toLocaleString()}-token limit cannot be verified.`)
+    } else if (snapshot.tokenUsageStatus === 'partial' && snapshot.tokens >= maxAggregateTokens) {
+      const outcome = snapshot.tokens > maxAggregateTokens ? 'exceeds' : 'reaches'
+      notices.push(`At least ${snapshot.tokens.toLocaleString()} tokens were measured, which ${outcome} the ${maxAggregateTokens.toLocaleString()}-token limit; some usage is unavailable.`)
+    } else if (snapshot.tokenUsageStatus === 'partial' && snapshot.blocked) {
+      notices.push(`At least ${snapshot.tokens.toLocaleString()} tokens were measured, but some usage is unavailable against the ${maxAggregateTokens.toLocaleString()}-token limit.`)
+    } else if (snapshot.tokens >= maxAggregateTokens) {
+      notices.push(`The aggregate token limit was reached (${snapshot.tokens.toLocaleString()} / ${maxAggregateTokens.toLocaleString()}).`)
+    }
+  }
+
+  if (maxAggregateCostUsd !== undefined) {
+    if (snapshot.costUsageStatus === 'unavailable' && snapshot.blocked) {
+      notices.push(`Cost usage is unavailable, so the $${maxAggregateCostUsd.toFixed(4)} limit cannot be verified.`)
+    } else if (snapshot.costUsageStatus === 'partial' && snapshot.costUsd >= maxAggregateCostUsd) {
+      const outcome = snapshot.costUsd > maxAggregateCostUsd ? 'exceeds' : 'reaches'
+      notices.push(`At least $${snapshot.costUsd.toFixed(4)} of estimated cost was measured, which ${outcome} the $${maxAggregateCostUsd.toFixed(4)} limit; some usage is unavailable.`)
+    } else if (snapshot.costUsageStatus === 'partial' && snapshot.blocked) {
+      notices.push(`The partial estimated cost subtotal is $${snapshot.costUsd.toFixed(4)}; some usage is unavailable against the $${maxAggregateCostUsd.toFixed(4)} limit.`)
+    } else if (snapshot.costUsd >= maxAggregateCostUsd) {
+      notices.push(`The estimated aggregate cost limit was reached ($${snapshot.costUsd.toFixed(4)} / $${maxAggregateCostUsd.toFixed(4)}).`)
+    }
+  }
+
+  if (notices.length === 0 && snapshot.blocked) {
+    notices.push('The aggregate budget blocked a model call, but the available usage does not identify which limit caused it.')
+  }
+  return notices.length > 0
+    ? `⚠ Aggregate budget: ${notices.join(' ')} Further model calls are blocked by the existing aggregate budget.`
+    : undefined
+}
+
 export interface AggregateBudgetLease {
   /** Remaining aggregate total, suitable only as a completion-token cap; prompt usage is unknown until the provider responds. */
   maxTokens?: number

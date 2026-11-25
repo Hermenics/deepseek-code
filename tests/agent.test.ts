@@ -5,6 +5,7 @@ import * as modelInfo from '../src/agent/modelInfo.js'
 import type { Tool } from '../src/tools/types.js'
 import type { OrchestratorSession } from '../src/orchestration/OrchestratorSession.js'
 import { removeTempDirectory } from './helpers/removeTempDirectory.js'
+import { validCompactSummary } from './helpers/compactSummary.js'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
@@ -243,7 +244,7 @@ describe('Agent class', () => {
         injectMockClient(agent, {
           chat: {
             completions: {
-              create: async () => ({ choices: [{ message: { content: Array.from({ length: 9 }, (_, index) => `## ${index + 1}. Section\nPreserved context`).join('\n') } }] }),
+              create: async () => ({ choices: [{ message: { content: validCompactSummary('Preserved context') } }] }),
             },
           },
         })

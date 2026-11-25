@@ -48,6 +48,9 @@ const skill: Command = {
   name: 'skill',
   aliases: ['skills'],
   description: 'Manage skills (install, list, remove, update)',
+  complete(args) {
+    return args.length === 0 ? ['install', 'list', 'remove', 'update'] : []
+  },
   parse(args: string[]): CommandResult {
     return parseSkillCommand(args)
   },

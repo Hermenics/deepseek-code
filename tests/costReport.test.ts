@@ -3,6 +3,7 @@ import { rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Agent } from '../src/agent/agent.js'
+import { validCompactSummary } from './helpers/compactSummary.js'
 
 const HISTORY_PATH = join(tmpdir(), `deepseek-code-cost-report-${process.pid}.json`)
 const ORIGINAL_HISTORY_PATH = process.env.DEEPSEEK_HISTORY_PATH
@@ -21,21 +22,24 @@ type BalanceInternals = {
   sessionStartBalance: Promise<unknown> | null
   fetchBalance: () => Promise<unknown>
   recordUsage: (promptTokens?: number, completionTokens?: number, cachedTokens?: number) => void
+  recordResponseUsage: (usage: unknown) => unknown
 }
 
 describe('getCostReport', () => {
-  it('updates price availability when the model or provider changes', async () => {
+  it('keeps historical cost availability separate from current-model price availability', async () => {
     const agent = new Agent({ provider: 'deepseek', apiKey: 'sk-test', baseURL: 'https://api.deepseek.com' })
     await agent.readyPromise.catch(() => {})
-    expect(agent.getSessionStats().costAvailable).toBe(true)
+    expect(agent.getSessionStats()).toMatchObject({ costAvailable: false, currentModelPricingAvailable: true })
+    ;(agent as unknown as BalanceInternals).recordResponseUsage({ total_tokens: 2, prompt_tokens: 1, completion_tokens: 1 })
+    expect(agent.getSessionStats()).toMatchObject({ costAvailable: true, currentModelPricingAvailable: true })
     agent.setModel('unknown-model')
-    expect(agent.getSessionStats().costAvailable).toBe(false)
+    expect(agent.getSessionStats()).toMatchObject({ costAvailable: true, currentModelPricingAvailable: false })
     agent.setModel('deepseek-flash')
-    expect(agent.getSessionStats().costAvailable).toBe(true)
+    expect(agent.getSessionStats()).toMatchObject({ costAvailable: true, currentModelPricingAvailable: true })
     agent.setProviderConfig({ provider: 'deepseek', apiKey: 'sk-test', baseURL: 'http://127.0.0.1:8001/v1' })
-    expect(agent.getSessionStats().costAvailable).toBe(false)
+    expect(agent.getSessionStats()).toMatchObject({ costAvailable: true, currentModelPricingAvailable: false })
     agent.setProviderConfig({ provider: 'vertex', gcpProject: 'test', gcpLocation: 'global', gcpCredentials: '/tmp/test-service-account.json' })
-    expect(agent.getSessionStats().costAvailable).toBe(false)
+    expect(agent.getSessionStats()).toMatchObject({ costAvailable: true, currentModelPricingAvailable: false })
   })
 
   it('adds the account balance and how much it moved since the session started', async () => {
@@ -84,7 +88,7 @@ describe('side-request usage', () => {
       chat: {
         completions: {
           create: async () => ({
-            choices: [{ message: { content: Array.from({ length: 9 }, (_, index) => `## ${index + 1}. Section\nRetained context`).join('\n') } }],
+            choices: [{ message: { content: validCompactSummary('Retained context') } }],
             usage: { total_tokens: 1_100_000, prompt_tokens: 1_000_000, completion_tokens: 100_000, prompt_cache_hit_tokens: 0 },
           }),
         },

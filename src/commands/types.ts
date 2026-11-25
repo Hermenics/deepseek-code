@@ -85,9 +85,16 @@ export type CommandResult =
   | { type: 'goal'; action: 'pause' | 'resume' | 'clear' }
   | { type: 'unknown'; input: string }
 
+export interface CommandCompletionContext {
+  /** Workspace used to scope any local ID lookup. */
+  cwd: string
+}
+
 export interface Command {
   name: string
   aliases: string[]
   description: string
   parse(args: string[]): CommandResult
+  /** Optional, local-only argument suggestions. Implementations never execute a command or use the network. */
+  complete?: (priorArgs: readonly string[], context: CommandCompletionContext) => readonly string[] | Promise<readonly string[]>
 }

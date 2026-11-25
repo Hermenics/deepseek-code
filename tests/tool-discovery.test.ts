@@ -64,6 +64,10 @@ function catalogAgent() {
   return Object.assign(Object.create(Agent.prototype), {
     discoveredMcpTools: new Set(), providerConfig: { type: 'openai' }, model: 'test',
     mcpToolGenerations: new WeakMap(),
+    mcpClientGenerations: new Set(),
+    mcpReload: Promise.resolve(),
+    mcpDiscoveryFreshUntil: Number.MAX_SAFE_INTEGER,
+    settings: { mcp: { enabled: false } },
     options: {}, interactionMode: 'auto', allowedTools: null,
     orchestrator: { toolContext: () => ({}), registry: { recordAggregateOutputBytes: () => true } },
   }) as any

@@ -5,6 +5,11 @@ const command: Command = {
   name: 'memory',
   aliases: ['mem'],
   description: 'View, search, inspect capacity, or clear persistent memory',
+  complete(args) {
+    if (args.length === 0) return ['search', 'status', 'clear']
+    if (args.length === 1 && args[0] === 'clear') return ['agent', 'user']
+    return []
+  },
   parse(args) {
     if (args[0] === 'search') return { type: 'memory' as any, action: 'search', query: args.slice(1).join(' ') }
     if (args[0] === 'status') return { type: 'memory' as any, action: 'status' }

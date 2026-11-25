@@ -5,6 +5,9 @@ const goalCommand: Command = {
   name: 'goal',
   aliases: [],
   description: 'Set, view, or manage a persistent goal. Usage: /goal [<objective> [--turns <n>]]',
+  complete(args) {
+    return args.length === 0 ? ['edit', 'pause', 'resume', 'clear'] : []
+  },
   parse(args: string[]) {
     if (args.length === 0) return { type: 'goal', action: 'show' }
 

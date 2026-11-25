@@ -61,6 +61,8 @@ import type { SubagentState } from './subagent/types.js'
 import type { WorkflowRun } from '../workflows/types.js'
 import type { WorkflowManager } from '../workflows/manager.js'
 import type { PromptImage, PromptInput } from '../types/input.js'
+import { AggregateBudgetWarningTracker } from '../orchestration/aggregateBudget.js'
+import { TERMINAL_TASK_STATES } from '../orchestration/lifecycle.js'
 
 export type AgentPhase = 'idle' | 'refining' | 'executing'
 
@@ -96,6 +98,11 @@ function persistedGoalSnapshot() {
 /** Pin the header only when the transcript and TODO area retain more than 21 rows; otherwise it scrolls with the transcript. */
 const ACTIVE_SUBAGENT_STATES = new Set<SubagentState['status']>(['queued', 'running', 'blocked'])
 const ACTIVE_WORKFLOW_STATES = new Set<WorkflowRun['status']>(['queued', 'running', 'paused'])
+
+function hasOpenTasksInBudgetGroup(agent: Agent, groupId: string): boolean {
+  return agent.orchestrator.registry.listTasks().some(task =>
+    task.budgetGroupId === groupId && !TERMINAL_TASK_STATES.has(task.state))
+}
 
 export type ActivityFocusSelection =
   | { kind: 'main' }
@@ -644,6 +651,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const toolStatusClearTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastTurnTokenCountRef = useRef(0)
   const compactBadgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const aggregateBudgetWarningTrackerRef = useRef(new AggregateBudgetWarningTracker())
+  const finishedAggregateBudgetGroupsRef = useRef(new Set<string>())
   const btwAbortRef = useRef<AbortController | null>(null)
   const activeAgentRunRef = useRef<Promise<void> | null>(null)
   const goalContinuationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1029,7 +1038,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [agent])
 
   useEffect(() => agent.orchestrator.subscribe(event => {
-    if (event.type !== 'state_changed' || !event.taskId) return
+    if (!event.taskId) return
     // Workflow agents live in their own session registry, so fall back to the workflow-aware
     // lookup: a workflow agent first seen through a state change must still carry the run and
     // phase the monitor groups by.
@@ -1040,6 +1049,21 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     })()
     if (!located) return
     const record = located.task
+    const budgetGroupId = record.budgetGroupId
+    if (budgetGroupId) {
+      aggregateBudgetWarningTrackerRef.current.check(budgetGroupId)
+      const taskGroupSettled = event.type === 'attempt_finished'
+        || event.type === 'completed'
+        || event.type === 'cancelled'
+        || event.type === 'timeout'
+        || event.type === 'error'
+      if (taskGroupSettled && finishedAggregateBudgetGroupsRef.current.has(budgetGroupId) && !hasOpenTasksInBudgetGroup(agent, budgetGroupId)) {
+        aggregateBudgetWarningTrackerRef.current.clear(budgetGroupId)
+        finishedAggregateBudgetGroupsRef.current.delete(budgetGroupId)
+        agent.releaseAggregateBudgetUsageGroup(budgetGroupId)
+      }
+    }
+    if (event.type !== 'state_changed') return
     subagentsRef.current.onSubagentState({
       id: record.taskId,
       status: record.state,
@@ -1489,7 +1513,23 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     let tokenBuffer = ''
     let streamTextAccum = ''
     let thinkingAccum = ''
+    let aggregateBudgetGroupId: string | undefined
     thinkingStartedAtRef.current = null
+
+    const showAggregateBudgetWarning = () => {
+      if (aggregateBudgetGroupId) aggregateBudgetWarningTrackerRef.current.check(aggregateBudgetGroupId)
+    }
+
+    const finishAggregateBudgetGroup = () => {
+      if (!aggregateBudgetGroupId) return
+      finishedAggregateBudgetGroupsRef.current.add(aggregateBudgetGroupId)
+      showAggregateBudgetWarning()
+      if (!hasOpenTasksInBudgetGroup(agent, aggregateBudgetGroupId)) {
+        aggregateBudgetWarningTrackerRef.current.clear(aggregateBudgetGroupId)
+        finishedAggregateBudgetGroupsRef.current.delete(aggregateBudgetGroupId)
+        agent.releaseAggregateBudgetUsageGroup(aggregateBudgetGroupId)
+      }
+    }
 
     const mergeThinking = (next: string) => {
       const trimmed = next.trim()
@@ -1572,6 +1612,19 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
 
     try {
       const activeRun = agent.run(images.length > 0 ? { text: prompt, images } : prompt, {
+        onAggregateBudgetGroup(groupId) {
+          aggregateBudgetGroupId = groupId
+          aggregateBudgetWarningTrackerRef.current.watch(
+            groupId,
+            () => agent.getAggregateBudgetUsageSnapshot(groupId),
+            warning => setMessages(current => [...current, {
+              role: 'assistant',
+              content: agent.getCurrentAggregateBudgetGroupId() === groupId
+                ? warning
+                : `Background work from an earlier turn: ${warning}`,
+            }]),
+          )
+        },
         onPhaseChange(phase) { setAgentPhase(phase) },
         onToken(token) { tokenBuffer += token },
         onToolPending(name, argsText) { if (name !== 'step') pendingTool = { name, args: argsText } },
@@ -1664,6 +1717,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
           }
           setAgentPhase('idle')
           setTokenCount(agent.tokenCount)
+          finishAggregateBudgetGroup()
           setSubagentTick((t) => t + 1)
           void refreshCustomCommands(agent.getWorkingDirectory())
           drainQueuedMessagesRef.current()
@@ -1783,6 +1837,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
         ? formatChatError(e, provider)
         : String(e)
       setMessages((m) => [...m, { role: 'assistant', content: `⚠ Error: ${message}`, workedMs }])
+      finishAggregateBudgetGroup()
       
       drainQueuedMessagesRef.current()
     }

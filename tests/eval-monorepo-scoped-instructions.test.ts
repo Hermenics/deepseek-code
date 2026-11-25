@@ -47,6 +47,7 @@ async function runChecker(root: string) {
 sandboxTest("C29 checker accepts the reference and rejects hardcoded IDs, coercion, and web-package edits", async () => {
   const root = await fixture()
   const reference = await runChecker(root)
+  if (reference.exitCode !== 0) throw new Error(`Reference checker failed:\n${reference.all}`)
   expect(reference.exitCode).toBe(0)
   expect(reference.positiveTestEvidence).toBe(true)
 

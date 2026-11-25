@@ -53,7 +53,15 @@ For automation, use headless pipe mode:
 ```bash
 echo "explain this project" | deepseek --pipe
 cat src/index.tsx | deepseek --pipe --json "summarize"
+echo "summarize this project" | deepseek --pipe --jsonl
+cat src/index.tsx | deepseek --pipe --jsonl --output-schema ./summary.schema.json
 ```
+
+`--json` preserves the legacy one-shot JSON protocol: stdout receives only `{ "ok": true, "output": "...", "tools": [...] }` on success or `{ "ok": false, "error": "..." }` on failure. `--json` and `--jsonl` cannot be used together.
+
+`--jsonl` emits JSON Lines v1: one JSON object per line, each with `version: 1` and a `type`. A successful run emits `start`, zero or more streamed `token` events (`text`) and `tool_call` events (`name`), then `done` (`ok`, `output`, `tools`, and `usage`). An `error` event has `ok: false`, `error`, `partialOutput`, and `usage`; it also has `issues` when `--output-schema` rejects the final output. `usage` contains nullable `tokens` and `costUsd`, their `tokenStatus` and `costStatus` (`measured`, `partial`, or `unavailable`), and `costEstimated`. Each validation issue contains `instancePath` and `keyword`. Argument or schema preflight failures can emit `error` before `start`.
+
+`--output-schema <path>` accepts one local JSON Schema file (up to 1,000,000 bytes). The complete schema JSON, including annotations, must serialize to no more than 32 KiB; larger schemas are rejected rather than truncated. `$ref` references must be local, and remote references are not resolved; `$dynamicRef` and `$recursiveRef` are rejected. Schema annotation keywords such as `title`, `description`, `examples`, and `$comment` are omitted from the model-facing schema. The prompt requires exactly one JSON value, with no prose, Markdown, or code fences; Ajv's configured draft-07 validator checks the final response locally and rejects unsupported keywords or unregistered formats during preflight. Failures use the selected output format and exit with status 1. In text mode, output is streamed before final validation and a validation error is reported on stderr; in JSONL, a failed final-output check includes `issues` (up to 20 entries, with `instancePath` and `keyword`).
 
 ### DeepSeek Pods on your own server
 

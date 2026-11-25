@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Agent, type AgentCallbacks } from '../src/agent/agent.js'
 import { searchConversations } from '../src/agent/conversationMemory.js'
+import { validCompactSummary } from './helpers/compactSummary.js'
 
 const roots: string[] = []
 const previousHistoryPath = process.env.DEEPSEEK_HISTORY_PATH
@@ -84,7 +85,7 @@ test('preserves actual text before compaction and skips archive writes in review
       { role: 'user', content: '[Compacted context] USER_QUOTED_CANARY' },
       { role: 'assistant', content: 'VISIBLE_ASSISTANT_CANARY' },
     ]
-    internal.withRetry = async () => ({ choices: [{ message: { content: Array.from({ length: 9 }, (_, index) => `## ${index + 1}. Section\nRetained context.`).join('\n\n') } }], usage: {} })
+    internal.withRetry = async () => ({ choices: [{ message: { content: validCompactSummary('Retained context.') } }], usage: {} })
     await agent.compact()
     expect(await searchConversations(agent.orchestrator.memory.getDirectory(), root, 'invoice_queue-v2')).toHaveLength(1)
     expect(await searchConversations(agent.orchestrator.memory.getDirectory(), root, 'SYNTHETIC_SUMMARY_CANARY')).toEqual([])

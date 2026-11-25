@@ -3,7 +3,7 @@ import type { Tool } from '../types.js'
 /** Read-only lookup over the host's already installed native and MCP tool descriptors. */
 export const DiscoverTools: Tool = {
   name: 'discover_tools',
-  description: 'Search the installed tool catalog by name, purpose, or input fields. Returns complete schemas for up to 10 matches; refine the query when results are omitted. This never loads or calls external tools.',
+  description: 'Refresh the approved MCP tool catalog when needed, then search installed tools by name, purpose, or input fields. Returns complete schemas for up to 10 matches; refine the query when results are omitted. This can connect to approved MCP servers but never calls their tools.',
   parameters: {
     type: 'object',
     properties: {
@@ -14,8 +14,9 @@ export const DiscoverTools: Tool = {
   },
   async execute(args, context) {
     const query = typeof args.query === 'string' ? args.query : ''
-    const discoveryContext = context as (typeof context & { discoverTools?: (query: string) => string }) | undefined
+    const discoveryContext = context
     if (!discoveryContext?.discoverTools) return JSON.stringify({ error: 'Installed tool discovery is unavailable in this execution context.' })
+    await discoveryContext.refreshMcpCatalog?.()
     return discoveryContext.discoverTools(query)
   },
 }

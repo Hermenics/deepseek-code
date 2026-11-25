@@ -9,5 +9,7 @@ export interface Tool {
   name: string
   description: string
   parameters: object
+  /** Server identity for host-managed MCP catalog validation. */
+  mcpServerName?: string
   execute(args: Record<string, unknown>, context?: ToolExecutionContext, callbacks?: ToolCallbacks): Promise<string>
 }

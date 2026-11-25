@@ -38,6 +38,9 @@ const plugin: Command = {
   name: 'plugin',
   aliases: ['plugins'],
   description: 'Manage plugins (install, list, remove, update)',
+  complete(args) {
+    return args.length === 0 ? ['install', 'list', 'remove', 'update'] : []
+  },
   parse(args: string[]): CommandResult {
     return parsePluginCommand(args)
   },

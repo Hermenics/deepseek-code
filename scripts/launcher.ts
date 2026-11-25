@@ -19,7 +19,7 @@ child.on('exit', (code, signal) => { process.exitCode = code ?? (signal ? 128 + 
 export const BUN_RUNNER_SOURCE = `#!/usr/bin/env bun
 // DeepSeek Code runtime — runs on Linux, macOS and Windows.
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const MIN_BUN = [1, 4]
 const version = typeof Bun !== 'undefined' ? Bun.version : undefined
@@ -46,5 +46,5 @@ const restore = () => {
 }
 process.on('exit', restore)
 
-await import(join(dirname(fileURLToPath(import.meta.url)), 'cli.mjs'))
+await import(pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), 'cli.mjs')).href)
 `

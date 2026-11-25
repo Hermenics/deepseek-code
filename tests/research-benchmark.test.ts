@@ -13,6 +13,7 @@ import { MemoryStore } from '../src/agent/memory.js'
 import { captureShellStreams } from '../src/tools/Shell/streamCapture.js'
 import { MAX_STORED_SHELL_OUTPUT_CHARS } from '../src/tools/Shell/outputArtifact.js'
 import { resolvePermission } from '../src/permissions/matcher.js'
+import { validCompactSummary } from './helpers/compactSummary.js'
 
 const scratch: string[] = []
 function injectBenchmarkClient(agent: Agent, clientMock: object): void {
@@ -128,7 +129,7 @@ describe('deterministic, no-model harness contracts for proposed C cases', () =>
       internal.sessionEvidence.add('denial', 'write_file', JSON.stringify({ path: protectedPath, reason: 'protected reference file' }))
       internal.refreshProjectContextMessage()
       injectBenchmarkClient(agent, {
-        chat: { completions: { create: async () => ({ choices: [{ message: { content: Array.from({ length: 9 }, (_, index) => `## ${index + 1}. Section\nRecovered implementation context.`).join('\n') } }] }) } },
+        chat: { completions: { create: async () => ({ choices: [{ message: { content: validCompactSummary('Recovered implementation context.') } }] }) } },
       })
       await agent.compact()
       const persistedAfterCompact = agent.getRawMessages()
