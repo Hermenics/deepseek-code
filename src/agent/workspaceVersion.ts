@@ -76,7 +76,23 @@ async function runGit(args: string[], cwd: string, signal?: AbortSignal): Promis
 async function listGitFiles(root: string, signal?: AbortSignal): Promise<string[] | null> {
   const result = await runGit(['ls-files', '--cached', '--others', '--exclude-standard', '-z'], root, signal)
   if (!result || result.exitCode !== 0) return null
-  return [...new Set(result.stdout.split('\0').filter(Boolean))]
+  const files = [...new Set(result.stdout.split('\0').filter(Boolean))]
+  // Skip-worktree entries are tracked in the index but intentionally absent from the
+  // working tree, so they are not fingerprint inputs and must not be lstat'd.
+  const skipped = await skipWorktreeFiles(root, signal)
+  return skipped.size === 0 ? files : files.filter(file => !skipped.has(file))
+}
+
+async function skipWorktreeFiles(root: string, signal?: AbortSignal): Promise<Set<string>> {
+  const skipped = new Set<string>()
+  const result = await runGit(['ls-files', '-v', '-z'], root, signal)
+  if (!result || result.exitCode !== 0 || typeof result.stdout !== 'string') return skipped
+  for (const entry of result.stdout.split('\0')) {
+    if (entry.length < 3) continue
+    // Lowercase status letters mark assume-unchanged; 'S'/'s' mark skip-worktree.
+    if (entry[0] === 'S' || entry[0] === 's') skipped.add(entry.slice(2))
+  }
+  return skipped
 }
 
 async function listSourceFiles(root: string, gitFiles: string[] | null, signal?: AbortSignal): Promise<string[]> {
