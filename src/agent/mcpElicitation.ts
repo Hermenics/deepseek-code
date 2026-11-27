@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js'
 import type { ElicitRequestFormParams, ElicitRequestParams, ElicitResult } from '@modelcontextprotocol/sdk/types.js'
 
@@ -19,6 +20,7 @@ export type McpElicitationResponse =
 export interface McpElicitationRedaction {
   hasValues(): boolean
   redactText(value: string): string
+  redactTextBlocks(values: readonly string[]): string
   redactValue(value: unknown): unknown
 }
 
@@ -128,6 +130,14 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+function uniqueBoundarySeparator(value: string): string {
+  const common = '\0mcp-elicitation-boundary\0'
+  if (!value.includes(common)) return common
+  let separator: string
+  do { separator = `\0mcp-${randomUUID()}\0` } while (value.includes(separator))
+  return separator
+}
+
 /** Retains accepted values for this client's lifetime so later echoes remain redacted. */
 export function createMcpElicitationRedactionTracker(): McpElicitationRedactionTracker {
   const retained = emptyElicitationValues()
@@ -135,6 +145,10 @@ export function createMcpElicitationRedactionTracker(): McpElicitationRedactionT
   let disposed = false
   let insensitiveMatcher: RegExp | undefined
   let base64Matcher: RegExp | undefined
+  let blockInsensitiveMatcher: RegExp | undefined
+  let blockInsensitiveSeparator: string | undefined
+  let blockBase64Matcher: RegExp | undefined
+  let blockBase64Separator: string | undefined
 
   const clearRetained = () => {
     retained.strings.clear()
@@ -145,7 +159,12 @@ export function createMcpElicitationRedactionTracker(): McpElicitationRedactionT
     retained.textBytes = 0
     insensitiveMatcher = undefined
     base64Matcher = undefined
+    blockInsensitiveMatcher = undefined
+    blockInsensitiveSeparator = undefined
+    blockBase64Matcher = undefined
+    blockBase64Separator = undefined
   }
+
   const redactString = (value: string) => {
     if (!value) return value
     let redacted = value
@@ -164,6 +183,34 @@ export function createMcpElicitationRedactionTracker(): McpElicitationRedactionT
       redacted = redacted.replace(insensitiveMatcher, REDACTED_ELICITATION_VALUE)
     }
     return redacted
+  }
+
+  const redactTextBlocks = (blocks: readonly string[]) => {
+    if (retained.textTokens.size + retained.base64Tokens.size === 0) return blocks.join('\n')
+    if (blocks.length <= 1) return redactString(blocks[0] ?? '')
+    const separator = uniqueBoundarySeparator(blocks.join(''))
+    let redacted = blocks.join(separator)
+    const tokenPattern = (token: string) => token.split('').map(escapeRegExp).join(`(?:${escapeRegExp(separator)})*`)
+    if (retained.base64Tokens.size > 0) {
+      const alternatives = [...new Set([...retained.base64Tokens].map(token => token.replace(/=+$/, '')))]
+        .sort((left, right) => right.length - left.length).map(tokenPattern).join('|')
+      if (!blockBase64Matcher || blockBase64Separator !== separator) {
+        blockBase64Matcher = new RegExp(`(?<![A-Za-z0-9+/_-])(?:${alternatives})={0,2}(?![A-Za-z0-9+/_=-])`, 'gu')
+        blockBase64Separator = separator
+      }
+      blockBase64Matcher.lastIndex = 0
+      redacted = redacted.replace(blockBase64Matcher, REDACTED_ELICITATION_VALUE)
+    }
+    if (retained.textTokens.size > 0) {
+      const alternatives = [...retained.textTokens].sort((left, right) => right.length - left.length).map(tokenPattern).join('|')
+      if (!blockInsensitiveMatcher || blockInsensitiveSeparator !== separator) {
+        blockInsensitiveMatcher = new RegExp(`(?<![\\p{L}\\p{N}\\p{M}_])(?:${alternatives})(?![\\p{L}\\p{N}\\p{M}_])`, 'giu')
+        blockInsensitiveSeparator = separator
+      }
+      blockInsensitiveMatcher.lastIndex = 0
+      redacted = redacted.replace(blockInsensitiveMatcher, REDACTED_ELICITATION_VALUE)
+    }
+    return redacted.split(separator).join('\n')
   }
   const redactNested = (value: unknown): unknown => {
     if (typeof value === 'string') return redactString(value)
@@ -185,6 +232,7 @@ export function createMcpElicitationRedactionTracker(): McpElicitationRedactionT
       return {
         hasValues: () => retained.textTokens.size + retained.base64Tokens.size > 0,
         redactText: redactString,
+        redactTextBlocks,
         redactValue: redactNested,
         close() {
           if (closed) return
@@ -217,6 +265,10 @@ export function createMcpElicitationRedactionTracker(): McpElicitationRedactionT
       retained.textBytes += addedBytes
       insensitiveMatcher = undefined
       base64Matcher = undefined
+      blockInsensitiveMatcher = undefined
+      blockInsensitiveSeparator = undefined
+      blockBase64Matcher = undefined
+      blockBase64Separator = undefined
     },
     dispose() {
       disposed = true
@@ -225,7 +277,7 @@ export function createMcpElicitationRedactionTracker(): McpElicitationRedactionT
   }
 }
 
-const SENSITIVE_FORM_TEXT = /password|pass[\s_-]?(?:code|phrase)|secret|(?:access|refresh|bearer|session)?[\s_-]?token|credential|api[\s_-]?key|private[\s_-]?key|credit[\s_-]?card|cvv|cvc|ssn|social[\s_-]?security|(?:one[\s_-]?time|verification|security)[\s_-]?(?:password|passcode|code|token)|(?:otp|authenticator|authentication)[\s_-]?(?:password|passcode|code|token)?|(?:mfa|2fa|multi[\s_-]?factor(?:[\s_-]?(?:auth|authentication))?|two[\s_-]?factor(?:[\s_-]?(?:auth|authentication))?)[\s_:/-]?(?:(?:recovery|backup|verification|authentication|authenticator|auth|one[\s_-]?time)[\s_:/-]?)?(?:pass[\s_-]?codes?|passwords?|codes?|tokens?|otps?)\b|(?:recovery|backup)[\s_-]?codes?[\s_-]?(?:for[\s_-]?)?(?:mfa|2fa|multi[\s_-]?factor(?:[\s_-]?(?:auth|authentication))?|two[\s_-]?factor(?:[\s_-]?(?:auth|authentication))?)|(?:codes?|passcodes?|tokens?)[\s_-]?(?:for[\s_-]?)?(?:mfa|2fa|multi[\s_-]?factor|two[\s_-]?factor)\b|\bpin\b/i
+const SENSITIVE_FORM_TEXT = /password|pass[\s_-]?(?:code|phrase|key)|secret|(?:access|refresh|bearer|session)?[\s_-]?token|credential|api[\s_-]?key|private[\s_-]?key|(?:authorization|authorisation)[\s_-]?(?:code|token)|auth[\s_-]?(?:code|token)|oauth[\s_-]?(?:(?:authorization|authorisation)[\s_-]?)?(?:code|token)|(?:session|auth(?:entication)?|login|access|refresh)?[\s_-]?cookie|cookie[\s_-]?(?:value|header|jar)|(?:credit|debit|payment)[\s_-]?card|card[\s_-]?(?:number|no\.?|pan)|cvv|cvc|ssn|social[\s_-]?security|(?:recovery|backup)[\s_-]?(?:codes?|phrases?)|(?:seed[\s_-]?(?:phrase|words?)|mnemonics?)|(?:one[\s_-]?time|verification|security)[\s_-]?(?:password|passcode|code|token)|(?:otp|authenticator|authentication)[\s_-]?(?:password|passcode|code|token)?|(?:mfa|2fa|multi[\s_-]?factor(?:[\s_-]?(?:auth|authentication))?|two[\s_-]?factor(?:[\s_-]?(?:auth|authentication))?)[\s_:/-]?(?:(?:recovery|backup|verification|authentication|authenticator|auth|one[\s_-]?time)[\s_:/-]?)?(?:pass[\s_-]?codes?|passwords?|codes?|tokens?|otps?)\b|(?:recovery|backup)[\s_-]?codes?[\s_-]?(?:for[\s_-]?)?(?:mfa|2fa|multi[\s_-]?factor(?:[\s_-]?(?:auth|authentication))?|two[\s_-]?factor(?:[\s_-]?(?:auth|authentication))?)|(?:codes?|passcodes?|tokens?)[\s_-]?(?:for[\s_-]?)?(?:mfa|2fa|multi[\s_-]?factor|two[\s_-]?factor)\b|\bpin\b/i
 const FORM_SCHEMA_KEYS = new Set(['type', 'properties', 'required'])
 const COMMON_PROPERTY_KEYS = ['type', 'title', 'description', 'default'] as const
 
@@ -260,9 +312,11 @@ function validEnum(value: unknown, schema: JsonRecord): boolean {
 }
 
 function arrayChoices(schema: JsonRecord): string[] | undefined {
-  if (!isRecord(schema.items) || schema.items.type !== 'string') return undefined
+  if (!isRecord(schema.items)) return undefined
   const items = schema.items
-  if (isStringArray(items.enum)) return items.enum
+  if (items.type !== undefined && items.type !== 'string') return undefined
+  if (items.type === 'string' && isStringArray(items.enum)) return items.enum
+  // MCP's titled multi-select form uses `items.anyOf` without `items.type`.
   if (isDenseArray(items.anyOf) && items.anyOf.every(option => isRecord(option) && typeof option.const === 'string')) {
     return items.anyOf.map(option => (option as JsonRecord).const as string)
   }
@@ -356,6 +410,7 @@ function validatePropertySchema(key: string, value: unknown, message: string): v
       if (!value.oneOf.every(option => isRecord(option) && hasOnlyKeys(option, ['const', 'title']) && typeof option.const === 'string' && typeof option.title === 'string')) return false
       if (new Set(value.oneOf.map(option => (option as JsonRecord).const)).size !== value.oneOf.length) return false
     } else {
+      // `pattern` is deliberately unsupported; the raw schema is retained so this allowlist can reject it.
       if (!hasOnlyKeys(value, [...COMMON_PROPERTY_KEYS, 'minLength', 'maxLength', 'format'])) return false
       if (value.minLength !== undefined && (!Number.isSafeInteger(value.minLength) || (value.minLength as number) < 0)) return false
       if (value.maxLength !== undefined && (!Number.isSafeInteger(value.maxLength) || (value.maxLength as number) < 0)) return false

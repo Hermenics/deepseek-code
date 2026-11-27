@@ -102,6 +102,35 @@ describe('MCP form elicitation validation', () => {
       .rejects.toThrow(/unsupported or unsafe schema/)
   })
 
+  it('accepts the MCP titled multi-select enum shape without an items type', async () => {
+    const requestedSchema = {
+      type: 'object',
+      properties: {
+        colors: {
+          type: 'array',
+          items: {
+            anyOf: [
+              { const: 'red', title: 'Red' },
+              { const: 'blue', title: 'Blue' },
+            ],
+          },
+          minItems: 1,
+          maxItems: 2,
+        },
+      },
+      required: ['colors'],
+    }
+    const content = { colors: ['red', 'blue'] }
+
+    await expect(handleMcpElicitationRequest('profile-store', formRequest(requestedSchema), async () => ({
+      action: 'accept', content,
+    }), new AbortController().signal)).resolves.toEqual({ action: 'accept', content })
+
+    await expect(handleMcpElicitationRequest('profile-store', formRequest(requestedSchema), async () => ({
+      action: 'accept', content: { colors: ['green'] },
+    }), new AbortController().signal)).rejects.toThrow(/does not match the requested schema/)
+  })
+
   it('rejects impossible calendar dates in date-time values without normalizing them', async () => {
     const requestedSchema = {
       type: 'object',
@@ -187,6 +216,48 @@ describe('MCP form elicitation validation', () => {
         message: request.message,
         requestedSchema: { type: 'object', properties: { [request.key]: { type: 'string', title: request.title } } },
       }, async () => { handlerCalls++; return { action: 'decline' } }, new AbortController().signal))
+        .rejects.toThrow(/unsupported or unsafe schema/)
+    }
+
+    expect(handlerCalls).toBe(0)
+  })
+
+  it('blocks OAuth authorization codes, session cookies, and payment card numbers before UI collection', async () => {
+    const requests = [
+      {
+        key: 'authorizationCode',
+        title: 'Authorization code',
+        message: 'Enter the authorization code from your identity provider.',
+      },
+      {
+        key: 'sessionCookie',
+        title: 'Session cookie',
+        message: 'Paste the session cookie for this account.',
+      },
+      {
+        key: 'cardNumber',
+        title: 'Payment card number',
+        message: 'Provide a card number to authorize the purchase.',
+      },
+      {
+        key: 'recoveryCode',
+        title: 'Recovery code',
+        message: 'Enter a recovery code for your account.',
+      },
+      {
+        key: 'recoveryPhrase',
+        title: 'Recovery phrase',
+        message: 'Enter the recovery phrase for your account.',
+      },
+    ]
+    let handlerCalls = 0
+
+    for (const request of requests) {
+      await expect(handleMcpElicitationRequest('profile-store', {
+        mode: 'form',
+        message: request.message,
+        requestedSchema: { type: 'object', properties: { [request.key]: { type: 'string', title: request.title } } },
+      }, async () => { handlerCalls++; return { action: 'accept', content: { [request.key]: 'sensitive-value' } } }, new AbortController().signal))
         .rejects.toThrow(/unsupported or unsafe schema/)
     }
 
@@ -308,6 +379,8 @@ describe('MCP form elicitation validation', () => {
     expect(scope.redactText(`!${encodedShort}!`)).toBe('![redacted MCP elicitation value]!')
     expect(scope.redactText(` ${encodedNumber},${encodedBoolean}.`)).toBe(' [redacted MCP elicitation value],[redacted MCP elicitation value].')
     expect(scope.redactText(`count=${encodedNumber}`)).toBe('count=[redacted MCP elicitation value]')
+    expect(scope.redactTextBlocks([`count=${encodedPaddedNumber.slice(0, 6)}`, `${encodedPaddedNumber.slice(6)}; done`, 'catalog']))
+      .toBe('count=[redacted MCP elicitation value]; done\ncatalog')
     expect(scope.redactValue({ count: `count=${encodedNumber}` })).toEqual({ count: 'count=[redacted MCP elicitation value]' })
     expect(encodedPaddedNumber).toBe('MTIzNDU2Nzg=')
     expect(scope.redactText(` ${encodedPaddedNumber} `)).toBe(' [redacted MCP elicitation value] ')
@@ -404,7 +477,7 @@ describe('MCP elicitation client integration', () => {
   async function loadElicitationFixture(options: {
     enableFormElicitation?: McpLoadOptions['enableFormElicitation']
     mcpElicitationHandler?: McpLoadOptions['mcpElicitationHandler']
-    elicitationSchema?: McpElicitationSchema
+    elicitationSchema?: unknown
     echoElicitation?: boolean
     echoStructuredContent?: boolean
     lowercaseElicitationEcho?: boolean
@@ -544,6 +617,26 @@ process.stdin.on('data', chunk => {
       const tool = loaded.tools[0]!
       await expect(tool.execute({ mode: 'url' })).rejects.toThrow(/URL-mode elicitation/)
       await expect(tool.execute({ mode: 'form', invalidSchema: true })).rejects.toThrow()
+      expect(handlerCalls).toBe(0)
+    } finally {
+      await loaded.cleanup?.()
+    }
+  }, 30_000)
+
+  sandboxTest('rejects patterns before the SDK can strip them from the original elicitation schema', async () => {
+    let handlerCalls = 0
+    const loaded = await loadElicitationFixture({
+      enableFormElicitation: true,
+      elicitationSchema: {
+        type: 'object',
+        properties: { code: { type: 'string', pattern: '^safe-[0-9]+$' } },
+        required: ['code'],
+      },
+      mcpElicitationHandler: async () => { handlerCalls++; return { action: 'accept', content: { code: 'unsafe-value' } } },
+    })
+
+    try {
+      await expect(loaded.tools[0]!.execute({ mode: 'form' })).rejects.toThrow(/unsupported or unsafe schema/)
       expect(handlerCalls).toBe(0)
     } finally {
       await loaded.cleanup?.()

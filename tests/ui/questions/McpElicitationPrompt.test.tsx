@@ -204,6 +204,36 @@ test('edits text, numeric, boolean, enum, oneOf, and enum-list fields', async ()
   }
 })
 
+test('left and right arrows navigate from the initially highlighted enum option', async () => {
+  let leftAccepted: unknown
+  let rightAccepted: unknown
+  const enumRequest: McpElicitationRequest = {
+    serverName: 'profile-store',
+    message: 'Choose a color.',
+    requestedSchema: {
+      type: 'object',
+      properties: { color: { type: 'string', enum: ['red', 'green', 'blue'] } },
+      required: ['color'],
+    },
+  }
+  const leftPrompt = renderPrompt({ request: enumRequest, onAccept: content => { leftAccepted = content } })
+  const rightPrompt = renderPrompt({ request: enumRequest, onAccept: content => { rightAccepted = content } })
+  try {
+    await Bun.sleep(80)
+    await press(leftPrompt.stdin, '\x1b[D')
+    await press(leftPrompt.stdin, '\t')
+    await press(leftPrompt.stdin, '\r')
+    await press(rightPrompt.stdin, '\x1b[C')
+    await press(rightPrompt.stdin, '\t')
+    await press(rightPrompt.stdin, '\r')
+    expect(leftAccepted).toEqual({ color: 'blue' })
+    expect(rightAccepted).toEqual({ color: 'green' })
+  } finally {
+    cleanup(leftPrompt)
+    cleanup(rightPrompt)
+  }
+})
+
 test('keeps invalid required formats and bounds in review until corrected', async () => {
   let accepted: unknown
   const invalidRequest: McpElicitationRequest = {

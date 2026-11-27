@@ -448,7 +448,8 @@ export function McpElicitationPrompt({ request, onAccept, onDecline, onCancel, i
       if (key.leftArrow || key.rightArrow) {
         const currentValue = typeof current === 'string' ? options.findIndex(option => option.value === current) : -1
         const offset = key.leftArrow ? -1 : 1
-        const selected = options[(currentValue + offset + options.length) % options.length]!
+        const currentIndex = currentValue >= 0 ? currentValue : 0
+        const selected = options[(currentIndex + offset + options.length) % options.length]!
         updateValue(activeName, selected.value)
         return
       }

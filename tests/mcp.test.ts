@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test'
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'fs/promises'
 import { Agent } from '../src/agent/agent.js'
 import * as mcp from '../src/agent/mcp.js'
+import { createMcpElicitationRedactionTracker } from '../src/agent/mcpElicitation.js'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { sandboxAvailable } from '../src/utils/platform.js'
@@ -132,6 +133,38 @@ describe('MCP tool bridge', () => {
     })
     expect(formatMcpToolResult({ content: [{ type: 'text', text: 'summary' }], structuredContent: { count: 2 } })).toBe('{"count":2}')
     expect(formatMcpToolResult({ content: [{ type: 'resource_link', uri: 'file:///tmp/x', name: 'x' }] })).toContain('resource_link')
+  })
+
+  it('redacts values split across text blocks and omits images while elicitation values are protected', async () => {
+    const { formatMcpToolResult } = await import('../src/agent/mcp.js')
+    const tracker = createMcpElicitationRedactionTracker()
+    tracker.record({ accessCode: 'split-secret' })
+    const redaction = tracker.begin()
+    const attached: unknown[] = []
+
+    try {
+      const result = formatMcpToolResult({
+        content: [
+          { type: 'text', text: 'public before split-' },
+          { type: 'text', text: 'secret' },
+          { type: 'text', text: 'public after' },
+          { type: 'image', mimeType: 'image/png', data: 'aGVsbG8=' },
+          { type: 'resource', resource: { uri: 'file:///tmp/image', mimeType: 'image/png', blob: 'aGVsbG8=' } },
+          { type: 'resource', resource: { uri: 'file:///tmp/unknown-binary', blob: 'aGVsbG8=' } },
+        ],
+      }, image => attached.push(image), 'fixture', redaction)
+
+      expect(result).toBe('public before [redacted MCP elicitation value]\npublic after\n[2 images omitted to protect elicitation values]\n[1 binary resource omitted to protect elicitation values]')
+      expect(attached).toEqual([])
+
+      const ordinaryImages: unknown[] = []
+      expect(formatMcpToolResult({ content: [{ type: 'image', mimeType: 'image/png', data: 'aGVsbG8=' }] }, image => ordinaryImages.push(image)))
+        .toBe('[1 image attached for the model]')
+      expect(ordinaryImages).toHaveLength(1)
+    } finally {
+      redaction.close()
+      tracker.dispose()
+    }
   })
 
   sandboxTest('loads an approved plugin MCP server, calls its tool, and closes it', async () => {

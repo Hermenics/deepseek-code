@@ -73,6 +73,36 @@ export function mcpToolName(serverName: string, rawName: string): string {
 
 const MCP_IMAGE_TYPES = new Set<string>(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 
+function protectedMcpVisualKind(block: unknown): 'image' | 'binary' | undefined {
+  if (!block || typeof block !== 'object' || Array.isArray(block)) return undefined
+  const candidate = block as Record<string, unknown>
+  if (candidate.type === 'image') return 'image'
+  if (candidate.type !== 'resource' || !candidate.resource || typeof candidate.resource !== 'object' || Array.isArray(candidate.resource)) return undefined
+  const resource = candidate.resource as Record<string, unknown>
+  if (typeof resource.mimeType === 'string' && resource.mimeType.toLowerCase().startsWith('image/')) return 'image'
+  // Unknown binary resource types may contain images, so omit them when elicitation values are active.
+  return typeof resource.blob === 'string' ? 'binary' : undefined
+}
+
+/** Retains raw schema keywords for the elicitation validator after SDK request validation. */
+function preserveRawMcpElicitationSchema() {
+  return {
+    shape: ElicitRequestSchema.shape,
+    safeParse(data: unknown) {
+      const parsed = ElicitRequestSchema.safeParse(data)
+      if (!parsed.success || parsed.data.params.mode === 'url') return parsed
+      const rawSchema = (data as { params: { requestedSchema: unknown } }).params.requestedSchema
+      return {
+        ...parsed,
+        data: {
+          ...parsed.data,
+          params: { ...parsed.data.params, requestedSchema: rawSchema },
+        },
+      }
+    },
+  } as unknown as typeof ElicitRequestSchema
+}
+
 /**
  * Preserves structured output and turns MCP isError into a failed agent tool call. Elicitation
  * values are redacted before the result can reach conversation history, audit logs, or events.
@@ -85,8 +115,8 @@ export function formatMcpToolResult(
   redaction?: McpElicitationRedaction,
 ): string {
   const blocks = Array.isArray(result.content) ? result.content : []
-  const rawText = blocks.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('\n')
-  const text = redaction?.redactText(rawText) ?? rawText
+  const textBlocks = blocks.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text as string)
+  const text = redaction?.redactTextBlocks(textBlocks) ?? textBlocks.join('\n')
   const structuredContent = result.structuredContent === undefined
     ? undefined
     : redaction?.redactValue(result.structuredContent) ?? result.structuredContent
@@ -101,11 +131,24 @@ export function formatMcpToolResult(
     })
   }
   const images = blocks.filter(block => block?.type === 'image' && typeof block.data === 'string' && MCP_IMAGE_TYPES.has(block.mimeType))
-  for (const block of images) attachImage?.({ mediaType: block.mimeType, data: block.data }, `image returned by ${toolName}`)
-  const imageNote = images.length === 0 ? ''
-    : attachImage ? `[${images.length} image${images.length === 1 ? '' : 's'} attached for the model]`
+  const protectedVisuals = redaction?.hasValues()
+    ? blocks.map(block => ({ block, kind: protectedMcpVisualKind(block) })).filter(item => item.kind)
+    : []
+  const protectedImages = protectedVisuals.filter(item => item.kind === 'image')
+  const protectedBinaryResources = protectedVisuals.filter(item => item.kind === 'binary')
+  const omitImagesForRedaction = protectedVisuals.length > 0
+  if (!omitImagesForRedaction) {
+    for (const block of images) attachImage?.({ mediaType: block.mimeType, data: block.data }, `image returned by ${toolName}`)
+  }
+  const imageNote = omitImagesForRedaction
+    ? [
+        ...(protectedImages.length ? [`[${protectedImages.length} image${protectedImages.length === 1 ? '' : 's'} omitted to protect elicitation values]`] : []),
+        ...(protectedBinaryResources.length ? [`[${protectedBinaryResources.length} binary resource${protectedBinaryResources.length === 1 ? '' : 's'} omitted to protect elicitation values]`] : []),
+      ].join('\n')
+    : images.length === 0 ? ''
+      : attachImage ? `[${images.length} image${images.length === 1 ? '' : 's'} attached for the model]`
       : `[${images.length} image${images.length === 1 ? '' : 's'} omitted: the current model does not accept images]`
-  const others = blocks.filter(block => block?.type !== 'text' && !images.includes(block))
+  const others = blocks.filter(block => block?.type !== 'text' && !images.includes(block) && !protectedVisuals.some(item => item.block === block))
   if (structuredContent !== undefined) return [JSON.stringify(structuredContent), imageNote].filter(Boolean).join('\n')
   if (text || imageNote) return [text, others.length ? JSON.stringify(redaction?.redactValue(others) ?? others) : '', imageNote].filter(Boolean).join('\n')
   return blocks.length ? JSON.stringify(redaction?.redactValue(blocks) ?? blocks) : '(empty MCP result)'
@@ -566,7 +609,9 @@ async function connectAndListMcpServer(
       capabilities: options.enableFormElicitation ? { elicitation: { form: { applyDefaults: true } } } : {},
     })
     if (options.enableFormElicitation) {
-      client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+      // Preserve the raw schema: the SDK's ElicitRequestSchema strips unknown JSON Schema keywords,
+      // including `pattern`, before a typed handler can reject an unsupported constraint.
+      client.setRequestHandler(preserveRawMcpElicitationSchema(), async (request, extra) => {
         const result = await handleMcpElicitationRequest(serverName, request.params, options.mcpElicitationHandler, extra.signal)
         if (result.action === 'accept') elicitationRedactions.record(result.content)
         return result
