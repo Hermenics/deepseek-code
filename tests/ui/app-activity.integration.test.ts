@@ -16,9 +16,11 @@ import {
   SUBAGENT_STATUS_LINE_MAX_OUTPUT_BYTES,
   getTrustedUserStatusLineConfig,
   statusLineTrustFromEffectiveSettings,
+  suspendInputListeners,
   validateSubagentStatusLineConfig,
   type ActivityFocusSelection,
 } from '../../src/ui/App.js'
+import { EventEmitter } from '../../src/ink/events/emitter.js'
 
 import type { SubagentState } from '../../src/ui/subagent/types.js'
 import type { WorkflowRun } from '../../src/workflows/types.js'
@@ -62,6 +64,38 @@ function workflow(status: WorkflowRun['status']): WorkflowRun {
     worktrees: [],
   }
 }
+
+test('suspended screen listeners yield to a newly mounted prompt and return afterward', () => {
+  const eventEmitter = new EventEmitter()
+  const received: string[] = []
+  const coveredScreen = () => received.push('screen')
+  const activePrompt = () => received.push('prompt')
+  eventEmitter.on('input', coveredScreen)
+
+  const restore = suspendInputListeners(eventEmitter)
+  eventEmitter.on('input', activePrompt)
+  eventEmitter.emit('input', {})
+  expect(received).toEqual(['prompt'])
+
+  eventEmitter.removeListener('input', activePrompt)
+  restore()
+  eventEmitter.emit('input', {})
+  expect(received).toEqual(['prompt', 'screen'])
+})
+
+test('does not restore a covered screen listener after its component unmounts', () => {
+  const eventEmitter = new EventEmitter()
+  const received: string[] = []
+  const removedScreen = () => received.push('stale screen')
+  eventEmitter.on('input', removedScreen)
+
+  const restore = suspendInputListeners(eventEmitter)
+  eventEmitter.removeListener('input', removedScreen)
+  restore()
+  eventEmitter.emit('input', {})
+
+  expect(received).toEqual([])
+})
 
 test('activity count contains only standalone live agents and live workflows', () => {
   expect(countActiveActivities([

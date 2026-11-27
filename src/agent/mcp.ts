@@ -1,4 +1,5 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { readFile, realpath } from 'node:fs/promises'
@@ -14,6 +15,13 @@ import pkg from '../../package.json' with { type: 'json' }
 import { loadInstalledPlugins } from '../plugins/loader.js'
 import { resolvePluginVariables } from '../plugins/variables.js'
 import { sandboxAvailable } from '../utils/platform.js'
+import {
+  createMcpElicitationRedactionTracker,
+  handleMcpElicitationRequest,
+  type McpElicitationHandler,
+  type McpElicitationRedaction,
+  type McpElicitationRedactionTracker,
+} from './mcpElicitation.js'
 
 // Environment variables that cannot be overwritten by MCP servers
 const CRITICAL_ENV_VARS = new Set([
@@ -37,6 +45,10 @@ const PATH_TRAVERSAL_RE = /\.\.[/\\]/
 
 export interface McpLoadOptions {
   enabled?: boolean
+  /** Advertise form-mode elicitation only for an interactive UI session. */
+  enableFormElicitation?: boolean
+  /** Kept dynamic by Agent so clients created during startup use the current session handler. */
+  mcpElicitationHandler?: McpElicitationHandler
   environment?: Record<string, string | undefined>
   trustFile?: string
   initialTimeoutMs?: number
@@ -62,20 +74,26 @@ export function mcpToolName(serverName: string, rawName: string): string {
 const MCP_IMAGE_TYPES = new Set<string>(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 
 /**
- * Preserves structured output and turns MCP isError into a failed agent tool call. Image blocks
- * go to `attachImage` (when the model accepts images) instead of into the text as base64.
+ * Preserves structured output and turns MCP isError into a failed agent tool call. Elicitation
+ * values are redacted before the result can reach conversation history, audit logs, or events.
+ * Image blocks go to `attachImage` (when the model accepts images) instead of into the text as base64.
  */
 export function formatMcpToolResult(
   result: { content?: unknown; structuredContent?: unknown; isError?: boolean },
   attachImage?: (image: PromptImage, label: string) => void,
   toolName = 'MCP tool',
+  redaction?: McpElicitationRedaction,
 ): string {
   const blocks = Array.isArray(result.content) ? result.content : []
-  const text = blocks.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('\n')
+  const rawText = blocks.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('\n')
+  const text = redaction?.redactText(rawText) ?? rawText
+  const structuredContent = result.structuredContent === undefined
+    ? undefined
+    : redaction?.redactValue(result.structuredContent) ?? result.structuredContent
   if (result.isError) {
     const partial = {
       ...(text ? { text } : {}),
-      ...(result.structuredContent === undefined ? {} : { structuredContent: result.structuredContent }),
+      ...(structuredContent === undefined ? {} : { structuredContent }),
     }
     throw Object.assign(new Error(text || 'MCP tool returned an error'), {
       code: 'MCP_TOOL_ERROR',
@@ -88,9 +106,31 @@ export function formatMcpToolResult(
     : attachImage ? `[${images.length} image${images.length === 1 ? '' : 's'} attached for the model]`
       : `[${images.length} image${images.length === 1 ? '' : 's'} omitted: the current model does not accept images]`
   const others = blocks.filter(block => block?.type !== 'text' && !images.includes(block))
-  if (result.structuredContent !== undefined) return [JSON.stringify(result.structuredContent), imageNote].filter(Boolean).join('\n')
-  if (text || imageNote) return [text, others.length ? JSON.stringify(others) : '', imageNote].filter(Boolean).join('\n')
-  return blocks.length ? JSON.stringify(blocks) : '(empty MCP result)'
+  if (structuredContent !== undefined) return [JSON.stringify(structuredContent), imageNote].filter(Boolean).join('\n')
+  if (text || imageNote) return [text, others.length ? JSON.stringify(redaction?.redactValue(others) ?? others) : '', imageNote].filter(Boolean).join('\n')
+  return blocks.length ? JSON.stringify(redaction?.redactValue(blocks) ?? blocks) : '(empty MCP result)'
+}
+
+function redactMcpError(error: unknown, redaction: McpElicitationRedaction): Error {
+  if (error instanceof Error && !redaction.hasValues()) return error
+  const source = error && typeof error === 'object' ? error as Record<string, unknown> : undefined
+  const rawMessage = error instanceof Error ? error.message
+    : typeof source?.message === 'string' ? source.message : String(error)
+  const rawName = error instanceof Error ? error.name
+    : typeof source?.name === 'string' ? source.name : 'Error'
+  const safe = new Error(redaction.redactText(rawMessage))
+  safe.name = redaction.redactText(rawName)
+  for (const key of source ? Object.getOwnPropertyNames(source) : []) {
+    const value = source![key]
+    if (key === 'message' || key === 'name' || key === 'stack' || key === 'cause') continue
+    Object.defineProperty(safe, key, {
+      value: redaction.redactValue(value),
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    })
+  }
+  return safe
 }
 
 /** Default time allowed for an MCP server to connect; loadMcpTools clamps overrides to 100ms–60s. */
@@ -450,10 +490,10 @@ export async function loadMcpTools(cwd = process.cwd(), options: McpLoadOptions 
         try {
           await assertMcpSourceApproved(cwd, source, trust, serverName)
         } catch (error) {
-          await closeClient(connected.client, connected.transport)
+          await closeConnectedMcpServer(connected)
           throw error
         }
-        cleanups.push(() => closeClient(connected.client, connected.transport))
+        cleanups.push(() => closeConnectedMcpServer(connected))
         const cachedToolsFromServer = connected.tools.map(toCachedMcpTool)
         if (serverConfig.transport === 'stdio' && !schemaCacheDisabled && options.persistSchemaCache !== false) {
           schemaCache[rawServerName] = cachedToolsFromServer
@@ -477,7 +517,7 @@ export async function loadMcpTools(cwd = process.cwd(), options: McpLoadOptions 
             errors.push(`MCP tool name collision: ${serverName}/${mcpTool.name} maps to '${name}'`)
             continue
           }
-          tools.push(createMcpTool(mcpTool, name, serverName, connected.client, cwd, source, trust))
+          tools.push(createMcpTool(mcpTool, name, serverName, connected.client, cwd, source, trust, connected.elicitationRedactions))
         }
       } catch (error) {
         const msg = `MCP server '${serverName}': ${(error as Error).message}`
@@ -503,6 +543,12 @@ interface ConnectedMcpServer {
   client: Client
   transport: StdioClientTransport | StreamableHTTPClientTransport
   tools: Array<{ name: string; description?: string; inputSchema: object }>
+  elicitationRedactions: McpElicitationRedactionTracker
+}
+
+async function closeConnectedMcpServer(connected: ConnectedMcpServer): Promise<void> {
+  try { await closeClient(connected.client, connected.transport) }
+  finally { connected.elicitationRedactions.dispose() }
 }
 
 async function connectAndListMcpServer(
@@ -514,8 +560,18 @@ async function connectAndListMcpServer(
 ): Promise<ConnectedMcpServer> {
   let client: Client | undefined
   let transport: StdioClientTransport | StreamableHTTPClientTransport | undefined
+  const elicitationRedactions = createMcpElicitationRedactionTracker()
   try {
-    client = new Client({ name: 'deepseek-code', version: pkg.version })
+    client = new Client({ name: 'deepseek-code', version: pkg.version }, {
+      capabilities: options.enableFormElicitation ? { elicitation: { form: { applyDefaults: true } } } : {},
+    })
+    if (options.enableFormElicitation) {
+      client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
+        const result = await handleMcpElicitationRequest(serverName, request.params, options.mcpElicitationHandler, extra.signal)
+        if (result.action === 'accept') elicitationRedactions.record(result.content)
+        return result
+      })
+    }
     transport = serverConfig.transport === 'stdio'
       ? new StdioClientTransport({
           command: 'bwrap',
@@ -528,9 +584,15 @@ async function connectAndListMcpServer(
     await withTimeout(client.connect(transport), timeoutMs, `MCP server '${serverName}' connection timed out after ${timeoutMs}ms`)
     await auditLog(buildMcpLoadEvent(serverName, serverConfig.transport))
     const { tools } = await withTimeout(client.listTools(), timeoutMs, `MCP server '${serverName}' tool listing timed out`)
-    return { client, transport, tools: tools.map(tool => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema as object })) }
+    return {
+      client,
+      transport,
+      tools: tools.map(tool => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema as object })),
+      elicitationRedactions,
+    }
   } catch (error) {
-    await closeClient(client, transport)
+    try { await closeClient(client, transport) }
+    finally { elicitationRedactions.dispose() }
     throw error
   }
 }
@@ -581,13 +643,17 @@ function createLazyServerTools(input: {
   let client: Client | undefined
   let transport: StdioClientTransport | StreamableHTTPClientTransport | undefined
   let connection: Promise<Client> | undefined
+  let elicitationRedactions: McpElicitationRedactionTracker | undefined
   let disposed = false
   const cleanup = async () => {
     disposed = true
     await connection?.catch(() => undefined)
-    await closeClient(client, transport)
-    client = undefined
-    transport = undefined
+    try { await closeClient(client, transport) }
+    finally {
+      elicitationRedactions?.dispose()
+      client = undefined
+      transport = undefined
+    }
   }
   input.onCleanup(cleanup)
 
@@ -608,9 +674,10 @@ function createLazyServerTools(input: {
           }
           client = connected.client
           transport = connected.transport
+          elicitationRedactions = connected.elicitationRedactions
           return connected.client
         } catch (error) {
-          await closeClient(connected.client, connected.transport)
+          await closeConnectedMcpServer(connected)
           throw error
         }
       })().catch(error => {
@@ -634,14 +701,20 @@ function createLazyServerTools(input: {
         const connectedClient = await getClient()
         await assertMcpSourceApproved(input.cwd, input.source, input.trust, input.serverName)
         const timeoutMs = 30_000
-        const result = await connectedClient.callTool({ name: mcpTool.name, arguments: args }, undefined, { signal: context?.signal, timeout: timeoutMs })
-          .catch((error: Error) => {
-            if (context?.signal?.aborted) throw error
-            if (/timed out|timeout/i.test(error.message)) throw new Error(`MCP tool '${mcpTool.name}' timed out after ${timeoutMs / 1000}s`)
-            throw error
-          }) as Awaited<ReturnType<typeof connectedClient.callTool>>
-        if ('toolResult' in result) throw new Error(`MCP tool '${mcpTool.name}' returned an unsupported task result`)
-        return formatMcpToolResult(result, context?.attachImage, mcpTool.name)
+        const redaction = elicitationRedactions?.begin()
+        try {
+          const result = await connectedClient.callTool({ name: mcpTool.name, arguments: args }, undefined, { signal: context?.signal, timeout: timeoutMs })
+            .catch((error: unknown) => {
+              const safeError = redaction ? redactMcpError(error, redaction) : error instanceof Error ? error : new Error(String(error))
+              if (context?.signal?.aborted) throw safeError
+              if (/timed out|timeout/i.test(safeError.message)) throw new Error(`MCP tool '${mcpTool.name}' timed out after ${timeoutMs / 1000}s`)
+              throw safeError
+            }) as Awaited<ReturnType<typeof connectedClient.callTool>>
+          if ('toolResult' in result) throw new Error(`MCP tool '${mcpTool.name}' returned an unsupported task result`)
+          return formatMcpToolResult(result, context?.attachImage, mcpTool.name, redaction)
+        } finally {
+          redaction?.close()
+        }
       },
     }
   })
@@ -655,6 +728,7 @@ function createMcpTool(
   cwd: string,
   source: McpSource,
   trust: WorkspaceTrustStore,
+  elicitationRedactions: McpElicitationRedactionTracker,
 ): Tool {
   return {
     name,
@@ -664,14 +738,20 @@ function createMcpTool(
     async execute(args, context) {
       await assertMcpSourceApproved(cwd, source, trust, serverName)
       const timeoutMs = 30_000
-      const result = await client.callTool({ name: mcpTool.name, arguments: args }, undefined, { signal: context?.signal, timeout: timeoutMs })
-        .catch((error: Error) => {
-          if (context?.signal?.aborted) throw error
-          if (/timed out|timeout/i.test(error.message)) throw new Error(`MCP tool '${mcpTool.name}' timed out after ${timeoutMs / 1000}s`)
-          throw error
-        }) as Awaited<ReturnType<typeof client.callTool>>
-      if ('toolResult' in result) throw new Error(`MCP tool '${mcpTool.name}' returned an unsupported task result`)
-      return formatMcpToolResult(result, context?.attachImage, mcpTool.name)
+      const redaction = elicitationRedactions.begin()
+      try {
+        const result = await client.callTool({ name: mcpTool.name, arguments: args }, undefined, { signal: context?.signal, timeout: timeoutMs })
+          .catch((error: unknown) => {
+            const safeError = redactMcpError(error, redaction)
+            if (context?.signal?.aborted) throw safeError
+            if (/timed out|timeout/i.test(safeError.message)) throw new Error(`MCP tool '${mcpTool.name}' timed out after ${timeoutMs / 1000}s`)
+            throw safeError
+          }) as Awaited<ReturnType<typeof client.callTool>>
+        if ('toolResult' in result) throw new Error(`MCP tool '${mcpTool.name}' returned an unsupported task result`)
+        return formatMcpToolResult(result, context?.attachImage, mcpTool.name, redaction)
+      } finally {
+        redaction.close()
+      }
     },
   }
 }

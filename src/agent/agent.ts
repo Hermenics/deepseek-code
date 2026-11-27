@@ -8,7 +8,8 @@ import { collectEnvironmentInfo, formatEnvironmentInfo } from './environment.js'
 import { allTools } from '../tools/index.js'
 import { formatToolError, isToolErrorResult, normalizeToolException, normalizeToolResult, type ToolErrorEnvelopeV1 } from '../tools/result.js'
 import type { SubAgentCallbacks } from '../tools/SubAgent/SubAgent.js'
-import { approveMcpConfig, loadMcpTools, type McpApprovalRequest } from './mcp.js'
+import { approveMcpConfig, loadMcpTools, type McpApprovalRequest, type McpLoadOptions } from './mcp.js'
+import type { McpElicitationHandler } from './mcpElicitation.js'
 import type { ChatCompletionContentPart, ChatCompletionMessageParam, ChatCompletionTool } from 'openai/resources/chat/completions'
 import type { Model } from '../commands.js'
 import { loadAgentRegistry, type AgentConfig } from './config.js'
@@ -1279,6 +1280,8 @@ export interface AgentOptions {
   browserRecordedStep?: ToolExecutionContext['browserRecordedStep']
   /** Disables hooks, MCP, workflows and write snapshots for isolated preview runs. */
   simulationMode?: boolean
+  /** Enables MCP form elicitation; only interactive TUI sessions should set this. */
+  enableMcpFormElicitation?: boolean
   /** Optional model for the mandatory goal-completion review; must be supported by the active provider. */
   goalReviewerModel?: string
 }
@@ -1459,6 +1462,7 @@ export class Agent {
   private mcpReloadClosed = false
   private mcpApprovalHandler: ((request: McpApprovalRequest) => Promise<boolean>) | null = null
   private mcpApprovalInFlight = false
+  private mcpElicitationHandler: McpElicitationHandler | null = null
 
   setConfirmHandler(handler: ((message: string, signal?: AbortSignal) => Promise<boolean>) | null) {
     this.confirmHandler = handler
@@ -1506,9 +1510,26 @@ export class Agent {
     return next
   }
 
+  /** Builds MCP load options with a session-dynamic handler for clients connected before TUI effects run. */
+  private mcpLoadOptions(enabled: boolean, eager = false, extra: Partial<McpLoadOptions> = {}): McpLoadOptions {
+    return {
+      ...extra,
+      enabled,
+      eager,
+      ...(this.options.enableMcpFormElicitation ? {
+        enableFormElicitation: true,
+        mcpElicitationHandler: async (request, signal) => {
+          const handler = this.mcpElicitationHandler
+          if (!handler) throw new Error(`MCP form elicitation is unavailable because no interactive UI handler is registered for server '${request.serverName}'.`)
+          return handler(request, signal)
+        },
+      } : {}),
+    }
+  }
+
   /** Stage and install a complete MCP catalog before retiring the currently active clients. */
   private async reloadMcpTools(workspacePath: string, enabled: boolean, eager = false): Promise<void> {
-    const loaded = await loadMcpTools(workspacePath, { enabled, eager })
+    const loaded = await loadMcpTools(workspacePath, this.mcpLoadOptions(enabled, eager))
     if (this.mcpReloadClosed || this.workspacePath !== workspacePath) { await loaded.cleanup?.(); return }
     try {
       const validatedServers = eager
@@ -1606,8 +1627,7 @@ export class Agent {
     let loaded: Awaited<ReturnType<typeof loadMcpTools>>
     try {
       loaded = await loadMcpTools(workspacePath, {
-        enabled: this.settings.mcp?.enabled === true,
-        eager: true,
+        ...this.mcpLoadOptions(this.settings.mcp?.enabled === true, true),
         onlyServerName: serverName,
         persistSchemaCache: false,
       })
@@ -1905,6 +1925,11 @@ export class Agent {
 
   setAskUserHandler(handler: AskUserHandler | null): void {
     this.askUserHandler = handler
+  }
+
+  /** Sets the interactive MCP form handler without reconnecting already-created MCP clients. */
+  setMcpElicitationHandler(handler: McpElicitationHandler | null): void {
+    this.mcpElicitationHandler = handler
   }
 
   private recordAuthorizationDecision(
@@ -2308,7 +2333,7 @@ export class Agent {
         settings.mcp = { ...settings.mcp, enabled: false }
         settings.workflows = { ...settings.workflows, enabled: false }
       }
-      const mcp = await loadMcpTools(this.workspacePath, { enabled: settings.mcp?.enabled === true })
+      const mcp = await loadMcpTools(this.workspacePath, this.mcpLoadOptions(settings.mcp?.enabled === true))
       this.mcpErrors = mcp.errors
       this.mcpApprovalRequired = mcp.approval ?? null
       this.settings = settings
