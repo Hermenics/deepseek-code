@@ -1,6 +1,8 @@
 import { existsSync } from 'fs'
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { Activity, useState, useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 import useInput from '../ink/hooks/use-input.js'
+import useStdin from '../ink/hooks/use-stdin.js'
+import type { EventEmitter } from '../ink/events/emitter.js'
 import { execa } from 'execa'
 import type { Key } from '../ink/events/input-event.js'
 import { Agent, type ToolPermissionRequest, type ToolPermissionResult } from '../agent/agent.js'
@@ -55,6 +57,7 @@ import { readSavedWorkflow, refreshWorkflowCommands } from '../workflows/command
 import { refreshCustomCommands } from '../commands/custom.js'
 import { AskUserQuestionsPrompt } from './questions/AskUserQuestions.js'
 import type { AskUserAnswers, AskUserQuestion } from '../tools/AskUserQuestions/types.js'
+import { bindMcpElicitationInput, bindMcpElicitationPrompt, McpElicitationPrompt, type McpElicitationInputHandler, type McpElicitationPromptState } from './questions/McpElicitationPrompt.js'
 import { executeBatchCommand } from '../commands/batch/index.js'
 import { BACKGROUND_WORKFLOW_SCRIPT } from '../commands/background/index.js'
 import type { SubagentState } from './subagent/types.js'
@@ -576,6 +579,29 @@ export function bindToolPermissionPrompt(
   }
 }
 
+/** Temporarily removes listeners from a covered screen so the active prompt owns keyboard input. */
+export function suspendInputListeners(eventEmitter: EventEmitter): () => void {
+  const listeners = eventEmitter.rawListeners('input')
+  eventEmitter.removeAllListeners('input')
+  const remaining = [...listeners]
+  const removeListener = eventEmitter.removeListener
+  const suspendedRemoveListener: EventEmitter['removeListener'] = function (this: EventEmitter, eventName, listener) {
+    if (eventName === 'input') {
+      const index = remaining.lastIndexOf(listener)
+      if (index >= 0) {
+        remaining.splice(index, 1)
+        return this
+      }
+    }
+    return removeListener.call(this, eventName, listener)
+  }
+  eventEmitter.removeListener = suspendedRemoveListener
+  return () => {
+    if (eventEmitter.removeListener === suspendedRemoveListener) eventEmitter.removeListener = removeListener
+    for (const listener of remaining) eventEmitter.on('input', listener as never)
+  }
+}
+
 interface AskUserState {
   questions: AskUserQuestion[]
   resolve: (answers: AskUserAnswers | null) => void
@@ -628,6 +654,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   /** Allows executable UI extensions only after the host establishes workspace trust. */
   workspaceTrusted?: boolean
 }) {
+  const { internal_eventEmitter } = useStdin()
+  const mcpElicitationInputRef = useRef<McpElicitationInputHandler | null>(null)
   const transcriptRef = useRef<ScrollBoxHandle | null>(null)
   const selection = useSelection()
   useEffect(() => {
@@ -712,6 +740,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   const [agent] = useState(() => new Agent(providerConfig ?? undefined, {
     sessionId,
     projectRoot: projectRootRef.current,
+    enableMcpFormElicitation: true,
     checkpointHistory: sessionId ? async agentMessages => {
       const currentAgent = agentRef.current
       if (!currentAgent) throw new Error('Cannot checkpoint a session before its Agent is initialized.')
@@ -772,6 +801,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
   }, [])
   const [toolPermissionState, setToolPermissionState] = useState<ToolPermissionState | null>(null)
   const [askUserState, setAskUserState] = useState<AskUserState | null>(null)
+  const [mcpElicitationState, setMcpElicitationState] = useState<McpElicitationPromptState | null>(null)
   const [planApprovalState, setPlanApprovalState] = useState<PlanApprovalState | null>(null)
   /** Mode to return to once a plan is approved, so planning from Auto does not drop the session to Build. */
   const planReturnModeRef = useRef<InteractionMode>('build')
@@ -1209,6 +1239,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       askUserResolverRef.current = null
     }
   }, [agent])
+
+  useEffect(() => bindMcpElicitationPrompt(agent, setMcpElicitationState), [agent])
 
   useEffect(() => {
     agent.setDiffReviewHandler((summary) => new Promise<boolean>((resolve) => {
@@ -3171,34 +3203,130 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     return path
   }, [agent])
 
+  const anotherPromptActive = Boolean(btw || showModelSelector || showEffortSelector || askUserState || toolPermissionState || planApprovalState || confirmState)
+  const showMcpElicitationPrompt = Boolean(mcpElicitationState && !anotherPromptActive)
+  useLayoutEffect(() => {
+    if (!showMcpElicitationPrompt) return
+    return bindMcpElicitationInput(internal_eventEmitter, mcpElicitationInputRef)
+  }, [internal_eventEmitter, showMcpElicitationPrompt])
+  useLayoutEffect(() => {
+    if (!anotherPromptActive) return
+    return suspendInputListeners(internal_eventEmitter)
+  }, [anotherPromptActive, internal_eventEmitter])
+  const mcpElicitationPrompt = mcpElicitationState ? (
+    <Activity mode={showMcpElicitationPrompt ? 'visible' : 'hidden'}>
+      <McpElicitationPrompt
+        requestId={mcpElicitationState.id}
+        request={mcpElicitationState.request}
+        onAccept={(content) => mcpElicitationState.resolve({ action: 'accept', content })}
+        onDecline={() => mcpElicitationState.resolve({ action: 'decline' })}
+        onCancel={() => mcpElicitationState.resolve({ action: 'cancel' })}
+        active={showMcpElicitationPrompt}
+        inputHandlerRef={mcpElicitationInputRef}
+      />
+    </Activity>
+  ) : null
+  const priorityPrompt = <>
+    {mcpElicitationPrompt}
+    {btw ? (
+    <BtwSideQuestion btw={btw} theme={theme} onDismiss={() => { btwAbortRef.current?.abort(); setBtw(null) }} />
+  ) : showModelSelector ? (
+    <ModelSelector
+      currentModel={agent.model}
+      models={availableModels}
+      descriptions={modelDescriptions}
+      columns={process.stdout.columns ?? 80}
+      getContextLimit={(model) => agent.getKnownModelContextLimit(model)}
+      acceptsImages={(model) => agent.modelAcceptsImages(model)}
+      onSelect={(m) => {
+        agent.setModel(m)
+        setMessages((prev) => [...prev, { role: 'assistant', content: `Model switched to ${m}` }])
+        setShowModelSelector(false)
+      }}
+      onCancel={() => setShowModelSelector(false)}
+    />
+  ) : showEffortSelector ? (
+    <EffortSelector
+      currentLevel={agent.effortLevel}
+      onSelect={(level) => {
+        const EFFORT_DESCRIPTIONS: Record<string, string> = {
+          low: 'Quick, straightforward responses',
+          high: 'Comprehensive responses with extensive thinking',
+          max: 'Maximum reasoning depth (best with deepseek-reasoner)',
+        }
+        agent.setEffortLevel(level)
+        setMessages((prev) => [...prev, { role: 'assistant', content: `Effort: ${level} — ${EFFORT_DESCRIPTIONS[level]}` }])
+        setShowEffortSelector(false)
+      }}
+      onCancel={() => setShowEffortSelector(false)}
+    />
+  ) : askUserState ? (
+    <AskUserQuestionsPrompt
+      questions={askUserState.questions}
+      onSubmit={(answers) => askUserState.resolve(answers)}
+      onCancel={() => askUserState.resolve(null)}
+    />
+  ) : toolPermissionState ? (
+    <ToolPermissionPrompt
+      request={toolPermissionState.request}
+      onDecide={handleToolPermission}
+    />
+  ) : planApprovalState ? (
+    <PlanApprovalPrompt
+      planContent={planApprovalState.planContent}
+      planSummary={planApprovalState.summary}
+      theme={theme}
+      onDecide={handlePlanDecision}
+    />
+  ) : confirmState ? (
+    <ConfirmPrompt
+      message={confirmState.message}
+      onConfirm={handleConfirm}
+    />
+  ) : null}
+  </>
+
   if (workflowMonitor) {
     return (
       <ThemeProvider value={theme}>
-        <WorkflowMonitor
-          runs={workflowRuns}
-          agents={subagentsRef.current.agents}
-          initialRunId={workflowMonitor.runId}
-          theme={theme}
-          onClose={() => setWorkflowMonitor(null)}
-          onPause={runId => agent.workflows.pause(runId)}
-          onResume={runId => agent.workflows.resume(runId)}
-          onStop={runId => agent.workflows.cancel(runId)}
-          onRestart={restartWorkflowFromUi}
-          onSave={saveWorkflowFromUi}
-          canControlWorkflow={canControlWorkflow}
-        />
+        <Activity mode={priorityPrompt ? 'hidden' : 'visible'}>
+          <WorkflowMonitor
+            runs={workflowRuns}
+            agents={subagentsRef.current.agents}
+            initialRunId={workflowMonitor.runId}
+            theme={theme}
+            onClose={() => setWorkflowMonitor(null)}
+            onPause={runId => agent.workflows.pause(runId)}
+            onResume={runId => agent.workflows.resume(runId)}
+            onStop={runId => agent.workflows.cancel(runId)}
+            onRestart={restartWorkflowFromUi}
+            onSave={saveWorkflowFromUi}
+            canControlWorkflow={canControlWorkflow}
+          />
+        </Activity>
+        {priorityPrompt}
       </ThemeProvider>
     )
   }
 
   if (showMobileQR) {
-    return <ThemeProvider value={theme}><MobileQRCode onClose={() => setShowMobileQR(false)} theme={theme} /></ThemeProvider>
+    return (
+      <ThemeProvider value={theme}>
+        <Activity mode={priorityPrompt ? 'hidden' : 'visible'}>
+          <MobileQRCode onClose={() => setShowMobileQR(false)} theme={theme} />
+        </Activity>
+        {priorityPrompt}
+      </ThemeProvider>
+    )
   }
 
   if (diffDialog) {
     return (
       <ThemeProvider value={theme}>
-        <DiffDialog {...diffDialog} theme={theme} onClose={() => setDiffDialog(null)} />
+        <Activity mode={priorityPrompt ? 'hidden' : 'visible'}>
+          <DiffDialog {...diffDialog} theme={theme} onClose={() => setDiffDialog(null)} />
+        </Activity>
+        {priorityPrompt}
       </ThemeProvider>
     )
   }
@@ -3221,73 +3349,81 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     }
     const status = liveStatus({
       loading: isLoading,
-      waitingOnUser: Boolean(toolPermissionState || askUserState || planApprovalState || confirmState),
+      waitingOnUser: Boolean(toolPermissionState || askUserState || mcpElicitationState || planApprovalState || confirmState),
       subagents: subagentsRef.current.agents.map(subagent => subagent.status),
     })
     return (
       <ThemeProvider value={theme}>
-        <AgentsOverview
-          current={{ session: live, status }}
-          listSaved={() => listSessions()}
-          theme={theme}
-          onClose={() => setAgentsOpen(false)}
-          onOpen={session => onSwitchSession?.(session)}
-          onNew={() => onSwitchSession?.(null)}
-          onRename={async (session, title) => {
-            if (session.id === sessionId) {
-              sessionTitleRef.current = title
-              titleRequestedRef.current = true
-            }
-            await updateSessionTitle(session.id, title, session.cwd)
-          }}
-          onDelete={session => deleteSession(session)}
-        />
+        <Activity mode={priorityPrompt ? 'hidden' : 'visible'}>
+          <AgentsOverview
+            current={{ session: live, status }}
+            listSaved={() => listSessions()}
+            theme={theme}
+            onClose={() => setAgentsOpen(false)}
+            onOpen={session => onSwitchSession?.(session)}
+            onNew={() => onSwitchSession?.(null)}
+            onRename={async (session, title) => {
+              if (session.id === sessionId) {
+                sessionTitleRef.current = title
+                titleRequestedRef.current = true
+              }
+              await updateSessionTitle(session.id, title, session.cwd)
+            }}
+            onDelete={session => deleteSession(session)}
+          />
+        </Activity>
+        {priorityPrompt}
       </ThemeProvider>
     )
   }
 
   if (showConfigMenu) {
     return (
-      <ConfigMenu
-        currentTheme={theme}
-        currentLanguage={currentLanguage}
-        enchantEnabled={agent.promptRefinerEnabled}
-        onThemeSelect={(nextTheme) => { setTheme(nextTheme); onThemeChange?.(nextTheme) }}
-        onLanguageSet={(nextLanguage) => { agent.setLanguage(nextLanguage); setCurrentLanguage(nextLanguage) }}
-        onEnchantToggle={(enabled) => agent.setPromptRefinerEnabled(enabled)}
-        onSettingsChanged={async (settings, latestSnapshot) => {
-          await agent.applySettings(settings)
-          setInterfaceSettings(settings.interface ?? {})
-          setStatusLineTrusted(getTrustedUserStatusLineConfig(latestSnapshot.levels.user.data) !== undefined)
-          const nextTheme = settings.interface?.theme
-          if (nextTheme) { setTheme(nextTheme); onThemeChange?.(nextTheme) }
-          agent.setLanguage(settings.interface?.language)
-          setCurrentLanguage(settings.interface?.language ?? null)
-          if (settings.interface?.vim !== undefined) setVimEnabled(settings.interface.vim)
-        }}
-        onTestConnection={() => agent.getAvailableModels()}
-        onActivateProviderProfile={activateProviderProfile}
-        onTestProviderProfile={profile => agent.testProviderConfig(profile, agent.settings.provider?.timeoutMs ?? 10_000)}
-        onPreviewRefiner={async (prompt) => {
-          const preview = await agent.previewPromptRefiner(prompt)
-          if (preview.status === 'skip') return `SKIP · original preserved: ${preview.original}`
-          if (preview.status === 'error') return `Error · ${preview.error}`
-          return `Refined · ${preview.refined}`
-        }}
-        onClearApprovals={() => agent.clearSessionApprovals()}
-        onPermissionsHelp={() => {
-          const info = agent.getPermissionsInfo()
-          return `${info.mode} · allow ${info.permissions?.allow?.length ?? 0} · deny ${info.permissions?.deny?.length ?? 0} · session ${info.sessionApproved.length}`
-        }}
-        onClose={() => setShowConfigMenu(false)}
-        onThemeChange={onThemeChange}
-      />
+      <ThemeProvider value={theme}>
+        <Activity mode={priorityPrompt ? 'hidden' : 'visible'}>
+          <ConfigMenu
+            currentTheme={theme}
+            currentLanguage={currentLanguage}
+            enchantEnabled={agent.promptRefinerEnabled}
+            onThemeSelect={(nextTheme) => { setTheme(nextTheme); onThemeChange?.(nextTheme) }}
+            onLanguageSet={(nextLanguage) => { agent.setLanguage(nextLanguage); setCurrentLanguage(nextLanguage) }}
+            onEnchantToggle={(enabled) => agent.setPromptRefinerEnabled(enabled)}
+            onSettingsChanged={async (settings, latestSnapshot) => {
+              await agent.applySettings(settings)
+              setInterfaceSettings(settings.interface ?? {})
+              setStatusLineTrusted(getTrustedUserStatusLineConfig(latestSnapshot.levels.user.data) !== undefined)
+              const nextTheme = settings.interface?.theme
+              if (nextTheme) { setTheme(nextTheme); onThemeChange?.(nextTheme) }
+              agent.setLanguage(settings.interface?.language)
+              setCurrentLanguage(settings.interface?.language ?? null)
+              if (settings.interface?.vim !== undefined) setVimEnabled(settings.interface.vim)
+            }}
+            onTestConnection={() => agent.getAvailableModels()}
+            onActivateProviderProfile={activateProviderProfile}
+            onTestProviderProfile={profile => agent.testProviderConfig(profile, agent.settings.provider?.timeoutMs ?? 10_000)}
+            onPreviewRefiner={async (prompt) => {
+              const preview = await agent.previewPromptRefiner(prompt)
+              if (preview.status === 'skip') return `SKIP · original preserved: ${preview.original}`
+              if (preview.status === 'error') return `Error · ${preview.error}`
+              return `Refined · ${preview.refined}`
+            }}
+            onClearApprovals={() => agent.clearSessionApprovals()}
+            onPermissionsHelp={() => {
+              const info = agent.getPermissionsInfo()
+              return `${info.mode} · allow ${info.permissions?.allow?.length ?? 0} · deny ${info.permissions?.deny?.length ?? 0} · session ${info.sessionApproved.length}`
+            }}
+            onClose={() => setShowConfigMenu(false)}
+            onThemeChange={onThemeChange}
+          />
+        </Activity>
+        {priorityPrompt}
+      </ThemeProvider>
     )
   }
 
   const termRows = process.stdout.rows || 24
   const termColumns = process.stdout.columns ?? 80
-  const largerPromptActive = Boolean(showModelSelector || showEffortSelector || askUserState || toolPermissionState || planApprovalState || confirmState)
+  const largerPromptActive = Boolean(showModelSelector || showEffortSelector || askUserState || toolPermissionState || planApprovalState || confirmState || mcpElicitationState)
   const activityCount = countActiveActivities(subagentsRef.current.agents, activeWorkflowRuns)
   const activityAvailable = hasActivityToOpen(subagentsRef.current.agents, activeWorkflowRuns)
   const focusedAgent = focusedSubagent ? subagentsRef.current.agents.find(a => a.id === focusedSubagent.id) ?? null : null
@@ -3364,6 +3500,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       {/* Footer */}
       <Box flexDirection="column" flexShrink={0}>
         {!focusedSubagent && <TodoPanel />}
+        {mcpElicitationPrompt}
         {btw ? (
           <Text dimColor>{isLoading ? 'The main agent is still working.' : 'Side question active.'}</Text>
         ) : showModelSelector ? (
@@ -3419,7 +3556,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             message={confirmState.message}
             onConfirm={handleConfirm}
           />
-        ) : (
+        ) : !mcpElicitationState ? (
           <InputBox
             onSubmit={handleSubmit}
             isLoading={isLoading}
@@ -3450,10 +3587,10 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             }}
             onDraftChange={setInputHasDraft}
           />
-        )}
+        ) : null}
         {fullMode && <FullModeBar theme={theme} />}
         <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} theme={theme} items={interfaceSettings.statusBar} narrowPriority={interfaceSettings.narrowPriority} compactBadge={compactBadge} activityCount={activityCount} agentsHint={Boolean(onSwitchSession) && !focusedSubagent} browser={browserStatus} />
-        {!btw && !showModelSelector && !showEffortSelector && !askUserState && !toolPermissionState && !planApprovalState && !confirmState && (
+        {!btw && !showModelSelector && !showEffortSelector && !askUserState && !toolPermissionState && !planApprovalState && !confirmState && !mcpElicitationState && (
           <ActivityFooter
             agents={subagentsRef.current.agents}
             workflows={activeWorkflowRuns}

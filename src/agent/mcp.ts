@@ -1,11 +1,13 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { ElicitRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import { readFile, realpath } from 'node:fs/promises'
 import { realpathSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'path'
 import { tmpdir } from 'node:os'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
+import { ErrorCode } from '@modelcontextprotocol/sdk/types.js'
 import type { Tool } from '../tools/types.js'
 import type { PromptImage } from '../types/input.js'
 import { auditLog, type AuditEvent } from './auditLog.js'
@@ -14,6 +16,13 @@ import pkg from '../../package.json' with { type: 'json' }
 import { loadInstalledPlugins } from '../plugins/loader.js'
 import { resolvePluginVariables } from '../plugins/variables.js'
 import { sandboxAvailable } from '../utils/platform.js'
+import {
+  createMcpElicitationRedactionTracker,
+  handleMcpElicitationRequest,
+  type McpElicitationHandler,
+  type McpElicitationRedaction,
+  type McpElicitationRedactionTracker,
+} from './mcpElicitation.js'
 
 // Environment variables that cannot be overwritten by MCP servers
 const CRITICAL_ENV_VARS = new Set([
@@ -37,6 +46,10 @@ const PATH_TRAVERSAL_RE = /\.\.[/\\]/
 
 export interface McpLoadOptions {
   enabled?: boolean
+  /** Advertise form-mode elicitation only for an interactive UI session. */
+  enableFormElicitation?: boolean
+  /** Kept dynamic by Agent so clients created during startup use the current session handler. */
+  mcpElicitationHandler?: McpElicitationHandler
   environment?: Record<string, string | undefined>
   trustFile?: string
   initialTimeoutMs?: number
@@ -61,21 +74,58 @@ export function mcpToolName(serverName: string, rawName: string): string {
 
 const MCP_IMAGE_TYPES = new Set<string>(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 
+function protectedMcpBlockKind(block: unknown): 'image' | 'audio' | 'binary' | undefined {
+  if (!block || typeof block !== 'object' || Array.isArray(block)) return undefined
+  const candidate = block as Record<string, unknown>
+  if (candidate.type === 'image') return 'image'
+  if (candidate.type === 'audio') return 'audio'
+  if (candidate.type !== 'resource' || !candidate.resource || typeof candidate.resource !== 'object' || Array.isArray(candidate.resource)) return undefined
+  const resource = candidate.resource as Record<string, unknown>
+  if (typeof resource.mimeType === 'string' && resource.mimeType.toLowerCase().startsWith('image/')) return 'image'
+  // Unknown binary resource types may contain images, so omit them when elicitation values are active.
+  return typeof resource.blob === 'string' ? 'binary' : undefined
+}
+
+/** Retains raw schema keywords for the elicitation validator after SDK request validation. */
+function preserveRawMcpElicitationSchema() {
+  return {
+    shape: ElicitRequestSchema.shape,
+    safeParse(data: unknown) {
+      const parsed = ElicitRequestSchema.safeParse(data)
+      if (!parsed.success || parsed.data.params.mode === 'url') return parsed
+      const rawSchema = (data as { params: { requestedSchema: unknown } }).params.requestedSchema
+      return {
+        ...parsed,
+        data: {
+          ...parsed.data,
+          params: { ...parsed.data.params, requestedSchema: rawSchema },
+        },
+      }
+    },
+  } as unknown as typeof ElicitRequestSchema
+}
+
 /**
- * Preserves structured output and turns MCP isError into a failed agent tool call. Image blocks
- * go to `attachImage` (when the model accepts images) instead of into the text as base64.
+ * Preserves structured output and turns MCP isError into a failed agent tool call. Elicitation
+ * values are redacted before the result can reach conversation history, audit logs, or events.
+ * Image blocks go to `attachImage` (when the model accepts images) instead of into the text as base64.
  */
 export function formatMcpToolResult(
   result: { content?: unknown; structuredContent?: unknown; isError?: boolean },
   attachImage?: (image: PromptImage, label: string) => void,
   toolName = 'MCP tool',
+  redaction?: McpElicitationRedaction,
 ): string {
   const blocks = Array.isArray(result.content) ? result.content : []
-  const text = blocks.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text).join('\n')
+  const textBlocks = blocks.filter(block => block?.type === 'text' && typeof block.text === 'string').map(block => block.text as string)
+  const text = redaction?.redactTextBlocks(textBlocks) ?? textBlocks.join('\n')
+  const structuredContent = result.structuredContent === undefined
+    ? undefined
+    : redaction?.redactValue(result.structuredContent) ?? result.structuredContent
   if (result.isError) {
     const partial = {
       ...(text ? { text } : {}),
-      ...(result.structuredContent === undefined ? {} : { structuredContent: result.structuredContent }),
+      ...(structuredContent === undefined ? {} : { structuredContent }),
     }
     throw Object.assign(new Error(text || 'MCP tool returned an error'), {
       code: 'MCP_TOOL_ERROR',
@@ -83,14 +133,51 @@ export function formatMcpToolResult(
     })
   }
   const images = blocks.filter(block => block?.type === 'image' && typeof block.data === 'string' && MCP_IMAGE_TYPES.has(block.mimeType))
-  for (const block of images) attachImage?.({ mediaType: block.mimeType, data: block.data }, `image returned by ${toolName}`)
-  const imageNote = images.length === 0 ? ''
-    : attachImage ? `[${images.length} image${images.length === 1 ? '' : 's'} attached for the model]`
+  const protectedBlocks = redaction?.hasValues()
+    ? blocks.map(block => ({ block, kind: protectedMcpBlockKind(block) })).filter(item => item.kind)
+    : []
+  const protectedImages = protectedBlocks.filter(item => item.kind === 'image')
+  const protectedAudio = protectedBlocks.filter(item => item.kind === 'audio')
+  const protectedBinaryResources = protectedBlocks.filter(item => item.kind === 'binary')
+  const omitProtectedBlocks = protectedBlocks.length > 0
+  if (!omitProtectedBlocks) {
+    for (const block of images) attachImage?.({ mediaType: block.mimeType, data: block.data }, `image returned by ${toolName}`)
+  }
+  const blockNote = omitProtectedBlocks
+    ? [
+        ...(protectedImages.length ? [`[${protectedImages.length} image${protectedImages.length === 1 ? '' : 's'} omitted to protect elicitation values]`] : []),
+        ...(protectedAudio.length ? [`[${protectedAudio.length} audio block${protectedAudio.length === 1 ? '' : 's'} omitted to protect elicitation values]`] : []),
+        ...(protectedBinaryResources.length ? [`[${protectedBinaryResources.length} binary resource${protectedBinaryResources.length === 1 ? '' : 's'} omitted to protect elicitation values]`] : []),
+      ].join('\n')
+    : images.length === 0 ? ''
+      : attachImage ? `[${images.length} image${images.length === 1 ? '' : 's'} attached for the model]`
       : `[${images.length} image${images.length === 1 ? '' : 's'} omitted: the current model does not accept images]`
-  const others = blocks.filter(block => block?.type !== 'text' && !images.includes(block))
-  if (result.structuredContent !== undefined) return [JSON.stringify(result.structuredContent), imageNote].filter(Boolean).join('\n')
-  if (text || imageNote) return [text, others.length ? JSON.stringify(others) : '', imageNote].filter(Boolean).join('\n')
-  return blocks.length ? JSON.stringify(blocks) : '(empty MCP result)'
+  const others = blocks.filter(block => block?.type !== 'text' && !images.includes(block) && !protectedBlocks.some(item => item.block === block))
+  if (structuredContent !== undefined) return [JSON.stringify(structuredContent), blockNote].filter(Boolean).join('\n')
+  if (text || blockNote) return [text, others.length ? JSON.stringify(redaction?.redactValue(others) ?? others) : '', blockNote].filter(Boolean).join('\n')
+  return blocks.length ? JSON.stringify(redaction?.redactValue(blocks) ?? blocks) : '(empty MCP result)'
+}
+
+function redactMcpError(error: unknown, redaction: McpElicitationRedaction): Error {
+  if (error instanceof Error && !redaction.hasValues()) return error
+  const source = error && typeof error === 'object' ? error as Record<string, unknown> : undefined
+  const rawMessage = error instanceof Error ? error.message
+    : typeof source?.message === 'string' ? source.message : String(error)
+  const rawName = error instanceof Error ? error.name
+    : typeof source?.name === 'string' ? source.name : 'Error'
+  const safe = new Error(redaction.redactText(rawMessage))
+  safe.name = redaction.redactText(rawName)
+  for (const key of source ? Object.getOwnPropertyNames(source) : []) {
+    const value = source![key]
+    if (key === 'message' || key === 'name' || key === 'stack' || key === 'cause') continue
+    Object.defineProperty(safe, key, {
+      value: redaction.redactValue(value),
+      enumerable: true,
+      configurable: true,
+      writable: true,
+    })
+  }
+  return safe
 }
 
 /** Default time allowed for an MCP server to connect; loadMcpTools clamps overrides to 100ms–60s. */
@@ -450,10 +537,10 @@ export async function loadMcpTools(cwd = process.cwd(), options: McpLoadOptions 
         try {
           await assertMcpSourceApproved(cwd, source, trust, serverName)
         } catch (error) {
-          await closeClient(connected.client, connected.transport)
+          await closeConnectedMcpServer(connected)
           throw error
         }
-        cleanups.push(() => closeClient(connected.client, connected.transport))
+        cleanups.push(() => closeConnectedMcpServer(connected))
         const cachedToolsFromServer = connected.tools.map(toCachedMcpTool)
         if (serverConfig.transport === 'stdio' && !schemaCacheDisabled && options.persistSchemaCache !== false) {
           schemaCache[rawServerName] = cachedToolsFromServer
@@ -477,7 +564,7 @@ export async function loadMcpTools(cwd = process.cwd(), options: McpLoadOptions 
             errors.push(`MCP tool name collision: ${serverName}/${mcpTool.name} maps to '${name}'`)
             continue
           }
-          tools.push(createMcpTool(mcpTool, name, serverName, connected.client, cwd, source, trust))
+          tools.push(createMcpTool(mcpTool, name, serverName, connected.client, cwd, source, trust, connected.elicitationRedactions, connected.elicitationOperations, options.enableFormElicitation === true))
         }
       } catch (error) {
         const msg = `MCP server '${serverName}': ${(error as Error).message}`
@@ -503,6 +590,81 @@ interface ConnectedMcpServer {
   client: Client
   transport: StdioClientTransport | StreamableHTTPClientTransport
   tools: Array<{ name: string; description?: string; inputSchema: object }>
+  elicitationRedactions: McpElicitationRedactionTracker
+  elicitationOperations: McpElicitationOperationTracker
+}
+
+interface McpElicitationOperation {
+  progressToken: string
+  signal: AbortSignal
+  finish(): void
+}
+
+interface McpElicitationOperationTracker {
+  begin(): McpElicitationOperation
+  signalFor(progressToken: unknown): AbortSignal | undefined
+  dispose(): void
+}
+
+function createMcpElicitationOperationTracker(): McpElicitationOperationTracker {
+  const operations = new Map<string, AbortController>()
+  return {
+    begin() {
+      const progressToken = randomUUID()
+      const controller = new AbortController()
+      operations.set(progressToken, controller)
+      let finished = false
+      return {
+        progressToken,
+        signal: controller.signal,
+        finish() {
+          if (finished) return
+          finished = true
+          operations.delete(progressToken)
+          controller.abort()
+        },
+      }
+    },
+    signalFor(progressToken) {
+      // Nested elicitation has no standard parent request ID, so never guess while tool calls overlap.
+      if (progressToken !== undefined) return typeof progressToken === 'string' ? operations.get(progressToken)?.signal : undefined
+      if (operations.size === 1) return operations.values().next().value?.signal
+      return undefined
+    },
+    dispose() {
+      for (const controller of operations.values()) controller.abort()
+      operations.clear()
+    },
+  }
+}
+
+function combineAbortSignals(signals: AbortSignal[]): { signal: AbortSignal; dispose(): void } {
+  if (signals.length === 1) return { signal: signals[0]!, dispose() {} }
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  for (const signal of signals) {
+    if (signal.aborted) controller.abort()
+    else signal.addEventListener('abort', abort, { once: true })
+  }
+  return {
+    signal: controller.signal,
+    dispose() { for (const signal of signals) signal.removeEventListener('abort', abort) },
+  }
+}
+
+export function isMcpToolTimeout(error: unknown): boolean {
+  const source = error && typeof error === 'object' ? error as Record<string, unknown> : undefined
+  if (source?.code === ErrorCode.RequestTimeout) return true
+  const message = error instanceof Error ? error.message : typeof source?.message === 'string' ? source.message : ''
+  return /timed out|timeout/i.test(message)
+}
+
+async function closeConnectedMcpServer(connected: ConnectedMcpServer): Promise<void> {
+  try { await closeClient(connected.client, connected.transport) }
+  finally {
+    connected.elicitationRedactions.dispose()
+    connected.elicitationOperations.dispose()
+  }
 }
 
 async function connectAndListMcpServer(
@@ -514,8 +676,27 @@ async function connectAndListMcpServer(
 ): Promise<ConnectedMcpServer> {
   let client: Client | undefined
   let transport: StdioClientTransport | StreamableHTTPClientTransport | undefined
+  const elicitationRedactions = createMcpElicitationRedactionTracker()
+  const elicitationOperations = createMcpElicitationOperationTracker()
   try {
-    client = new Client({ name: 'deepseek-code', version: pkg.version })
+    client = new Client({ name: 'deepseek-code', version: pkg.version }, {
+      capabilities: options.enableFormElicitation ? { elicitation: { form: { applyDefaults: false } } } : {},
+    })
+    if (options.enableFormElicitation) {
+      // Preserve the raw schema: the SDK's ElicitRequestSchema strips unknown JSON Schema keywords,
+      // including `pattern`, before a typed handler can reject an unsupported constraint.
+      client.setRequestHandler(preserveRawMcpElicitationSchema(), async (request, extra) => {
+        const operationSignal = elicitationOperations.signalFor(extra._meta?.progressToken)
+        const combined = combineAbortSignals(operationSignal ? [extra.signal, operationSignal] : [extra.signal])
+        try {
+          const result = await handleMcpElicitationRequest(serverName, request.params, options.mcpElicitationHandler, combined.signal)
+          if (result.action === 'accept') elicitationRedactions.record(result.content)
+          return result
+        } finally {
+          combined.dispose()
+        }
+      })
+    }
     transport = serverConfig.transport === 'stdio'
       ? new StdioClientTransport({
           command: 'bwrap',
@@ -528,9 +709,19 @@ async function connectAndListMcpServer(
     await withTimeout(client.connect(transport), timeoutMs, `MCP server '${serverName}' connection timed out after ${timeoutMs}ms`)
     await auditLog(buildMcpLoadEvent(serverName, serverConfig.transport))
     const { tools } = await withTimeout(client.listTools(), timeoutMs, `MCP server '${serverName}' tool listing timed out`)
-    return { client, transport, tools: tools.map(tool => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema as object })) }
+    return {
+      client,
+      transport,
+      tools: tools.map(tool => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema as object })),
+      elicitationRedactions,
+      elicitationOperations,
+    }
   } catch (error) {
-    await closeClient(client, transport)
+    try { await closeClient(client, transport) }
+    finally {
+      elicitationRedactions.dispose()
+      elicitationOperations.dispose()
+    }
     throw error
   }
 }
@@ -581,13 +772,19 @@ function createLazyServerTools(input: {
   let client: Client | undefined
   let transport: StdioClientTransport | StreamableHTTPClientTransport | undefined
   let connection: Promise<Client> | undefined
+  let elicitationRedactions: McpElicitationRedactionTracker | undefined
+  let elicitationOperations: McpElicitationOperationTracker | undefined
   let disposed = false
   const cleanup = async () => {
     disposed = true
     await connection?.catch(() => undefined)
-    await closeClient(client, transport)
-    client = undefined
-    transport = undefined
+    try { await closeClient(client, transport) }
+    finally {
+      elicitationRedactions?.dispose()
+      elicitationOperations?.dispose()
+      client = undefined
+      transport = undefined
+    }
   }
   input.onCleanup(cleanup)
 
@@ -608,9 +805,11 @@ function createLazyServerTools(input: {
           }
           client = connected.client
           transport = connected.transport
+          elicitationRedactions = connected.elicitationRedactions
+          elicitationOperations = connected.elicitationOperations
           return connected.client
         } catch (error) {
-          await closeClient(connected.client, connected.transport)
+          await closeConnectedMcpServer(connected)
           throw error
         }
       })().catch(error => {
@@ -634,14 +833,26 @@ function createLazyServerTools(input: {
         const connectedClient = await getClient()
         await assertMcpSourceApproved(input.cwd, input.source, input.trust, input.serverName)
         const timeoutMs = 30_000
-        const result = await connectedClient.callTool({ name: mcpTool.name, arguments: args }, undefined, { signal: context?.signal, timeout: timeoutMs })
-          .catch((error: Error) => {
-            if (context?.signal?.aborted) throw error
-            if (/timed out|timeout/i.test(error.message)) throw new Error(`MCP tool '${mcpTool.name}' timed out after ${timeoutMs / 1000}s`)
-            throw error
-          }) as Awaited<ReturnType<typeof connectedClient.callTool>>
-        if ('toolResult' in result) throw new Error(`MCP tool '${mcpTool.name}' returned an unsupported task result`)
-        return formatMcpToolResult(result, context?.attachImage, mcpTool.name)
+        const redaction = elicitationRedactions?.begin()
+        const operation = input.options.enableFormElicitation ? elicitationOperations?.begin() : undefined
+        try {
+          const result = await connectedClient.callTool({
+            name: mcpTool.name,
+            arguments: args,
+            ...(operation ? { _meta: { progressToken: operation.progressToken } } : {}),
+          }, undefined, { signal: context?.signal, timeout: timeoutMs })
+            .catch((error: unknown) => {
+              const safeError = redaction ? redactMcpError(error, redaction) : error instanceof Error ? error : new Error(String(error))
+              if (context?.signal?.aborted) throw safeError
+              if (isMcpToolTimeout(error)) throw new Error(`MCP tool '${mcpTool.name}' timed out after ${timeoutMs / 1000}s`)
+              throw safeError
+            }) as Awaited<ReturnType<typeof connectedClient.callTool>>
+          if ('toolResult' in result) throw new Error(`MCP tool '${mcpTool.name}' returned an unsupported task result`)
+          return formatMcpToolResult(result, context?.attachImage, mcpTool.name, redaction)
+        } finally {
+          operation?.finish()
+          redaction?.close()
+        }
       },
     }
   })
@@ -655,6 +866,9 @@ function createMcpTool(
   cwd: string,
   source: McpSource,
   trust: WorkspaceTrustStore,
+  elicitationRedactions: McpElicitationRedactionTracker,
+  elicitationOperations: McpElicitationOperationTracker,
+  enableFormElicitation: boolean,
 ): Tool {
   return {
     name,
@@ -664,14 +878,26 @@ function createMcpTool(
     async execute(args, context) {
       await assertMcpSourceApproved(cwd, source, trust, serverName)
       const timeoutMs = 30_000
-      const result = await client.callTool({ name: mcpTool.name, arguments: args }, undefined, { signal: context?.signal, timeout: timeoutMs })
-        .catch((error: Error) => {
-          if (context?.signal?.aborted) throw error
-          if (/timed out|timeout/i.test(error.message)) throw new Error(`MCP tool '${mcpTool.name}' timed out after ${timeoutMs / 1000}s`)
-          throw error
-        }) as Awaited<ReturnType<typeof client.callTool>>
-      if ('toolResult' in result) throw new Error(`MCP tool '${mcpTool.name}' returned an unsupported task result`)
-      return formatMcpToolResult(result, context?.attachImage, mcpTool.name)
+      const redaction = elicitationRedactions.begin()
+      const operation = enableFormElicitation ? elicitationOperations.begin() : undefined
+      try {
+        const result = await client.callTool({
+          name: mcpTool.name,
+          arguments: args,
+          ...(operation ? { _meta: { progressToken: operation.progressToken } } : {}),
+        }, undefined, { signal: context?.signal, timeout: timeoutMs })
+          .catch((error: unknown) => {
+            const safeError = redactMcpError(error, redaction)
+            if (context?.signal?.aborted) throw safeError
+            if (isMcpToolTimeout(error)) throw new Error(`MCP tool '${mcpTool.name}' timed out after ${timeoutMs / 1000}s`)
+            throw safeError
+          }) as Awaited<ReturnType<typeof client.callTool>>
+        if ('toolResult' in result) throw new Error(`MCP tool '${mcpTool.name}' returned an unsupported task result`)
+        return formatMcpToolResult(result, context?.attachImage, mcpTool.name, redaction)
+      } finally {
+        operation?.finish()
+        redaction.close()
+      }
     },
   }
 }
