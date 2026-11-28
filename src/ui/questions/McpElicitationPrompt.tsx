@@ -324,14 +324,16 @@ function displayValue(schema: FieldSchema, value: DraftValue): string {
 
 interface Props {
   request: McpElicitationRequest
+  requestId?: number
   onAccept(content: McpElicitationContent): void
   onDecline(): void
   onCancel(): void
+  active?: boolean
   inputHandlerRef?: { current: McpElicitationInputHandler | null }
 }
 
 /** A local-only reviewable MCP form. Server-provided text is rendered as plain, sanitized text. */
-export function McpElicitationPrompt({ request, onAccept, onDecline, onCancel, inputHandlerRef }: Props) {
+export function McpElicitationPrompt({ request, requestId, onAccept, onDecline, onCancel, active = true, inputHandlerRef }: Props) {
   const colors = useThemeColors()
   const fields = useMemo(() => Object.entries(request.requestedSchema.properties) as [string, FieldSchema][], [request.requestedSchema])
   const unsafeRequest = useMemo(() => isCredentialLikeRequest(request), [request])
@@ -352,7 +354,7 @@ export function McpElicitationPrompt({ request, onAccept, onDecline, onCancel, i
     setChoiceIndex(0)
     setErrors(emptyRecord<string>())
     submitted.current = false
-  }, [request, fields, unsafeRequest])
+  }, [requestId, request, fields, unsafeRequest])
   const activeField = fields[fieldIndex]
   const activeName = activeField?.[0]
   const activeSchema = activeField?.[1]
@@ -412,6 +414,7 @@ export function McpElicitationPrompt({ request, onAccept, onDecline, onCancel, i
   }
 
   const handleInput: McpElicitationInputHandler = (input, key) => {
+    if (!active) return
     if (key.escape || (key.ctrl && input === 'c')) { finish('cancel'); return }
 
     if (review) {
@@ -431,7 +434,7 @@ export function McpElicitationPrompt({ request, onAccept, onDecline, onCancel, i
     }
 
     if (key.tab) { setReviewIndex(Math.min(fieldIndex, Math.max(0, fields.length - 1))); setReview(true); return }
-    if (!activeName || !activeSchema) {
+    if (!activeField || !activeSchema) {
       if (key.return) setReview(true)
       return
     }
@@ -445,6 +448,7 @@ export function McpElicitationPrompt({ request, onAccept, onDecline, onCancel, i
 
     const current = values[activeName]
     if (activeSchema.type === 'string' && options.length > 0) {
+      if (key.backspace || key.delete) { updateValue(activeName, undefined); return }
       if (key.leftArrow || key.rightArrow) {
         const currentValue = typeof current === 'string' ? options.findIndex(option => option.value === current) : -1
         const offset = key.leftArrow ? -1 : 1
@@ -460,6 +464,7 @@ export function McpElicitationPrompt({ request, onAccept, onDecline, onCancel, i
     }
 
     if (activeSchema.type === 'boolean') {
+      if (key.backspace || key.delete) { updateValue(activeName, undefined); return }
       if (key.leftArrow || input.toLowerCase() === 'n') { updateValue(activeName, 'false'); return }
       if (key.rightArrow || input.toLowerCase() === 'y') { updateValue(activeName, 'true'); return }
       if (input === ' ') { updateValue(activeName, current === 'true' ? 'false' : 'true'); return }
@@ -598,7 +603,7 @@ export function McpElicitationPrompt({ request, onAccept, onDecline, onCancel, i
           )}
           {errors[activeName!] && <Text color={colors.error}>{errors[activeName!]}</Text>}
           <Text color={colors.textDim}>
-            {activeSchema!.type === 'string' && options.length > 0 ? '←→ or number to choose' : activeSchema!.type === 'boolean' ? 'y/n or ←→ to choose' : activeSchema!.type === 'array' ? 'Space or number to toggle · Enter to finish' : 'Type to edit · Backspace to delete'}
+            {activeSchema!.type === 'string' && options.length > 0 ? '←→ or number to choose · Backspace clears optional value' : activeSchema!.type === 'boolean' ? 'y/n or ←→ to choose · Backspace clears optional value' : activeSchema!.type === 'array' ? 'Space or number to toggle · Enter to finish' : 'Type to edit · Backspace to delete'}
             {' · ↑↓ fields · Enter next · Tab review · Esc cancel'}
           </Text>
         </Box>

@@ -3,9 +3,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Agent } from '../src/agent/agent.js'
-import { approveMcpConfig, loadMcpTools, type McpLoadOptions } from '../src/agent/mcp.js'
-import { createMcpElicitationRedactionTracker, handleMcpElicitationRequest, type McpElicitationContent, type McpElicitationSchema } from '../src/agent/mcpElicitation.js'
-import type { ElicitRequestParams } from '@modelcontextprotocol/sdk/types.js'
+import { approveMcpConfig, formatMcpToolResult, isMcpToolTimeout, loadMcpTools, type McpLoadOptions } from '../src/agent/mcp.js'
+import { createMcpElicitationRedactionTracker, handleMcpElicitationRequest, type McpElicitationContent, type McpElicitationResponse, type McpElicitationSchema } from '../src/agent/mcpElicitation.js'
+import { ErrorCode, type ElicitRequestParams } from '@modelcontextprotocol/sdk/types.js'
 import { sandboxAvailable } from '../src/utils/platform.js'
 
 const roots: string[] = []
@@ -32,6 +32,12 @@ function formRequest(requestedSchema: unknown = formSchema): ElicitRequestParams
 }
 
 describe('MCP form elicitation validation', () => {
+  it('classifies MCP SDK timeout codes before checking an unredacted message fallback', () => {
+    expect(isMcpToolTimeout({ code: ErrorCode.RequestTimeout, message: 'server detail' })).toBe(true)
+    expect(isMcpToolTimeout({ code: 0, message: 'request timed out' })).toBe(true)
+    expect(isMcpToolTimeout({ code: 0, message: 'ordinary failure' })).toBe(false)
+  })
+
   it('returns accepted scalar and enum data only after schema validation', async () => {
     const result = await handleMcpElicitationRequest('profile-store', formRequest(), async request => {
       expect(request.serverName).toBe('profile-store')
@@ -46,6 +52,13 @@ describe('MCP form elicitation validation', () => {
     for (const action of ['decline', 'cancel'] as const) {
       await expect(handleMcpElicitationRequest('profile-store', formRequest(), async () => ({ action }), new AbortController().signal))
         .resolves.toEqual({ action })
+    }
+  })
+
+  it('rejects malformed actions without coercing them to strings', async () => {
+    for (const action of [['accept'], ['decline'], ['cancel']]) {
+      await expect(handleMcpElicitationRequest('profile-store', formRequest(), async () => ({ action } as any), new AbortController().signal))
+        .rejects.toThrow(/invalid response/)
     }
   })
 
@@ -86,6 +99,17 @@ describe('MCP form elicitation validation', () => {
     await expect(handleMcpElicitationRequest('profile-store', formRequest(requestedSchema), async () => ({
       action: 'accept', content: { tags: ['unknown'], modes: ['read'] },
     }), new AbortController().signal)).rejects.toThrow(/does not match the requested schema/)
+
+    const oneChoice = (minItems: number) => ({
+      type: 'object',
+      properties: { tags: { type: 'array', items: { type: 'string', enum: ['only'] }, minItems } },
+    })
+    await expect(handleMcpElicitationRequest('profile-store', formRequest(oneChoice(2)), async () => ({
+      action: 'accept', content: { tags: ['only'] },
+    }), new AbortController().signal)).rejects.toThrow(/unsupported or unsafe schema/)
+    await expect(handleMcpElicitationRequest('profile-store', formRequest(oneChoice(1)), async () => ({
+      action: 'accept', content: { tags: ['only'] },
+    }), new AbortController().signal)).resolves.toEqual({ action: 'accept', content: { tags: ['only'] } })
 
     let duplicateDefaultHandlerCalls = 0
     await expect(handleMcpElicitationRequest('profile-store', formRequest({
@@ -199,6 +223,48 @@ describe('MCP form elicitation validation', () => {
     const oversizedValue = 'x'.repeat(64 * 1024 + 1)
     expect(() => boundedTracker.record({ value: oversizedValue })).toThrow(/capacity exceeded/)
     boundedTracker.dispose()
+  })
+
+  it('omits audio result blocks only while elicitation values are protected', () => {
+    const audio = { type: 'audio', data: 'c2VjcmV0', mimeType: 'audio/wav' }
+    expect(formatMcpToolResult({ content: [audio] })).toBe(JSON.stringify([audio]))
+
+    const tracker = createMcpElicitationRedactionTracker()
+    tracker.record({ secret: 'secret' })
+    const scope = tracker.begin()
+    const output = formatMcpToolResult({ content: [audio] }, undefined, 'collect', scope)
+    expect(output).toContain('[1 audio block omitted to protect elicitation values]')
+    expect(output).not.toContain(audio.data)
+    scope.close()
+    tracker.dispose()
+  })
+
+  it('redacts accepted emoji names across text blocks', () => {
+    const tracker = createMcpElicitationRedactionTracker()
+    tracker.record({ displayName: 'Ada😀' })
+    const scope = tracker.begin()
+
+    expect(scope.redactTextBlocks(['Ada😀'])).toBe('[redacted MCP elicitation value]')
+    expect(scope.redactTextBlocks(['Ada😀', 'catalog'])).toBe('[redacted MCP elicitation value]\ncatalog')
+
+    scope.close()
+    tracker.dispose()
+  })
+
+  it('preserves values when sensitive object keys redact to the same placeholder', () => {
+    const tracker = createMcpElicitationRedactionTracker()
+    tracker.record({ value: 'sensitive-key' })
+    const scope = tracker.begin()
+    const redacted = scope.redactValue({ 'sensitive-key': 'first', 'SENSITIVE-KEY': 'second' }) as Record<string, unknown>
+    const entries = Object.entries(redacted)
+
+    expect(entries).toHaveLength(2)
+    expect(new Set(entries.map(([key]) => key)).size).toBe(2)
+    expect(entries.map(([, value]) => value).sort()).toEqual(['first', 'second'])
+    expect(JSON.stringify(redacted).toLowerCase()).not.toContain('sensitive-key')
+
+    scope.close()
+    tracker.dispose()
   })
 
   it('blocks OTP and authenticator verification codes before they reach the UI handler', async () => {
@@ -485,6 +551,9 @@ describe('MCP elicitation client integration', () => {
     base64Encoding?: 'standard' | 'url-padded' | 'url-unpadded'
     base64KeyValueEcho?: boolean
     extraBase64Padding?: boolean
+    propagateProgressToken?: boolean
+    completeToolCallBeforeElicitation?: boolean
+    toolError?: { code: number; message: string }
   } = {}) {
     const root = await mkdtemp(join(tmpdir(), 'deepseek-mcp-elicitation-server-'))
     roots.push(root)
@@ -500,6 +569,9 @@ const percentEncodeElicitationEcho = ${JSON.stringify(options.percentEncodeElici
 const base64Encoding = ${JSON.stringify(options.base64Encoding ?? null)}
 const base64KeyValueEcho = ${JSON.stringify(options.base64KeyValueEcho === true)}
 const extraBase64Padding = ${JSON.stringify(options.extraBase64Padding === true)}
+const propagateProgressToken = ${JSON.stringify(options.propagateProgressToken === true)}
+const completeToolCallBeforeElicitation = ${JSON.stringify(options.completeToolCallBeforeElicitation === true)}
+const toolError = ${JSON.stringify(options.toolError ?? null)}
 function send(message) { process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\\n') }
 process.stdin.setEncoding('utf8')
 process.stdin.on('data', chunk => {
@@ -519,11 +591,13 @@ process.stdin.on('data', chunk => {
       const args = request.params.arguments || {}
       const params = args.mode === 'url'
         ? { mode: 'url', elicitationId: 'fixture-1', url: 'https://example.invalid', message: 'Continue on the external page.' }
-        : { mode: 'form', message: 'Share a display name and choose a color.', requestedSchema: args.invalidSchema
+        : { mode: 'form', message: args.callId ? 'Share a display name and choose a color: ' + args.callId : 'Share a display name and choose a color.', requestedSchema: args.invalidSchema
             ? { type: 'object', properties: { nested: { type: 'object' } } }
             : ${JSON.stringify(options.elicitationSchema ?? formSchema)} }
+      if (propagateProgressToken && request.params._meta?.progressToken !== undefined) params._meta = { progressToken: request.params._meta.progressToken }
       pending.set(id, request.id)
       send({ id, method: 'elicitation/create', params })
+      if (completeToolCallBeforeElicitation) setTimeout(() => send({ id: request.id, result: { content: [{ type: 'text', text: 'completed' }] } }), 50)
     } else if (request.id !== undefined && pending.has(request.id)) {
       const toolCallId = pending.get(request.id)
       pending.delete(request.id)
@@ -549,11 +623,12 @@ process.stdin.on('data', chunk => {
       const resultContent = echoAccepted
         ? [{ type: 'text', text: 'echo: ' + JSON.stringify(echoedContent) }]
         : [{ type: 'text', text: String(action) }]
-      send({ id: toolCallId, result: {
-        content: resultContent,
-        ...(echoAccepted && echoStructuredContent ? { structuredContent: { echo: echoedContent } } : {}),
-        isError: Boolean(request.error),
-      } })
+      if (toolError && !request.error) send({ id: toolCallId, error: toolError })
+      else send({ id: toolCallId, result: {
+          content: resultContent,
+          ...(echoAccepted && echoStructuredContent ? { structuredContent: { echo: echoedContent } } : {}),
+          isError: Boolean(request.error),
+        } })
     }
   }
 })
@@ -589,7 +664,7 @@ process.stdin.on('data', chunk => {
       expect(loaded.errors).toEqual([])
       const tool = loaded.tools[0]!
       const capabilities = JSON.parse(tool.description.replace('[MCP:fixture] ', ''))
-      expect(capabilities.elicitation).toEqual({ form: { applyDefaults: true } })
+      expect(capabilities.elicitation).toEqual({ form: { applyDefaults: false } })
       expect(capabilities.elicitation.url).toBeUndefined()
 
       for (const action of ['accept', 'decline', 'cancel']) {
@@ -604,6 +679,83 @@ process.stdin.on('data', chunk => {
       expect(JSON.stringify(requests)).not.toContain('Ada')
     } finally {
       await loaded.cleanup?.()
+    }
+  }, 30_000)
+
+  sandboxTest('cancels only the pending elicitation owned by an aborted tool call', async () => {
+    const signals = new Map<string, AbortSignal>()
+    const responses = new Map<string, (response: McpElicitationResponse) => void>()
+    const loaded = await loadElicitationFixture({
+      enableFormElicitation: true,
+      propagateProgressToken: true,
+      mcpElicitationHandler: (request, signal) => new Promise(resolve => {
+        const callId = request.message.split(': ').at(-1)!
+        signals.set(callId, signal)
+        responses.set(callId, resolve)
+      }),
+    })
+    const firstAbort = new AbortController()
+    const secondAbort = new AbortController()
+    try {
+      const tool = loaded.tools[0]!
+      const first = tool.execute({ mode: 'form', callId: 'first' }, { signal: firstAbort.signal } as any)
+      const second = tool.execute({ mode: 'form', callId: 'second' }, { signal: secondAbort.signal } as any)
+      const deadline = Date.now() + 2_000
+      while (signals.size < 2 && Date.now() < deadline) await Bun.sleep(10)
+      expect([...signals.keys()].sort()).toEqual(['first', 'second'])
+
+      firstAbort.abort()
+      await expect(first).rejects.toThrow()
+      expect(signals.get('first')?.aborted).toBe(true)
+      expect(signals.get('second')?.aborted).toBe(false)
+
+      responses.get('second')!({ action: 'decline' })
+      await expect(second).resolves.toBe('decline')
+      expect(signals.get('second')?.aborted).toBe(false)
+    } finally {
+      firstAbort.abort()
+      secondAbort.abort()
+      await loaded.cleanup?.()
+    }
+  }, 30_000)
+
+  sandboxTest('cancels a pending form when its owning tool call completes', async () => {
+    let formSignal: AbortSignal | undefined
+    const loaded = await loadElicitationFixture({
+      enableFormElicitation: true,
+      completeToolCallBeforeElicitation: true,
+      mcpElicitationHandler: async (_request, signal) => {
+        formSignal = signal
+        return new Promise(() => {})
+      },
+    })
+    try {
+      await expect(loaded.tools[0]!.execute({ mode: 'form' })).resolves.toBe('completed')
+      expect(formSignal?.aborted).toBe(true)
+    } finally {
+      await loaded.cleanup?.()
+    }
+  }, 30_000)
+
+  sandboxTest('reports only a safe diagnostic for SDK and redacted-message timeouts', async () => {
+    for (const timeout of [
+      { code: ErrorCode.RequestTimeout, message: 'secret detail' },
+      { code: 0, message: 'timed out' },
+    ]) {
+      const acceptedValue = timeout.message
+      const loaded = await loadElicitationFixture({
+        enableFormElicitation: true,
+        toolError: timeout,
+        mcpElicitationHandler: async () => ({ action: 'accept', content: { displayName: acceptedValue, color: 'blue' } }),
+      })
+      try {
+        const error = await loaded.tools[0]!.execute({ mode: 'form' }).catch(value => value)
+        if (!(error instanceof Error)) throw new Error('Expected the MCP tool call to fail.')
+        expect(error.message).toBe("MCP tool 'collect' timed out after 30s")
+        expect(error.message).not.toContain('secret detail')
+      } finally {
+        await loaded.cleanup?.()
+      }
     }
   }, 30_000)
 
@@ -757,10 +909,14 @@ process.stdin.on('data', chunk => {
         }
       }
 
-      await new Promise(resolve => setTimeout(resolve, 20))
-      const auditLog = await readFile(logPath, 'utf8')
-      const newEntries = auditLog.slice(logBefore.length).split('\n').filter(Boolean).map(line => JSON.parse(line))
-      const toolResults = newEntries.filter(entry => entry.type === 'tool_result' && entry.tool === toolName)
+      const auditDeadline = Date.now() + 2_000
+      let toolResults: Array<Record<string, unknown>> = []
+      while (toolResults.length < 2 && Date.now() < auditDeadline) {
+        const auditLog = await readFile(logPath, 'utf8')
+        const newEntries = auditLog.slice(logBefore.length).split('\n').filter(Boolean).map(line => JSON.parse(line))
+        toolResults = newEntries.filter(entry => entry.type === 'tool_result' && entry.tool === toolName)
+        if (toolResults.length < 2) await Bun.sleep(20)
+      }
       expect(toolResults).toHaveLength(2)
       for (const entry of toolResults) {
         expect(JSON.stringify(entry)).toContain('count=[redacted MCP elicitation value]')

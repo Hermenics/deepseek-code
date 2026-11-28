@@ -4,6 +4,7 @@ import { PassThrough } from 'node:stream'
 import { EventEmitter } from '../../../src/ink/events/emitter.js'
 import { InputEvent } from '../../../src/ink/events/input-event.js'
 import { renderSync } from '../../../src/ink/root.js'
+import { terminalText } from '../../helpers/terminalText.js'
 import Text from '../../../src/ink/components/Text.js'
 import {
   bindMcpElicitationInput,
@@ -88,19 +89,35 @@ function ActivityScreen({ hidden }: { hidden: boolean }) {
   return <Activity mode={hidden ? 'hidden' : 'visible'}><StatefulCoveredScreen /></Activity>
 }
 
+const enumRequest: McpElicitationRequest = {
+  serverName: 'profile-store',
+  message: 'Choose a color.',
+  requestedSchema: { type: 'object', properties: { color: { type: 'string', enum: ['blue', 'green'], default: 'blue' } } },
+}
+
+function ActivityMcpForm({ hidden }: { hidden: boolean }) {
+  return (
+    <>
+      <Activity mode={hidden ? 'hidden' : 'visible'}>
+        <McpElicitationPrompt request={enumRequest} active={!hidden} onAccept={() => {}} onDecline={() => {}} onCancel={() => {}} />
+      </Activity>
+      {hidden && <Text>Higher priority prompt</Text>}
+    </>
+  )
+}
+
 test('keeps a covered screen mounted while the MCP form takes priority', async () => {
   coveredScreenMounts = 0
   const stdin = new FakeTerminal()
   const stdout = new FakeTerminal()
+  const output = stdout as unknown as NodeJS.WriteStream
   const instance = renderSync(<ActivityScreen hidden={false} />, {
     stdin: stdin as unknown as NodeJS.ReadStream,
-    stdout: stdout as unknown as NodeJS.WriteStream,
-    stderr: stdout as unknown as NodeJS.WriteStream,
+    stdout: output,
+    stderr: output,
     exitOnCtrlC: false,
     patchConsole: false,
   })
-  let rendered = ''
-  stdout.on('data', chunk => { rendered += chunk.toString() })
   try {
     await Bun.sleep(60)
     await press(stdin, 'x')
@@ -108,10 +125,43 @@ test('keeps a covered screen mounted while the MCP form takes priority', async (
     instance.rerender(<ActivityScreen hidden />)
     await Bun.sleep(60)
     expect(coveredScreenMounts).toBe(1)
+    expect(terminalText(output)).not.toContain('Screen draft: 1')
     instance.rerender(<ActivityScreen hidden={false} />)
     await Bun.sleep(60)
     expect(coveredScreenMounts).toBe(1)
-    expect(plain(rendered)).toContain('Screendraft:1')
+    expect(terminalText(output)).toContain('Screen draft: 1')
+  } finally {
+    stdout.isTTY = false
+    instance.unmount()
+    instance.cleanup()
+  }
+})
+
+test('keeps an MCP form draft while covered and ignores input until visible again', async () => {
+  const stdin = new FakeTerminal()
+  const stdout = new FakeTerminal()
+  const output = stdout as unknown as NodeJS.WriteStream
+  const instance = renderSync(<ActivityMcpForm hidden={false} />, {
+    stdin: stdin as unknown as NodeJS.ReadStream,
+    stdout: output,
+    stderr: output,
+    exitOnCtrlC: false,
+    patchConsole: false,
+  })
+  try {
+    await Bun.sleep(60)
+    await press(stdin, '\x1b[C')
+    expect(terminalText(output)).toContain('green ✓')
+
+    instance.rerender(<ActivityMcpForm hidden />)
+    await Bun.sleep(60)
+    expect(terminalText(output)).toContain('Higher priority prompt')
+    expect(terminalText(output)).not.toContain('MCP form request')
+    await press(stdin, '\x1b[D')
+
+    instance.rerender(<ActivityMcpForm hidden={false} />)
+    await Bun.sleep(60)
+    expect(terminalText(output)).toContain('green ✓')
   } finally {
     stdout.isTTY = false
     instance.unmount()
@@ -199,6 +249,81 @@ test('edits text, numeric, boolean, enum, oneOf, and enum-list fields', async ()
       action: 'accept',
       content: { name: 'Ada Lin', age: 48, score: 7.59, enabled: false, color: 'green', mode: 'fast', features: ['search', 'preview'] },
     })
+  } finally {
+    cleanup(prompt)
+  }
+})
+
+test('clears optional enum and boolean values back to undefined', async () => {
+  let result: unknown
+  const clearRequest: McpElicitationRequest = {
+    serverName: 'profile-store',
+    message: 'Set optional values.',
+    requestedSchema: {
+      type: 'object',
+      properties: {
+        color: { type: 'string', enum: ['red', 'blue'], default: 'red' },
+        enabled: { type: 'boolean', default: true },
+        mode: { type: 'string', enum: ['safe', 'fast'] },
+      },
+    },
+  }
+  const prompt = renderPrompt({ request: clearRequest, onAccept: content => { result = content } })
+  try {
+    await Bun.sleep(80)
+    expect(plain(prompt.rendered())).toContain('Backspaceclearsoptionalvalue')
+    await press(prompt.stdin, '\x7f')
+    await press(prompt.stdin, '\r')
+    await press(prompt.stdin, '\x7f')
+    await press(prompt.stdin, '\r')
+    await press(prompt.stdin, '\x1b[C')
+    await press(prompt.stdin, '\x7f')
+    await press(prompt.stdin, '\t')
+    await press(prompt.stdin, '\r')
+    expect(result).toEqual({})
+  } finally {
+    cleanup(prompt)
+  }
+})
+
+test('keeps required-field validation when an enum value is cleared', async () => {
+  let accepted: unknown
+  const requiredRequest: McpElicitationRequest = {
+    serverName: 'profile-store',
+    message: 'Choose a required value.',
+    requestedSchema: {
+      type: 'object',
+      properties: { color: { type: 'string', enum: ['red', 'blue'], default: 'red' } },
+      required: ['color'],
+    },
+  }
+  const prompt = renderPrompt({ request: requiredRequest, onAccept: content => { accepted = content } })
+  try {
+    await Bun.sleep(80)
+    await press(prompt.stdin, '\x7f')
+    await press(prompt.stdin, '\t')
+    await press(prompt.stdin, '\r')
+    expect(accepted).toBeUndefined()
+    expect(plain(prompt.rendered())).toContain('Thisfieldisrequired.')
+  } finally {
+    cleanup(prompt)
+  }
+})
+
+test('edits fields with an empty property name', async () => {
+  let accepted: unknown
+  const emptyNameRequest: McpElicitationRequest = {
+    serverName: 'profile-store',
+    message: 'Provide a value.',
+    requestedSchema: { type: 'object', properties: { '': { type: 'string' } } },
+  }
+  const prompt = renderPrompt({ request: emptyNameRequest, onAccept: content => { accepted = content } })
+  try {
+    await Bun.sleep(80)
+    await press(prompt.stdin, 'x')
+    await press(prompt.stdin, '\t')
+    await press(prompt.stdin, '\r')
+    expect(accepted).toEqual({ '': 'x' })
   } finally {
     cleanup(prompt)
   }

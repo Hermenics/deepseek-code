@@ -190,7 +190,7 @@ export function createMcpElicitationRedactionTracker(): McpElicitationRedactionT
     if (blocks.length <= 1) return redactString(blocks[0] ?? '')
     const separator = uniqueBoundarySeparator(blocks.join(''))
     let redacted = blocks.join(separator)
-    const tokenPattern = (token: string) => token.split('').map(escapeRegExp).join(`(?:${escapeRegExp(separator)})*`)
+    const tokenPattern = (token: string) => [...token].map(escapeRegExp).join(`(?:${escapeRegExp(separator)})*`)
     if (retained.base64Tokens.size > 0) {
       const alternatives = [...new Set([...retained.base64Tokens].map(token => token.replace(/=+$/, '')))]
         .sort((left, right) => right.length - left.length).map(tokenPattern).join('|')
@@ -218,7 +218,21 @@ export function createMcpElicitationRedactionTracker(): McpElicitationRedactionT
     if (typeof value === 'boolean') return retained.booleans.has(value) ? REDACTED_ELICITATION_VALUE : value
     if (Array.isArray(value)) return value.map(redactNested)
     if (value && typeof value === 'object') {
-      return Object.fromEntries(Object.entries(value).map(([key, item]) => [redactString(key), redactNested(item)]))
+      const entries: [string, unknown][] = []
+      const reservedKeys = new Set(Object.keys(value).flatMap(key => [key, redactString(key)]))
+      const usedKeys = new Set<string>()
+      for (const [key, item] of Object.entries(value)) {
+        const redactedKey = redactString(key)
+        let uniqueKey = redactedKey
+        let suffix = 2
+        while (usedKeys.has(uniqueKey)) {
+          uniqueKey = `${redactedKey} (${suffix++})`
+          while (reservedKeys.has(uniqueKey) || usedKeys.has(uniqueKey)) uniqueKey = `${redactedKey} (${suffix++})`
+        }
+        usedKeys.add(uniqueKey)
+        entries.push([uniqueKey, redactNested(item)])
+      }
+      return Object.fromEntries(entries)
     }
     return value
   }
@@ -426,7 +440,8 @@ function validatePropertySchema(key: string, value: unknown, message: string): v
     if (typeof value.minimum === 'number' && typeof value.maximum === 'number' && value.minimum > value.maximum) return false
   } else if (value.type === 'array') {
     if (!hasOnlyKeys(value, [...COMMON_PROPERTY_KEYS, 'items', 'minItems', 'maxItems'])) return false
-    if (arrayChoices(value) === undefined) return false
+    const choices = arrayChoices(value)
+    if (choices === undefined) return false
     const items = value.items as JsonRecord
     if (!hasOnlyKeys(items, ['type', 'enum', 'anyOf'])) return false
     if (items.enum !== undefined && items.anyOf !== undefined) return false
@@ -436,6 +451,7 @@ function validatePropertySchema(key: string, value: unknown, message: string): v
       new Set(items.anyOf.map(option => isRecord(option) ? option.const : undefined)).size !== items.anyOf.length)) return false
     if (value.minItems !== undefined && (!Number.isSafeInteger(value.minItems) || (value.minItems as number) < 0)) return false
     if (value.maxItems !== undefined && (!Number.isSafeInteger(value.maxItems) || (value.maxItems as number) < 0)) return false
+    if (typeof value.minItems === 'number' && value.minItems > choices.length) return false
     if (typeof value.minItems === 'number' && typeof value.maxItems === 'number' && value.minItems > value.maxItems) return false
   } else {
     return false
@@ -541,7 +557,7 @@ export async function handleMcpElicitationRequest(
   }
   const response = await awaitWithAbort(pending, signal)
   if (signal.aborted) throw cancellationError()
-  if (!isRecord(response) || !['accept', 'decline', 'cancel'].includes(String(response.action))) {
+  if (!isRecord(response) || (response.action !== 'accept' && response.action !== 'decline' && response.action !== 'cancel')) {
     throw new McpError(ErrorCode.InvalidParams, 'MCP form elicitation handler returned an invalid response.')
   }
   if (response.action === 'decline' || response.action === 'cancel') return { action: response.action }

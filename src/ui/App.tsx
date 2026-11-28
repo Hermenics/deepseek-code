@@ -3213,16 +3213,22 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
     if (!anotherPromptActive) return
     return suspendInputListeners(internal_eventEmitter)
   }, [anotherPromptActive, internal_eventEmitter])
-  const mcpElicitationPrompt = showMcpElicitationPrompt && mcpElicitationState ? (
-    <McpElicitationPrompt
-      request={mcpElicitationState.request}
-      onAccept={(content) => mcpElicitationState.resolve({ action: 'accept', content })}
-      onDecline={() => mcpElicitationState.resolve({ action: 'decline' })}
-      onCancel={() => mcpElicitationState.resolve({ action: 'cancel' })}
-      inputHandlerRef={mcpElicitationInputRef}
-    />
+  const mcpElicitationPrompt = mcpElicitationState ? (
+    <Activity mode={showMcpElicitationPrompt ? 'visible' : 'hidden'}>
+      <McpElicitationPrompt
+        requestId={mcpElicitationState.id}
+        request={mcpElicitationState.request}
+        onAccept={(content) => mcpElicitationState.resolve({ action: 'accept', content })}
+        onDecline={() => mcpElicitationState.resolve({ action: 'decline' })}
+        onCancel={() => mcpElicitationState.resolve({ action: 'cancel' })}
+        active={showMcpElicitationPrompt}
+        inputHandlerRef={mcpElicitationInputRef}
+      />
+    </Activity>
   ) : null
-  const priorityPrompt = btw ? (
+  const priorityPrompt = <>
+    {mcpElicitationPrompt}
+    {btw ? (
     <BtwSideQuestion btw={btw} theme={theme} onDismiss={() => { btwAbortRef.current?.abort(); setBtw(null) }} />
   ) : showModelSelector ? (
     <ModelSelector
@@ -3277,7 +3283,8 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       message={confirmState.message}
       onConfirm={handleConfirm}
     />
-  ) : mcpElicitationPrompt
+  ) : null}
+  </>
 
   if (workflowMonitor) {
     return (
@@ -3493,6 +3500,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
       {/* Footer */}
       <Box flexDirection="column" flexShrink={0}>
         {!focusedSubagent && <TodoPanel />}
+        {mcpElicitationPrompt}
         {btw ? (
           <Text dimColor>{isLoading ? 'The main agent is still working.' : 'Side question active.'}</Text>
         ) : showModelSelector ? (
@@ -3548,9 +3556,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             message={confirmState.message}
             onConfirm={handleConfirm}
           />
-        ) : mcpElicitationState ? (
-          mcpElicitationPrompt
-        ) : (
+        ) : !mcpElicitationState ? (
           <InputBox
             onSubmit={handleSubmit}
             isLoading={isLoading}
@@ -3581,7 +3587,7 @@ export function App({ initialAgent, initialMessage, theme: initialTheme, provide
             }}
             onDraftChange={setInputHasDraft}
           />
-        )}
+        ) : null}
         {fullMode && <FullModeBar theme={theme} />}
         <StatusBar tokenCount={tokenCount} model={agent.model} activeAgent={activeAgent} provider={agent.provider} contextPct={contextPct} interactionMode={interactionMode} theme={theme} items={interfaceSettings.statusBar} narrowPriority={interfaceSettings.narrowPriority} compactBadge={compactBadge} activityCount={activityCount} agentsHint={Boolean(onSwitchSession) && !focusedSubagent} browser={browserStatus} />
         {!btw && !showModelSelector && !showEffortSelector && !askUserState && !toolPermissionState && !planApprovalState && !confirmState && !mcpElicitationState && (
